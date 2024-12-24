@@ -6,40 +6,89 @@ from ta.trend import PSARIndicator
 import time
 import queue
 
-# Configura le tue chiavi API Binance
+
+# Inserire qui le chiavi API fornite da Binance
 api_key = '<api_key>'
 api_secret = '<api_secret>'
 
-# Parametri di configurazione
-symbol = "XRPUSDT"
-interval = "1m"
+# Permette all'utente di selezionare l'asset (symbol)
+symbol = st.sidebar.selectbox(
+    "Seleziona l'asset (symbol)",
+    options=["BTCUSDT", "ETHUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT"],
+    index=2  # di default "XRPUSDT"
+)
 
-# Coda thread-safe per comunicare tra il WebSocket e il thread principale
+# Permette all'utente di selezionare l'intervallo di tempo (interval)
+interval = st.sidebar.selectbox(
+    "Seleziona l'intervallo di tempo (candlestick)",
+    options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"],
+    index=0  # di default "1m"
+)
+
+# Permette all'utente di selezionare i parametri PSAR: step e max_step
+step = st.sidebar.number_input(
+    "PSAR step",
+    min_value=0.001,
+    max_value=1.0,
+    value=0.02,
+    step=0.01
+)
+
+max_step = st.sidebar.number_input(
+    "PSAR max_step",
+    min_value=0.01,
+    max_value=1.0,
+    value=0.2,
+    step=0.01
+)
+
+# Permette all'utente di selezionare il tempo di aggiornamento (in secondi)
+update_time = st.sidebar.number_input(
+    "Tempo di aggiornamento (secondi)",
+    min_value=1,
+    max_value=60,
+    value=2,
+    step=1
+)
+
+
+# Coda thread-safe per comunicare tra il WebSocket e il thread principale.
+# Conterrà i dati delle candele man mano che arrivano.
 data_queue = queue.Queue()
 
-# Stato globale per memorizzare i dati
+# Inizializza lo stato globale per memorizzare i dati se non esiste già
 if "df" not in st.session_state:
     st.session_state["df"] = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
 
+# Inizializza le liste di segnali Buy e Sell
 if "buy_signals" not in st.session_state:
     st.session_state["buy_signals"] = []
 
 if "sell_signals" not in st.session_state:
     st.session_state["sell_signals"] = []
 
-# Variabile per tenere traccia dell'ultima candela su cui è stato generato un segnale
-# None indica nessun segnale generato finora
+# Inizializza la variabile che memorizza il timestamp dell'ultima candela che ha generato un segnale
+# (usata per evitare segnali multipli sulla stessa candela)
 if "last_signal_candle_time" not in st.session_state:
     st.session_state["last_signal_candle_time"] = None
 
-# Inizializza il client REST per Binance
+# Inizializza il client REST di Binance con le chiavi
 client = Client(api_key, api_secret)
 
-# Funzione per ottenere le candele precedenti
+
 def fetch_initial_candles():
+    """
+    Recupera un certo numero di candele storiche da Binance (limite=30)
+    per popolare inizialmente il grafico.
+    """
     try:
-        print("Fetching initial candles...")  # Debug
+        # Debug: messaggio di log
+        print("Fetching initial candles...")
+
+        # Ottiene le candele storiche
         klines = client.get_klines(symbol=symbol, interval=interval, limit=30)
+
+        # Crea una lista di dict, ognuno rappresenta una candela
         candles = []
         for kline in klines:
             candles.append({
@@ -50,25 +99,40 @@ def fetch_initial_candles():
                 "Close": float(kline[4]),
                 "Volume": float(kline[5]),
             })
+
+        # Converte in DataFrame
         initial_df = pd.DataFrame(candles)
+
+        # Imposta l'indice sul "tempo di apertura" della candela
         initial_df.set_index("Open time", inplace=True)
-        print("Fetched initial candles:", initial_df.tail())  # Debug
+
+        # Debug: stampa le ultime righe recuperate
+        print("Fetched initial candles:", initial_df.tail())
+
         return initial_df
     except Exception as e:
         print(f"Error fetching initial candles: {e}")
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
 
-# Aggiorna il DataFrame iniziale con le candele precedenti
+
+# Richiama la funzione per ottenere le candele iniziali e aggiorna lo stato globale
 st.session_state["df"] = fetch_initial_candles()
 
-# Funzione per gestire i messaggi del WebSocket
-def handle_socket_message(msg):
-    print("New message received:", msg)  # Debug
 
+def handle_socket_message(msg):
+    """
+    Viene chiamata automaticamente per ogni nuovo messaggio ricevuto dal WebSocket.
+    Se il messaggio contiene una candela (kline), estraiamo i dati principali e li
+    inseriamo in una coda condivisa (data_queue) da cui il thread principale li legge.
+    """
+    # Debug: stampa il nuovo messaggio
+    print("New message received:", msg)
+
+    # Controlliamo se il messaggio è di tipo "kline"
     if msg["e"] == "kline":
         kline = msg["k"]
 
-        # Aggiungi il messaggio ricevuto alla coda
+        # Prepara i dati essenziali della candela
         data = {
             "timestamp": pd.to_datetime(kline["t"], unit="ms"),
             "open": float(kline["o"]),
@@ -76,35 +140,65 @@ def handle_socket_message(msg):
             "low": float(kline["l"]),
             "close": float(kline["c"]),
             "volume": float(kline["v"]),
-            "closed": kline["x"],  # Flag che indica se la candela è chiusa
+            "closed": kline["x"],  # Indica se la candela è chiusa
         }
-        print(f"Adding to queue: {data}")  # Debug
+
+        # Debug: stampa i dati che stiamo per inserire in coda
+        # print(f"Adding to queue: {data}")
+
+        # Inserisce i dati nella coda
         data_queue.put(data)
 
-# Funzione per avviare il WebSocket
+
 def start_websocket():
+    """
+    Crea e avvia il ThreadedWebsocketManager di Binance.
+    Avvia il canale per ricevere i dati delle candele in tempo reale.
+    Restituisce l'oggetto twm per permettere eventuali altre operazioni in futuro.
+    """
     twm = ThreadedWebsocketManager(api_key=api_key, api_secret=api_secret)
     twm.start()
-    # Avvia il WebSocket per le candele
-    twm.start_kline_socket(callback=handle_socket_message, symbol=symbol, interval=interval)
-    print("WebSocket started.")  # Debug
+
+    # Avvia il WebSocket specifico per le candele (kline)
+    twm.start_kline_socket(
+        callback=handle_socket_message,
+        symbol=symbol,
+        interval=interval
+    )
+
+    # Debug: stampa che il WebSocket è partito
+    print("WebSocket started.")
+
     return twm
 
-# Avvia il WebSocket
+
+# Avvia il WebSocket una sola volta
 twm = start_websocket()
 
-# Placeholder per il grafico
+# Crea un placeholder su Streamlit per il grafico
 placeholder = st.empty()
 
-# Loop principale per aggiornare il grafico
-while True:
-    # Gestisci i dati ricevuti dal WebSocket
-    while not data_queue.empty():
-        data = data_queue.get()
-        print(f"Processing data: {data}")  # Debug
 
-        # Aggiungi o aggiorna i dati nel DataFrame
+# Nota: in un vero ambiente Streamlit, l'uso di "while True:"
+#       può entrare in conflitto con la gestione interna dell'evento.
+#       Tuttavia, per semplicità qui usiamo un ciclo infinito
+#       con time.sleep(update_time).
+#       Se necessario, si potrebbe usare st.timeout o una strategia a callback.
+while True:
+    # 1) CONTROLLA SE LA CODA CONTIENE NUOVI DATI DAL WEBSOCKET
+    while not data_queue.empty():
+        # Leggi i dati dalla coda
+        data = data_queue.get()
+
+        # Debug: stampa i dati in arrivo
+        # print(f"Processing data: {data}")
+
+        # Estrai timestamp (che useremo come indice del DataFrame)
         timestamp = data["timestamp"]
+
+        # Aggiorna il DataFrame in session_state:
+        #  - se esiste già la riga per quel timestamp, la sovrascrive
+        #  - se non esiste, ne crea una nuova
         st.session_state["df"].loc[timestamp] = [
             data["open"],
             data["high"],
@@ -113,39 +207,49 @@ while True:
             data["volume"],
         ]
 
-        print("Updated DataFrame:", st.session_state["df"].tail())
+        # Debug: verifica la parte finale del DataFrame aggiornato
+        # print("Updated DataFrame:", st.session_state["df"].tail())
 
-    # Preleva i dati aggiornati
+    # 2) LAVORA SUL DATAFRAME (COPIA)
     df = st.session_state["df"].copy()
 
-    # Calcola PSAR
+    # 3) CALCOLA PSAR (se sono presenti almeno 2 candele)
     if len(df) >= 2:
-        sar_indicator = PSARIndicator(high=df["High"], low=df["Low"], close=df["Close"], step=0.02, max_step=0.2)
+        sar_indicator = PSARIndicator(
+            high=df["High"],
+            low=df["Low"],
+            close=df["Close"],
+            step=step,
+            max_step=max_step
+        )
         df["PSAR"] = sar_indicator.psar()
 
-        # Genera segnali di acquisto e vendita se non già generati nella stessa candela
+        # 4) GENERA SEGNALI DI BUY/SELL
+        #    (controllando che non sia già stato generato un segnale nella medesima candela)
         if len(df) > 1:
-            # i è l'ultimo indice
-            i = len(df) - 1
+            i = len(df) - 1  # l'indice dell'ultima riga
             current_candle_time = df.index[i]
 
-            # Controlliamo se su questa candela è già stato generato un segnale
-            if st.session_state["last_signal_candle_time"] is None or st.session_state["last_signal_candle_time"] != current_candle_time:
+            # Verifichiamo se su questa candela è già stato generato un segnale
+            if (st.session_state["last_signal_candle_time"] is None or
+                    st.session_state["last_signal_candle_time"] != current_candle_time):
+
                 # Segnale di acquisto: PSAR passa da > Open a < Open
                 if df["PSAR"].iloc[i] < df["Open"].iloc[i] and df["PSAR"].iloc[i - 1] > df["Open"].iloc[i - 1]:
                     st.session_state["buy_signals"].append((current_candle_time, df["Close"].iloc[i]))
-                    print("Buy signal detected at time ", current_candle_time," and price", df["Close"].iloc[i])
+                    print("Buy signal detected at time", current_candle_time, "price", df["Close"].iloc[i])
                     st.session_state["last_signal_candle_time"] = current_candle_time
+
                 # Segnale di vendita: PSAR passa da < Open a > Open
                 elif df["PSAR"].iloc[i - 1] < df["Open"].iloc[i - 1] and df["PSAR"].iloc[i] > df["Open"].iloc[i]:
                     st.session_state["sell_signals"].append((current_candle_time, df["Close"].iloc[i]))
-                    print("Sell signal detected at time ", current_candle_time," and price", df["Close"].iloc[i])
+                    print("Sell signal detected at time", current_candle_time, "price", df["Close"].iloc[i])
                     st.session_state["last_signal_candle_time"] = current_candle_time
 
-    # Crea il grafico
+    # 5) COSTRUISCI IL GRAFICO
     fig = go.Figure()
 
-    # Aggiungi le candele
+    # Aggiungi le candele (candlestick)
     fig.add_trace(go.Candlestick(
         x=df.index,
         open=df["Open"],
@@ -155,7 +259,7 @@ while True:
         name="Candlestick"
     ))
 
-    # Aggiungi PSAR
+    # Aggiungi PSAR come punti rossi
     if "PSAR" in df.columns:
         fig.add_trace(go.Scatter(
             x=df.index,
@@ -165,7 +269,7 @@ while True:
             name="PSAR"
         ))
 
-    # Aggiungi segnali di acquisto
+    # Aggiungi segnali di acquisto (triangoli verdi)
     if len(st.session_state["buy_signals"]) > 0:
         fig.add_trace(go.Scatter(
             x=[s[0] for s in st.session_state["buy_signals"]],
@@ -175,7 +279,7 @@ while True:
             name="Buy Signal"
         ))
 
-    # Aggiungi segnali di vendita
+    # Aggiungi segnali di vendita (triangoli rossi)
     if len(st.session_state["sell_signals"]) > 0:
         fig.add_trace(go.Scatter(
             x=[s[0] for s in st.session_state["sell_signals"]],
@@ -185,6 +289,7 @@ while True:
             name="Sell Signal"
         ))
 
+    # 6) CONFIGURA IL LAYOUT DEL GRAFICO
     fig.update_layout(
         title=f"Grafico {symbol} con PSAR",
         xaxis_title="Data e Ora",
@@ -194,11 +299,11 @@ while True:
         height=600
     )
 
-    # Aggiorna il grafico nel placeholder
+    # 7) AGGIORNA IL GRAFICO NELLA PAGINA STREAMLIT
     placeholder.plotly_chart(fig, use_container_width=True, key=f"plotly_chart_{time.time()}")
 
-    # Debug aggiornamento grafico
-    print("Updated plot.")  # Debug
+    # Debug: log dell'aggiornamento
+    print("Updated plot.")
 
-    # Attendi un breve intervallo prima del prossimo aggiornamento
-    time.sleep(1)
+    # 8) ATTESA PRIMA DEL PROSSIMO AGGIORNAMENTO
+    time.sleep(update_time)
