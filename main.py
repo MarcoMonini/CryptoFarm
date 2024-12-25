@@ -12,6 +12,14 @@ import os
 # API_KEY = '<api_key>'
 # API_SECRET = '<api_secret>'
 
+# Configura il titolo della pagina e il logo
+st.set_page_config(
+    page_title="CryptoFarm",  # Titolo della scheda del browser
+    page_icon="🤑",  # Icona (può essere un emoji o il percorso di un file immagine)
+    layout="wide",  # Layout: "centered" o "wide"
+    initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
+)
+
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 print(API_KEY, API_SECRET)
