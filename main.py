@@ -319,8 +319,8 @@ while True:
                 # prezzo attuale (Close[i]) < Close[i-1]
                 # if (df["PSAR"].iloc[i] < df["Close"].iloc[i]  # PSAR sotto Close attuale
                 # and df["PSAR"].iloc[i - 1] > df["Close"].iloc[i - 1]  # PSAR era sopra Close precedente
-                # and df["Close"].iloc[i] < df["Close"].iloc[i - 1]): # prezzo attuale < prezzo candela precedente
-                if df["PSAR"].iloc[i] < df["Close"].iloc[i] < df["Close"].iloc[i - 1] < df["PSAR"].iloc[i - 1]:
+                # and df["Close"].iloc[i] <= df["Close"].iloc[i - 1]): # prezzo attuale <= prezzo candela precedente
+                if df["PSAR"].iloc[i] < df["Close"].iloc[i] <= df["Close"].iloc[i - 1] < df["PSAR"].iloc[i - 1]:
                     st.session_state["buy_signals"].append((current_candle_time, df["Close"].iloc[i]))
                     print("Buy signal detected at time", current_candle_time, "price", df["Close"].iloc[i])
                     st.session_state["last_signal_candle_time"] = current_candle_time
@@ -330,8 +330,8 @@ while True:
                 # prezzo attuale (Close[i]) > Close[i-1]
                 # elif (df["PSAR"].iloc[i - 1] < df["Close"].iloc[i - 1]  # PSAR era sotto Close precedente
                 #   and df["PSAR"].iloc[i] > df["Close"].iloc[i]  # PSAR sopra Close attuale
-                #   and df["Close"].iloc[i] > df["Close"].iloc[i - 1]): # prezzo attuale > prezzo candela precedente
-                elif df["PSAR"].iloc[i - 1] < df["Close"].iloc[i - 1] < df["Close"].iloc[i] < df["PSAR"].iloc[i]:
+                #   and df["Close"].iloc[i] >= df["Close"].iloc[i - 1]): # prezzo attuale >= prezzo candela precedente
+                elif df["PSAR"].iloc[i - 1] < df["Close"].iloc[i - 1] <= df["Close"].iloc[i] < df["PSAR"].iloc[i]:
                     st.session_state["sell_signals"].append((current_candle_time, df["Close"].iloc[i]))
                     print("Sell signal detected at time", current_candle_time, "price", df["Close"].iloc[i])
                     st.session_state["last_signal_candle_time"] = current_candle_time
