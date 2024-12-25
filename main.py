@@ -1,5 +1,3 @@
-from gc import enable
-
 import streamlit as st
 from binance import ThreadedWebsocketManager, Client
 import pandas as pd
