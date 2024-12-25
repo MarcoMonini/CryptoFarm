@@ -6,12 +6,15 @@ from ta.trend import PSARIndicator
 import time
 import queue
 import threading
-
-from tornado.gen import sleep
+import os
 
 # Inserire qui le chiavi API fornite da Binance
-API_KEY = '<api_key>'
-API_SECRET = '<api_secret>'
+# API_KEY = '<api_key>'
+# API_SECRET = '<api_secret>'
+
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+print(API_KEY, API_SECRET)
 
 # Inizializza le variabili per contenere il socket
 if "client" not in st.session_state:
