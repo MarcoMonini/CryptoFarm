@@ -1,5 +1,5 @@
-streamlit==1.26.0
-python-binance==1.0.17
-pandas==2.0.3
-plotly==5.15.0
-ta==0.10.2
+streamlit
+python-binance
+pandas
+plotly
+ta
