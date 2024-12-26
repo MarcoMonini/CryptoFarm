@@ -188,6 +188,38 @@ def fetch_initial_candles(symbol:str, interval:str) -> pd.DataFrame:
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
 
 
+# Aggiungi una sezione per le informazioni dell'utente e del wallet
+def display_user_and_wallet_info():
+    try:
+        # Ottieni i dettagli dell'account
+        account_info = st.session_state["client"].get_account()
+
+        # Informazioni sull'utente
+        st.sidebar.subheader("Informazioni Utente")
+        st.sidebar.write(f"**UID**: {account_info['uid']}")
+        st.sidebar.write(f"**Tipo Account**: {account_info['accountType']}")
+        st.sidebar.write(f"**Permessi**: {'✅' if account_info['canTrade'] else '❌'} Trade")
+        st.sidebar.write(f"**Commissioni**: {account_info['makerCommission'] / 100:.2}%")
+        # st.sidebar.write(f"- Maker: {account_info['makerCommission'] / 100:.2}%")
+        # st.sidebar.write(f"- Taker: {account_info['takerCommission'] / 100:.2}%")
+
+        # Informazioni sul wallet
+        st.sidebar.subheader("Saldo Disponibile")
+        balances = account_info.get("balances", [])
+        non_zero_balances = [
+            {"asset": b["asset"], "free": float(b["free"]), "locked": float(b["locked"])}
+            for b in balances if float(b["free"]) > 0 or float(b["locked"]) > 0
+        ]
+        if non_zero_balances:
+            for balance in non_zero_balances:
+                st.sidebar.write(f"- {balance['free']} **{balance['asset']}**")
+        else:
+            st.sidebar.write("Nessun saldo disponibile.")
+    except Exception as e:
+        st.sidebar.error(f"Errore nel recupero delle informazioni: {e}")
+
+
+
 disabled = False if "socket_thread" not in st.session_state else True
 
 # SEZIONE PARAMETRI
@@ -260,6 +292,9 @@ update_time = st.sidebar.number_input(
 # Richiama la funzione per ottenere le candele iniziali e aggiorna lo stato globale
 st.session_state["df"] = fetch_initial_candles(symbol=symbol, interval=interval)
 
+# Richiama la funzione per mostrare le informazioni
+display_user_and_wallet_info()
+
 # Crea un placeholder su Streamlit per il grafico
 placeholder = st.empty()
 
@@ -323,22 +358,14 @@ while True:
                 #     st.session_state["last_signal_candle_time"] = current_candle_time
 
                 # Segnale di acquisto:
-                # PSAR passa da > prezzo a < prezzo
-                # prezzo attuale (Close[i]) < Close[i-1]
-                # if (df["PSAR"].iloc[i] < df["Close"].iloc[i]  # PSAR sotto Close attuale
-                # and df["PSAR"].iloc[i - 1] > df["Close"].iloc[i - 1]  # PSAR era sopra Close precedente
-                # and df["Close"].iloc[i] <= df["Close"].iloc[i - 1]): # prezzo attuale <= prezzo candela precedente
+                # PSAR passa da > prezzo a < prezzo e prezzo attuale (Close[i]) < Close[i-1]
                 if df["PSAR"].iloc[i] < df["Close"].iloc[i] <= df["Close"].iloc[i - 1] < df["PSAR"].iloc[i - 1]:
                     st.session_state["buy_signals"].append((current_candle_time, df["Close"].iloc[i]))
                     print("Buy signal detected at time", current_candle_time, "price", df["Close"].iloc[i])
                     st.session_state["last_signal_candle_time"] = current_candle_time
 
                 # Segnale di vendita:
-                # PSAR passa da < prezzo a > prezzo
-                # prezzo attuale (Close[i]) > Close[i-1]
-                # elif (df["PSAR"].iloc[i - 1] < df["Close"].iloc[i - 1]  # PSAR era sotto Close precedente
-                #   and df["PSAR"].iloc[i] > df["Close"].iloc[i]  # PSAR sopra Close attuale
-                #   and df["Close"].iloc[i] >= df["Close"].iloc[i - 1]): # prezzo attuale >= prezzo candela precedente
+                # PSAR passa da < prezzo a > prezzo e prezzo attuale (Close[i]) > Close[i-1]
                 elif df["PSAR"].iloc[i - 1] < df["Close"].iloc[i - 1] <= df["Close"].iloc[i] < df["PSAR"].iloc[i]:
                     st.session_state["sell_signals"].append((current_candle_time, df["Close"].iloc[i]))
                     print("Sell signal detected at time", current_candle_time, "price", df["Close"].iloc[i])
