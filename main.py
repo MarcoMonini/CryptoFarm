@@ -7,6 +7,7 @@ import time
 import queue
 import threading
 import os
+from datetime import datetime
 
 # Inserire qui le chiavi API fornite da Binance
 # API_KEY = '<api_key>'
@@ -40,6 +41,8 @@ if "sell_signals" not in st.session_state:
 # (usata per evitare segnali multipli sulla stessa candela)
 if "last_signal_candle_time" not in st.session_state:
     st.session_state["last_signal_candle_time"] = None
+if "last_update" not in st.session_state:
+    st.session_state["last_update"] = None
 
 ###############################################################################
 # Funzione che gira in un thread dedicato e ascolta il WebSocket
@@ -219,7 +222,6 @@ def display_user_and_wallet_info():
         st.sidebar.error(f"Errore nel recupero delle informazioni: {e}")
 
 
-
 disabled = False if "socket_thread" not in st.session_state else True
 
 # SEZIONE PARAMETRI
@@ -309,6 +311,9 @@ while True:
         data = st.session_state["data_queue"].get()
         # Estrai timestamp (che useremo come indice del DataFrame)
         timestamp = data["timestamp"]
+        # Ottieni l'orario corrente in formato leggibile
+        current_time = datetime.now().strftime("%H:%M:%S")
+        st.session_state["last_update"] = current_time
         # Aggiorna il DataFrame in session_state:
         #  - se esiste già la riga per quel timestamp, la sovrascrive
         #  - se non esiste, ne crea una nuova
@@ -416,7 +421,7 @@ while True:
 
     # CONFIGURA IL LAYOUT DEL GRAFICO
     fig.update_layout(
-        title=f"Grafico {symbol} con PSAR",
+        title=f"Grafico {symbol} con PSAR, ultimo aggiornamento alle ore {st.session_state["last_update"]}",
         xaxis_title="Data e Ora",
         yaxis_title="Prezzo",
         xaxis_rangeslider_visible=False,
