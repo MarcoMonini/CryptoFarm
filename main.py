@@ -24,6 +24,8 @@ st.set_page_config(
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 print(API_KEY, API_SECRET)
+assets = ["AAVEUSDC","AMPUSDT","AVAXUSDC","BTTCUSDT","DOGEUSDC","DOTUSDC",
+              "LINKUSDC","PEPEUSDC","RUNEUSDC","SUIUSDC","ZENUSDT"]
 
 # Inizializza le variabili per contenere il socket
 if "client" not in st.session_state:
@@ -43,6 +45,8 @@ if "last_signal_candle_time" not in st.session_state:
     st.session_state["last_signal_candle_time"] = None
 if "last_update" not in st.session_state:
     st.session_state["last_update"] = None
+if "holding" not in st.session_state:
+    st.session_state["holding"] = False
 
 ###############################################################################
 # Funzione che gira in un thread dedicato e ascolta il WebSocket
@@ -222,14 +226,56 @@ def display_user_and_wallet_info():
         st.sidebar.error(f"Errore nel recupero delle informazioni: {e}")
 
 
-disabled = False if "socket_thread" not in st.session_state else True
+# Funzione per creare un ordine su Binance
+def place_order(symbol, side, order_type, quantity, price=None):
+    """
+    Crea un ordine su Binance.
+
+    Args:
+        symbol (str): Coppia di trading (es. "BTCUSDT").
+        side (str): "BUY" o "SELL".
+        order_type (str): Tipo di ordine ("MARKET" o "LIMIT").
+        quantity (float): Quantità da acquistare/vendere.
+        price (float, optional): Prezzo (solo per ordini LIMIT).
+    Returns:
+        dict: Risposta dell'API Binance.
+    """
+    try:
+        # Per ordini LIMIT è necessario specificare il prezzo
+        if order_type == "LIMIT" and price is not None:
+            order = st.session_state["client"].create_order(
+                symbol=symbol,
+                side=side,
+                type=order_type,
+                timeInForce="GTC",  # "Good Till Cancelled"
+                quantity=quantity,
+                price=price
+            )
+        elif order_type == "MARKET":
+            order = st.session_state["client"].create_order(
+                symbol=symbol,
+                side=side,
+                type=order_type,
+                quantity=quantity
+            )
+        else:
+            st.error("Tipo di ordine non supportato.")
+            return None
+
+        st.success(f"Ordine {side} eseguito con successo: {order}")
+        return order
+    except Exception as e:
+        st.error(f"Errore durante l'esecuzione dell'ordine: {e}")
+        return None
+
 
 # SEZIONE PARAMETRI
+disabled = False if "socket_thread" not in st.session_state else True
 # Permette all'utente di selezionare l'asset (symbol)
 symbol = st.sidebar.selectbox(
     "Seleziona l'asset (symbol)",
-    options=["AAVEUSDC", "ADAUSDT", "AMPUSDT", "AVAXUSDC", "BTCUSDC", "DOGEUSDC","ETHUSDT", "PNUTUSDC", "TRXUSDC", "XRPUSDT"],
-    index=3,  # default
+    options=assets,
+    index=0,  # default
     disabled=disabled
 )
 
@@ -237,7 +283,7 @@ symbol = st.sidebar.selectbox(
 interval = st.sidebar.selectbox(
     "Seleziona l'intervallo di tempo (candlestick)",
     options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"],
-    index=0,  # di default "1m"
+    index=1,  # di default "3m"
     disabled=disabled
 )
 
@@ -344,7 +390,6 @@ while True:
             i = len(df) - 1  # l'indice dell'ultima riga
             current_candle_time = df.index[i]
             current_price = df["Close"].iloc[i]
-            print(current_candle_time, current_price)
 
             # Verifichiamo se su questa candela è già stato generato un segnale
             if (st.session_state["last_signal_candle_time"] is None or
@@ -364,17 +409,22 @@ while True:
 
                 # Segnale di acquisto:
                 # PSAR passa da > prezzo a < prezzo e prezzo attuale (Close[i]) < Close[i-1]
-                if df["PSAR"].iloc[i] < df["Close"].iloc[i] <= df["Close"].iloc[i - 1] < df["PSAR"].iloc[i - 1]:
+                if (not st.session_state["holding"] and
+                        df["PSAR"].iloc[i] < df["Close"].iloc[i] <= df["Close"].iloc[i - 1] < df["PSAR"].iloc[i - 1]):
                     st.session_state["buy_signals"].append((current_candle_time, df["Close"].iloc[i]))
                     print("Buy signal detected at time", current_candle_time, "price", df["Close"].iloc[i])
                     st.session_state["last_signal_candle_time"] = current_candle_time
+                    st.session_state["holding"] = True
+
 
                 # Segnale di vendita:
                 # PSAR passa da < prezzo a > prezzo e prezzo attuale (Close[i]) > Close[i-1]
-                elif df["PSAR"].iloc[i - 1] < df["Close"].iloc[i - 1] <= df["Close"].iloc[i] < df["PSAR"].iloc[i]:
+                elif (st.session_state["holding"] and
+                      df["PSAR"].iloc[i - 1] < df["Close"].iloc[i - 1] <= df["Close"].iloc[i] < df["PSAR"].iloc[i]):
                     st.session_state["sell_signals"].append((current_candle_time, df["Close"].iloc[i]))
                     print("Sell signal detected at time", current_candle_time, "price", df["Close"].iloc[i])
                     st.session_state["last_signal_candle_time"] = current_candle_time
+                    st.session_state["holding"] = False
 
     # COSTRUISCI IL GRAFICO
     fig = go.Figure()
@@ -395,7 +445,7 @@ while True:
             x=df.index,
             y=df["PSAR"],
             mode="markers",
-            marker=dict(size=6, color="red", symbol="circle"),
+            marker=dict(size=4, color="yellow", symbol="circle"),
             name="PSAR"
         ))
 
@@ -431,9 +481,6 @@ while True:
 
     # AGGIORNA IL GRAFICO NELLA PAGINA STREAMLIT
     placeholder.plotly_chart(fig, use_container_width=True, key=f"plotly_chart_{time.time()}")
-
-    # Debug: log dell'aggiornamento
-    print("Updated plot.")
 
     # ATTESA PRIMA DEL PROSSIMO AGGIORNAMENTO
     time.sleep(update_time)
