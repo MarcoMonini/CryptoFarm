@@ -1,7 +1,8 @@
-import streamlit as st
+# import streamlit as st
 from binance import ThreadedWebsocketManager, Client
 import pandas as pd
-import plotly.graph_objects as go
+# from streamlit import number_input
+# import plotly.graph_objects as go
 from ta.trend import PSARIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
 import time
@@ -9,49 +10,60 @@ import queue
 import threading
 import os
 from datetime import datetime
+import keyboard
+from colorama import Fore, Back, Style, init
 
-# Inserire qui le chiavi API fornite da Binance
-# API_KEY = '<api_key>'
-# API_SECRET = '<api_secret>'
+init(autoreset=True)
 
-# Configura il titolo della pagina e il logo
-st.set_page_config(
-    page_title="CryptoFarm",  # Titolo della scheda del browser
-    page_icon="🤑",  # Icona (può essere un emoji o il percorso di un file immagine)
-    layout="wide",  # Layout: "centered" o "wide"
-    initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
-)
 
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_SECRET")
-# print(API_KEY, API_SECRET)
-assets = ["AAVEUSDC","AMPUSDT","AVAXUSDC","BTTCUSDT","DOGEUSDC","DOTUSDC",
-              "LINKUSDC","PEPEUSDC","RUNEUSDC","SUIUSDC","ZENUSDT"]
+# stampa in debug le informazioni dell'utente collegato tramite API
+def print_user_and_wallet_info(client:Client):
+    try:
+        account_info = client.get_account()
+        print(Style.BRIGHT + Fore.GREEN + f"UID: {account_info['uid']}")
+        print(Style.BRIGHT + f"Tipo Account: {account_info['accountType']}")
+        print(f"Permessi: {'✅' if account_info['canTrade'] else '❌'} Trade")
+        print(Style.BRIGHT + "Saldo Disponibile")
+        balances = account_info.get("balances", [])
+        non_zero_balances = [
+            {"asset": b["asset"], "free": float(b["free"]), "locked": float(b["locked"])}
+            for b in balances if float(b["free"]) > 0 or float(b["locked"]) > 0
+        ]
+        if non_zero_balances:
+            for balance in non_zero_balances:
+                print(Style.BRIGHT + Fore.GREEN + f"- {balance['free']} {balance['asset']}")
+        else:
+            print(Style.BRIGHT + Fore.RED +"Nessun saldo disponibile.")
+    except Exception as e:
+        print(Style.BRIGHT + Fore.RED + f"Errore nel recupero delle informazioni: {e}")
 
-# Inizializza le variabili per contenere il socket
-if "client" not in st.session_state:
-    # Inizializza il client REST di Binance con le chiavi
-    st.session_state["client"] = Client(API_KEY, API_SECRET)
-# Inizializza lo stato globale per memorizzare i dati se non esiste già
-if "df" not in st.session_state:
-    st.session_state["df"] = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
-# Inizializza le liste di segnali Buy e Sell
-if "buy_signals" not in st.session_state:
-    st.session_state["buy_signals"] = []
-if "sell_signals" not in st.session_state:
-    st.session_state["sell_signals"] = []
-# Inizializza la variabile che memorizza il timestamp dell'ultima candela che ha generato un segnale
-# (usata per evitare segnali multipli sulla stessa candela)
-if "last_signal_candle_time" not in st.session_state:
-    st.session_state["last_signal_candle_time"] = None
-if "last_update" not in st.session_state:
-    st.session_state["last_update"] = None
-if "holding" not in st.session_state:
-    st.session_state["holding"] = False
 
-###############################################################################
+# funzione per ottenere i dati iniziali
+def fetch_initial_candles(client:Client, symbol:str, interval:str) -> pd.DataFrame:
+    print("Fetching initial candles...")
+    try:
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=30)
+        candles = []
+        for kline in klines:
+            candles.append({
+                "Open time": pd.to_datetime(kline[0], unit="ms"),
+                "Open": float(kline[1]),
+                "High": float(kline[2]),
+                "Low": float(kline[3]),
+                "Close": float(kline[4]),
+                "Volume": float(kline[5]),
+            })
+
+        initial_df = pd.DataFrame(candles)
+        initial_df.set_index("Open time", inplace=True)
+        print("Initial candles fetched correctly.")
+        return initial_df
+    except Exception as e:
+        print(Style.BRIGHT + Fore.RED + f"Error fetching initial candles: {e}")
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+
+
 # Funzione che gira in un thread dedicato e ascolta il WebSocket
-###############################################################################
 def run_socket(data_queue, stop_event, symbol:str, interval:str):
     twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
     twm.start()
@@ -68,6 +80,7 @@ def run_socket(data_queue, stop_event, symbol:str, interval:str):
                 "volume": float(kline["v"]),
                 "closed": kline["x"],
             }
+            print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
             data_queue.put(data)
 
     socket_id = twm.start_kline_socket(
@@ -82,168 +95,68 @@ def run_socket(data_queue, stop_event, symbol:str, interval:str):
     twm.stop_socket(socket_id)
     twm.stop()
 
-###############################################################################
-# Funzione per avviare il thread (se non esiste già)
-###############################################################################
-def start_socket_thread(symbol:str, interval:str):
-    if "socket_thread" not in st.session_state:
-        st.session_state["data_queue"] = queue.Queue()
-        st.session_state["stop_event"] = threading.Event()
 
-        thread = threading.Thread(
+def numberInput(placeholder:str) -> float:
+    while True:
+        try:
+            user_input = float(input(placeholder))
+            # Controlla che sia maggiore di 0
+            if user_input > 0:
+                print(Fore.GREEN + f"Hai inserito un valore valido: {user_input}")
+                return user_input
+            else:
+                print(Fore.RED + "Errore: Per favore, inserisci un numero valido.")
+        except ValueError:
+            print(Fore.RED + "Errore: Per favore, inserisci un numero valido.")
+
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+print(Style.BRIGHT + f"KEY = {API_KEY}, SECRET = {API_SECRET}")
+
+# Inizializza e avvia il Thread per il socket collegato a binance
+symbol = input("Inserisci l'asset da utilizzare (es. BTCUSDC): ")
+interval = input("Inserisci l'intervallo di tempo delle candele (3m, 5m, 15m...): ")
+step = numberInput("Inserisci lo Step per il calcolo del PSAR (consigliato 0.04): ")
+max_step = numberInput("Inserisci il Max Step per il calcolo del PSAR (consigliato 0.4): ")
+atr_multiplier = numberInput("Inserisci il moltiplicatore per l'ATR (consigliato 3.2): ")
+# df = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+
+client = Client(API_KEY, API_SECRET)
+print_user_and_wallet_info(client=client)
+df = fetch_initial_candles(client=client, symbol=symbol, interval=interval)
+
+data_queue = queue.Queue()
+stop_event = threading.Event()
+socket_thread = threading.Thread(
             target=run_socket,
-            args=(st.session_state["data_queue"],
-                  st.session_state["stop_event"],
+            args=(data_queue,
+                  stop_event,
                   symbol,
                   interval),
             daemon=True
         )
-        thread.start()
+socket_thread.start()
+running = True
 
-        st.session_state["socket_thread"] = thread
-
-###############################################################################
-# Funzione per fermare il thread (se attivo)
-###############################################################################
-def stop_socket_thread():
-    if "socket_thread" in st.session_state:
-        st.session_state["stop_event"].set()
-        st.session_state["socket_thread"].join()
-
-        del st.session_state["socket_thread"]
-        del st.session_state["stop_event"]
-        del st.session_state["data_queue"]
-        del st.session_state["df"]
-        del st.session_state["buy_signals"]
-        del st.session_state["sell_signals"]
-        del st.session_state["last_signal_candle_time"]
-
-@st.cache_data
-def fetch_initial_candles(symbol:str, interval:str) -> pd.DataFrame:
-    try:
-        klines = st.session_state["client"].get_klines(symbol=symbol, interval=interval, limit=30)
-        candles = []
-        for kline in klines:
-            candles.append({
-                "Open time": pd.to_datetime(kline[0], unit="ms"),
-                "Open": float(kline[1]),
-                "High": float(kline[2]),
-                "Low": float(kline[3]),
-                "Close": float(kline[4]),
-                "Volume": float(kline[5]),
-            })
-
-        initial_df = pd.DataFrame(candles)
-        initial_df.set_index("Open time", inplace=True)
-        return initial_df
-    except Exception as e:
-        print(f"Error fetching initial candles: {e}")
-        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+buy_signals = []
+sell_signals = []
+last_signal_candle_time = None
+last_update = None
+holding = False
 
 
-def display_user_and_wallet_info():
-    try:
-        account_info = st.session_state["client"].get_account()
-        st.sidebar.subheader("Informazioni Utente")
-        st.sidebar.write(f"**UID**: {account_info['uid']}")
-        st.sidebar.write(f"**Tipo Account**: {account_info['accountType']}")
-        st.sidebar.write(f"**Permessi**: {'✅' if account_info['canTrade'] else '❌'} Trade")
-        st.sidebar.subheader("Saldo Disponibile")
-        balances = account_info.get("balances", [])
-        non_zero_balances = [
-            {"asset": b["asset"], "free": float(b["free"]), "locked": float(b["locked"])}
-            for b in balances if float(b["free"]) > 0 or float(b["locked"]) > 0
-        ]
-        if non_zero_balances:
-            for balance in non_zero_balances:
-                st.sidebar.write(f"- {balance['free']} **{balance['asset']}**")
-        else:
-            st.sidebar.write("Nessun saldo disponibile.")
-    except Exception as e:
-        st.sidebar.error(f"Errore nel recupero delle informazioni: {e}")
-
-
-# SEZIONE PARAMETRI
-disabled = False if "socket_thread" not in st.session_state else True
-symbol = st.sidebar.selectbox(
-    "Seleziona l'asset",
-    options=assets,
-    index=0,
-    disabled=disabled
-)
-
-interval = st.sidebar.selectbox(
-    "Seleziona l'intervallo di tempo delle candele",
-    options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"],
-    index=3,
-    disabled=disabled
-)
-
-col1, col2 = st.sidebar.columns(2)
-
-with col1:
-    if st.button("START Socket"):
-        if "socket_thread" not in st.session_state:
-            start_socket_thread(symbol=symbol, interval=interval)
-            st.rerun()
-    # Permette all'utente di selezionare i parametri PSAR: step e max_step
-    step = st.number_input(
-        "PSAR step",
-        min_value=0.001,
-        max_value=1.0,
-        value=0.04,
-        step=0.01,
-        disabled=disabled
-    )
-
-with col2:
-    if st.button("STOP Socket"):
-        if "socket_thread" in st.session_state:
-            stop_socket_thread()
-    max_step = st.number_input(
-            "PSAR Max Step",
-            min_value=0.01,
-            max_value=1.0,
-            value=0.4,
-            step=0.01,
-            disabled=disabled
-        )
-
-
-atr_multiplier = st.sidebar.number_input(
-    "Moltiplicatore ATR",
-    min_value=1.0,
-    max_value=5.0,
-    value=3.2,
-    step=0.1,
-    disabled=disabled
-)
-
-update_time = st.sidebar.number_input(
-    "Tempo di aggiornamento (secondi)",
-    min_value=1,
-    max_value=60,
-    value=10,
-    step=1
-)
-
-
-placeholder = st.empty()
-
-st.session_state["df"] = fetch_initial_candles(symbol=symbol, interval=interval)
-
-display_user_and_wallet_info()
+# # Thread per ascoltare l'input
+# listener = threading.Thread(target=wait_for_exit)
+# listener.start()
+print(Style.BRIGHT + Fore.YELLOW + "Il Job sta per inziare. Per terminarlo premi 'q'.")
 
 while True:
-    if "data_queue" not in st.session_state:
-        continue
-
-    while not st.session_state["data_queue"].empty():
-        data = st.session_state["data_queue"].get()
+    while not data_queue.empty():
+        data = data_queue.get()
         timestamp = data["timestamp"]
         current_time = datetime.now().strftime("%H:%M:%S")
-        st.session_state["last_update"] = current_time
-        st.session_state["df"].loc[timestamp] = [
+        last_update = current_time
+        df.loc[timestamp] = [
             data["open"],
             data["high"],
             data["low"],
@@ -251,115 +164,59 @@ while True:
             data["volume"],
         ]
 
-    df = st.session_state["df"].copy()
+    df_copy = df.copy()
 
-    if len(df) >= 14:
+    if len(df_copy) >= 14:
         atr_indicator = AverageTrueRange(
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
+            high=df_copy["High"],
+            low=df_copy["Low"],
+            close=df_copy["Close"],
             window=14
         )
-        df["ATR"] = atr_indicator.average_true_range()
+        df_copy["ATR"] = atr_indicator.average_true_range()
 
-        sma_indicator = SMAIndicator(close=df["Close"], window=14)
-        df["SMA"] = sma_indicator.sma_indicator()
-        df["Upper_Band"] = df["SMA"] + atr_multiplier * df["ATR"]
-        df["Lower_Band"] = df["SMA"] - atr_multiplier * df["ATR"]
+        sma_indicator = SMAIndicator(close=df_copy["Close"], window=14)
+        df_copy["SMA"] = sma_indicator.sma_indicator()
+        df_copy["Upper_Band"] = df_copy["SMA"] + atr_multiplier * df_copy["ATR"]
+        df_copy["Lower_Band"] = df_copy["SMA"] - atr_multiplier * df_copy["ATR"]
 
         sar_indicator = PSARIndicator(
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
+            high=df_copy["High"],
+            low=df_copy["Low"],
+            close=df_copy["Close"],
             step=step,
             max_step=max_step
         )
-        df["PSAR"] = sar_indicator.psar()
+        df_copy["PSAR"] = sar_indicator.psar()
 
-        if len(df) > 1:
-            i = len(df) - 1
-            current_candle_time = df.index[i]
+        if len(df_copy) > 1:
+            i = len(df_copy) - 1
+            current_candle_time = df_copy.index[i]
 
-            if (st.session_state["last_signal_candle_time"] is None or
-                    st.session_state["last_signal_candle_time"] != current_candle_time):
+            if last_signal_candle_time != current_candle_time:
+                if (not holding and
+                        df_copy["PSAR"].iloc[i] < df_copy["Close"].iloc[i] and
+                        df_copy["Low"].iloc[i] < df_copy["Lower_Band"].iloc[i]):
+                    buy_signals.append((current_candle_time, df_copy["Close"].iloc[i]))
+                    print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {df_copy["Close"].iloc[i]}")
+                    last_signal_candle_time = current_candle_time
+                    holding = True
 
-                if (not st.session_state["holding"] and
-                        df["PSAR"].iloc[i] < df["Close"].iloc[i] and
-                        df["Low"].iloc[i] < df["Lower_Band"].iloc[i]):
-                    st.session_state["buy_signals"].append((current_candle_time, df["Lower_Band"].iloc[i]))
-                    st.session_state["last_signal_candle_time"] = current_candle_time
-                    st.session_state["holding"] = True
+                elif (holding and
+                      df_copy["PSAR"].iloc[i] > df_copy["Close"].iloc[i] and
+                      df_copy["High"].iloc[i] > df_copy["Upper_Band"].iloc[i]):
+                    sell_signals.append((current_candle_time, df_copy["Close"].iloc[i]))
+                    print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {df_copy["Close"].iloc[i]}")
+                    last_signal_candle_time = current_candle_time
+                    holding = False
 
-                elif (st.session_state["holding"] and
-                      df["PSAR"].iloc[i] > df["Close"].iloc[i] and
-                      df["High"].iloc[i] > df["Upper_Band"].iloc[i]):
-                    st.session_state["sell_signals"].append((current_candle_time, df["Upper_Band"].iloc[i]))
-                    st.session_state["last_signal_candle_time"] = current_candle_time
-                    st.session_state["holding"] = False
+    if keyboard.is_pressed('q'):
+        print(Style.BRIGHT + Fore.RED + "\nHai premuto 'q'. Sto terminando il Job...")
+        break
 
-    fig = go.Figure()
+    time.sleep(1)
 
-    fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df["Open"],
-        high=df["High"],
-        low=df["Low"],
-        close=df["Close"],
-        name="Candlestick"
-    ))
+print(Style.BRIGHT + Fore.GREEN + "Job terminato.")
 
-    if "PSAR" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df["PSAR"],
-            mode="markers",
-            marker=dict(size=4, color="yellow", symbol="circle"),
-            name="PSAR"
-        ))
 
-    if "Upper_Band" in df.columns and "Lower_Band" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df["Upper_Band"],
-            mode="lines",
-            line=dict(color="red", width=1),
-            name="Upper ATR Band"
-        ))
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df["Lower_Band"],
-            mode="lines",
-            line=dict(color="green", width=1),
-            name="Lower ATR Band"
-        ))
 
-    if len(st.session_state["buy_signals"]) > 0:
-        fig.add_trace(go.Scatter(
-            x=[s[0] for s in st.session_state["buy_signals"]],
-            y=[s[1] for s in st.session_state["buy_signals"]],
-            mode="markers",
-            marker=dict(size=10, color="green", symbol="triangle-up"),
-            name="Buy Signal"
-        ))
-
-    if len(st.session_state["sell_signals"]) > 0:
-        fig.add_trace(go.Scatter(
-            x=[s[0] for s in st.session_state["sell_signals"]],
-            y=[s[1] for s in st.session_state["sell_signals"]],
-            mode="markers",
-            marker=dict(size=10, color="red", symbol="triangle-down"),
-            name="Sell Signal"
-        ))
-
-    fig.update_layout(
-        title=f"Grafico {symbol} con PSAR e ATR Bands, ultimo aggiornamento alle ore {st.session_state['last_update']}",
-        xaxis_title="Data e Ora",
-        yaxis_title="Prezzo",
-        xaxis_rangeslider_visible=False,
-        template="plotly_dark",
-        height=600
-    )
-
-    placeholder.plotly_chart(fig, use_container_width=True, key=f"plotly_chart_{time.time()}")
-
-    time.sleep(update_time)
