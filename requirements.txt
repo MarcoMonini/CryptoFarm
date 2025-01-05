@@ -5,3 +5,4 @@ plotly
 ta
 keyboard
 colorama
+datetime
