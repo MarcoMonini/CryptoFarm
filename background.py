@@ -9,6 +9,9 @@ import os
 from datetime import datetime
 import keyboard
 from colorama import Fore, Back, Style, init
+import warnings
+
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 init(autoreset=True)
 
