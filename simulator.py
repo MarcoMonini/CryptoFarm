@@ -287,7 +287,7 @@ def sar_trading_analysis(
         high=df['High'],
         low=df['Low'],
         close=df['Close'],
-        window=20,  # finestra EMA
+        window=atr_window,  # finestra EMA
         window_atr=atr_window,  # finestra ATR
         original_version=False
     )
@@ -298,10 +298,10 @@ def sar_trading_analysis(
 
     # Calcolo dell'RSI
     # Impostazione classica RSI(14). Se vuoi segnali più veloci, puoi provare RSI(7) o RSI(9).
-    rsi_period = 14
+    # rsi_period = 14
     rsi_indicator = RSIIndicator(
         close=df['Close'],
-        window=rsi_period
+        window=30
     )
     df['RSI'] = rsi_indicator.rsi()
 
@@ -327,11 +327,11 @@ def sar_trading_analysis(
     buy_signals = []
     sell_signals = []
     holding = False
-    # upper_trend = False
-    # lower_trend = False
+    upper_trend = False
+    lower_trend = False
     for i in range(1, len(df)):
-
-        # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
+        # ------------------------------------------------------------
+        # # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
         # if (not holding and (df['SAR'].iloc[i] < df['Open'].iloc[i]) and
         #         (df['SAR'].iloc[i - 1] > df['Open'].iloc[i - 1]) and
         #         (float(df['Close'].iloc[i-1]) >= float(df['Low'].iloc[i]))):
@@ -351,65 +351,38 @@ def sar_trading_analysis(
         #     # sell_signals.append((df.index[i], float(df['High'].iloc[i]))) # Best
         #     # sell_signals.append((df.index[i], float(df['Low'].iloc[i]))) # Worst
         #     holding = False
-
+        # ------------------------------------------------------------
         # # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
-        # if (not holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-        #         (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
-        #     # Salviamo la chiusura della candela come prezzo di buy
-        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = True
-        # # Segnale di vendita: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-        # if (holding and (df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
-        #         (df['SAR'].iloc[i] > df['Close'].iloc[i])):
-        #     # Salviamo la chiusura della candela come prezzo di sell
-        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = False
-
-        #------------------------------------------------------------
-        # #upper trend: quando il SAR passa da > prezzo a < prezzo
-        # if ((df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-        #         (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
-        #     upper_trend = True
-        #     lower_trend = False
-        # # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-        # if ((df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
-        #         (df['SAR'].iloc[i] > df['Close'].iloc[i])):
-        #     upper_trend = False
-        #     lower_trend = True
-        #
-        # if (not holding and lower_trend and df['Low'].iloc[i]<df['Lower_Band'].iloc[i]):
-        #     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-        #     holding = True
-        # if (holding and upper_trend and df['High'].iloc[i]>df['Upper_Band'].iloc[i]):
-        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-        #     holding = False
-        #------------------------------------------------------------
-        close_price = df['Close'].iloc[i]
-        kc_low = df['KC_low'].iloc[i]
-        kc_high = df['KC_high'].iloc[i]
-        rsi_value = df['RSI'].iloc[i]
-
-        # ---- LOGICA DI ACQUISTO (BUY) ----
-        # Esempio:
-        # 1) Non stiamo già in posizione
-        # 2) Il prezzo si trova vicino o sotto la banda bassa
-        # 3) L'RSI è < 30 (indicativo di 'iper-venduto')
-        if (not holding
-                and close_price <= kc_low
-                and rsi_value < 30):
-            buy_signals.append((df.index[i], close_price))
+        if (not holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
+                (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
+            # Salviamo la chiusura della candela come prezzo di buy
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
-
-        # ---- LOGICA DI VENDITA (SELL) ----
-        # Esempio:
-        # 1) Siamo in posizione
-        # 2) Il prezzo è salito verso/oltre la banda alta
-        # 3) L'RSI è > 70 (indicativo di 'iper-comprato')
-        if (holding
-                and close_price >= kc_high
-                and rsi_value > 70):
-            sell_signals.append((df.index[i], close_price))
+        # Segnale di vendita: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
+        if (holding and (df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
+                (df['SAR'].iloc[i] > df['Close'].iloc[i])):
+            # Salviamo la chiusura della candela come prezzo di sell
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
+        #------------------------------------------------------------
+        #upper trend: quando il SAR passa da > prezzo a < prezzo
+        if ((df['SAR'].iloc[i] < df['Close'].iloc[i]) and
+                (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
+            upper_trend = True
+            lower_trend = False
+        # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
+        if ((df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
+                (df['SAR'].iloc[i] > df['Close'].iloc[i])):
+            upper_trend = False
+            lower_trend = True
+
+        if (not holding and lower_trend and df['Low'].iloc[i]<df['Lower_Band'].iloc[i]):
+            buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+            holding = True
+        if (holding and upper_trend and df['High'].iloc[i]>df['Upper_Band'].iloc[i]):
+            sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+            holding = False
+        # ------------------------------------------------------------
 
 
     # ======================================
@@ -829,12 +802,12 @@ if __name__ == "__main__":
     )
     # ------------------------------
     fig, trades_df, actual_hours = sar_trading_analysis(
-        asset='ZENUSDT',
+        asset='PENGUUSDC',
         interval='15m',
         wallet=1000.0,  # Wallet iniziale in USDT
-        step=0.04,
-        max_step=0.4,
-        time_hours=720,
+        step=0.002,
+        max_step=0.1,
+        time_hours=168,
         fee_percent=0.1, # %
         atr_multiplier=3.2,
         atr_window=10

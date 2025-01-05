@@ -26,7 +26,7 @@ API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 # print(API_KEY, API_SECRET)
 assets = ["AAVEUSDC","AMPUSDT","AVAXUSDC","BTTCUSDT","DOGEUSDC","DOTUSDC",
-              "LINKUSDC","PEPEUSDC","RUNEUSDC","SUIUSDC","ZENUSDT"]
+              "LINKUSDC","PEPEUSDC","PENGUUSDC","RUNEUSDC","SUIUSDC","ZENUSDT"]
 
 # Inizializza le variabili per contenere il socket
 if "client" not in st.session_state:

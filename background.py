@@ -1,8 +1,5 @@
-# import streamlit as st
 from binance import ThreadedWebsocketManager, Client
 import pandas as pd
-# from streamlit import number_input
-# import plotly.graph_objects as go
 from ta.trend import PSARIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
 import time
@@ -149,6 +146,55 @@ def adjust_quantity(quantity, min_qty, max_qty, step_size):
     return round(adjusted_quantity, precision)
 
 
+def place_order(client:Client, symbol:str, side:str, order_type:str, quantity:float, price:float=None) -> bool:
+    """
+    Crea un ordine su Binance.
+
+    Args:
+        client (Client): Client di Binance collegato tramite API keys
+        symbol (str): Coppia di trading (es. "BTCUSDT").
+        side (str): "BUY" o "SELL".
+        order_type (str): Tipo di ordine ("MARKET" o "LIMIT").
+        quantity (float): Quantità da acquistare/vendere.
+        price (float, optional): Prezzo (solo per ordini LIMIT).
+    Returns:
+        dict: Risposta dell'API Binance.
+    """
+    try:
+        # Per ordini LIMIT è necessario specificare il prezzo
+        if order_type == "LIMIT" and price is not None:
+            order = client.create_order(
+                symbol=symbol,
+                side=side,
+                type=order_type,
+                timeInForce="GTC",  # "Good Till Cancelled"
+                quantity=quantity,
+                price=price
+            )
+        elif order_type == "MARKET":
+            order = client.create_order(
+                symbol=symbol,
+                side=side,
+                type=order_type,
+                quantity=quantity
+            )
+        else:
+            print(Style.BRIGHT + Fore.RED + "Errore durante l'esecuzione dell'ordine: Tipo di ordine non supportato.")
+            return False
+
+        print(Style.BRIGHT + Fore.CYAN + f"Ordine {side} eseguito con successo:")
+        print(Style.BRIGHT + Fore.CYAN + f" Asset: {order['symbol']}")
+        print(Style.BRIGHT + Fore.CYAN + f" Quantità: {order['fills'][0]['qty']}")
+        print(Style.BRIGHT + Fore.CYAN + f" Commissione: {order['fills'][0]['commission']}")
+        print(Style.BRIGHT + Fore.CYAN + f" Prezzo: {order['fills'][0]['price']}")
+        print(Style.BRIGHT + Fore.CYAN + f" Valuta: {order['fills'][0]['commissionAsset']}")
+        print(Style.BRIGHT + Fore.CYAN + f" Costo totale: {order['fills'][0]['qty'] * order['fills'][0]['price']}")
+        return True
+    except Exception as e:
+        print(Style.BRIGHT + Fore.RED + f"Errore durante l'esecuzione dell'ordine: {e}")
+        return False
+
+
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 print(Style.BRIGHT + f"KEY = {API_KEY}, SECRET = {API_SECRET}")
@@ -184,18 +230,6 @@ if symbol_info:
             print(f"  stepQty: {stepQty}")
 else:
     print(Fore.RED + f"La coppia {symbol} non è disponibile.")
-
-
-# Esempio di utilizzo
-# quantity_available = 0.002356  # Quantità da acquistare o vendere
-# min_qty = 0.0001
-# max_qty = 100.0
-# step_size = 0.0001
-# adjusted_quantity = adjust_quantity(quantity_available, min_qty, max_qty, step_size)
-# if adjusted_quantity > 0:
-#     print(f"Quantità regolata per l'ordine: {adjusted_quantity}")
-# else:
-#     print("Quantità insufficiente per effettuare un ordine.")
 
 
 df = fetch_initial_candles(client=client, symbol=symbol, interval=interval)
@@ -288,8 +322,15 @@ while True:
                     quantity = usd_balance / current_candle_price
                     adjusted_quantity = adjust_quantity(quantity, minQty, maxQty, stepQty)
                     print(Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={usd_balance}$)")
-                    last_signal_candle_time = current_candle_time
-                    holding = True
+                    # Piazza l'ordine di acquisto
+                    response = place_order(client=client,
+                                           symbol=symbol,
+                                           side="BUY",
+                                           order_type="MARKET",
+                                           quantity=adjusted_quantity)
+                    if response:
+                        last_signal_candle_time = current_candle_time
+                        holding = True
 
                 elif (holding and
                       df_copy["PSAR"].iloc[i] > current_candle_price and
@@ -300,8 +341,15 @@ while True:
                     asset_balance = get_asset_balance(balance=balance, asset=asset)
                     adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
                     print(Style.BRIGHT + Fore.RED + f"Procceding with SELL Order, quantity={adjusted_quantity} (={adjusted_quantity * current_candle_price}$)")
-                    last_signal_candle_time = current_candle_time
-                    holding = False
+                    # Piazza l'ordine di vendita
+                    response = place_order(client=client,
+                                           symbol=symbol,
+                                           side="SELL",
+                                           order_type="MARKET",
+                                           quantity=adjusted_quantity)
+                    if response:
+                        last_signal_candle_time = current_candle_time
+                        holding = False
 
     if keyboard.is_pressed('q'):
         print(Style.BRIGHT + Fore.RED + "\nHai premuto 'q'. Sto terminando il Job...")
