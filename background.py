@@ -198,15 +198,23 @@ def place_order(client:Client, symbol:str, side:str, order_type:str, quantity:fl
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 print(Style.BRIGHT + f"KEY = {API_KEY}, SECRET = {API_SECRET}")
-
-asset = input("Inserisci l'asset da utilizzare (es. BTC): ")
-valuta = input("Inserisci la valuta da utilizzare (USDC/USDT): ")
+asset = os.getenv("ASSET")
+valuta = os.getenv("VALUTA", "USDC")
 symbol = asset + valuta
-interval = input("Inserisci l'intervallo di tempo delle candele (3m, 5m, 15m...): ")
-step = numberInput("Inserisci lo Step per il calcolo del PSAR (consigliato 0.04): ")
-max_step = numberInput("Inserisci il Max Step per il calcolo del PSAR (consigliato 0.4): ")
-atr_multiplier = numberInput("Inserisci il moltiplicatore per l'ATR (consigliato 3.2): ")
-atr_window = int(numberInput("Inserisci la finestra per l'ATR (consigliato 10): "))
+interval = os.getenv("CANDLES_TIME", "15m")
+step = os.getenv("PSAR_STEP", 0.04)
+max_step = os.getenv("PSAR_MAX_STEP", 0.4)
+atr_multiplier = os.getenv("ATR_MULTIPLIER", 3.2)
+atr_window = os.getenv("ATR_WINDOW", 10)
+
+# asset = input("Inserisci l'asset da utilizzare (es. BTC): ")
+# valuta = input("Inserisci la valuta da utilizzare (USDC/USDT): ")
+# symbol = asset + valuta
+# interval = input("Inserisci l'intervallo di tempo delle candele (3m, 5m, 15m...): ")
+# step = numberInput("Inserisci lo Step per il calcolo del PSAR (consigliato 0.04): ")
+# max_step = numberInput("Inserisci il Max Step per il calcolo del PSAR (consigliato 0.4): ")
+# atr_multiplier = numberInput("Inserisci il moltiplicatore per l'ATR (consigliato 3.2): ")
+# atr_window = int(numberInput("Inserisci la finestra per l'ATR (consigliato 10): "))
 
 minQty = 0
 maxQty = 0
