@@ -26,7 +26,7 @@ API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 # print(API_KEY, API_SECRET)
 assets = ["AAVEUSDC","AMPUSDT","AVAXUSDC","BTTCUSDT","DOGEUSDC","DOTUSDC",
-              "LINKUSDC","PEPEUSDC","RUNEUSDC","SUIUSDC","ZENUSDT"]
+              "LINKUSDC","PEPEUSDC","PENGUUSDC","RUNEUSDC","SUIUSDC","ZENUSDT"]
 
 # Inizializza le variabili per contenere il socket
 if "client" not in st.session_state:
@@ -118,6 +118,51 @@ def stop_socket_thread():
         del st.session_state["sell_signals"]
         del st.session_state["last_signal_candle_time"]
 
+###############################################################################
+# Funzione per creare un ordine su Binance
+###############################################################################
+def place_order(symbol, side, order_type, quantity, price=None):
+    """
+    Crea un ordine su Binance.
+
+    Args:
+        symbol (str): Coppia di trading (es. "BTCUSDT").
+        side (str): "BUY" o "SELL".
+        order_type (str): Tipo di ordine ("MARKET" o "LIMIT").
+        quantity (float): Quantità da acquistare/vendere.
+        price (float, optional): Prezzo (solo per ordini LIMIT).
+    Returns:
+        dict: Risposta dell'API Binance.
+    """
+    try:
+        # Per ordini LIMIT è necessario specificare il prezzo
+        if order_type == "LIMIT" and price is not None:
+            order = st.session_state["client"].create_order(
+                symbol=symbol,
+                side=side,
+                type=order_type,
+                timeInForce="GTC",  # "Good Till Cancelled"
+                quantity=quantity,
+                price=price
+            )
+        elif order_type == "MARKET":
+            order = st.session_state["client"].create_order(
+                symbol=symbol,
+                side=side,
+                type=order_type,
+                quantity=quantity
+            )
+        else:
+            st.error("Tipo di ordine non supportato.")
+            return None
+
+        st.success(f"Ordine {side} eseguito con successo: {order}")
+        return order
+    except Exception as e:
+        st.error(f"Errore durante l'esecuzione dell'ordine: {e}")
+        return None
+
+
 @st.cache_data
 def fetch_initial_candles(symbol:str, interval:str) -> pd.DataFrame:
     try:
@@ -164,7 +209,8 @@ def display_user_and_wallet_info():
 
 
 # SEZIONE PARAMETRI
-disabled = False if "socket_thread" not in st.session_state else True
+# disabled = False if "socket_thread" not in st.session_state else True
+disabled = False
 symbol = st.sidebar.selectbox(
     "Seleziona l'asset",
     options=assets,
@@ -264,6 +310,7 @@ while True:
 
         sma_indicator = SMAIndicator(close=df["Close"], window=14)
         df["SMA"] = sma_indicator.sma_indicator()
+
         df["Upper_Band"] = df["SMA"] + atr_multiplier * df["ATR"]
         df["Lower_Band"] = df["SMA"] - atr_multiplier * df["ATR"]
 
