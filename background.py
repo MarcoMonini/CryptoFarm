@@ -43,7 +43,7 @@ def print_user_and_wallet_info(client:Client):
 def fetch_initial_candles(client:Client, symbol:str, interval:str) -> pd.DataFrame:
     print("Fetching initial candles...")
     try:
-        klines = client.get_klines(symbol=symbol, interval=interval, limit=30)
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=50)
         candles = []
         for kline in klines:
             candles.append({
@@ -359,13 +359,13 @@ while True:
                         last_signal_candle_time = current_candle_time
                         holding = False
 
-    if keyboard.is_pressed('q'):
-        print(Style.BRIGHT + Fore.RED + "\nHai premuto 'q'. Sto terminando il Job...")
-        break
+    # if keyboard.is_pressed('q'):
+    #     print(Style.BRIGHT + Fore.RED + "\nHai premuto 'q'. Sto terminando il Job...")
+    #     break
 
     time.sleep(1)
 
-print(Style.BRIGHT + Fore.GREEN + "Job terminato.")
+# print(Style.BRIGHT + Fore.GREEN + "Job terminato.")
 
 
 
