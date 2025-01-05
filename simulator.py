@@ -4,6 +4,8 @@ from ta.trend import PSARIndicator
 from ta.volatility import AverageTrueRange
 from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
+from ta.volatility import KeltnerChannel
+from ta.momentum import StochRSIIndicator
 from binance import Client
 import streamlit as st
 import numpy as np
@@ -203,6 +205,7 @@ def sar_trading_analysis(
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
         show: bool = True,
         atr_multiplier: float = 1.5,  # Moltiplicatore per le Rolling ATR Bands
+        atr_window:int = 14,
         market_data:dict = None
 ):
     """
@@ -253,8 +256,6 @@ def sar_trading_analysis(
         actual_hours = time_hours
 
 
-    print(f"[INFO] Analisi con {wallet} USDC su {asset}, fee={fee_percent}%, {interval}, step={step}, max_step={max_step}, atr_multiplier={atr_multiplier}")
-
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
         high=df['High'],
@@ -270,24 +271,55 @@ def sar_trading_analysis(
         high=df['High'],
         low=df['Low'],
         close=df['Close'],
-        window=14
+        window=atr_window
     )
     df['ATR'] = atr_indicator.average_true_range()
 
     # SMA (Media Mobile per le Rolling ATR Bands)
-    sma_indicator = SMAIndicator(close=df['Close'], window=14)
+    sma_indicator = SMAIndicator(close=df['Close'], window=atr_window)
     df['SMA'] = sma_indicator.sma_indicator()
 
     # Rolling ATR Bands
     df['Upper_Band'] = df['SMA'] + atr_multiplier * df['ATR']
     df['Lower_Band'] = df['SMA'] - atr_multiplier * df['ATR']
 
-    # RSI
+    kc = KeltnerChannel(
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        window=20,  # finestra EMA
+        window_atr=atr_window,  # finestra ATR
+        original_version=False
+    )
+
+    df['KC_middle'] = kc.keltner_channel_mband()  # Banda centrale (EMA base)
+    df['KC_high'] = kc.keltner_channel_hband()  # Banda superiore
+    df['KC_low'] = kc.keltner_channel_lband()  # Banda inferiore
+
+    # Calcolo dell'RSI
+    # Impostazione classica RSI(14). Se vuoi segnali più veloci, puoi provare RSI(7) o RSI(9).
+    rsi_period = 14
     rsi_indicator = RSIIndicator(
         close=df['Close'],
-        window=14
+        window=rsi_period
     )
     df['RSI'] = rsi_indicator.rsi()
+
+    # Pivot Points dinamici
+    window_pivot = 10  # dimensione della finestra per cercare minimi/massimi locali
+    # Creiamo colonne che rappresentano il massimo e minimo degli ultimi N periodi
+    df['rolling_max'] = df['High'].rolling(window_pivot).max()
+    df['rolling_min'] = df['Low'].rolling(window_pivot).min()
+
+    # Stoch RSI standard con window=14, smooth1=3, smooth2=3
+    # df["stoch_rsi"] = StochRSIIndicator(
+    #     close=df['Close'],
+    #     window=14,
+    #     smooth1=3,
+    #     smooth2=3
+    # )
+    # df['stoch_rsi_k'] = stoch_rsi.stoch_rsi_k()
+    # df['stoch_rsi_d'] = stoch_rsi.stoch_rsi_d()
 
     # ======================================
     # 2. Identificazione dei segnali di acquisto e vendita
@@ -295,8 +327,8 @@ def sar_trading_analysis(
     buy_signals = []
     sell_signals = []
     holding = False
-    upper_trend = False
-    lower_trend = False
+    # upper_trend = False
+    # lower_trend = False
     for i in range(1, len(df)):
 
         # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
@@ -333,22 +365,50 @@ def sar_trading_analysis(
         #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
         #     holding = False
 
-        #upper trend: quando il SAR passa da > prezzo a < prezzo
-        if ((df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-                (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
-            upper_trend = True
-            lower_trend = False
-        # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-        if ((df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
-                (df['SAR'].iloc[i] > df['Close'].iloc[i])):
-            upper_trend = False
-            lower_trend = True
+        #------------------------------------------------------------
+        # #upper trend: quando il SAR passa da > prezzo a < prezzo
+        # if ((df['SAR'].iloc[i] < df['Close'].iloc[i]) and
+        #         (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
+        #     upper_trend = True
+        #     lower_trend = False
+        # # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
+        # if ((df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
+        #         (df['SAR'].iloc[i] > df['Close'].iloc[i])):
+        #     upper_trend = False
+        #     lower_trend = True
+        #
+        # if (not holding and lower_trend and df['Low'].iloc[i]<df['Lower_Band'].iloc[i]):
+        #     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+        #     holding = True
+        # if (holding and upper_trend and df['High'].iloc[i]>df['Upper_Band'].iloc[i]):
+        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+        #     holding = False
+        #------------------------------------------------------------
+        close_price = df['Close'].iloc[i]
+        kc_low = df['KC_low'].iloc[i]
+        kc_high = df['KC_high'].iloc[i]
+        rsi_value = df['RSI'].iloc[i]
 
-        if (not holding and lower_trend and df['Low'].iloc[i]<df['Lower_Band'].iloc[i]):
-            buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+        # ---- LOGICA DI ACQUISTO (BUY) ----
+        # Esempio:
+        # 1) Non stiamo già in posizione
+        # 2) Il prezzo si trova vicino o sotto la banda bassa
+        # 3) L'RSI è < 30 (indicativo di 'iper-venduto')
+        if (not holding
+                and close_price <= kc_low
+                and rsi_value < 30):
+            buy_signals.append((df.index[i], close_price))
             holding = True
-        if (holding and upper_trend and df['High'].iloc[i]>df['Upper_Band'].iloc[i]):
-            sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+
+        # ---- LOGICA DI VENDITA (SELL) ----
+        # Esempio:
+        # 1) Siamo in posizione
+        # 2) Il prezzo è salito verso/oltre la banda alta
+        # 3) L'RSI è > 70 (indicativo di 'iper-comprato')
+        if (holding
+                and close_price >= kc_high
+                and rsi_value > 70):
+            sell_signals.append((df.index[i], close_price))
             holding = False
 
 
@@ -382,10 +442,11 @@ def sar_trading_analysis(
             # Ricaviamo USDT vendendo la quantity di crypto
             gross_proceed = quantity * sell_price
             # Applichiamo la commissione di vendita
+            # commissions = gross_proceed * fee_decimal
             net_proceed = gross_proceed * (1 - fee_decimal)
-            # Calcoliamo il profit: differenza fra l'importo netto incassato e l'importo speso in fase di BUY
-            cost_in_usdt = quantity * buy_price  # spesa "teorica" (senza la fee di buy)
-            profit = net_proceed - cost_in_usdt
+            # Calcoliamo il profit: differenza fra l'importo netto incassato e l'importo speso in fase di BUY e le commissioni
+            cost_in_usd = (quantity * buy_price) * (1 + fee_decimal)  # spesa inziale
+            profit = net_proceed - cost_in_usd
             # Aggiorniamo working_wallet
             working_wallet = net_proceed
             # Registriamo il trade in un'unica riga
@@ -402,11 +463,6 @@ def sar_trading_analysis(
             # Resettiamo lo stato
             holding = False
             quantity = 0.0
-
-    # Nota: se alla fine rimaniamo in holding=True, cioè con una crypto comprata
-    # ma senza vendere, non vendiamo automaticamente a fine periodo.
-    # Se desideri chiudere forzatamente la posizione all'ultima candela,
-    # puoi aggiungere una logica extra qui in coda.
 
     # ======================================
     # 4. Creazione del grafico (Plotly)
@@ -448,15 +504,71 @@ def sar_trading_analysis(
             name='Lower ATR Band'
         ))
 
-        # # RSI
+        # RSI
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['RSI'],
+            mode='lines',
+            line=dict(color='purple', width=2),
+            name='RSI'
+        ))
+
+        # KELTNER CHANNELS
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['KC_middle'],
+            mode='lines',
+            line=dict(color='blue', width=1, dash='dot'),
+            name='KC Middle'
+        ))
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['KC_high'],
+            mode='lines',
+            line=dict(color='blue', width=1),
+            name='KC High'
+        ))
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['KC_low'],
+            mode='lines',
+            line=dict(color='blue', width=1),
+            name='KC Low'
+        ))
+
+        # PIVOT POINTS DINAMICI (Rolling Min/Max)
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['rolling_max'],
+            mode='lines',
+            line=dict(color='orange', width=1),
+            name='Rolling Max'
+        ))
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['rolling_min'],
+            mode='lines',
+            line=dict(color='orange', width=1),
+            name='Rolling Min'
+        ))
+
+        # 3) STOCHASTIC RSI
+        #    Se lo vuoi sullo stesso grafico dei prezzi, lo aggiungiamo semplicemente come linea.
+        #    Spesso però si preferisce un subplot secondario. Qui, per semplicità, lo mettiamo insieme.
         # fig.add_trace(go.Scatter(
         #     x=df.index,
-        #     y=df['RSI'],
+        #     y=df['stoch_rsi'],
         #     mode='lines',
-        #     line=dict(color='purple', width=2),
-        #     name='RSI'
+        #     line=dict(color='magenta', width=2),
+        #     name='Stoch RSI'
         # ))
-
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['stoch_rsi_d'],
+        #     mode='lines',
+        #     line=dict(color='magenta', width=1, dash='dot'),
+        #     name='Stoch RSI D'
+        # ))
 
         # Segnali di acquisto
         if buy_signals:
@@ -519,100 +631,13 @@ def sar_trading_analysis(
             'Quantity', 'Profit', 'Wallet_After'
         ])
 
+    print(f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, step={step}, max_step={max_step}, "
+          f"atr_multiplier={atr_multiplier}, atr_window={atr_window}, profitto totale={round(trades_df['Profit'].sum())}")
+
     # ======================================
     # 6. Restituiamo il grafico e il DataFrame
     # ======================================
     return fig, trades_df, actual_hours
-
-
-def optimize_parameters_with_cached_data(wallet, hours, assets, intervals, step_range, max_step_range, atr_multiplier_range, dati):
-    """
-    Ottimizza i parametri di trading usando i dati già scaricati.
-
-    Parameters
-    ----------
-    wallet : float
-        Capitale iniziale in USDT/USDC.
-    hours : int
-        Numero di ore di dati storici da considerare.
-    assets : list
-        Lista di asset su cui eseguire le simulazioni.
-    intervals : list
-        Lista di intervalli di tempo (es. ["1m", "3m", "5m"]).
-    step_range : tuple
-        Range per il parametro `step` (es. (0.01, 0.1, 0.001)).
-    max_step_range : tuple
-        Range per il parametro `max_step` (es. (0.1, 1, 0.01)).
-    atr_multiplier_range : tuple
-        Range per il parametro `atr_multiplier` (es. (1, 4, 0.1)).
-    dati : dict
-        Dizionario con i dati scaricati.
-
-    Returns
-    -------
-    pd.DataFrame
-        Un DataFrame con tutte le combinazioni di parametri e i risultati.
-    dict
-        La combinazione di parametri con il profitto massimo.
-    """
-    results = []
-    best_result = None
-    max_profit = float('-inf')  # Inizializza il massimo profitto
-
-    # Cicli per ogni combinazione di parametri
-    for interval in intervals:
-        for step in np.arange(*step_range):
-            for max_step in np.arange(*max_step_range):
-                for atr_multiplier in np.arange(*atr_multiplier_range):
-                    total_profit = 0.0
-                    for asset in assets:
-                        # Usa i dati già scaricati
-                        df = dati.get(asset, {}).get(interval, None)
-                        if df is None or df.empty:
-                            continue
-
-                        try:
-                            # Esegui la simulazione per l'asset corrente
-                            _, trades_df, _ = sar_trading_analysis(
-                                asset=asset,
-                                interval=interval,
-                                wallet=wallet,
-                                step=step,
-                                max_step=max_step,
-                                time_hours=hours,
-                                show=False,
-                                atr_multiplier=atr_multiplier
-                            )
-
-                            # Accumula il profitto totale per l'asset
-                            if not trades_df.empty:
-                                total_profit += trades_df['Profit'].sum()
-                        except Exception as e:
-                            st.warning(f"Errore durante simulazione per {asset} ({interval}, {step}, {max_step}, {atr_multiplier}): {e}")
-                            continue
-
-                    # Salva i risultati della simulazione
-                    result = {
-                        'Interval': interval,
-                        'Step': step,
-                        'Max_Step': max_step,
-                        'ATR_Multiplier': atr_multiplier,
-                        'Total_Profit': total_profit
-                    }
-                    results.append(result)
-
-                    # Aggiorna il miglior risultato
-                    if total_profit > max_profit and total_profit > 0:
-                        max_profit = total_profit
-                        best_result = result
-
-    # Converti i risultati in un DataFrame
-    results_df = pd.DataFrame(results)
-
-    # Ordina per profitto totale
-    results_df.sort_values(by='Total_Profit', ascending=False, inplace=True)
-
-    return results_df, best_result
 
 
 def run_simulation(wallet: float,
@@ -622,6 +647,7 @@ def run_simulation(wallet: float,
                    steps:list,
                    max_steps:list,
                    atr_multipliers:list,
+                   atr_windows:list,
                    market_data:dict = None):
     """
     Esegue una simulazione massiva di strategie Buy/Sell basate sul SAR
@@ -657,128 +683,131 @@ def run_simulation(wallet: float,
             for step in steps:
                 for max_step in max_steps:
                     for atr_multiplier in atr_multipliers:
-                        # Richiamiamo la funzione che fa l'analisi col SAR e
-                        # unisce buy/sell in un'unica riga per trade
-                        try:
-                            fig, trades_df, actual_hours = sar_trading_analysis(
-                                asset=asset,
-                                interval=interval,
-                                wallet=wallet,  # Wallet iniziale in USDT
-                                step=step,
-                                max_step=max_step,
-                                time_hours=hours,
-                                show=False,
-                                atr_multiplier=atr_multiplier,
-                                market_data=df
-                            )
-                        except Exception as e:
-                            st.error(f"Errore durante sar_trading_analysis({asset}, {interval}): {e}")
-                            continue
+                        for atr_window in atr_windows:
+                            # Richiamiamo la funzione che fa l'analisi col SAR e
+                            # unisce buy/sell in un'unica riga per trade
+                            try:
+                                fig, trades_df, actual_hours = sar_trading_analysis(
+                                    asset=asset,
+                                    interval=interval,
+                                    wallet=wallet,  # Wallet iniziale in USDT
+                                    step=step,
+                                    max_step=max_step,
+                                    time_hours=hours,
+                                    show=False,
+                                    atr_multiplier=atr_multiplier,
+                                    atr_window=atr_window,
+                                    market_data=df
+                                )
+                            except Exception as e:
+                                st.error(f"Errore durante sar_trading_analysis({asset}, {interval}): {e}")
+                                continue
 
-                        total_days = actual_hours / 24
-                        time_string = f"{actual_hours:.2f} ore ({total_days:.2f} giorni)"
-                        # Se trades_df è vuoto, nessuna operazione
-                        if trades_df.empty:
+                            total_days = actual_hours / 24
+                            time_string = f"{actual_hours:.2f} ore ({total_days:.2f} giorni)"
+                            # Se trades_df è vuoto, nessuna operazione
+                            if trades_df.empty:
+                                simulazioni.append({
+                                    'Asset': asset,
+                                    'Intervallo': interval,
+                                    'Tempo': time_string,
+                                    'Step': step,
+                                    'Max Step': max_step,
+                                    'Operazioni Chiuse': 0,
+                                    'Profitto Totale': 0,
+                                    'ROI totale (%)': 0,
+                                    'ROI giornaliero (%)': 0
+                                    # ...e altre colonne a zero/nan
+                                })
+                                continue
+
+                            # Calcola statistiche principali
+                            # (ogni riga di trades_df è un trade completo: Buy+Sell)
+                            num_trades = len(trades_df)
+                            total_profit = trades_df['Profit'].sum()
+
+                            # Trade in profitto/perdita/pareggio
+                            profitable_trades = trades_df[trades_df['Profit'] > 0]
+                            losing_trades = trades_df[trades_df['Profit'] < 0]
+                            break_even_trades = trades_df[trades_df['Profit'] == 0]
+
+                            num_profitable = len(profitable_trades)
+                            num_losing = len(losing_trades)
+                            num_break_even = len(break_even_trades)
+
+                            # Win rate
+                            win_rate = (num_profitable / num_trades * 100) if num_trades > 0 else 0.0
+                            # Profitto medio
+                            avg_profit = trades_df['Profit'].mean() if num_trades > 0 else 0.0
+                            # Profitto medio (Gain)
+                            avg_win = profitable_trades['Profit'].mean() if num_profitable > 0 else 0.0
+                            # Perdita media (Loss)
+                            avg_loss = losing_trades['Profit'].mean() if num_losing > 0 else 0.0
+
+                            # Max e Min profit
+                            max_profit_trade = trades_df['Profit'].max() if num_trades > 0 else 0.0
+                            min_profit_trade = trades_df['Profit'].min() if num_trades > 0 else 0.0
+
+                            # ROI totale
+                            roi_percent = (total_profit / wallet * 100) if wallet > 0 else 0.0
+
+                            # ROI giornaliero (composto)
+                            final_wallet = wallet + total_profit
+                            if final_wallet > 0:
+                                daily_roi = (final_wallet / wallet) ** (1 / total_days) - 1
+                                daily_roi_percent = daily_roi * 100
+                            else:
+                                daily_roi_percent = -100.0  # Nel caso di portafoglio azzerato o negativo
+
+                            # Infine, ricaviamo eventuali metriche sul prezzo (se esistono nel trades_df)
+                            if 'massimo' in trades_df.columns:
+                                prezzo_massimo = trades_df['massimo'].max()
+                            else:
+                                prezzo_massimo = np.nan
+
+                            if 'minimo' in trades_df.columns:
+                                prezzo_minimo = trades_df['minimo'].min()
+                            else:
+                                prezzo_minimo = np.nan
+
+                            if 'variazione(%)' in trades_df.columns:
+                                # L'ultima riga o la prima: dipende da come hai popolato i dati
+                                variazione_prezzo = trades_df['variazione(%)'].iloc[-1]
+                            else:
+                                variazione_prezzo = np.nan
+
+                            if 'volatilita(%)' in trades_df.columns:
+                                volatilita = trades_df['volatilita(%)'].iloc[-1]
+                            else:
+                                volatilita = np.nan
+
+                            # Salviamo i risultati
                             simulazioni.append({
                                 'Asset': asset,
                                 'Intervallo': interval,
                                 'Tempo': time_string,
                                 'Step': step,
                                 'Max Step': max_step,
-                                'Operazioni Chiuse': 0,
-                                'Profitto Totale': 0,
-                                'ROI totale (%)': 0,
-                                'ROI giornaliero (%)': 0
-                                # ...e altre colonne a zero/nan
+                                'Moltiplicatore ATR':atr_multiplier,
+                                'Finestra ATR': atr_window,
+                                'Prezzo Massimo': prezzo_massimo,
+                                'Prezzo Minimo': prezzo_minimo,
+                                'Variazione di prezzo (%)': variazione_prezzo,
+                                'Volatilità (%)': volatilita,
+                                'Profitto Totale': round(total_profit, 4),
+                                'Profitto Medio': round(avg_profit, 4),
+                                'Operazioni Chiuse': num_trades,
+                                'Operazioni in Profitto': num_profitable,
+                                'Operazioni in Perdita': num_losing,
+                                'Pareggi': num_break_even,
+                                'Win Rate (%)': round(win_rate, 2),
+                                'Profitto Medio (Gain)': round(avg_win, 4),
+                                'Perdita Media (Loss)': round(avg_loss, 4),
+                                'Max Profit Trade': round(max_profit_trade, 4),
+                                'Min Profit Trade': round(min_profit_trade, 4),
+                                'ROI totale (%)': round(roi_percent, 2),
+                                'ROI giornaliero (%)': round(daily_roi_percent, 2)
                             })
-                            continue
-
-                        # Calcola statistiche principali
-                        # (ogni riga di trades_df è un trade completo: Buy+Sell)
-                        num_trades = len(trades_df)
-                        total_profit = trades_df['Profit'].sum()
-
-                        # Trade in profitto/perdita/pareggio
-                        profitable_trades = trades_df[trades_df['Profit'] > 0]
-                        losing_trades = trades_df[trades_df['Profit'] < 0]
-                        break_even_trades = trades_df[trades_df['Profit'] == 0]
-
-                        num_profitable = len(profitable_trades)
-                        num_losing = len(losing_trades)
-                        num_break_even = len(break_even_trades)
-
-                        # Win rate
-                        win_rate = (num_profitable / num_trades * 100) if num_trades > 0 else 0.0
-                        # Profitto medio
-                        avg_profit = trades_df['Profit'].mean() if num_trades > 0 else 0.0
-                        # Profitto medio (Gain)
-                        avg_win = profitable_trades['Profit'].mean() if num_profitable > 0 else 0.0
-                        # Perdita media (Loss)
-                        avg_loss = losing_trades['Profit'].mean() if num_losing > 0 else 0.0
-
-                        # Max e Min profit
-                        max_profit_trade = trades_df['Profit'].max() if num_trades > 0 else 0.0
-                        min_profit_trade = trades_df['Profit'].min() if num_trades > 0 else 0.0
-
-                        # ROI totale
-                        roi_percent = (total_profit / wallet * 100) if wallet > 0 else 0.0
-
-                        # ROI giornaliero (composto)
-                        final_wallet = wallet + total_profit
-                        if final_wallet > 0:
-                            daily_roi = (final_wallet / wallet) ** (1 / total_days) - 1
-                            daily_roi_percent = daily_roi * 100
-                        else:
-                            daily_roi_percent = -100.0  # Nel caso di portafoglio azzerato o negativo
-
-                        # Infine, ricaviamo eventuali metriche sul prezzo (se esistono nel trades_df)
-                        if 'massimo' in trades_df.columns:
-                            prezzo_massimo = trades_df['massimo'].max()
-                        else:
-                            prezzo_massimo = np.nan
-
-                        if 'minimo' in trades_df.columns:
-                            prezzo_minimo = trades_df['minimo'].min()
-                        else:
-                            prezzo_minimo = np.nan
-
-                        if 'variazione(%)' in trades_df.columns:
-                            # L'ultima riga o la prima: dipende da come hai popolato i dati
-                            variazione_prezzo = trades_df['variazione(%)'].iloc[-1]
-                        else:
-                            variazione_prezzo = np.nan
-
-                        if 'volatilita(%)' in trades_df.columns:
-                            volatilita = trades_df['volatilita(%)'].iloc[-1]
-                        else:
-                            volatilita = np.nan
-
-                        # Salviamo i risultati
-                        simulazioni.append({
-                            'Asset': asset,
-                            'Intervallo': interval,
-                            'Tempo': time_string,
-                            'Step': step,
-                            'Max Step': max_step,
-                            'Moltiplicatore ATR':atr_multiplier,
-                            'Prezzo Massimo': prezzo_massimo,
-                            'Prezzo Minimo': prezzo_minimo,
-                            'Variazione di prezzo (%)': variazione_prezzo,
-                            'Volatilità (%)': volatilita,
-                            'Profitto Totale': round(total_profit, 4),
-                            'Profitto Medio': round(avg_profit, 4),
-                            'Operazioni Chiuse': num_trades,
-                            'Operazioni in Profitto': num_profitable,
-                            'Operazioni in Perdita': num_losing,
-                            'Pareggi': num_break_even,
-                            'Win Rate (%)': round(win_rate, 2),
-                            'Profitto Medio (Gain)': round(avg_win, 4),
-                            'Perdita Media (Loss)': round(avg_loss, 4),
-                            'Max Profit Trade': round(max_profit_trade, 4),
-                            'Min Profit Trade': round(min_profit_trade, 4),
-                            'ROI totale (%)': round(roi_percent, 2),
-                            'ROI giornaliero (%)': round(daily_roi_percent, 2)
-                        })
 
     # Terminati tutti i loop, mostriamo i risultati
     if simulazioni:
@@ -799,102 +828,46 @@ if __name__ == "__main__":
         initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
     )
     # ------------------------------
-    # fig, trades_df, actual_hours = sar_trading_analysis(
-    #     asset='BTCUSDC',
-    #     interval='5m',
-    #     wallet=1000.0,  # Wallet iniziale in USDT
-    #     step=0.04,
-    #     max_step=0.4,
-    #     time_hours=720,
-    #     fee_percent=0.1, # %
-    #     atr_multiplier=2.5
-    # )
-    # st.plotly_chart(fig, use_container_width=True)
-    # st.subheader("Resoconto Operazioni")
-    # if not trades_df.empty:
-    #     st.write(trades_df)
-    #     total_profit = trades_df['Profit'].sum()
-    #     st.write(f"Profitto Totale: {total_profit:.2f} USDT")
-    # else:
-    #     st.write("Nessuna operazione effettuata.")
+    fig, trades_df, actual_hours = sar_trading_analysis(
+        asset='ZENUSDT',
+        interval='15m',
+        wallet=1000.0,  # Wallet iniziale in USDT
+        step=0.04,
+        max_step=0.4,
+        time_hours=720,
+        fee_percent=0.1, # %
+        atr_multiplier=3.2,
+        atr_window=10
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Resoconto Operazioni")
+    if not trades_df.empty:
+        st.write(trades_df)
+        total_profit = trades_df['Profit'].sum()
+        st.write(f"Profitto Totale: {total_profit:.2f} USDT")
+    else:
+        st.write("Nessuna operazione effettuata.")
     # ------------------------------
-
-    # Parametri fissi per la simulazione
-    # wallet = 1000.0  # Capitale iniziale in USDT/USDC
-    # assets = ["AAVEUSDC","AMPUSDT","AVAXUSDC","BTCUSDC","BTTCUSDT","DOGEUSDC","DOTUSDC","ETHUSDC",
-    #           "LINKUSDC","PEPEUSDC","PNUTUSDC","RUNEUSDC","SUIUSDC","ZENUSDT","TRXUSDC","XRPUSDT"]
-    # steps = [0.06, 0.065, 0.07, 0.075, 0.085, 0.09, 0.095]
-    # max_steps = [0.2, 0.4, 0.6, 0.8, 1.0]
-    # intervals = ["3m", "5m"]
-    # steps = [0.02, 0.04, 0.08]
-    # max_steps = [0.2, 0.4, 0.8]
-    # atr_multipliers = [2.2, 2.4, 2.6, 2.8]
-
-    # assets = ["AAVEUSDC", "AMPUSDT", "AVAXUSDC", "BTCUSDC", "BTTCUSDT", "DOGEUSDC", "DOTUSDC",
-    #           "ETHUSDC", "LINKUSDC", "PEPEUSDC", "PNUTUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT",
-    #           "TRXUSDC", "XRPUSDT"]
-    # intervals = ["1m", "3m", "5m", "15m"]
-    # steps = (0.01, 0.1, 0.001)  # Da 0.01 a 0.1 con passi di 0.001
-    # max_steps = (0.1, 1.0, 0.01)  # Da 0.1 a 1.0 con passi di 0.01
-    # atr_multipliers = (1.0, 4.0, 0.1)  # Da 1 a 4 con passi di 0.1
-
-    # hours = 720 #24ore = 1giorno, 168ore = 1settimana, 720ore = 1mese
+    # Parametri fissi per l'ottimizzazione
+    # wallet = 1000.0  # Capitale iniziale
+    # hours = 720  # Numero di ore
+    # assets = ["AAVEUSDC", "AMPUSDT", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
+    #           "ETHUSDC", "LINKUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+    # intervals = ["15m"]
+    # steps = [0.04,0.042,0.044,0.046,0.048,0.05]
+    # max_steps = [0.4,0.5]
+    # atr_multipliers = [3.0,3.1,3.2,3.3,3.4]
+    # atr_windows = [10,11,12]
+    # dati = download_market_data(assets, intervals, hours)
     # run_simulation(wallet=wallet,
     #                hours=hours,
     #                assets=assets,
     #                intervals=intervals,
     #                steps=steps,
     #                max_steps=max_steps,
-    #                atr_multipliers=atr_multipliers)
+    #                atr_multipliers=atr_multipliers,
+    #                atr_windows=atr_windows,
+    #                market_data=dati)
     # print("Finito.")
 
-    # Parametri fissi per l'ottimizzazione
-    wallet = 1000.0  # Capitale iniziale
-    hours = 720  # Numero di ore (1 mese)
-    assets = ["AAVEUSDC", "AMPUSDT", "AVAXUSDC", "BTCUSDC", "BTTCUSDT", "DOGEUSDC", "DOTUSDC",
-              "ETHUSDC", "LINKUSDC", "PEPEUSDC", "PNUTUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT",
-              "TRXUSDC", "XRPUSDT"]
-    intervals = ["3m", "5m", "15m"]
-    steps = [0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09]
-    max_steps = [0.2,0.4,0.5,0.6,0.7,0.8,0.9]
-    atr_multipliers = [2.0,2.2,2.4,2.6,2.8,3.0,3.2,3.4,3.6,3.8]
-    dati = download_market_data(assets, intervals, hours)
-    run_simulation(wallet=wallet,
-                   hours=hours,
-                   assets=assets,
-                   intervals=intervals,
-                   steps=steps,
-                   max_steps=max_steps,
-                   atr_multipliers=atr_multipliers,
-                   market_data=dati)
-    print("Finito.")
-
-
-    # step_range = (0.01, 0.1, 0.005)  # Da 0.01 a 0.1 con passi di 0.001
-    # max_step_range = (0.1, 0.8, 0.05)  # Da 0.1 a 1.0 con passi di 0.01
-    # atr_multiplier_range = (1.0, 3.0, 0.2)  # Da 1 a 4 con passi di 0.1
-
-    # Scarica tutti i dati necessari
-    # st.write("Scaricamento dati di mercato...")
-    #
-    #
-    # # Esegui l'ottimizzazione
-    # st.write("Inizio ottimizzazione...")
-    # results_df, best_result = optimize_parameters_with_cached_data(
-    #     wallet=wallet,
-    #     hours=hours,
-    #     assets=assets,
-    #     intervals=intervals,
-    #     step_range=step_range,
-    #     max_step_range=max_step_range,
-    #     atr_multiplier_range=atr_multiplier_range,
-    #     dati=dati
-    # )
-    #
-    # # Mostra i risultati
-    # st.title("Risultati dell'Ottimizzazione")
-    # st.write("### Miglior Configurazione:")
-    # st.write(best_result)
-    # st.write("### Tutti i Risultati:")
-    # st.dataframe(results_df)
 
