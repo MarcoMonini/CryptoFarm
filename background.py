@@ -84,7 +84,9 @@ def run_socket(data_queue, stop_event, symbol:str, interval:str):
                 "volume": float(kline["v"]),
                 "closed": kline["x"],
             }
-            print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
+            if kline["x"]:
+                print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
+            
             data_queue.put(data)
 
     socket_id = twm.start_kline_socket(
@@ -201,7 +203,7 @@ def place_order(client:Client, symbol:str, side:str, order_type:str, quantity:fl
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 print(Style.BRIGHT + f"KEY = {API_KEY}, SECRET = {API_SECRET}")
-asset = os.getenv("ASSET")
+asset = os.getenv("ASSET", "BTC")
 valuta = os.getenv("VALUTA", "USDC")
 symbol = asset + valuta
 interval = os.getenv("CANDLES_TIME", "15m")
@@ -294,16 +296,16 @@ while True:
 
     df_copy = df.copy()
 
-    if len(df_copy) >= 14:
+    if len(df_copy) >= atr_window:
         atr_indicator = AverageTrueRange(
             high=df_copy["High"],
             low=df_copy["Low"],
             close=df_copy["Close"],
-            window=14
+            window=atr_window
         )
         df_copy["ATR"] = atr_indicator.average_true_range()
 
-        sma_indicator = SMAIndicator(close=df_copy["Close"], window=14)
+        sma_indicator = SMAIndicator(close=df_copy["Close"], window=atr_window)
         df_copy["SMA"] = sma_indicator.sma_indicator()
         df_copy["Upper_Band"] = df_copy["SMA"] + atr_multiplier * df_copy["ATR"]
         df_copy["Lower_Band"] = df_copy["SMA"] - atr_multiplier * df_copy["ATR"]
@@ -316,6 +318,11 @@ while True:
             max_step=max_step
         )
         df_copy["PSAR"] = sar_indicator.psar()
+
+        print(f"Prezzo: {df_copy["Close"].iloc[-1]}, moltiplicatore: {atr_multiplier}")
+        print(f"PSAR: {df_copy["PSAR"].iloc[-1]}")
+        print(f"Upper: {df_copy["Upper_Band"].iloc[-1]}")
+        print(f"Lower: {df_copy["Lower_Band"].iloc[-1]}")
 
         if len(df_copy) > 1:
             i = len(df_copy) - 1

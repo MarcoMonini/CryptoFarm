@@ -353,19 +353,19 @@ def sar_trading_analysis(
         #     holding = False
         # ------------------------------------------------------------
         # # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
-        if (not holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-                (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
-            # Salviamo la chiusura della candela come prezzo di buy
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = True
-        # Segnale di vendita: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-        if (holding and (df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
-                (df['SAR'].iloc[i] > df['Close'].iloc[i])):
-            # Salviamo la chiusura della candela come prezzo di sell
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = False
+        # if (not holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
+        #         (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
+        #     # Salviamo la chiusura della candela come prezzo di buy
+        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = True
+        # # Segnale di vendita: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
+        # if (holding and (df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
+        #         (df['SAR'].iloc[i] > df['Close'].iloc[i])):
+        #     # Salviamo la chiusura della candela come prezzo di sell
+        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = False
         #------------------------------------------------------------
-        #upper trend: quando il SAR passa da > prezzo a < prezzo
+        # upper trend: quando il SAR passa da > prezzo a < prezzo
         if ((df['SAR'].iloc[i] < df['Close'].iloc[i]) and
                 (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
             upper_trend = True
@@ -477,15 +477,15 @@ def sar_trading_analysis(
             name='Lower ATR Band'
         ))
 
-        # RSI
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['RSI'],
-            mode='lines',
-            line=dict(color='purple', width=2),
-            name='RSI'
-        ))
-
+        # # RSI
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['RSI'],
+        #     mode='lines',
+        #     line=dict(color='purple', width=2),
+        #     name='RSI'
+        # ))
+        #
         # KELTNER CHANNELS
         fig.add_trace(go.Scatter(
             x=df.index,
@@ -494,36 +494,36 @@ def sar_trading_analysis(
             line=dict(color='blue', width=1, dash='dot'),
             name='KC Middle'
         ))
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['KC_high'],
-            mode='lines',
-            line=dict(color='blue', width=1),
-            name='KC High'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['KC_low'],
-            mode='lines',
-            line=dict(color='blue', width=1),
-            name='KC Low'
-        ))
-
-        # PIVOT POINTS DINAMICI (Rolling Min/Max)
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['rolling_max'],
-            mode='lines',
-            line=dict(color='orange', width=1),
-            name='Rolling Max'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['rolling_min'],
-            mode='lines',
-            line=dict(color='orange', width=1),
-            name='Rolling Min'
-        ))
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['KC_high'],
+        #     mode='lines',
+        #     line=dict(color='blue', width=1),
+        #     name='KC High'
+        # ))
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['KC_low'],
+        #     mode='lines',
+        #     line=dict(color='blue', width=1),
+        #     name='KC Low'
+        # ))
+        #
+        # # PIVOT POINTS DINAMICI (Rolling Min/Max)
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['rolling_max'],
+        #     mode='lines',
+        #     line=dict(color='orange', width=1),
+        #     name='Rolling Max'
+        # ))
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['rolling_min'],
+        #     mode='lines',
+        #     line=dict(color='orange', width=1),
+        #     name='Rolling Min'
+        # ))
 
         # 3) STOCHASTIC RSI
         #    Se lo vuoi sullo stesso grafico dei prezzi, lo aggiungiamo semplicemente come linea.
@@ -605,7 +605,7 @@ def sar_trading_analysis(
         ])
 
     print(f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, step={step}, max_step={max_step}, "
-          f"atr_multiplier={atr_multiplier}, atr_window={atr_window}, profitto totale={round(trades_df['Profit'].sum())}")
+          f"atr_multiplier={atr_multiplier}, atr_window={atr_window}, profitto totale={round(trades_df['Profit'].sum())} USD")
 
     # ======================================
     # 6. Restituiamo il grafico e il DataFrame
@@ -801,46 +801,46 @@ if __name__ == "__main__":
         initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
     )
     # ------------------------------
-    fig, trades_df, actual_hours = sar_trading_analysis(
-        asset='PENGUUSDC',
-        interval='15m',
-        wallet=1000.0,  # Wallet iniziale in USDT
-        step=0.002,
-        max_step=0.1,
-        time_hours=168,
-        fee_percent=0.1, # %
-        atr_multiplier=3.2,
-        atr_window=10
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.subheader("Resoconto Operazioni")
-    if not trades_df.empty:
-        st.write(trades_df)
-        total_profit = trades_df['Profit'].sum()
-        st.write(f"Profitto Totale: {total_profit:.2f} USDT")
-    else:
-        st.write("Nessuna operazione effettuata.")
+    # fig, trades_df, actual_hours = sar_trading_analysis(
+    #     asset='ETHUSDC',
+    #     interval='15m',
+    #     wallet=1000.0,  # Wallet iniziale in USDT
+    #     step=0.04,
+    #     max_step=0.4,
+    #     time_hours=17520,
+    #     fee_percent=0.1, # %
+    #     atr_multiplier=3.2,
+    #     atr_window=10
+    # )
+    # st.plotly_chart(fig, use_container_width=True)
+    # st.subheader("Resoconto Operazioni")
+    # if not trades_df.empty:
+    #     st.write(trades_df)
+    #     total_profit = trades_df['Profit'].sum()
+    #     st.write(f"Profitto Totale: {total_profit:.2f} USDT")
+    # else:
+    #     st.write("Nessuna operazione effettuata.")
     # ------------------------------
     # Parametri fissi per l'ottimizzazione
-    # wallet = 1000.0  # Capitale iniziale
-    # hours = 720  # Numero di ore
-    # assets = ["AAVEUSDC", "AMPUSDT", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
-    #           "ETHUSDC", "LINKUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
-    # intervals = ["15m"]
-    # steps = [0.04,0.042,0.044,0.046,0.048,0.05]
-    # max_steps = [0.4,0.5]
-    # atr_multipliers = [3.0,3.1,3.2,3.3,3.4]
-    # atr_windows = [10,11,12]
-    # dati = download_market_data(assets, intervals, hours)
-    # run_simulation(wallet=wallet,
-    #                hours=hours,
-    #                assets=assets,
-    #                intervals=intervals,
-    #                steps=steps,
-    #                max_steps=max_steps,
-    #                atr_multipliers=atr_multipliers,
-    #                atr_windows=atr_windows,
-    #                market_data=dati)
-    # print("Finito.")
+    wallet = 1000.0  # Capitale iniziale
+    hours = 4320  # Numero di ore
+    assets = ["AAVEUSDC", "AMPUSDT","ADAUSDC","AVAXUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
+               "ETHUSDC", "LINKUSDC","SOLUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+    intervals = ["5m","15m"]
+    steps = [0.04]
+    max_steps = [0.4]
+    atr_multipliers = [2.35,2.4,2.45]
+    atr_windows = [3,6,9]
+    dati = download_market_data(assets, intervals, hours)
+    run_simulation(wallet=wallet,
+                   hours=hours,
+                   assets=assets,
+                   intervals=intervals,
+                   steps=steps,
+                   max_steps=max_steps,
+                   atr_multipliers=atr_multipliers,
+                   atr_windows=atr_windows,
+                   market_data=dati)
+    print("Finito.")
 
 

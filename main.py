@@ -25,8 +25,9 @@ st.set_page_config(
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 # print(API_KEY, API_SECRET)
-assets = ["AAVEUSDC","AMPUSDT","AVAXUSDC","BTTCUSDT","DOGEUSDC","DOTUSDC",
-              "LINKUSDC","PEPEUSDC","PENGUUSDC","RUNEUSDC","SUIUSDC","ZENUSDT"]
+
+assets = ["AAVEUSDC", "AMPUSDT","ADAUSDC","AVAXUSDC", "BNBUSDC", "BTCUSDC","BTTCUSDT", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
+               "ETHUSDC", "LINKUSDC","SOLUSDC", "PEPEUSDC", "PENGUUSDC","RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
 
 # Inizializza le variabili per contenere il socket
 if "client" not in st.session_state:
@@ -166,7 +167,7 @@ def place_order(symbol, side, order_type, quantity, price=None):
 @st.cache_data
 def fetch_initial_candles(symbol:str, interval:str) -> pd.DataFrame:
     try:
-        klines = st.session_state["client"].get_klines(symbol=symbol, interval=interval, limit=30)
+        klines = st.session_state["client"].get_klines(symbol=symbol, interval=interval, limit=100)
         candles = []
         for kline in klines:
             candles.append({
@@ -241,6 +242,14 @@ with col1:
         step=0.01,
         disabled=disabled
     )
+    atr_multiplier = st.number_input(
+        "Moltiplicatore ATR",
+        min_value=1.0,
+        max_value=5.0,
+        value=3.2,
+        step=0.1,
+        disabled=disabled
+    )
 
 with col2:
     if st.button("STOP Socket"):
@@ -254,16 +263,14 @@ with col2:
             step=0.01,
             disabled=disabled
         )
-
-
-atr_multiplier = st.sidebar.number_input(
-    "Moltiplicatore ATR",
-    min_value=1.0,
-    max_value=5.0,
-    value=3.2,
-    step=0.1,
-    disabled=disabled
-)
+    atr_window = st.number_input(
+        "Finestra ATR",
+        min_value=1,
+        max_value=100,
+        value=6,
+        step=1,
+        disabled=disabled
+    )
 
 update_time = st.sidebar.number_input(
     "Tempo di aggiornamento (secondi)",
@@ -299,16 +306,16 @@ while True:
 
     df = st.session_state["df"].copy()
 
-    if len(df) >= 14:
+    if len(df) >= atr_window:
         atr_indicator = AverageTrueRange(
             high=df["High"],
             low=df["Low"],
             close=df["Close"],
-            window=14
+            window=atr_window
         )
         df["ATR"] = atr_indicator.average_true_range()
 
-        sma_indicator = SMAIndicator(close=df["Close"], window=14)
+        sma_indicator = SMAIndicator(close=df["Close"], window=atr_window)
         df["SMA"] = sma_indicator.sma_indicator()
 
         df["Upper_Band"] = df["SMA"] + atr_multiplier * df["ATR"]
@@ -322,6 +329,12 @@ while True:
             max_step=max_step
         )
         df["PSAR"] = sar_indicator.psar()
+
+        # print(f"Ora: {current_time}, Prezzo di chisura: {data["close"]}")
+        print(f"Prezzo: {df["Close"].iloc[-1]}, moltiplicatore: {atr_multiplier}")
+        print(f"PSAR: {df["PSAR"].iloc[-1]}")
+        print(f"Upper: {df["Upper_Band"].iloc[-1]}")
+        print(f"Lower: {df["Lower_Band"].iloc[-1]}")
 
         if len(df) > 1:
             i = len(df) - 1
