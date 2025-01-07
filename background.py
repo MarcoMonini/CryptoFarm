@@ -86,7 +86,7 @@ def run_socket(data_queue, stop_event, symbol:str, interval:str):
             }
             if kline["x"]:
                 print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
-            
+
             data_queue.put(data)
 
     socket_id = twm.start_kline_socket(
@@ -319,10 +319,10 @@ while True:
         )
         df_copy["PSAR"] = sar_indicator.psar()
 
-        print(f"Prezzo: {df_copy["Close"].iloc[-1]}, moltiplicatore: {atr_multiplier}")
-        print(f"PSAR: {df_copy["PSAR"].iloc[-1]}")
-        print(f"Upper: {df_copy["Upper_Band"].iloc[-1]}")
-        print(f"Lower: {df_copy["Lower_Band"].iloc[-1]}")
+        # print(f"Prezzo: {df_copy["Close"].iloc[-1]}, moltiplicatore: {atr_multiplier}")
+        # print(f"PSAR: {df_copy["PSAR"].iloc[-1]}")
+        # print(f"Upper: {df_copy["Upper_Band"].iloc[-1]}")
+        # print(f"Lower: {df_copy["Lower_Band"].iloc[-1]}")
 
         if len(df_copy) > 1:
             i = len(df_copy) - 1
