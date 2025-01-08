@@ -140,6 +140,7 @@ def adjust_quantity(quantity, min_qty, max_qty, step_size):
         float: Quantità regolata per rispettare i parametri.
     """
     # Assicurati che la quantità sia all'interno dei limiti
+    print("adjust quantity",quantity,min_qty,max_qty,step_size)
     if quantity < min_qty:
         return 0.0  # Non abbastanza per effettuare un ordine
     if quantity > max_qty:
@@ -209,8 +210,8 @@ symbol = asset + valuta
 interval = os.getenv("CANDLES_TIME", "15m")
 step = float(os.getenv("PSAR_STEP", 0.04))
 max_step = float(os.getenv("PSAR_MAX_STEP", 0.4))
-atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 3.2))
-atr_window = int(os.getenv("ATR_WINDOW", 10))
+atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 2.4))
+atr_window = int(os.getenv("ATR_WINDOW", 6))
 
 # asset = input("Inserisci l'asset da utilizzare (es. BTC): ")
 # valuta = input("Inserisci la valuta da utilizzare (USDC/USDT): ")
@@ -234,9 +235,9 @@ symbol_info = next((s for s in exchange_info['symbols'] if s['symbol'] == symbol
 if symbol_info:
     for filter_info in symbol_info['filters']:
         if filter_info['filterType'] == 'LOT_SIZE':
-            minQty = filter_info['minQty']
-            maxQty = filter_info['maxQty']
-            stepQty = filter_info['stepSize']
+            minQty = float(filter_info['minQty'])
+            maxQty = float(filter_info['maxQty'])
+            stepQty = float(filter_info['stepSize'])
             print(Style.BRIGHT + Fore.GREEN + f"Informazioni per {symbol}:")
             print(f"  MinQty: {minQty}")
             print(f"  MaxQty: {maxQty}")
@@ -328,6 +329,12 @@ while True:
             i = len(df_copy) - 1
             current_candle_time = df_copy.index[i]
             current_candle_price = df_copy["Close"].iloc[i]
+
+            # print(f"1) Prezzo: {df_copy["Close"].iloc[-1]}, PSAR: {df_copy["PSAR"].iloc[-1]}")
+            # print(f"2) Prezzo: {current_candle_price}, PSAR: {df_copy["PSAR"].iloc[i]}")
+            # print(f"3) holding: {holding}")
+            # print(f"last_signal_candle_time != current_candle_time :: {last_signal_candle_time != current_candle_time}")
+            # print(f"not holding and df_copy[PSAR].iloc[i] < current_candle_price:: {(not holding and df_copy["PSAR"].iloc[i] < current_candle_price)}")
 
             if last_signal_candle_time != current_candle_time:
                 if (not holding and

@@ -801,46 +801,46 @@ if __name__ == "__main__":
         initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
     )
     # ------------------------------
-    # fig, trades_df, actual_hours = sar_trading_analysis(
-    #     asset='ETHUSDC',
-    #     interval='15m',
-    #     wallet=1000.0,  # Wallet iniziale in USDT
-    #     step=0.04,
-    #     max_step=0.4,
-    #     time_hours=17520,
-    #     fee_percent=0.1, # %
-    #     atr_multiplier=3.2,
-    #     atr_window=10
-    # )
-    # st.plotly_chart(fig, use_container_width=True)
-    # st.subheader("Resoconto Operazioni")
-    # if not trades_df.empty:
-    #     st.write(trades_df)
-    #     total_profit = trades_df['Profit'].sum()
-    #     st.write(f"Profitto Totale: {total_profit:.2f} USDT")
-    # else:
-    #     st.write("Nessuna operazione effettuata.")
+    fig, trades_df, actual_hours = sar_trading_analysis(
+        asset='SOLBTC',
+        interval='15m',
+        wallet=1.0,  # Wallet iniziale in USDT
+        step=0.04,
+        max_step=0.4,
+        time_hours=17520,
+        fee_percent=0.1, # %
+        atr_multiplier=2.6,
+        atr_window=6
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Resoconto Operazioni")
+    if not trades_df.empty:
+        st.write(trades_df)
+        total_profit = trades_df['Profit'].sum()
+        st.write(f"Profitto Totale: {total_profit:.2f} USDT")
+    else:
+        st.write("Nessuna operazione effettuata.")
     # ------------------------------
     # Parametri fissi per l'ottimizzazione
-    wallet = 1000.0  # Capitale iniziale
-    hours = 4320  # Numero di ore
-    assets = ["AAVEUSDC", "AMPUSDT","ADAUSDC","AVAXUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
-               "ETHUSDC", "LINKUSDC","SOLUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
-    intervals = ["5m","15m"]
-    steps = [0.04]
-    max_steps = [0.4]
-    atr_multipliers = [2.35,2.4,2.45]
-    atr_windows = [3,6,9]
-    dati = download_market_data(assets, intervals, hours)
-    run_simulation(wallet=wallet,
-                   hours=hours,
-                   assets=assets,
-                   intervals=intervals,
-                   steps=steps,
-                   max_steps=max_steps,
-                   atr_multipliers=atr_multipliers,
-                   atr_windows=atr_windows,
-                   market_data=dati)
-    print("Finito.")
+    # wallet = 1000.0  # Capitale iniziale
+    # hours = 4320  # Numero di ore
+    # assets = ["AAVEUSDC", "AMPUSDT","ADAUSDC","AVAXUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
+    #            "ETHUSDC", "LINKUSDC","SOLUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+    # intervals = ["5m","15m"]
+    # steps = [0.04]
+    # max_steps = [0.4]
+    # atr_multipliers = [2.35,2.4,2.45]
+    # atr_windows = [3,6,9]
+    # dati = download_market_data(assets, intervals, hours)
+    # run_simulation(wallet=wallet,
+    #                hours=hours,
+    #                assets=assets,
+    #                intervals=intervals,
+    #                steps=steps,
+    #                max_steps=max_steps,
+    #                atr_multipliers=atr_multipliers,
+    #                atr_windows=atr_windows,
+    #                market_data=dati)
+    # print("Finito.")
 
 
