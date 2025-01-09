@@ -335,11 +335,13 @@ while True:
             # print(f"3) holding: {holding}")
             # print(f"last_signal_candle_time != current_candle_time :: {last_signal_candle_time != current_candle_time}")
             # print(f"not holding and df_copy[PSAR].iloc[i] < current_candle_price:: {(not holding and df_copy["PSAR"].iloc[i] < current_candle_price)}")
-            print("CRTL", df_copy["Close"].iloc[i], df_copy["Lower_Band"].iloc[i], df_copy["Upper_Band"].iloc[i])
+            print("CRTL", last_signal_candle_time,  current_candle_time, current_candle_price)
+            print("CRTL", holding, df_copy["PSAR"].iloc[i])
+            print("CRTL", df_copy["Lower_Band"].iloc[i], df_copy["Upper_Band"].iloc[i])
+            print("COND:", (not holding and (df_copy["PSAR"].iloc[i] < current_candle_price < df_copy["Lower_Band"].iloc[i])))
             if last_signal_candle_time != current_candle_time:
                 if (not holding and
-                        df_copy["PSAR"].iloc[i] < current_candle_price and
-                        df_copy["Close"].iloc[i] < df_copy["Lower_Band"].iloc[i]):
+                        (df_copy["PSAR"].iloc[i] < current_candle_price < df_copy["Lower_Band"].iloc[i])):
                     buy_signals.append((current_candle_time, current_candle_price))
                     print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
                     balance = print_user_and_wallet_info(client=client)
@@ -357,8 +359,7 @@ while True:
                         last_signal_candle_time = current_candle_time
                         holding = True
                 elif (holding and
-                      df_copy["PSAR"].iloc[i] > current_candle_price and
-                      df_copy["Close"].iloc[i] > df_copy["Upper_Band"].iloc[i]):
+                      (df_copy["PSAR"].iloc[i] > current_candle_price > df_copy["Upper_Band"].iloc[i])):
                     sell_signals.append((current_candle_time, current_candle_price))
                     print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
                     balance = print_user_and_wallet_info(client=client)
