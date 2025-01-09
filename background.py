@@ -334,11 +334,13 @@ while True:
             current_candle_price = df_copy["Close"].iloc[i]
 
             # upper trend: quando il SAR passa da > prezzo a < prezzo
-            if (df_copy["PSAR"].iloc[i] < current_candle_price) and (df["PSAR"].iloc[i - 1] > df_copy["Close"].iloc[i - 1]):
+            if ((df_copy["PSAR"].iloc[i] < current_candle_price) and
+                    (df["PSAR"].iloc[i - 1] > df_copy["Close"].iloc[i - 1])):
                 upper_trend = True
                 lower_trend = False
             # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-            if (df["PSAR"].iloc[i - 1] < df['Close'].iloc[i - 1]) and (df["PSAR"].iloc[i] > df["Close"].iloc[i]):
+            if ((df_copy["PSAR"].iloc[i - 1] < df_copy["Close"].iloc[i - 1]) and
+                    (df_copy["PSAR"].iloc[i] > current_candle_price)):
                 upper_trend = False
                 lower_trend = True
 
