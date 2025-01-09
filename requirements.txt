@@ -3,5 +3,6 @@ python-binance
 pandas
 plotly
 ta
+scipy
 keyboard
 colorama

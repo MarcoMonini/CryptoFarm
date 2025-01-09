@@ -11,6 +11,7 @@ import streamlit as st
 import numpy as np
 import math
 import time
+from scipy.signal import argrelextrema
 
 
 def interval_to_minutes(interval: str) -> int:
@@ -255,6 +256,22 @@ def sar_trading_analysis(
         df = market_data
         actual_hours = time_hours
 
+    # Aggiungiamo una colonna per i massimi e i minimi relativi
+    # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
+    price_high = df['High']
+    price_low = df['Low']
+    # Trova gli indici dei massimi e minimi relativi
+    max_idx = argrelextrema(price_high.values, np.greater, order=5)[0]
+    min_idx = argrelextrema(price_low.values, np.less, order=5)[0]
+    # Inizializza gli array per massimi e minimi
+    rel_max = []
+    rel_min = []
+    # Popola gli array con tuple (indice, prezzo)
+    for i in max_idx:
+        rel_max.append((df.index[i], df.loc[df.index[i], 'Close']))
+    for i in min_idx:
+        rel_min.append((df.index[i], df.loc[df.index[i], 'Close']))
+
 
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
@@ -327,8 +344,8 @@ def sar_trading_analysis(
     buy_signals = []
     sell_signals = []
     holding = False
-    upper_trend = False
-    lower_trend = False
+    # upper_trend = False
+    # lower_trend = False
     for i in range(1, len(df)):
         # ------------------------------------------------------------
         # # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
@@ -366,20 +383,19 @@ def sar_trading_analysis(
         #     holding = False
         #------------------------------------------------------------
         # upper trend: quando il SAR passa da > prezzo a < prezzo
-        if ((df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-                (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
-            upper_trend = True
-            lower_trend = False
-        # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-        if ((df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
-                (df['SAR'].iloc[i] > df['Close'].iloc[i])):
-            upper_trend = False
-            lower_trend = True
-
-        if (not holding and lower_trend and df['Low'].iloc[i]<df['Lower_Band'].iloc[i]):
+        # if ((df['SAR'].iloc[i] < df['Close'].iloc[i]) and
+        #         (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
+        #     upper_trend = True
+        #     lower_trend = False
+        # # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
+        # if ((df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
+        #         (df['SAR'].iloc[i] > df['Close'].iloc[i])):
+        #     upper_trend = False
+        #     lower_trend = True
+        if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i]<df['Lower_Band'].iloc[i]:
             buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
             holding = True
-        if (holding and upper_trend and df['High'].iloc[i]>df['Upper_Band'].iloc[i]):
+        if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i]>df['Upper_Band'].iloc[i]:
             sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
             holding = False
         # ------------------------------------------------------------
@@ -477,7 +493,7 @@ def sar_trading_analysis(
             name='Lower ATR Band'
         ))
 
-        # # RSI
+        # RSI
         # fig.add_trace(go.Scatter(
         #     x=df.index,
         #     y=df['RSI'],
@@ -525,23 +541,6 @@ def sar_trading_analysis(
         #     name='Rolling Min'
         # ))
 
-        # 3) STOCHASTIC RSI
-        #    Se lo vuoi sullo stesso grafico dei prezzi, lo aggiungiamo semplicemente come linea.
-        #    Spesso però si preferisce un subplot secondario. Qui, per semplicità, lo mettiamo insieme.
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['stoch_rsi'],
-        #     mode='lines',
-        #     line=dict(color='magenta', width=2),
-        #     name='Stoch RSI'
-        # ))
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['stoch_rsi_d'],
-        #     mode='lines',
-        #     line=dict(color='magenta', width=1, dash='dot'),
-        #     name='Stoch RSI D'
-        # ))
 
         # Segnali di acquisto
         if buy_signals:

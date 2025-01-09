@@ -22,12 +22,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
 )
 
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_SECRET")
-# print(API_KEY, API_SECRET)
+API_KEY = os.getenv("API_KEY", "key")
+API_SECRET = os.getenv("API_SECRET", "secret")
+print(API_KEY, API_SECRET)
 
 assets = ["AAVEUSDC", "AMPUSDT","ADAUSDC","AVAXUSDC", "BNBUSDC", "BTCUSDC","BTTCUSDT", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
-               "ETHUSDC", "LINKUSDC","SOLUSDC", "PEPEUSDC", "PENGUUSDC","RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+        "ETHUSDC", "LINKUSDC","SOLUSDC", "PEPEUSDC", "PENGUUSDC","RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
 
 # Inizializza le variabili per contenere il socket
 if "client" not in st.session_state:
