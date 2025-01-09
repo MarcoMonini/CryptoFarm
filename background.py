@@ -338,7 +338,7 @@ while True:
                 upper_trend = True
                 lower_trend = False
             # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-            if (df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and (df['SAR'].iloc[i] > df['Close'].iloc[i]):
+            if (df["PSAR"].iloc[i - 1] < df['Close'].iloc[i - 1]) and (df["PSAR"].iloc[i] > df["Close"].iloc[i]):
                 upper_trend = False
                 lower_trend = True
 
