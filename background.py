@@ -265,6 +265,9 @@ sell_signals = []
 last_signal_candle_time = None
 last_update = None
 holding = False
+upper_trend = False
+lower_trend = False
+
 if asset_balance > usd_balance:
     holding = True
 else:
@@ -330,18 +333,26 @@ while True:
             current_candle_time = df_copy.index[i]
             current_candle_price = df_copy["Close"].iloc[i]
 
+            # upper trend: quando il SAR passa da > prezzo a < prezzo
+            if (df_copy["PSAR"].iloc[i] < current_candle_price) and (df["PSAR"].iloc[i - 1] > df_copy["Close"].iloc[i - 1]):
+                upper_trend = True
+                lower_trend = False
+            # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
+            if (df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and (df['SAR'].iloc[i] > df['Close'].iloc[i]):
+                upper_trend = False
+                lower_trend = True
+
             # print(f"1) Prezzo: {df_copy["Close"].iloc[-1]}, PSAR: {df_copy["PSAR"].iloc[-1]}")
-            # print(f"2) Prezzo: {current_candle_price}, PSAR: {df_copy["PSAR"].iloc[i]}")
-            # print(f"3) holding: {holding}")
+            print(f"-) Price: {current_candle_price}, Time: {current_candle_time}")
             # print(f"last_signal_candle_time != current_candle_time :: {last_signal_candle_time != current_candle_time}")
             # print(f"not holding and df_copy[PSAR].iloc[i] < current_candle_price:: {(not holding and df_copy["PSAR"].iloc[i] < current_candle_price)}")
-            print("CRTL", last_signal_candle_time,  current_candle_time, current_candle_price)
-            print("CRTL", holding, df_copy["PSAR"].iloc[i])
-            print("CRTL", df_copy["Lower_Band"].iloc[i], df_copy["Upper_Band"].iloc[i])
-            print("COND:", (not holding and (df_copy["PSAR"].iloc[i] < current_candle_price < df_copy["Lower_Band"].iloc[i])))
+            # print("CRTL", last_signal_candle_time,  current_candle_time, current_candle_price)
+            # print("CRTL", holding, df_copy["PSAR"].iloc[i])
+            print(f"-) LowerBand: {df_copy["Lower_Band"].iloc[i]}, UpperBand: {df_copy["Upper_Band"].iloc[i]}")
+            # print("COND:", (not holding and (df_copy["PSAR"].iloc[i] < current_candle_price < df_copy["Lower_Band"].iloc[i])))
+            print(f"-) holding: {holding}, Upper: {upper_trend}, Lower: {lower_trend}")
             if last_signal_candle_time != current_candle_time:
-                if (not holding and
-                        (df_copy["PSAR"].iloc[i] < current_candle_price < df_copy["Lower_Band"].iloc[i])):
+                if not holding and lower_trend and (current_candle_price <= df_copy["Lower_Band"].iloc[i]):
                     buy_signals.append((current_candle_time, current_candle_price))
                     print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
                     balance = print_user_and_wallet_info(client=client)
@@ -358,8 +369,7 @@ while True:
                     if response:
                         last_signal_candle_time = current_candle_time
                         holding = True
-                elif (holding and
-                      (df_copy["PSAR"].iloc[i] > current_candle_price > df_copy["Upper_Band"].iloc[i])):
+                elif holding and upper_trend and (current_candle_price >= df_copy["Upper_Band"].iloc[i]):
                     sell_signals.append((current_candle_time, current_candle_price))
                     print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
                     balance = print_user_and_wallet_info(client=client)
