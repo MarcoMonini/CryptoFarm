@@ -265,8 +265,6 @@ sell_signals = []
 last_signal_candle_time = None
 last_update = None
 holding = False
-# upper_trend = False
-# lower_trend = False
 
 if asset_balance > usd_balance:
     holding = True
@@ -323,28 +321,14 @@ while True:
         )
         df_copy["PSAR"] = sar_indicator.psar()
 
-        # print(f"Prezzo: {df_copy["Close"].iloc[-1]}, moltiplicatore: {atr_multiplier}")
-        # print(f"PSAR: {df_copy["PSAR"].iloc[-1]}")
-        # print(f"Upper: {df_copy["Upper_Band"].iloc[-1]}")
-        # print(f"Lower: {df_copy["Lower_Band"].iloc[-1]}")
-
         if len(df_copy) > 1:
             i = len(df_copy) - 1
             current_candle_time = df_copy.index[i]
             current_candle_price = df_copy["Close"].iloc[i]
 
-            print(f"-) Price: {current_candle_price}, PSAR: {df_copy["PSAR"].iloc[i]} ")
-            print(f"-) LowerBand: {df_copy["Lower_Band"].iloc[i]}, UpperBand: {df_copy["Upper_Band"].iloc[i]}")
-            print(f"-) holding: {holding}, Time: {current_candle_time}")
-
-            # # upper trend: quando il SAR < prezzo
-            # if df_copy["PSAR"].iloc[i] < current_candle_price:
-            #     upper_trend = True
-            #     lower_trend = False
-            # # lower trend: quando il SAR > prezzo
-            # if df_copy["PSAR"].iloc[i] > current_candle_price:
-            #     upper_trend = False
-            #     lower_trend = True
+            # print(f"-) Price: {current_candle_price}, PSAR: {df_copy["PSAR"].iloc[i]} ")
+            # print(f"-) LowerBand: {df_copy["Lower_Band"].iloc[i]}, UpperBand: {df_copy["Upper_Band"].iloc[i]}")
+            # print(f"-) holding: {holding}, Time: {current_candle_time}")
 
             if last_signal_candle_time != current_candle_time:
                 if (not holding and df_copy["PSAR"].iloc[i] > current_candle_price
