@@ -200,13 +200,18 @@ def sar_trading_analysis(
         asset: str,
         interval: str,
         wallet: float,
-        step: float,
-        max_step: float,
+        step: float, # compreso tra 0.001 e 0.1
+        max_step: float, # compreso tra 0.1 e 1
         time_hours: int = 24,
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
         show: bool = True,
         atr_multiplier: float = 1.5,  # Moltiplicatore per le Rolling ATR Bands
-        atr_window: int = 14,
+        atr_window: int = 14, # compreso tra 2 e 30
+        window_pivot: int = 10, # compreso tra 2 e 30 (numeri pari)
+        rsi_window: int = 10, # compreso tra 2 e 50
+        macd_short_window: int = 12, # compreso tra 4 e 20
+        macd_long_window: int = 26, # compreso tra 20 e 50
+        macd_signal_window: int = 9, # short < signal < long
         market_data: dict = None
 ):
     """
@@ -259,8 +264,9 @@ def sar_trading_analysis(
     price_high = df['High']
     price_low = df['Low']
     # Trova gli indici dei massimi e minimi relativi
-    max_idx = argrelextrema(price_high.values, np.greater, order=5)[0]
-    min_idx = argrelextrema(price_low.values, np.less, order=5)[0]
+    order = int(window_pivot/2)
+    max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
+    min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
     # Inizializza gli array per massimi e minimi
     rel_max = []
     rel_min = []
@@ -312,7 +318,7 @@ def sar_trading_analysis(
 
     # Calcolo dell'RSI
     # Impostazione classica RSI(14). Se vuoi segnali più veloci, puoi provare RSI(7) o RSI(9).
-    rsi_window = 30
+    # rsi_window = 30
     rsi_indicator = RSIIndicator(
         close=df['Close'],
         window=rsi_window
@@ -320,23 +326,18 @@ def sar_trading_analysis(
     df['RSI'] = rsi_indicator.rsi()
 
     # Pivot Points dinamici
-    window_pivot = 10  # dimensione della finestra per cercare minimi/massimi locali
+    # window_pivot = 10  # dimensione della finestra per cercare minimi/massimi locali
     # Creiamo colonne che rappresentano il massimo e minimo degli ultimi N periodi
     df['rolling_max'] = df['High'].rolling(window_pivot).max()
     df['rolling_min'] = df['Low'].rolling(window_pivot).min()
 
     # Calcolo delle linee MACD
-    # Parametri del MACD (standard: short=12, long=26, signal=9)
-    short_window = 12
-    long_window = 26
-    signal_window = 9
-
     # Calcolo del MACD
     macd_indicator = MACD(
         close=df['Close'],
-        window_slow=long_window,
-        window_fast=short_window,
-        window_sign=signal_window
+        window_slow=macd_long_window,
+        window_fast=macd_short_window,
+        window_sign=macd_signal_window
     )
     # Aggiungere le colonne del MACD al DataFrame
     df['MACD'] = macd_indicator.macd()  # Linea MACD
@@ -598,8 +599,6 @@ def sar_trading_analysis(
     # ======================================
     if operations:
         trades_df = pd.DataFrame(operations)
-        # Opzionale: profitto cumulato
-        # trades_df['CumulativeProfit'] = trades_df['Profit'].cumsum()
         # Aggiungiamo qualche metrica sul periodo analizzato
         apertura = df['Open'].iloc[0]  # Prezzo di apertura (prima candela)
         chiusura = df['Close'].iloc[-1]  # Prezzo di chiusura (ultima candela)
@@ -614,7 +613,6 @@ def sar_trading_analysis(
         trades_df['minimo'] = low_min
         trades_df['variazione(%)'] = variazione
         trades_df['volatilita(%)'] = volatilita
-
     else:
         # Nessun trade effettuato
         trades_df = pd.DataFrame(columns=[
@@ -836,9 +834,19 @@ if __name__ == "__main__":
     with col1:
         step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.0, value=0.04, step=0.01)
         atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=3.2, step=0.1)
+        rsi_window = st.number_input(label="RSI Window", min_value=2.0, max_value=500.0, value=10, step=1)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
+        window_pivot = st.number_input(label="Min-Max Window", min_value=2.0, max_value=500.0, value=10, step=2)
+    col1, col2, col3 = st.sidebar.columns(3)
+    with col1:
+        macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
+    with col2:
+        macd_long_window = st.number_input(label="MACD Long Window", min_value=1, max_value=100, value=26, step=1)
+    with col3:
+        macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
+
     if st.sidebar.button("Simulate"):
         fig, trades_df, actual_hours = sar_trading_analysis(
             asset=symbol,
@@ -849,7 +857,12 @@ if __name__ == "__main__":
             time_hours=time_hours,
             fee_percent=0.1,  # %
             atr_multiplier=atr_multiplier,
-            atr_window=atr_window
+            atr_window=atr_window,
+            window_pivot=window_pivot,
+            rsi_window=rsi_window,
+            macd_short_window=macd_short_window,
+            macd_long_window=macd_long_window,
+            macd_signal_window=macd_signal_window
         )
         fig_placeholder.plotly_chart(fig, use_container_width=True)
         st.subheader("Operations Report")
