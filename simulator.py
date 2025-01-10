@@ -266,10 +266,10 @@ def sar_trading_analysis(
     rel_max = []
     rel_min = []
     # Popola gli array con tuple (indice, prezzo)
-    for i in max_idx:
-        rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
     for i in min_idx:
         rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
+    for i in max_idx:
+        rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
 
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
@@ -344,8 +344,8 @@ def sar_trading_analysis(
     buy_signals = []
     sell_signals = []
     holding = False
-    # upper_trend = False
-    # lower_trend = False
+    # Simulazione acquisto e vendita in corrispondenza dei massimi e minimi
+    holding_min_max = False
     for i in range(1, len(df)):
         # ------------------------------------------------------------
         # # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
@@ -399,6 +399,33 @@ def sar_trading_analysis(
             sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
             holding = False
         # ------------------------------------------------------------
+        # if not holding_min_max and df.index[i] == rel_min
+
+    valori_ottimi_min = []  # Lista per salvare i risultati
+    for item in rel_min:
+        index = item[0]  # L'indice è il primo elemento della tupla
+        if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
+            rsi_value = df.loc[index, 'RSI']
+            macd_value = df.loc[index, 'MACD']
+            psar = "Down" if df.loc[index, 'Low'] < df.loc[index, 'PSAR'] else "Up"
+            atr = "Down" if df.loc[index, 'Low'] < df.loc[index, 'Lower_Band'] else "Up"
+            valori_ottimi_min.append({'RSI': rsi_value, 'MACD': macd_value, 'PSAR': psar, 'ATR': atr})
+        else:
+            print(f"Index {index} not found in DataFrame.")
+    df_min_best = pd.DataFrame(valori_ottimi_min)
+
+    valori_ottimi_max = []  # Lista per salvare i risultati
+    for item in rel_max:
+        index = item[0]  # L'indice è il primo elemento della tupla
+        if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
+            rsi_value = df.loc[index, 'RSI']
+            macd_value = df.loc[index, 'MACD']
+            psar = "Down" if df.loc[index, 'High'] < df.loc[index, 'PSAR'] else "Up"
+            atr = "Down" if df.loc[index, 'High'] < df.loc[index, 'Upper_Band'] else "Up"
+            valori_ottimi_max.append({'RSI': rsi_value, 'MACD': macd_value, 'PSAR': psar, 'ATR': atr})
+        else:
+            print(f"Index {index} not found in DataFrame.")
+    df_max_best = pd.DataFrame(valori_ottimi_max)
 
     # ======================================
     # Simulazione di trading con commissioni
@@ -658,7 +685,7 @@ def sar_trading_analysis(
     print(f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, step={step}, max_step={max_step}, "
           f"atr_multiplier={atr_multiplier}, atr_window={atr_window}, profitto totale={round(trades_df['Profit'].sum())} USD")
 
-    return fig, fig_rsi, fig_macd, trades_df, actual_hours
+    return fig, fig_rsi, fig_macd, trades_df, actual_hours, df_min_best, df_max_best
 
 
 if __name__ == "__main__":
@@ -705,7 +732,7 @@ if __name__ == "__main__":
         macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
 
     if st.sidebar.button("SIMULATE"):
-        fig, fig_rsi, fig_macd, trades_df, actual_hours = sar_trading_analysis(
+        fig, fig_rsi, fig_macd, trades_df, actual_hours, _, _ = sar_trading_analysis(
             asset=symbol,
             interval=interval,
             wallet=wallet,  # Wallet iniziale
