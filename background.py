@@ -20,10 +20,11 @@ init(autoreset=True)
 def print_user_and_wallet_info(client:Client):
     try:
         account_info = client.get_account()
-        print(Style.BRIGHT + Fore.GREEN + f"UID: {account_info['uid']}, Tipo Account: {account_info['accountType']}")
+        print(Style.BRIGHT + Fore.GREEN + f"UID: {account_info['uid']}, Tipo: {account_info['accountType']}, "
+                                          f"Trade: {'✅' if account_info['canTrade'] else '❌'} ")
         # print(Style.BRIGHT + f"Tipo Account: {account_info['accountType']}")
-        print(f"Permessi: {'✅' if account_info['canTrade'] else '❌'} Trade")
-        print(Style.BRIGHT + "Saldo Disponibile")
+        # print(f"Permessi: {'✅' if account_info['canTrade'] else '❌'} Trade")
+        print(Style.BRIGHT + "Saldo Disponibile:")
         balances = account_info.get("balances", [])
         non_zero_balances = [
             {"asset": b["asset"], "free": float(b["free"]), "locked": float(b["locked"])}
@@ -189,12 +190,10 @@ def place_order(client:Client, symbol:str, side:str, order_type:str, quantity:fl
             return False
 
         print(Style.BRIGHT + Fore.CYAN + f"Ordine {side} eseguito con successo:")
-        print(Style.BRIGHT + Fore.CYAN + f" Asset: {order['symbol']}")
-        print(Style.BRIGHT + Fore.CYAN + f" Quantità: {order['fills'][0]['qty']}")
-        print(Style.BRIGHT + Fore.CYAN + f" Commissione: {order['fills'][0]['commission']}")
-        print(Style.BRIGHT + Fore.CYAN + f" Prezzo: {order['fills'][0]['price']}")
-        print(Style.BRIGHT + Fore.CYAN + f" Valuta: {order['fills'][0]['commissionAsset']}")
-        print(Style.BRIGHT + Fore.CYAN + f" Costo totale: {order['fills'][0]['qty'] * order['fills'][0]['price']}")
+        print(Style.BRIGHT + Fore.CYAN + f"  Asset: {order['symbol']}")
+        print(Style.BRIGHT + Fore.CYAN + f"  Quantità: {order['fills'][0]['qty']}")
+        print(Style.BRIGHT + Fore.CYAN + f"  Commissione: {order['fills'][0]['commission']}")
+        print(Style.BRIGHT + Fore.CYAN + f"  Prezzo: {order['fills'][0]['price']}")
         return True
     except Exception as e:
         print(Style.BRIGHT + Fore.RED + f"Errore durante l'esecuzione dell'ordine: {e}")
