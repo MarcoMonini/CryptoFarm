@@ -249,8 +249,7 @@ def sar_trading_analysis(
     """
 
     # ======================================
-    # 1. Scarica i dati di mercato e calcola il SAR
-    # ======================================
+    # Scarica i dati di mercato e calcola il SAR
     if market_data is None:
         # Otteniamo i dati di mercato (funzione esterna da definire)
         # df = get_market_data(asset=asset, interval=interval, limit=limit)
@@ -345,8 +344,7 @@ def sar_trading_analysis(
     df['MACD_Hist'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
 
     # ======================================
-    # 2. Identificazione dei segnali di acquisto e vendita
-    # ======================================
+    # Identificazione dei segnali di acquisto e vendita
     buy_signals = []
     sell_signals = []
     holding = False
@@ -407,8 +405,7 @@ def sar_trading_analysis(
         # ------------------------------------------------------------
 
     # ======================================
-    # 3. Simulazione di trading con commissioni
-    # ======================================
+    # Simulazione di trading con commissioni
     operations = []
     holding = False  # Flag che indica se stiamo detenendo l'asset
     quantity = 0.0  # Quantità dell'asset comprata
@@ -459,9 +456,10 @@ def sar_trading_analysis(
             quantity = 0.0
 
     # ======================================
-    # 4. Creazione del grafico (Plotly)
-    # ======================================
+    # 4. Creazione del grafico
     fig = go.Figure()
+    fig_rsi = go.Figure()
+    fig_macd = go.Figure()
     if show:
         # Candele (candlestick)
         fig.add_trace(go.Candlestick(
@@ -532,14 +530,6 @@ def sar_trading_analysis(
             line=dict(color='orange', width=1),
             name='Rolling Min'
         ))
-        # RSI
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['RSI'],
-        #     mode='lines',
-        #     line=dict(color='purple', width=2),
-        #     name='RSI'
-        # ))
 
         # Massimi relativi
         if rel_max:
@@ -549,7 +539,7 @@ def sar_trading_analysis(
                 y=max_prices,
                 mode='markers',
                 marker=dict(size=14, color='red', symbol='open-dot'),
-                name='Segnale di Massimo locale'
+                name='Local Maximum'
             ))
         # Minimi relativi
         if rel_min:
@@ -559,7 +549,7 @@ def sar_trading_analysis(
                 y=min_prices,
                 mode='markers',
                 marker=dict(size=14, color='green', symbol='open-dot'),
-                name='Segnale di Minimo locale'
+                name='Local Minimum'
             ))
 
         # Segnali di acquisto
@@ -570,7 +560,7 @@ def sar_trading_analysis(
                 y=buy_prices,
                 mode='markers',
                 marker=dict(size=14, color='green', symbol='triangle-up'),
-                name='Segnale Acquisto'
+                name='Buy Signal'
             ))
 
         # Segnali di vendita
@@ -581,22 +571,72 @@ def sar_trading_analysis(
                 y=sell_prices,
                 mode='markers',
                 marker=dict(size=14, color='red', symbol='triangle-down'),
-                name='Segnale Vendita'
+                name='Sell Signal'
             ))
+        # RSI
+        fig_rsi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['RSI'],
+            mode='lines',
+            line=dict(color='purple', width=2),
+            name='RSI'
+        ))
 
-        # Layout e aspetto del grafico
+        # MACD
+        fig_macd.add_trace(go.Scatter(
+            x=df.index,
+            y=df['MACD'],
+            mode='lines',
+            name='MACD Line',
+            line=dict(color='blue')
+        ))
+        fig_macd.add_trace(go.Scatter(
+            x=df.index,
+            y=df['Signal_Line'],
+            mode='lines',
+            name='Signal Line',
+            line=dict(color='red')
+        ))
+        fig_macd.add_trace(go.Bar(
+            x=df.index,
+            y=df['MACD_Hist'],
+            name='MACD Histogram',
+            marker=dict(color='green')
+        ))
+
+        # Layout e aspetto del grafico principale
         fig.update_layout(
-            title=f"Grafico {asset} ({interval}) con SAR e Segnali di Trading",
-            xaxis_title="Data e Ora",
-            yaxis_title=f"Prezzo ({asset[-4:]})",  # esempio: USDT, USDC, ecc.
+            title=f"{asset} ({interval}) CandleChart",
+            xaxis_title="Date",
+            yaxis_title=f"Price",
             xaxis_rangeslider_visible=False,
             template="plotly_dark",
             height=600
         )
+        # Configurare il layout del grafico MACD
+        fig_macd.update_layout(
+            title='MACD, Signal Line, and Histogram',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=200
+        )
+        # Configurare il layout del grafico per l'RSI
+        fig_rsi.update_layout(
+            title='Relative Strength Index (RSI)',
+            xaxis_title='Date',
+            yaxis_title='RSI',
+            yaxis=dict(
+                range=[0, 100],  # L'RSI va tipicamente da 0 a 100
+                showgrid=True,  # Mostrare una griglia per facilitare la lettura
+            ),
+            template="plotly_dark",
+            height=200
+        )
+
 
     # ======================================
-    # 5. Creazione del DataFrame finale con le operazioni
-    # ======================================
+    # Creazione del DataFrame finale con le operazioni
     if operations:
         trades_df = pd.DataFrame(operations)
         # Aggiungiamo qualche metrica sul periodo analizzato
@@ -623,10 +663,7 @@ def sar_trading_analysis(
     print(f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, step={step}, max_step={max_step}, "
           f"atr_multiplier={atr_multiplier}, atr_window={atr_window}, profitto totale={round(trades_df['Profit'].sum())} USD")
 
-    # ======================================
-    # 6. Restituiamo il grafico e il DataFrame
-    # ======================================
-    return fig, trades_df, actual_hours
+    return fig, fig_rsi, fig_macd, trades_df, actual_hours
 
 
 def run_simulation(wallet: float,
@@ -816,7 +853,10 @@ if __name__ == "__main__":
         layout="wide",  # Layout: "centered" o "wide"
         initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
     )
+    text_placeholder = st.empty()
     fig_placeholder = st.empty()
+    fig_rsi_placeholder = st.empty()
+    fig_macd_placeholder = st.empty()
     st.sidebar.title("Market parameters")
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -847,8 +887,8 @@ if __name__ == "__main__":
     with col3:
         macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
 
-    if st.sidebar.button("Simulate"):
-        fig, trades_df, actual_hours = sar_trading_analysis(
+    if st.sidebar.button("SIMULATE"):
+        fig, fig_rsi, fig_macd, trades_df, actual_hours = sar_trading_analysis(
             asset=symbol,
             interval=interval,
             wallet=wallet,  # Wallet iniziale
@@ -864,14 +904,18 @@ if __name__ == "__main__":
             macd_long_window=macd_long_window,
             macd_signal_window=macd_signal_window
         )
-        fig_placeholder.plotly_chart(fig, use_container_width=True)
-        st.subheader("Operations Report")
+        text_placeholder.subheader("Operations Report")
         if not trades_df.empty:
-            st.write(trades_df)
+            text_placeholder.write(trades_df)
             total_profit = trades_df['Profit'].sum()
-            st.write(f"Total profit: {total_profit:.2f} {currency}")
+            text_placeholder.write(f"Total profit: {total_profit:.2f} {currency}")
         else:
-            st.write("No operation performed.")
+            text_placeholder.write("No operation performed.")
+
+        fig_placeholder.plotly_chart(fig, use_container_width=True)
+        fig_rsi_placeholder.plotly_chart(fig_rsi, use_container_width=True)
+        fig_macd_placeholder.plotly_chart(fig_macd, use_container_width=True)
+
     # ------------------------------
     # Parametri fissi per l'ottimizzazione
     # wallet = 1000.0  # Capitale iniziale
