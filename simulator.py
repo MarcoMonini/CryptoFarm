@@ -619,7 +619,7 @@ def sar_trading_analysis(
             xaxis_title='Date',
             yaxis_title='Value',
             template="plotly_dark",
-            height=200
+            height=400
         )
         # Configurare il layout del grafico per l'RSI
         fig_rsi.update_layout(
@@ -631,7 +631,7 @@ def sar_trading_analysis(
                 showgrid=True,  # Mostrare una griglia per facilitare la lettura
             ),
             template="plotly_dark",
-            height=200
+            height=400
         )
 
 
