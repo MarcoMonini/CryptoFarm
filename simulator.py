@@ -610,6 +610,23 @@ def sar_trading_analysis(
             line=dict(color='purple', width=2),
             name='RSI'
         ))
+        # Linea tratteggiata a 70 (overbought)
+        fig_rsi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[70, 70],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Overbought'
+        ))
+
+        # Linea tratteggiata a 30 (oversold)
+        fig_rsi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[30, 30],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Oversold'
+        ))
 
         # MACD
         fig_macd.add_trace(go.Scatter(
@@ -657,7 +674,6 @@ def sar_trading_analysis(
             yaxis_title='RSI',
             yaxis=dict(
                 range=[0, 100],  # L'RSI va tipicamente da 0 a 100
-                showgrid=True,  # Mostrare una griglia per facilitare la lettura
             ),
             template="plotly_dark",
             height=300
