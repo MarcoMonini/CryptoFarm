@@ -271,9 +271,9 @@ def sar_trading_analysis(
     rel_min = []
     # Popola gli array con tuple (indice, prezzo)
     for i in max_idx:
-        rel_max.append((df.index[i], df.loc[df.index[i], 'Close']))
+        rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
     for i in min_idx:
-        rel_min.append((df.index[i], df.loc[df.index[i], 'Close']))
+        rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
 
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
