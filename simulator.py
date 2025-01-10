@@ -5,7 +5,7 @@ from ta.volatility import AverageTrueRange
 from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
 from ta.volatility import KeltnerChannel
-from ta.momentum import StochRSIIndicator
+from ta.trend import MACD
 from binance import Client
 import streamlit as st
 import numpy as np
@@ -94,9 +94,9 @@ def get_market_data(
         chunk_klines = client.get_klines(
             symbol=asset,
             interval=interval,
-            limit=chunk_size,      # max 1000
-            startTime=fetch_start, # in ms
-            endTime=now_ms         # in ms
+            limit=chunk_size,  # max 1000
+            startTime=fetch_start,  # in ms
+            endTime=now_ms  # in ms
         )
 
         if not chunk_klines:
@@ -206,8 +206,8 @@ def sar_trading_analysis(
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
         show: bool = True,
         atr_multiplier: float = 1.5,  # Moltiplicatore per le Rolling ATR Bands
-        atr_window:int = 14,
-        market_data:dict = None
+        atr_window: int = 14,
+        market_data: dict = None
 ):
     """
     Scarica le candele di 'asset' con intervallo 'interval' (tramite una funzione
@@ -270,7 +270,6 @@ def sar_trading_analysis(
     for i in min_idx:
         rel_min.append((df.index[i], df.loc[df.index[i], 'Close']))
 
-
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
         high=df['High'],
@@ -313,10 +312,10 @@ def sar_trading_analysis(
 
     # Calcolo dell'RSI
     # Impostazione classica RSI(14). Se vuoi segnali più veloci, puoi provare RSI(7) o RSI(9).
-    # rsi_period = 14
+    rsi_window = 30
     rsi_indicator = RSIIndicator(
         close=df['Close'],
-        window=30
+        window=rsi_window
     )
     df['RSI'] = rsi_indicator.rsi()
 
@@ -326,15 +325,23 @@ def sar_trading_analysis(
     df['rolling_max'] = df['High'].rolling(window_pivot).max()
     df['rolling_min'] = df['Low'].rolling(window_pivot).min()
 
-    # Stoch RSI standard con window=14, smooth1=3, smooth2=3
-    # df["stoch_rsi"] = StochRSIIndicator(
-    #     close=df['Close'],
-    #     window=14,
-    #     smooth1=3,
-    #     smooth2=3
-    # )
-    # df['stoch_rsi_k'] = stoch_rsi.stoch_rsi_k()
-    # df['stoch_rsi_d'] = stoch_rsi.stoch_rsi_d()
+    # Calcolo delle linee MACD
+    # Parametri del MACD (standard: short=12, long=26, signal=9)
+    short_window = 12
+    long_window = 26
+    signal_window = 9
+
+    # Calcolo del MACD
+    macd_indicator = MACD(
+        close=df['Close'],
+        window_slow=long_window,
+        window_fast=short_window,
+        window_sign=signal_window
+    )
+    # Aggiungere le colonne del MACD al DataFrame
+    df['MACD'] = macd_indicator.macd()  # Linea MACD
+    df['Signal_Line'] = macd_indicator.macd_signal()  # Linea di segnale
+    df['MACD_Hist'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
 
     # ======================================
     # 2. Identificazione dei segnali di acquisto e vendita
@@ -464,7 +471,6 @@ def sar_trading_analysis(
             close=df['Close'],
             name=f"{asset}"
         ))
-
         # Punti SAR (marker rossi)
         fig.add_trace(go.Scatter(
             x=df.index,
@@ -473,7 +479,6 @@ def sar_trading_analysis(
             marker=dict(size=4, color='yellow', symbol='circle'),
             name='SAR'
         ))
-
         # Rolling ATR Bands
         fig.add_trace(go.Scatter(
             x=df.index,
@@ -489,16 +494,6 @@ def sar_trading_analysis(
             line=dict(color='green', width=1),
             name='Lower ATR Band'
         ))
-
-        # RSI
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['RSI'],
-        #     mode='lines',
-        #     line=dict(color='purple', width=2),
-        #     name='RSI'
-        # ))
-        #
         # KELTNER CHANNELS
         fig.add_trace(go.Scatter(
             x=df.index,
@@ -507,37 +502,64 @@ def sar_trading_analysis(
             line=dict(color='blue', width=1, dash='dot'),
             name='KC Middle'
         ))
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['KC_high'],
+            mode='lines',
+            line=dict(color='blue', width=1),
+            name='KC High'
+        ))
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['KC_low'],
+            mode='lines',
+            line=dict(color='blue', width=1),
+            name='KC Low'
+        ))
+        # PIVOT POINTS DINAMICI (Rolling Min/Max)
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['rolling_max'],
+            mode='lines',
+            line=dict(color='orange', width=1),
+            name='Rolling Max'
+        ))
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['rolling_min'],
+            mode='lines',
+            line=dict(color='orange', width=1),
+            name='Rolling Min'
+        ))
+        # RSI
         # fig.add_trace(go.Scatter(
         #     x=df.index,
-        #     y=df['KC_high'],
+        #     y=df['RSI'],
         #     mode='lines',
-        #     line=dict(color='blue', width=1),
-        #     name='KC High'
-        # ))
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['KC_low'],
-        #     mode='lines',
-        #     line=dict(color='blue', width=1),
-        #     name='KC Low'
-        # ))
-        #
-        # # PIVOT POINTS DINAMICI (Rolling Min/Max)
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['rolling_max'],
-        #     mode='lines',
-        #     line=dict(color='orange', width=1),
-        #     name='Rolling Max'
-        # ))
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['rolling_min'],
-        #     mode='lines',
-        #     line=dict(color='orange', width=1),
-        #     name='Rolling Min'
+        #     line=dict(color='purple', width=2),
+        #     name='RSI'
         # ))
 
+        # Massimi relativi
+        if rel_max:
+            max_times, max_prices = zip(*rel_max)
+            fig.add_trace(go.Scatter(
+                x=max_times,
+                y=max_prices,
+                mode='markers',
+                marker=dict(size=14, color='red', symbol='open-dot'),
+                name='Segnale di Massimo locale'
+            ))
+        # Minimi relativi
+        if rel_min:
+            min_times, min_prices = zip(*rel_min)
+            fig.add_trace(go.Scatter(
+                x=min_times,
+                y=min_prices,
+                mode='markers',
+                marker=dict(size=14, color='green', symbol='open-dot'),
+                name='Segnale di Minimo locale'
+            ))
 
         # Segnali di acquisto
         if buy_signals:
@@ -610,14 +632,14 @@ def sar_trading_analysis(
 
 
 def run_simulation(wallet: float,
-                   hours:int,
-                   assets:list,
-                   intervals:list,
-                   steps:list,
-                   max_steps:list,
-                   atr_multipliers:list,
-                   atr_windows:list,
-                   market_data:dict = None):
+                   hours: int,
+                   assets: list,
+                   intervals: list,
+                   steps: list,
+                   max_steps: list,
+                   atr_multipliers: list,
+                   atr_windows: list,
+                   market_data: dict = None):
     """
     Esegue una simulazione massiva di strategie Buy/Sell basate sul SAR
     (Parabolic SAR). Per ogni combinazione di:
@@ -757,7 +779,7 @@ def run_simulation(wallet: float,
                                 'Tempo': time_string,
                                 'Step': step,
                                 'Max Step': max_step,
-                                'Moltiplicatore ATR':atr_multiplier,
+                                'Moltiplicatore ATR': atr_multiplier,
                                 'Finestra ATR': atr_window,
                                 'Prezzo Massimo': prezzo_massimo,
                                 'Prezzo Minimo': prezzo_minimo,
@@ -796,26 +818,47 @@ if __name__ == "__main__":
         layout="wide",  # Layout: "centered" o "wide"
         initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
     )
-    # ------------------------------
-    fig, trades_df, actual_hours = sar_trading_analysis(
-        asset='SOLBTC',
-        interval='15m',
-        wallet=1.0,  # Wallet iniziale in USDT
-        step=0.04,
-        max_step=0.4,
-        time_hours=17520,
-        fee_percent=0.1,# %
-        atr_multiplier=2.6,
-        atr_window=6
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.subheader("Resoconto Operazioni")
-    if not trades_df.empty:
-        st.write(trades_df)
-        total_profit = trades_df['Profit'].sum()
-        st.write(f"Profitto Totale: {total_profit:.2f} USDT")
-    else:
-        st.write("Nessuna operazione effettuata.")
+    fig_placeholder = st.empty()
+    st.sidebar.title("Market parameters")
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        asset = st.text_input(label="Asset", placeholder="es. BTC, ETH, XRP...", max_chars=8)
+        time_hours = st.number_input(label="Time Hours", min_value=0, value=24, step=24)
+    with col2:
+        currency = st.text_input(label="Currency", placeholder="es. USDC, USDT, EUR...", max_chars=8, value="USDC")
+        interval = st.selectbox(label="Candle Interval",
+                                options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"],
+                                value=3)
+    symbol = asset+currency
+    wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=1000, step=1)
+    st.sidebar.title("Indicators parameters")
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.0, value=0.04, step=0.01)
+        atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=3.2, step=0.1)
+    with col2:
+        max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
+        atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
+    if st.sidebar.button("Simulate"):
+        fig, trades_df, actual_hours = sar_trading_analysis(
+            asset=symbol,
+            interval=interval,
+            wallet=wallet,  # Wallet iniziale
+            step=step,
+            max_step=max_step,
+            time_hours=time_hours,
+            fee_percent=0.1,  # %
+            atr_multiplier=atr_multiplier,
+            atr_window=atr_window
+        )
+        fig_placeholder.plotly_chart(fig, use_container_width=True)
+        st.subheader("Operations Report")
+        if not trades_df.empty:
+            st.write(trades_df)
+            total_profit = trades_df['Profit'].sum()
+            st.write(f"Total profit: {total_profit:.2f} {currency}")
+        else:
+            st.write("No operation performed.")
     # ------------------------------
     # Parametri fissi per l'ottimizzazione
     # wallet = 1000.0  # Capitale iniziale
@@ -838,5 +881,3 @@ if __name__ == "__main__":
     #                atr_windows=atr_windows,
     #                market_data=dati)
     # print("Finito.")
-
-

@@ -20,8 +20,8 @@ init(autoreset=True)
 def print_user_and_wallet_info(client:Client):
     try:
         account_info = client.get_account()
-        print(Style.BRIGHT + Fore.GREEN + f"UID: {account_info['uid']}")
-        print(Style.BRIGHT + f"Tipo Account: {account_info['accountType']}")
+        print(Style.BRIGHT + Fore.GREEN + f"UID: {account_info['uid']}, Tipo Account: {account_info['accountType']}")
+        # print(Style.BRIGHT + f"Tipo Account: {account_info['accountType']}")
         print(f"Permessi: {'✅' if account_info['canTrade'] else '❌'} Trade")
         print(Style.BRIGHT + "Saldo Disponibile")
         balances = account_info.get("balances", [])
