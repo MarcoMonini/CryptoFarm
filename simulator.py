@@ -229,8 +229,6 @@ def sar_trading_analysis(
         Passo (step) per il calcolo del SAR (param. 'step' in PSARIndicator).
     max_step : float
         Valore massimo di step (param. 'max_step' in PSARIndicator).
-    limit : int, optional !!!!!!!!NOOOOOOO!!!!!!!!!
-        Numero di candele da scaricare (default 500).
     time_hours: int, optional
         tempo in ore che si vuole scaricare
     fee_percent : float, optional
@@ -392,14 +390,13 @@ def sar_trading_analysis(
         #         (df['SAR'].iloc[i] > df['Close'].iloc[i])):
         #     upper_trend = False
         #     lower_trend = True
-        if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i]<df['Lower_Band'].iloc[i]:
+        if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
             buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
             holding = True
-        if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i]>df['Upper_Band'].iloc[i]:
+        if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
             sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
             holding = False
         # ------------------------------------------------------------
-
 
     # ======================================
     # 3. Simulazione di trading con commissioni
@@ -807,7 +804,7 @@ if __name__ == "__main__":
         step=0.04,
         max_step=0.4,
         time_hours=17520,
-        fee_percent=0.1, # %
+        fee_percent=0.1,# %
         atr_multiplier=2.6,
         atr_window=6
     )

@@ -274,7 +274,7 @@ else:
 # Thread per ascoltare l'input
 print(Style.BRIGHT + Fore.YELLOW + "Il Job sta per inziare. Per terminarlo premi 'q'.")
 print(Style.BRIGHT + "Riepilogo parametri")
-print(f" Simbolo: {symbol} ({asset_balance})")
+print(f" Simbolo: {symbol} ({asset_balance}), holding: {holding}")
 print(f" USD disponibili: {usd_balance}")
 print(f" Intervallo: {interval}")
 print(f" PSAR Step: {step}")
@@ -346,9 +346,18 @@ while True:
                                            side="BUY",
                                            order_type="MARKET",
                                            quantity=adjusted_quantity)
-                    if response:
+                    # aspetto e verifico che l'ordine è andato a buon fine
+                    time.sleep(10)
+                    balance = print_user_and_wallet_info(client=client)
+                    asset_balance = get_asset_balance(balance=balance, asset=asset)
+                    usd_balance = get_asset_balance(balance=balance, asset=valuta)
+                    if asset_balance > usd_balance:
                         last_signal_candle_time = current_candle_time
                         holding = True
+                    # if response:
+                    #     last_signal_candle_time = current_candle_time
+                    #     holding = True
+
                 elif (holding and df_copy["PSAR"].iloc[i] < current_candle_price
                       and (current_candle_price >= df_copy["Upper_Band"].iloc[i])):
                     sell_signals.append((current_candle_time, current_candle_price))
@@ -363,9 +372,17 @@ while True:
                                            side="SELL",
                                            order_type="MARKET",
                                            quantity=adjusted_quantity)
-                    if response:
+                    # aspetto e verifico che l'ordine è andato a buon fine
+                    time.sleep(10)
+                    balance = print_user_and_wallet_info(client=client)
+                    asset_balance = get_asset_balance(balance=balance, asset=asset)
+                    usd_balance = get_asset_balance(balance=balance, asset=valuta)
+                    if asset_balance < usd_balance:
                         last_signal_candle_time = current_candle_time
                         holding = False
+                    # if response:
+                    #     last_signal_candle_time = current_candle_time
+                    #     holding = False
 
     # if keyboard.is_pressed('q'):
     #     print(Style.BRIGHT + Fore.RED + "\nHai premuto 'q'. Sto terminando il Job...")

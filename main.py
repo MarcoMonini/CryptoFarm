@@ -26,8 +26,9 @@ API_KEY = os.getenv("API_KEY", "key")
 API_SECRET = os.getenv("API_SECRET", "secret")
 print(API_KEY, API_SECRET)
 
-assets = ["AAVEUSDC", "AMPUSDT","ADAUSDC","AVAXUSDC", "BNBUSDC", "BTCUSDC","BTTCUSDT", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
-        "ETHUSDC", "LINKUSDC","SOLUSDC", "PEPEUSDC", "PENGUUSDC","RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+assets = ["AAVEUSDC", "AMPUSDT", "ADAUSDC", "AVAXUSDC", "BNBUSDC", "BTCUSDC", "BTTCUSDT", "DEXEUSDT", "DOGEUSDC",
+          "DOTUSDC", "ETHUSDC", "LINKUSDC", "SOLUSDC", "PEPEUSDC", "PENGUUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT",
+          "XRPUSDT"]
 
 # Inizializza le variabili per contenere il socket
 if "client" not in st.session_state:
@@ -50,10 +51,11 @@ if "last_update" not in st.session_state:
 if "holding" not in st.session_state:
     st.session_state["holding"] = False
 
+
 ###############################################################################
 # Funzione che gira in un thread dedicato e ascolta il WebSocket
 ###############################################################################
-def run_socket(data_queue, stop_event, symbol:str, interval:str):
+def run_socket(data_queue, stop_event, symbol: str, interval: str):
     twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
     twm.start()
 
@@ -83,10 +85,11 @@ def run_socket(data_queue, stop_event, symbol:str, interval:str):
     twm.stop_socket(socket_id)
     twm.stop()
 
+
 ###############################################################################
 # Funzione per avviare il thread (se non esiste già)
 ###############################################################################
-def start_socket_thread(symbol:str, interval:str):
+def start_socket_thread(symbol: str, interval: str):
     if "socket_thread" not in st.session_state:
         st.session_state["data_queue"] = queue.Queue()
         st.session_state["stop_event"] = threading.Event()
@@ -103,6 +106,7 @@ def start_socket_thread(symbol:str, interval:str):
 
         st.session_state["socket_thread"] = thread
 
+
 ###############################################################################
 # Funzione per fermare il thread (se attivo)
 ###############################################################################
@@ -118,6 +122,7 @@ def stop_socket_thread():
         del st.session_state["buy_signals"]
         del st.session_state["sell_signals"]
         del st.session_state["last_signal_candle_time"]
+
 
 ###############################################################################
 # Funzione per creare un ordine su Binance
@@ -165,7 +170,7 @@ def place_order(symbol, side, order_type, quantity, price=None):
 
 
 @st.cache_data
-def fetch_initial_candles(symbol:str, interval:str) -> pd.DataFrame:
+def fetch_initial_candles(symbol: str, interval: str) -> pd.DataFrame:
     try:
         klines = st.session_state["client"].get_klines(symbol=symbol, interval=interval, limit=100)
         candles = []
@@ -256,13 +261,13 @@ with col2:
         if "socket_thread" in st.session_state:
             stop_socket_thread()
     max_step = st.number_input(
-            "PSAR Max Step",
-            min_value=0.01,
-            max_value=1.0,
-            value=0.4,
-            step=0.01,
-            disabled=disabled
-        )
+        "PSAR Max Step",
+        min_value=0.01,
+        max_value=1.0,
+        value=0.4,
+        step=0.01,
+        disabled=disabled
+    )
     atr_window = st.number_input(
         "Finestra ATR",
         min_value=1,
@@ -279,7 +284,6 @@ update_time = st.sidebar.number_input(
     value=10,
     step=1
 )
-
 
 placeholder = st.empty()
 
