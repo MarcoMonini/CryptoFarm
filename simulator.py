@@ -504,7 +504,7 @@ def sar_trading_analysis(
             x=df.index,
             y=df['SAR'],
             mode='markers',
-            marker=dict(size=4, color='yellow', symbol='circle'),
+            marker=dict(size=2, color='yellow', symbol='circle'),
             name='SAR'
         ))
         # Rolling ATR Bands
@@ -567,7 +567,7 @@ def sar_trading_analysis(
                 x=max_times,
                 y=max_prices,
                 mode='markers',
-                marker=dict(size=1, color='red', symbol='square-open'),
+                marker=dict(size=10, color='red', symbol='square-open'),
                 name='Local Max'
             ))
         # Minimi relativi
@@ -577,7 +577,7 @@ def sar_trading_analysis(
                 x=min_times,
                 y=min_prices,
                 mode='markers',
-                marker=dict(size=12, color='green', symbol='square-open'),
+                marker=dict(size=10, color='green', symbol='square-open'),
                 name='Local Min'
             ))
 
@@ -648,7 +648,7 @@ def sar_trading_analysis(
             xaxis_title='Date',
             yaxis_title='Value',
             template="plotly_dark",
-            height=400
+            height=300
         )
         # Configurare il layout del grafico per l'RSI
         fig_rsi.update_layout(
@@ -660,7 +660,7 @@ def sar_trading_analysis(
                 showgrid=True,  # Mostrare una griglia per facilitare la lettura
             ),
             template="plotly_dark",
-            height=400
+            height=300
         )
 
     # ======================================
@@ -723,7 +723,7 @@ if __name__ == "__main__":
     col1, col2 = st.sidebar.columns(2)
     with col1:
         step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.0, value=0.04, step=0.01)
-        atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=3.2, step=0.1)
+        atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=2.4, step=0.1)
         rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=10, step=1)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
