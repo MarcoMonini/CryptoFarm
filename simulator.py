@@ -561,8 +561,8 @@ def sar_trading_analysis(
                 x=max_times,
                 y=max_prices,
                 mode='markers',
-                marker=dict(size=14, color='red', symbol='square-open'),
-                name='Local Maximum'
+                marker=dict(size=1, color='red', symbol='square-open'),
+                name='Local Max'
             ))
         # Minimi relativi
         if rel_min:
@@ -571,8 +571,8 @@ def sar_trading_analysis(
                 x=min_times,
                 y=min_prices,
                 mode='markers',
-                marker=dict(size=14, color='green', symbol='square-open'),
-                name='Local Minimum'
+                marker=dict(size=12, color='green', symbol='square-open'),
+                name='Local Min'
             ))
 
         # Segnali di acquisto
@@ -582,7 +582,7 @@ def sar_trading_analysis(
                 x=buy_times,
                 y=buy_prices,
                 mode='markers',
-                marker=dict(size=14, color='green', symbol='triangle-up'),
+                marker=dict(size=1, color='green', symbol='triangle-up'),
                 name='Buy Signal'
             ))
 
