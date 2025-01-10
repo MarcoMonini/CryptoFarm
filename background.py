@@ -354,6 +354,7 @@ while True:
                     if asset_balance > usd_balance:
                         last_signal_candle_time = current_candle_time
                         holding = True
+                        print(Style.BRIGHT + f"BUY Order Completed, holding: {holding}")
                     # if response:
                     #     last_signal_candle_time = current_candle_time
                     #     holding = True
@@ -380,6 +381,7 @@ while True:
                     if asset_balance < usd_balance:
                         last_signal_candle_time = current_candle_time
                         holding = False
+                        print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
                     # if response:
                     #     last_signal_candle_time = current_candle_time
                     #     holding = False
