@@ -412,7 +412,7 @@ def sar_trading_analysis(
             valori_ottimi_min.append({'RSI': rsi_value, 'MACD': macd_value, 'PSAR': psar, 'ATR': atr})
         else:
             print(f"Index {index} not found in DataFrame.")
-    df_min_best = pd.DataFrame(valori_ottimi_min)
+    # df_min_best = pd.DataFrame(valori_ottimi_min)
 
     valori_ottimi_max = []  # Lista per salvare i risultati
     for item in rel_max:
@@ -425,7 +425,7 @@ def sar_trading_analysis(
             valori_ottimi_max.append({'RSI': rsi_value, 'MACD': macd_value, 'PSAR': psar, 'ATR': atr})
         else:
             print(f"Index {index} not found in DataFrame.")
-    df_max_best = pd.DataFrame(valori_ottimi_max)
+    # df_max_best = pd.DataFrame(valori_ottimi_max)
 
     # ======================================
     # Simulazione di trading con commissioni
@@ -685,7 +685,7 @@ def sar_trading_analysis(
     print(f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, step={step}, max_step={max_step}, "
           f"atr_multiplier={atr_multiplier}, atr_window={atr_window}, profitto totale={round(trades_df['Profit'].sum())} USD")
 
-    return fig, fig_rsi, fig_macd, trades_df, actual_hours, df_min_best, df_max_best
+    return fig, fig_rsi, fig_macd, trades_df, actual_hours, valori_ottimi_min, valori_ottimi_max
 
 
 if __name__ == "__main__":

@@ -34,6 +34,8 @@ def run_simulation(wallet: float,
     st.write("Avvio simulazione massiva...")
 
     simulazioni = []
+    ottimi_min = []
+    ottimi_max = []
 
     for interval in intervals:
         # Calcolo del tempo totale coperto dalle candele (utile per ROI giornaliero)
@@ -59,7 +61,7 @@ def run_simulation(wallet: float,
                                         for macd_long_window in macd_long_windows:
                                             for macd_signal_window in macd_signal_windows:
                                                 try:
-                                                    _, _, _, trades_df, actual_hours = simulator.sar_trading_analysis(
+                                                    _, _, _, trades_df, actual_hours, lista_max, lista_min = simulator.sar_trading_analysis(
                                                         asset=asset,
                                                         interval=interval,
                                                         wallet=wallet,
@@ -80,6 +82,10 @@ def run_simulation(wallet: float,
                                                     st.error(
                                                         f"Errore durante sar_trading_analysis({asset}, {interval}): {e}")
                                                     continue
+
+                                                # concateno tutti i risultati degli ottimi
+                                                ottimi_min.extend(lista_min)
+                                                ottimi_max.extend(lista_max)
 
                                                 total_days = actual_hours / 24
                                                 time_string = f"{actual_hours:.2f} ore ({total_days:.2f} giorni)"
@@ -193,7 +199,7 @@ def run_simulation(wallet: float,
                                                     'ROI totale (%)': round(roi_percent, 2),
                                                     'ROI giornaliero (%)': round(daily_roi_percent, 2)
                                                 })
-    return simulazioni
+    return simulazioni, ottimi_min, ottimi_max
 
     # if simulazioni:
     #     results_df = pd.DataFrame(simulazioni)
@@ -221,7 +227,7 @@ if __name__ == "__main__":
     macd_long_windows = [26]
     macd_signal_windows = [9]
     dati = simulator.download_market_data(assets, intervals, hours)
-    simulazioni = run_simulation(wallet=wallet,
+    simulazioni, ottimi_min, ottimi_max = run_simulation(wallet=wallet,
                    hours=hours,
                    assets=assets,
                    intervals=intervals,
@@ -236,8 +242,13 @@ if __name__ == "__main__":
                    macd_signal_windows=macd_signal_windows,
                    market_data=dati)
     if simulazioni:
-        results_df = pd.DataFrame(simulazioni)
-        st.dataframe(results_df)
+        st.dataframe(pd.DataFrame(simulazioni))
     else:
         st.warning("Nessuna simulazione eseguita o nessun trade effettuato.")
+
+    if ottimi_min:
+        st.dataframe(pd.DataFrame(ottimi_min))
+    if ottimi_max:
+        st.dataframe(pd.DataFrame(ottimi_max))
+
     print("Finito.")
