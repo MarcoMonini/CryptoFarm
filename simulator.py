@@ -874,11 +874,11 @@ if __name__ == "__main__":
     with col1:
         step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.0, value=0.04, step=0.01)
         atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=3.2, step=0.1)
-        rsi_window = st.number_input(label="RSI Window", min_value=2.0, max_value=500.0, value=10, step=1)
+        rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=10, step=1)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
-        window_pivot = st.number_input(label="Min-Max Window", min_value=2.0, max_value=500.0, value=10, step=2)
+        window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=10, step=2)
     col1, col2, col3 = st.sidebar.columns(3)
     with col1:
         macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
