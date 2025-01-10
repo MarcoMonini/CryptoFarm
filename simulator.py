@@ -407,9 +407,12 @@ def sar_trading_analysis(
         if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
             rsi_value = df.loc[index, 'RSI']
             macd_value = df.loc[index, 'MACD']
-            psar = "Down" if df.loc[index, 'Low'] < df.loc[index, 'PSAR'] else "Up"
+            signal_value = df.loc[index, 'Signal_Line']
+            hist_value = df.loc[index, 'MACD_Hist']
+            # psar = "Down" if df.loc[index, 'Low'] < df.loc[index, 'PSAR'] else "Up"
             atr = "Down" if df.loc[index, 'Low'] < df.loc[index, 'Lower_Band'] else "Up"
-            valori_ottimi_min.append({'RSI': rsi_value, 'MACD': macd_value, 'PSAR': psar, 'ATR': atr})
+            valori_ottimi_min.append({'RSI': rsi_value, 'MACD': macd_value, 'Signal': signal_value,
+                                      'MACD Histogram': hist_value, 'PSAR': '', 'ATR': atr})
         else:
             print(f"Index {index} not found in DataFrame.")
     # df_min_best = pd.DataFrame(valori_ottimi_min)
@@ -420,9 +423,12 @@ def sar_trading_analysis(
         if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
             rsi_value = df.loc[index, 'RSI']
             macd_value = df.loc[index, 'MACD']
-            psar = "Down" if df.loc[index, 'High'] < df.loc[index, 'PSAR'] else "Up"
+            signal_value = df.loc[index, 'Signal_Line']
+            hist_value = df.loc[index, 'MACD_Hist']
+            # psar = "Down" if df.loc[index, 'High'] < df.loc[index, 'PSAR'] else "Up"
             atr = "Down" if df.loc[index, 'High'] < df.loc[index, 'Upper_Band'] else "Up"
-            valori_ottimi_max.append({'RSI': rsi_value, 'MACD': macd_value, 'PSAR': psar, 'ATR': atr})
+            valori_ottimi_max.append({'RSI': rsi_value, 'MACD': macd_value, 'Signal': signal_value,
+                                      'MACD Histogram': hist_value, 'PSAR': '', 'ATR': atr})
         else:
             print(f"Index {index} not found in DataFrame.")
     # df_max_best = pd.DataFrame(valori_ottimi_max)
