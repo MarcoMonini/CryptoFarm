@@ -538,7 +538,7 @@ def sar_trading_analysis(
                 x=max_times,
                 y=max_prices,
                 mode='markers',
-                marker=dict(size=14, color='red', symbol='open-dot'),
+                marker=dict(size=14, color='red', symbol='square-open'),
                 name='Local Maximum'
             ))
         # Minimi relativi
@@ -548,7 +548,7 @@ def sar_trading_analysis(
                 x=min_times,
                 y=min_prices,
                 mode='markers',
-                marker=dict(size=14, color='green', symbol='open-dot'),
+                marker=dict(size=14, color='green', symbol='square-open'),
                 name='Local Minimum'
             ))
 
@@ -848,7 +848,7 @@ if __name__ == "__main__":
     # ------------------------------
     # Configura il titolo della pagina e il logo
     st.set_page_config(
-        page_title="Simulator",  # Titolo della scheda del browser
+        page_title="CryptoFarm Simulator",  # Titolo della scheda del browser
         page_icon="📈",  # Icona (grafico che sale, simbolico per un mercato finanziario)
         layout="wide",  # Layout: "centered" o "wide"
         initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
