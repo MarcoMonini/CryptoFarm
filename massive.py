@@ -193,14 +193,14 @@ def run_simulation(wallet: float,
                                                     'ROI totale (%)': round(roi_percent, 2),
                                                     'ROI giornaliero (%)': round(daily_roi_percent, 2)
                                                 })
+    return simulazioni
 
-    # Terminati tutti i loop, mostriamo i risultati
-    if simulazioni:
-        results_df = pd.DataFrame(simulazioni)
-        st.write("## Risultati delle simulazioni:")
-        st.dataframe(results_df)
-    else:
-        st.warning("Nessuna simulazione eseguita o nessun trade effettuato.")
+    # if simulazioni:
+    #     results_df = pd.DataFrame(simulazioni)
+    #     st.write("## Risultati delle simulazioni:")
+    #     st.dataframe(results_df)
+    # else:
+    #     st.warning("Nessuna simulazione eseguita o nessun trade effettuato.")
 
 
 if __name__ == "__main__":
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     macd_long_windows = [26]
     macd_signal_windows = [9]
     dati = simulator.download_market_data(assets, intervals, hours)
-    run_simulation(wallet=wallet,
+    simulazioni = run_simulation(wallet=wallet,
                    hours=hours,
                    assets=assets,
                    intervals=intervals,
@@ -235,4 +235,9 @@ if __name__ == "__main__":
                    macd_long_windows=macd_long_windows,
                    macd_signal_windows=macd_signal_windows,
                    market_data=dati)
+    if simulazioni:
+        results_df = pd.DataFrame(simulazioni)
+        st.dataframe(results_df)
+    else:
+        st.warning("Nessuna simulazione eseguita o nessun trade effettuato.")
     print("Finito.")
