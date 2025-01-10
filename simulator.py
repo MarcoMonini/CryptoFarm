@@ -866,7 +866,7 @@ if __name__ == "__main__":
         currency = st.text_input(label="Currency", placeholder="es. USDC, USDT, EUR...", max_chars=8, value="USDC")
         interval = st.selectbox(label="Candle Interval",
                                 options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"],
-                                value=3)
+                                index=3)
     symbol = asset+currency
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=1000, step=1)
     st.sidebar.title("Indicators parameters")
