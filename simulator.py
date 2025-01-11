@@ -208,6 +208,8 @@ def sar_trading_analysis(
         macd_short_window: int = 12,  # compreso tra 4 e 20
         macd_long_window: int = 26,  # compreso tra 20 e 50
         macd_signal_window: int = 9,  # short < signal < long
+        rsi_buy_limit: int = 40,
+        rsi_sell_limit: int = 60,
         market_data: dict = None
 ):
     """
@@ -392,46 +394,57 @@ def sar_trading_analysis(
         #         (df['SAR'].iloc[i] > df['Close'].iloc[i])):
         #     upper_trend = False
         #     lower_trend = True
-        if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
-            buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+        # ------------------------------------------------------------
+        # STRATEGIA ATTUALMENTE ATTIVA
+        # if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+        #     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+        #     holding = True
+        # if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+        #     holding = False
+        # ------------------------------------------------------------
+        if (not holding and (df['RSI'].iloc[i] < rsi_buy_limit) and
+                (df['SAR'].iloc[i] > df['Close'].iloc[i]) and
+                (df['Lower_Band'].iloc[i] > df['Low'].iloc[i]) and
+                (df['MACD_Hist'].iloc[i] < 0)):
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
-        if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+        if (holding and (df['RSI'].iloc[i] > rsi_sell_limit) and
+                (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
+                (df['Upper_Band'].iloc[i] < df['High'].iloc[i]) and
+                (df['MACD_Hist'].iloc[i] > 0)):
             sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
             holding = False
-        # ------------------------------------------------------------
-        # if not holding_min_max and df.index[i] == rel_min
 
-    valori_ottimi_min = []  # Lista per salvare i risultati
+    valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
         index = item[0]  # L'indice è il primo elemento della tupla
         if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
-            rsi_value = df.loc[index, 'RSI']
-            macd_value = df.loc[index, 'MACD']
-            signal_value = df.loc[index, 'Signal_Line']
-            hist_value = df.loc[index, 'MACD_Hist']
-            # psar = "Down" if df.loc[index, 'Low'] < df.loc[index, 'PSAR'] else "Up"
-            atr = "Down" if df.loc[index, 'Low'] < df.loc[index, 'Lower_Band'] else "Up"
-            valori_ottimi_min.append({'RSI': rsi_value, 'MACD': macd_value, 'Signal': signal_value,
-                                      'MACD Histogram': hist_value, 'PSAR': '', 'ATR': atr})
+            valori_ottimi.append({'Type':"Min",
+                                      'Prezzo':df.loc[index,'Low'],
+                                      'RSI': df.loc[index, 'RSI'],
+                                      'PSAR': df.loc[index, 'SAR'],
+                                      'ATR': df.loc[index, 'Lower_Band'],
+                                      'MACD': df.loc[index, 'MACD'],
+                                      'MACD Signal': df.loc[index, 'Signal_Line'],
+                                      'MACD Histogram': df.loc[index, 'MACD_Hist']
+                                      })
         else:
             print(f"Index {index} not found in DataFrame.")
-    # df_min_best = pd.DataFrame(valori_ottimi_min)
-
-    valori_ottimi_max = []  # Lista per salvare i risultati
     for item in rel_max:
         index = item[0]  # L'indice è il primo elemento della tupla
         if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
-            rsi_value = df.loc[index, 'RSI']
-            macd_value = df.loc[index, 'MACD']
-            signal_value = df.loc[index, 'Signal_Line']
-            hist_value = df.loc[index, 'MACD_Hist']
-            # psar = "Down" if df.loc[index, 'High'] < df.loc[index, 'PSAR'] else "Up"
-            atr = "Down" if df.loc[index, 'High'] < df.loc[index, 'Upper_Band'] else "Up"
-            valori_ottimi_max.append({'RSI': rsi_value, 'MACD': macd_value, 'Signal': signal_value,
-                                      'MACD Histogram': hist_value, 'PSAR': '', 'ATR': atr})
+            valori_ottimi.append({'Type':"Max",
+                                      'Prezzo': df.loc[index, 'Low'],
+                                      'RSI': df.loc[index, 'RSI'],
+                                      'PSAR': df.loc[index, 'SAR'],
+                                      'ATR': df.loc[index, 'Upper_Band'],
+                                      'MACD': df.loc[index, 'MACD'],
+                                      'MACD Signal': df.loc[index, 'Signal_Line'],
+                                      'MACD Histogram': df.loc[index, 'MACD_Hist']
+                                      })
         else:
             print(f"Index {index} not found in DataFrame.")
-    # df_max_best = pd.DataFrame(valori_ottimi_max)
 
     # ======================================
     # Simulazione di trading con commissioni
@@ -588,7 +601,7 @@ def sar_trading_analysis(
                 x=buy_times,
                 y=buy_prices,
                 mode='markers',
-                marker=dict(size=1, color='green', symbol='triangle-up'),
+                marker=dict(size=14, color='green', symbol='triangle-up'),
                 name='Buy Signal'
             ))
 
@@ -705,9 +718,11 @@ def sar_trading_analysis(
         ])
 
     print(f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, step={step}, max_step={max_step}, "
-          f"atr_multiplier={atr_multiplier}, atr_window={atr_window}, profitto totale={round(trades_df['Profit'].sum())} USD")
+          f"atr_multiplier={atr_multiplier}, atr_window={atr_window}, rsi_window={rsi_window}, "
+          f"rsi_buy_limit={rsi_buy_limit}, rsi_sell_limit={rsi_sell_limit}, "
+          f"profitto totale={round(trades_df['Profit'].sum())} USD")
 
-    return fig, fig_rsi, fig_macd, trades_df, actual_hours, valori_ottimi_min, valori_ottimi_max
+    return fig, fig_rsi, fig_macd, trades_df, actual_hours, valori_ottimi
 
 
 if __name__ == "__main__":
@@ -734,17 +749,19 @@ if __name__ == "__main__":
                                 options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"],
                                 index=3)
     symbol = asset + currency
-    wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=1000, step=1)
+    wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.0, value=0.04, step=0.01)
+        step = st.number_input(label="PSAR Step", min_value=0.0001, max_value=1.0, value=0.04, step=0.01)
         atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=2.4, step=0.1)
         rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=10, step=1)
+        rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=40, step=5)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
         window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=10, step=2)
+        rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=60, step=5)
     col1, col2, col3 = st.sidebar.columns(3)
     with col1:
         macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
@@ -754,7 +771,7 @@ if __name__ == "__main__":
         macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
 
     if st.sidebar.button("SIMULATE"):
-        fig, fig_rsi, fig_macd, trades_df, actual_hours, _, _ = sar_trading_analysis(
+        fig, fig_rsi, fig_macd, trades_df, actual_hours,_ = sar_trading_analysis(
             asset=symbol,
             interval=interval,
             wallet=wallet,  # Wallet iniziale
@@ -768,7 +785,9 @@ if __name__ == "__main__":
             rsi_window=rsi_window,
             macd_short_window=macd_short_window,
             macd_long_window=macd_long_window,
-            macd_signal_window=macd_signal_window
+            macd_signal_window=macd_signal_window,
+            rsi_buy_limit=rsi_buy_limit,
+            rsi_sell_limit=rsi_sell_limit
         )
         text_placeholder.subheader("Operations Report")
         if not trades_df.empty:
