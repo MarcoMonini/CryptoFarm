@@ -218,19 +218,23 @@ def run_simulation(wallet: float,
 if __name__ == "__main__":
     # ------------------------------
     # Parametri fissati per l'ottimizzazione
-    wallet = 1000.0  # Capitale iniziale
-    hours = 600  # Numero di ore
+    wallet = 100.0  # Capitale iniziale
+    hours = 8760  # Numero di ore
     assets = ["AAVEUSDC", "AMPUSDT", "ADAUSDC", "AVAXUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
-              "ETHUSDC", "LINKUSDC", "SOLUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+              "ETHUSDC", "LINKUSDC", "SOLUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT",
+    #           ]
+    # assets = [
+        "XRPBTC","ADABTC","ETHBTC","SOLBTC","DOGEBTC","BNBBTC","SUIBTC","LTCBTC","LINKBTC","AVAXBTC","TRXBTC",
+              "DOTBTC"]
     intervals = ["15m"]
-    steps = [0.04, 0.002]
+    steps = [0.04]
     max_steps = [0.4]
-    atr_multipliers = [2.4, 3.2]
-    atr_windows = [6, 10]
-    window_pivots = [14]
-    rsi_windows = [10, 16]
-    rsi_buy_limits = [25, 30, 40]
-    rsi_sell_limits = [60, 70, 75]
+    atr_multipliers = [2.4]
+    atr_windows = [6]
+    window_pivots = [150]
+    rsi_windows = [10]
+    rsi_buy_limits = [25]
+    rsi_sell_limits = [75]
     macd_short_windows = [12]
     macd_long_windows = [26]
     macd_signal_windows = [9]

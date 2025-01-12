@@ -396,25 +396,25 @@ def sar_trading_analysis(
         #     lower_trend = True
         # ------------------------------------------------------------
         # STRATEGIA ATTUALMENTE ATTIVA
-        # if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
-        #     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-        #     holding = True
-        # if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-        #     holding = False
-        # ------------------------------------------------------------
-        if (not holding and (df['RSI'].iloc[i] < rsi_buy_limit) and
-                (df['SAR'].iloc[i] > df['Close'].iloc[i]) and
-                (df['Lower_Band'].iloc[i] > df['Low'].iloc[i]) and
-                (df['MACD_Hist'].iloc[i] < 0)):
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+            buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
             holding = True
-        if (holding and (df['RSI'].iloc[i] > rsi_sell_limit) and
-                (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-                (df['Upper_Band'].iloc[i] < df['High'].iloc[i]) and
-                (df['MACD_Hist'].iloc[i] > 0)):
+        if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
             sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
             holding = False
+        # ------------------------------------------------------------
+        # if (not holding and (df['RSI'].iloc[i] < rsi_buy_limit) and
+        #         (df['SAR'].iloc[i] > df['Close'].iloc[i]) and
+        #         (df['Lower_Band'].iloc[i] > df['Low'].iloc[i]) and
+        #         (df['MACD_Hist'].iloc[i] < 0)):
+        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = True
+        # if (holding and (df['RSI'].iloc[i] > rsi_sell_limit) and
+        #         (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
+        #         (df['Upper_Band'].iloc[i] < df['High'].iloc[i]) and
+        #         (df['MACD_Hist'].iloc[i] > 0)):
+        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+        #     holding = False
 
     valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
