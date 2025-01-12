@@ -415,6 +415,13 @@ def sar_trading_analysis(
         #         (df['MACD_Hist'].iloc[i] > 0)):
         #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
         #     holding = False
+        # ------------------------------------------------------------
+        if (not holding and df['MACD_Hist'].iloc[i] < -0.38 and df['MACD_Hist'].iloc[i]>df['MACD_Hist'].iloc[i-1]):
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+        if (holding and df['MACD_Hist'].iloc[i] > 0.38 and df['MACD_Hist'].iloc[i]<df['MACD_Hist'].iloc[i-1]):
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
 
     valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
@@ -424,7 +431,8 @@ def sar_trading_analysis(
                                       'Prezzo':df.loc[index,'Low'],
                                       'RSI': df.loc[index, 'RSI'],
                                       'PSAR': df.loc[index, 'SAR'],
-                                      'ATR': df.loc[index, 'Lower_Band'],
+                                      'SMA': df.loc[index, 'SMA'],
+                                      'ATR': df.loc[index, 'ATR'],
                                       'MACD': df.loc[index, 'MACD'],
                                       'MACD Signal': df.loc[index, 'Signal_Line'],
                                       'MACD Histogram': df.loc[index, 'MACD_Hist']
@@ -438,7 +446,8 @@ def sar_trading_analysis(
                                       'Prezzo': df.loc[index, 'Low'],
                                       'RSI': df.loc[index, 'RSI'],
                                       'PSAR': df.loc[index, 'SAR'],
-                                      'ATR': df.loc[index, 'Upper_Band'],
+                                      'SMA': df.loc[index, 'SMA'],
+                                      'ATR': df.loc[index, 'ATR'],
                                       'MACD': df.loc[index, 'MACD'],
                                       'MACD Signal': df.loc[index, 'Signal_Line'],
                                       'MACD Histogram': df.loc[index, 'MACD_Hist']
