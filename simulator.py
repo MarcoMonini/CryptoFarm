@@ -343,23 +343,21 @@ def sar_trading_analysis(
     df['Signal_Line'] = df['Signal_Line'] / df['Close'] * 100  # normalizzato
     df['MACD_Hist'] = df['MACD_Hist'] / df['Close'] * 100  # normalizzato
 
-    # Vortex index
+    # Vortex Indicator
     vi = VortexIndicator(
         high=df['High'],
         low=df['Low'],
         close=df['Close'],
-        window=14)
+        window=rsi_window)
     df['VI+'] = vi.vortex_indicator_pos()
     df['VI-'] = vi.vortex_indicator_neg()
-
+    df['VI_diff'] = df['VI+'] - df['VI-']
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
     buy_signals = []
     sell_signals = []
     holding = False
-    # Simulazione acquisto e vendita in corrispondenza dei massimi e minimi
-    holding_min_max = False
     for i in range(1, len(df)):
         # ------------------------------------------------------------
         # # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
@@ -645,7 +643,7 @@ def sar_trading_analysis(
             x=df.index,
             y=df['MACD_Hist'],
             name='MACD',
-            marker=dict(color='green')
+            marker=dict(color='yellow')
         ))
         fig_macd.add_trace(go.Scatter(
             x=[df.index.min(), df.index.max()],
@@ -667,17 +665,24 @@ def sar_trading_analysis(
             x=df.index,
             y=df['VI+'],
             mode='lines',
-            line=dict(color='green', width=2),
+            line=dict(color='green', width=1),
             name='VI+'
         ))
-
         # Aggiungi VI-
         fig_vi.add_trace(go.Scatter(
             x=df.index,
             y=df['VI-'],
             mode='lines',
-            line=dict(color='red', width=2),
+            line=dict(color='red', width=1),
             name='VI-'
+        ))
+        # Aggiungi VI diff
+        fig_vi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['VI_diff'],
+            mode='lines',
+            line=dict(color='yellow', width=1),
+            name='VI diff'
         ))
 
         # Layout e aspetto del grafico principale
@@ -705,6 +710,14 @@ def sar_trading_analysis(
             yaxis=dict(
                 range=[0, 100],  # L'RSI va tipicamente da 0 a 100
             ),
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per l'VI
+        fig_vi.update_layout(
+            title='Vortex Indicator (VI)',
+            xaxis_title='Date',
+            yaxis_title='Value',
             template="plotly_dark",
             height=300
         )
