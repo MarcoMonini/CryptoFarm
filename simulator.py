@@ -810,22 +810,22 @@ if __name__ == "__main__":
     st.sidebar.title("Indicators parameters")
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        step = st.number_input(label="PSAR Step", min_value=0.0001, max_value=1.0, value=0.04, step=0.01)
+        step = st.number_input(label="PSAR Step", min_value=0.0001, max_value=1.000, value=0.040, step=0.010)
         atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=2.4, step=0.1)
         rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=10, step=1)
         rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=40, step=5)
+        macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.2, step=0.1)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
         window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=50, step=2)
         rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=60, step=5)
+        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.1)
     col1, col2, col3 = st.sidebar.columns(3)
     with col1:
         macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
-        macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.4, step=0.1)
     with col2:
         macd_long_window = st.number_input(label="MACD Long Window", min_value=1, max_value=100, value=26, step=1)
-        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.4, step=0.1)
     with col3:
         macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
 
@@ -872,3 +872,4 @@ if __name__ == "__main__":
         fig_macd_placeholder.plotly_chart(fig_macd, use_container_width=True)
         fig_stc_placeholder.plotly_chart(fig_stc, use_container_width=True)
         fig_vi_placeholder.plotly_chart(fig_vi, use_container_width=True)
+
