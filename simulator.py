@@ -814,13 +814,13 @@ if __name__ == "__main__":
         atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=2.4, step=0.1)
         rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=10, step=1)
         rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=40, step=5)
-        macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.2, step=0.1)
+        macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.2, step=0.05)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
         window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=50, step=2)
         rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=60, step=5)
-        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.1)
+        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.05)
     col1, col2, col3 = st.sidebar.columns(3)
     with col1:
         macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
