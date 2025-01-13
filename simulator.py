@@ -352,17 +352,6 @@ def sar_trading_analysis(
     df['VI+'] = vi.vortex_indicator_pos()
     df['VI-'] = vi.vortex_indicator_neg()
 
-    # Calcola lo Schaff Trend Cycle
-    stc = STCIndicator(
-        close=df['Close'],
-        window_fast=12,
-        window_slow=26,
-        cycle=10,
-        smooth1=3,
-        smooth2=3,
-        fillna=False
-    )
-    df['STC'] = stc.stc()
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -535,7 +524,6 @@ def sar_trading_analysis(
     fig_rsi = go.Figure()
     fig_macd = go.Figure()
     fig_vi = go.Figure()
-    fig_stc = go.Figure()
     if show:
         # Candele (candlestick)
         fig.add_trace(go.Candlestick(
@@ -560,14 +548,14 @@ def sar_trading_analysis(
             y=df['Upper_Band'],
             mode='lines',
             line=dict(color='red', width=1),
-            name='Upper ATR Band'
+            name='Upper ATR'
         ))
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df['Lower_Band'],
             mode='lines',
             line=dict(color='green', width=1),
-            name='Lower ATR Band'
+            name='Lower ATR'
         ))
 
         # Massimi relativi
@@ -623,19 +611,19 @@ def sar_trading_analysis(
         # Linea tratteggiata a 70 (overbought)
         fig_rsi.add_trace(go.Scatter(
             x=[df.index.min(), df.index.max()],
-            y=[70, 70],
+            y=[rsi_sell_limit, rsi_sell_limit],
             mode='lines',
             line=dict(color='red', width=1, dash='dash'),
-            name='Overbought'
+            name='Sell Limit'
         ))
 
         # Linea tratteggiata a 30 (oversold)
         fig_rsi.add_trace(go.Scatter(
             x=[df.index.min(), df.index.max()],
-            y=[30, 30],
+            y=[rsi_buy_limit, rsi_buy_limit],
             mode='lines',
             line=dict(color='green', width=1, dash='dash'),
-            name='Oversold'
+            name='Buy Limit'
         ))
 
         # MACD
@@ -656,7 +644,7 @@ def sar_trading_analysis(
         fig_macd.add_trace(go.Bar(
             x=df.index,
             y=df['MACD_Hist'],
-            name='MACD Histogram',
+            name='MACD',
             marker=dict(color='green')
         ))
         fig_macd.add_trace(go.Scatter(
@@ -672,30 +660,6 @@ def sar_trading_analysis(
             mode='lines',
             line=dict(color='red', width=1, dash='dash'),
             name='Sell Limit'
-        ))
-        # Figura STC
-        # Aggiungi lo STC
-        fig_stc.add_trace(go.Scatter(
-            x=df.index,
-            y=df['STC'],
-            mode='lines',
-            line=dict(color='green', width=2),
-            name='Schaff Trend Cycle'
-        ))
-        # Aggiungi zone di ipercomprato e ipervenduto
-        fig_stc.add_trace(go.Scatter(
-            x=[df.index.min(), df.index.max()],
-            y=[75, 75],
-            mode='lines',
-            line=dict(color='green', width=1, dash='dash'),
-            name='Overbought'
-        ))
-        fig_stc.add_trace(go.Scatter(
-            x=[df.index.min(), df.index.max()],
-            y=[25, 25],
-            mode='lines',
-            line=dict(color='red', width=1, dash='dash'),
-            name='Oversold'
         ))
 
         # Aggiungi VI+
@@ -744,14 +708,6 @@ def sar_trading_analysis(
             template="plotly_dark",
             height=300
         )
-        # Configura il layout del grafico dello STC
-        fig_stc.update_layout(
-            title='Schaff Trend Cycle',
-            xaxis_title='Data',
-            yaxis_title='STC',
-            yaxis=dict(range=[0, 100]),
-            template='plotly_dark'
-        )
 
     # ======================================
     # Creazione del DataFrame finale con le operazioni
@@ -783,7 +739,7 @@ def sar_trading_analysis(
           f"rsi_buy_limit={rsi_buy_limit}, rsi_sell_limit={rsi_sell_limit}, "
           f"profitto totale={round(trades_df['Profit'].sum())} USD")
 
-    return fig, fig_rsi, fig_macd, fig_stc, fig_vi, trades_df, actual_hours, valori_ottimi
+    return fig, fig_rsi, fig_macd, fig_vi, trades_df, actual_hours, valori_ottimi
 
 
 if __name__ == "__main__":
@@ -807,7 +763,6 @@ if __name__ == "__main__":
     fig_placeholder = st.empty()
     fig_rsi_placeholder = st.empty()
     fig_macd_placeholder = st.empty()
-    fig_stc_placeholder = st.empty()
     fig_vi_placeholder = st.empty()
     st.sidebar.title("Market parameters")
     col1, col2 = st.sidebar.columns(2)
@@ -852,7 +807,7 @@ if __name__ == "__main__":
             st.write(st.session_state['df'])
 
     if st.session_state['df'] is not None:
-        fig, fig_rsi, fig_macd, fig_stc, fig_vi, trades_df, _, _ = sar_trading_analysis(
+        fig, fig_rsi, fig_macd, fig_vi, trades_df, _, _ = sar_trading_analysis(
             asset=symbol,
             interval=interval,
             wallet=wallet,  # Wallet iniziale
@@ -884,6 +839,5 @@ if __name__ == "__main__":
         fig_placeholder.plotly_chart(fig, use_container_width=True)
         fig_rsi_placeholder.plotly_chart(fig_rsi, use_container_width=True)
         fig_macd_placeholder.plotly_chart(fig_macd, use_container_width=True)
-        fig_stc_placeholder.plotly_chart(fig_stc, use_container_width=True)
         fig_vi_placeholder.plotly_chart(fig_vi, use_container_width=True)
 
