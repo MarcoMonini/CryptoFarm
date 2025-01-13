@@ -659,6 +659,20 @@ def sar_trading_analysis(
             name='MACD Histogram',
             marker=dict(color='green')
         ))
+        fig_macd.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[macd_buy_limit, macd_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ))
+        fig_macd.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[macd_sell_limit, macd_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
+        ))
         # Figura STC
         # Aggiungi lo STC
         fig_stc.add_trace(go.Scatter(
