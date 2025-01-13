@@ -901,7 +901,7 @@ if __name__ == "__main__":
         macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
 
     if st.sidebar.button("SIMULATE"):
-        df, _ = get_market_data(asset=asset, interval=interval, time_hours=time_hours)
+        df, _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
         st.session_state['df'] = df
 
     if st.sidebar.button("Print Data"):
