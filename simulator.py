@@ -9,7 +9,10 @@ import numpy as np
 import math
 import time
 from scipy.signal import argrelextrema
+import warnings
 
+# Disattiva i FutureWarning
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 def interval_to_minutes(interval: str) -> int:
     """
@@ -335,13 +338,13 @@ def sar_trading_analysis(
         window_sign=macd_signal_window
     )
     # Aggiungere le colonne del MACD al DataFrame
-    df['MACD'] = macd_indicator.macd()  # Linea MACD
-    df['Signal_Line'] = macd_indicator.macd_signal()  # Linea di segnale
-    df['MACD_Hist'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+    # df['MACD'] = macd_indicator.macd()  # Linea MACD
+    # df['Signal_Line'] = macd_indicator.macd_signal()  # Linea di segnale
+    df['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
     # Calcolo del MACD normalizzato come percentuale del prezzo
+    # df['MACD'] = df['MACD'] / df['Close'] * 100  # normalizzato
+    # df['Signal_Line'] = df['Signal_Line'] / df['Close'] * 100  # normalizzato
     df['MACD'] = df['MACD'] / df['Close'] * 100  # normalizzato
-    df['Signal_Line'] = df['Signal_Line'] / df['Close'] * 100  # normalizzato
-    df['MACD_Hist'] = df['MACD_Hist'] / df['Close'] * 100  # normalizzato
 
     # Vortex Indicator
     vi = VortexIndicator(
@@ -351,7 +354,7 @@ def sar_trading_analysis(
         window=rsi_window)
     df['VI+'] = vi.vortex_indicator_pos()
     df['VI-'] = vi.vortex_indicator_neg()
-    df['VI_diff'] = df['VI+'] - df['VI-']
+    df['VI'] = df['VI+'] - df['VI-']
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -426,42 +429,48 @@ def sar_trading_analysis(
         #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
         #     holding = False
         # ------------------------------------------------------------
-        if (not holding and df['MACD_Hist'].iloc[i] < macd_buy_limit and df['MACD_Hist'].iloc[i]>df['MACD_Hist'].iloc[i-1]):
+        # if (not holding and df['MACD_Hist'].iloc[i] < macd_buy_limit and df['MACD_Hist'].iloc[i]>df['MACD_Hist'].iloc[i-1]):
+        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = True
+        # if (holding and df['MACD_Hist'].iloc[i] > macd_sell_limit and df['MACD_Hist'].iloc[i]<df['MACD_Hist'].iloc[i-1]):
+        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = False
+        # ------------------------------------------------------------
+        if not holding and df['VI'].iloc[i] < macd_buy_limit:
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
-        if (holding and df['MACD_Hist'].iloc[i] > macd_sell_limit and df['MACD_Hist'].iloc[i]<df['MACD_Hist'].iloc[i-1]):
+        if holding and df['VI'].iloc[i] > macd_sell_limit:
             sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
+        # ------------------------------------------------------------
 
     valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
         index = item[0]  # L'indice è il primo elemento della tupla
         if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
-            valori_ottimi.append({'Type':"Min",
-                                      'Prezzo':df.loc[index,'Low'],
-                                      'RSI': df.loc[index, 'RSI'],
-                                      'PSAR': df.loc[index, 'SAR'],
-                                      'SMA': df.loc[index, 'SMA'],
-                                      'ATR': df.loc[index, 'ATR'],
-                                      'MACD': df.loc[index, 'MACD'],
-                                      'MACD Signal': df.loc[index, 'Signal_Line'],
-                                      'MACD Histogram': df.loc[index, 'MACD_Hist']
-                                      })
+            valori_ottimi.append({'Type': "Min",
+                                  'Prezzo': df.loc[index, 'Low'],
+                                  'RSI': df.loc[index, 'RSI'],
+                                  'PSAR': df.loc[index, 'SAR'],
+                                  'SMA': df.loc[index, 'SMA'],
+                                  'ATR': df.loc[index, 'ATR'],
+                                  'MACD': df.loc[index, 'MACD'],
+                                  'VI': df.loc[index, 'VI'],
+                                  })
         else:
             print(f"Index {index} not found in DataFrame.")
     for item in rel_max:
         index = item[0]  # L'indice è il primo elemento della tupla
         if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
-            valori_ottimi.append({'Type':"Max",
-                                      'Prezzo': df.loc[index, 'Low'],
-                                      'RSI': df.loc[index, 'RSI'],
-                                      'PSAR': df.loc[index, 'SAR'],
-                                      'SMA': df.loc[index, 'SMA'],
-                                      'ATR': df.loc[index, 'ATR'],
-                                      'MACD': df.loc[index, 'MACD'],
-                                      'MACD Signal': df.loc[index, 'Signal_Line'],
-                                      'MACD Histogram': df.loc[index, 'MACD_Hist']
-                                      })
+            valori_ottimi.append({'Type': "Max",
+                                  'Prezzo': df.loc[index, 'Low'],
+                                  'RSI': df.loc[index, 'RSI'],
+                                  'PSAR': df.loc[index, 'SAR'],
+                                  'SMA': df.loc[index, 'SMA'],
+                                  'ATR': df.loc[index, 'ATR'],
+                                  'MACD': df.loc[index, 'MACD'],
+                                  'VI': df.loc[index, 'VI'],
+                                  })
         else:
             print(f"Index {index} not found in DataFrame.")
 
@@ -625,23 +634,9 @@ def sar_trading_analysis(
         ))
 
         # MACD
-        fig_macd.add_trace(go.Scatter(
-            x=df.index,
-            y=df['MACD'],
-            mode='lines',
-            name='MACD Line',
-            line=dict(color='blue')
-        ))
-        fig_macd.add_trace(go.Scatter(
-            x=df.index,
-            y=df['Signal_Line'],
-            mode='lines',
-            name='Signal Line',
-            line=dict(color='red')
-        ))
         fig_macd.add_trace(go.Bar(
             x=df.index,
-            y=df['MACD_Hist'],
+            y=df['MACD'],
             name='MACD',
             marker=dict(color='yellow')
         ))
@@ -659,30 +654,27 @@ def sar_trading_analysis(
             line=dict(color='red', width=1, dash='dash'),
             name='Sell Limit'
         ))
-
-        # Aggiungi VI+
+        # Aggiungi VI
         fig_vi.add_trace(go.Scatter(
             x=df.index,
-            y=df['VI+'],
-            mode='lines',
-            line=dict(color='green', width=1),
-            name='VI+'
-        ))
-        # Aggiungi VI-
-        fig_vi.add_trace(go.Scatter(
-            x=df.index,
-            y=df['VI-'],
-            mode='lines',
-            line=dict(color='red', width=1),
-            name='VI-'
-        ))
-        # Aggiungi VI diff
-        fig_vi.add_trace(go.Scatter(
-            x=df.index,
-            y=df['VI_diff'],
+            y=df['VI'],
             mode='lines',
             line=dict(color='yellow', width=1),
-            name='VI diff'
+            name='VI'
+        ))
+        fig_vi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[macd_buy_limit, macd_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ))
+        fig_vi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[macd_sell_limit, macd_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
         ))
 
         # Layout e aspetto del grafico principale
@@ -802,7 +794,8 @@ if __name__ == "__main__":
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
         window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=50, step=2)
         rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=60, step=5)
-        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.05)
+        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2,
+                                          step=0.05)
     col1, col2, col3 = st.sidebar.columns(3)
     with col1:
         macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
@@ -853,4 +846,3 @@ if __name__ == "__main__":
         fig_rsi_placeholder.plotly_chart(fig_rsi, use_container_width=True)
         fig_macd_placeholder.plotly_chart(fig_macd, use_container_width=True)
         fig_vi_placeholder.plotly_chart(fig_vi, use_container_width=True)
-
