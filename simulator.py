@@ -338,18 +338,11 @@ def sar_trading_analysis(
     df['MACD'] = macd_indicator.macd()  # Linea MACD
     df['Signal_Line'] = macd_indicator.macd_signal()  # Linea di segnale
     df['MACD_Hist'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+    # Calcolo del MACD normalizzato come percentuale del prezzo
+    df['MACD'] = df['MACD'] / df['Close'] * 100  # normalizzato
+    df['Signal_Line'] = df['Signal_Line'] / df['Close'] * 100  # normalizzato
+    df['MACD_Hist'] = df['MACD_Hist'] / df['Close'] * 100  # normalizzato
 
-    # Ichimoku Indicator
-    ichimoku = IchimokuIndicator(
-        high=df['High'],
-        low=df['Low'],
-        window1=9,
-        window2=26,
-        window3=52)
-    df['tenkan_sen'] = ichimoku.ichimoku_conversion_line()  # Tenkan-sen
-    df['kijun_sen'] = ichimoku.ichimoku_base_line()  # Kijun-sen
-    df['senkou_a'] = ichimoku.ichimoku_a()  # Senkou Span A
-    df['senkou_b'] = ichimoku.ichimoku_b()  # Senkou Span B
     # Vortex index
     vi = VortexIndicator(
         high=df['High'],
@@ -541,6 +534,7 @@ def sar_trading_analysis(
     fig = go.Figure()
     fig_rsi = go.Figure()
     fig_macd = go.Figure()
+    fig_vi = go.Figure()
     fig_stc = go.Figure()
     if show:
         # Candele (candlestick)
@@ -575,104 +569,6 @@ def sar_trading_analysis(
             line=dict(color='green', width=1),
             name='Lower ATR Band'
         ))
-        # Aggiungi le linee di Ichimoku
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['tenkan_sen'],
-            mode='lines',
-            line=dict(color='blue', width=2),
-            name='Tenkan-sen'
-        ))
-
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['kijun_sen'],
-            mode='lines',
-            line=dict(color='red', width=2),
-            name='Kijun-sen'
-        ))
-
-        # Aggiungi le bande del cloud (Kumo)
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['senkou_a'],
-            mode='lines',
-            line=dict(color='green', width=2),
-            name='Senkou Span A'
-        ))
-
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['senkou_b'],
-            mode='lines',
-            line=dict(color='orange', width=2),
-            name='Senkou Span B'
-        ))
-
-        # Colora il "cloud" (Kumo)
-        fig.add_trace(go.Scatter(
-            x=df.index.tolist() + df.index[::-1].tolist(),
-            y=df['senkou_a'].tolist() + df['senkou_b'][::-1].tolist(),
-            fill='toself',
-            fillcolor='rgba(0, 255, 0, 0.2)' if (
-                    df['senkou_a'].iloc[-1] > df['senkou_b'].iloc[-1]) else 'rgba(255, 0, 0, 0.2)',
-            line=dict(color='rgba(255,255,255,0)'),
-            name='Cloud (Kumo)'
-        ))
-        # Aggiungi VI+
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['VI+'],
-            mode='lines',
-            line=dict(color='green', width=2),
-            name='VI+'
-        ))
-
-        # Aggiungi VI-
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['VI-'],
-            mode='lines',
-            line=dict(color='red', width=2),
-            name='VI-'
-        ))
-        # KELTNER CHANNELS
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['KC_middle'],
-        #     mode='lines',
-        #     line=dict(color='blue', width=1, dash='dot'),
-        #     name='KC Middle'
-        # ))
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['KC_high'],
-        #     mode='lines',
-        #     line=dict(color='blue', width=1),
-        #     name='KC High'
-        # ))
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['KC_low'],
-        #     mode='lines',
-        #     line=dict(color='blue', width=1),
-        #     name='KC Low'
-        # ))
-        # PIVOT POINTS DINAMICI (Rolling Min/Max)
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['rolling_max'],
-        #     mode='lines',
-        #     line=dict(color='orange', width=1),
-        #     name='Rolling Max'
-        # ))
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['rolling_min'],
-        #     mode='lines',
-        #     line=dict(color='orange', width=1),
-        #     name='Rolling Min'
-        # ))
 
         # Massimi relativi
         if rel_max:
@@ -772,12 +668,39 @@ def sar_trading_analysis(
             line=dict(color='green', width=2),
             name='Schaff Trend Cycle'
         ))
-
         # Aggiungi zone di ipercomprato e ipervenduto
-        fig_stc.add_shape(type="line", x0=df.index.min(), x1=df.index.max(), y0=75, y1=75,
-                          line=dict(color="red", width=1, dash="dash"), name='Overbought')
-        fig_stc.add_shape(type="line", x0=df.index.min(), x1=df.index.max(), y0=25, y1=25,
-                          line=dict(color="blue", width=1, dash="dash"), name='Oversold')
+        fig_stc.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[75, 75],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Overbought'
+        ))
+        fig_stc.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[25, 25],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Oversold'
+        ))
+
+        # Aggiungi VI+
+        fig_vi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['VI+'],
+            mode='lines',
+            line=dict(color='green', width=2),
+            name='VI+'
+        ))
+
+        # Aggiungi VI-
+        fig_vi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['VI-'],
+            mode='lines',
+            line=dict(color='red', width=2),
+            name='VI-'
+        ))
 
         # Layout e aspetto del grafico principale
         fig.update_layout(
@@ -846,7 +769,7 @@ def sar_trading_analysis(
           f"rsi_buy_limit={rsi_buy_limit}, rsi_sell_limit={rsi_sell_limit}, "
           f"profitto totale={round(trades_df['Profit'].sum())} USD")
 
-    return fig, fig_rsi, fig_macd, fig_stc, trades_df, actual_hours, valori_ottimi
+    return fig, fig_rsi, fig_macd, fig_stc, fig_vi, trades_df, actual_hours, valori_ottimi
 
 
 if __name__ == "__main__":
@@ -861,11 +784,17 @@ if __name__ == "__main__":
     if 'df' not in st.session_state:
         st.session_state['df'] = None
 
+    csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/2025-01-13T08-47_export.csv")
+    if st.sidebar.button("Read from CSV"):
+        st.session_state['df'] = pd.read_csv(csv_file)
+        st.session_state['df'].set_index('Open time', inplace=True)
+
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
     fig_rsi_placeholder = st.empty()
     fig_macd_placeholder = st.empty()
-    fig_stc_placeholder = st.empty
+    fig_stc_placeholder = st.empty()
+    fig_vi_placeholder = st.empty()
     st.sidebar.title("Market parameters")
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -888,7 +817,7 @@ if __name__ == "__main__":
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
-        window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=10, step=2)
+        window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=50, step=2)
         rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=60, step=5)
     col1, col2, col3 = st.sidebar.columns(3)
     with col1:
@@ -909,7 +838,7 @@ if __name__ == "__main__":
             st.write(st.session_state['df'])
 
     if st.session_state['df'] is not None:
-        fig, fig_rsi, fig_macd, fig_stc, trades_df, _, _ = sar_trading_analysis(
+        fig, fig_rsi, fig_macd, fig_stc, fig_vi, trades_df, _, _ = sar_trading_analysis(
             asset=symbol,
             interval=interval,
             wallet=wallet,  # Wallet iniziale
@@ -942,3 +871,4 @@ if __name__ == "__main__":
         fig_rsi_placeholder.plotly_chart(fig_rsi, use_container_width=True)
         fig_macd_placeholder.plotly_chart(fig_macd, use_container_width=True)
         fig_stc_placeholder.plotly_chart(fig_stc, use_container_width=True)
+        fig_vi_placeholder.plotly_chart(fig_vi, use_container_width=True)
