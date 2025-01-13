@@ -904,6 +904,10 @@ if __name__ == "__main__":
         df, _ = get_market_data(asset=asset, interval=interval, time_hours=time_hours)
         st.session_state['df'] = df
 
+    if st.sidebar.button("Print Data"):
+        if st.session_state['df'] is not None:
+            st.write(st.session_state['df'])
+
     if st.session_state['df'] is not None:
         fig, fig_rsi, fig_macd, fig_stc, trades_df, _, _ = sar_trading_analysis(
             asset=symbol,
