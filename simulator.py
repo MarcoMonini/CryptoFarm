@@ -1,8 +1,8 @@
 import pandas as pd
 import plotly.graph_objects as go
-from ta.volatility import AverageTrueRange, KeltnerChannel
+from ta.volatility import AverageTrueRange
 from ta.momentum import RSIIndicator
-from ta.trend import MACD, IchimokuIndicator, SMAIndicator, PSARIndicator, VortexIndicator, STCIndicator
+from ta.trend import MACD, SMAIndicator, PSARIndicator, VortexIndicator
 from binance import Client
 import streamlit as st
 import numpy as np
@@ -257,6 +257,29 @@ def sar_trading_analysis(
     else:
         df = market_data
         actual_hours = time_hours
+
+    # # Copia del DataFrame per non sovrascrivere i dati originali
+    # df_transformed = df.copy()
+    # # Calcolo delle variazioni percentuali rispetto alla chiusura precedente
+    # df_transformed['Open_Perc'] = (df['Open'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
+    # df_transformed['High_Perc'] = (df['High'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
+    # df_transformed['Low_Perc'] = (df['Low'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
+    # df_transformed['Close_Perc'] = (df['Close'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
+    # # Rimuove i valori NaN (la prima riga avrà NaN dopo la trasformazione)
+    # df_transformed = df_transformed.dropna()
+    # # Aggiustamento per garantire la continuità
+    # prev_close = 0  # Punto iniziale di riferimento
+    # for i in range(len(df_transformed)):
+    #     df_transformed.iloc[i, df_transformed.columns.get_loc('Open_Perc')] += prev_close
+    #     df_transformed.iloc[i, df_transformed.columns.get_loc('High_Perc')] += prev_close
+    #     df_transformed.iloc[i, df_transformed.columns.get_loc('Low_Perc')] += prev_close
+    #     df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')] += prev_close
+    #     # Aggiorna il valore di chiusura precedente
+    #     prev_close = df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')]
+    # df['Open'] = df_transformed['Open_Perc']
+    # df['High'] = df_transformed['High_Perc']
+    # df['Low'] = df_transformed['Low_Perc']
+    # df['Close'] = df_transformed['Close_Perc']
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
     # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
