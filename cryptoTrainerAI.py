@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from ta.trend import PSARIndicator, SMAIndicator, MACD
+from ta.trend import PSARIndicator, SMAIndicator, MACD, VortexIndicator
 from ta.volatility import AverageTrueRange
 from ta.momentum import RSIIndicator
 from scipy.signal import argrelextrema
@@ -10,9 +10,11 @@ from tensorflow import keras
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 
 # Configurazioni principali
-WINDOW_SIZE = 50  # Dimensione della finestra temporale
-ATR_WINDOW = 14   # Periodo dell'ATR
-RSI_WINDOW = 14   # Periodo dell'RSI
+EXT_WINDOW_SIZE = 50  # Dimensione della finestra temporale per min max
+
+WINDOW_SIZE = 10
+# ATR_WINDOW = 14   # Periodo dell'ATR
+# RSI_WINDOW = 14   # Periodo dell'RSI
 MACD_SHORT_WINDOW = 12
 MACD_LONG_WINDOW = 26
 MACD_SIGNAL_WINDOW = 9
@@ -20,7 +22,7 @@ ATR_MULTIPLIER = 2
 STEP = 0.02
 MAX_STEP = 0.2
 
-file = 'market_data.csv'
+file = 'C:/Users/monini.m/Documents/2025-01-13T08-47_export.csv'
 
 
 def calculate_percentage_changes(df):
@@ -46,7 +48,7 @@ def calculate_percentage_changes(df):
     return df_transformed
 
 # Calcolo dei massimi e minimi relativi
-def calculate_relative_extrema(data, window_pivot=WINDOW_SIZE):
+def calculate_relative_extrema(data, window_pivot=EXT_WINDOW_SIZE):
     price_high = data['High']
     price_low = data['Low']
     order = int(window_pivot / 2)
@@ -56,37 +58,64 @@ def calculate_relative_extrema(data, window_pivot=WINDOW_SIZE):
     # Inizializza colonna etichette
     data['Label'] = 0
     for i in max_idx:
-        data.loc[data.index[i], 'Label'] = 1  # Massimo relativo
+        data.loc[data.index[i], 'Label'] = 2  # Massimo relativo
     for i in min_idx:
-        data.loc[data.index[i], 'Label'] = -1  # Minimo relativo
+        data.loc[data.index[i], 'Label'] = 0  # Minimo relativo
     return data
 
 
 # Calcolo degli indicatori tecnici
 def add_technical_indicators(data):
-    # Parabolic SAR
-    sar_indicator = PSARIndicator(high=data['High'], low=data['Low'], close=data['Close'], step=STEP, max_step=MAX_STEP)
-    data['PSAR'] = sar_indicator.psar()
+    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
+    sar_indicator = PSARIndicator(
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        step=STEP,
+        max_step=MAX_STEP
+    )
+    df['PSAR'] = sar_indicator.psar()
 
     # ATR
-    atr_indicator = AverageTrueRange(high=data['High'], low=data['Low'], close=data['Close'], window=ATR_WINDOW)
-    data['ATR'] = atr_indicator.average_true_range()
+    atr_indicator = AverageTrueRange(
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        window=WINDOW_SIZE
+    )
+    df['ATR'] = atr_indicator.average_true_range()
 
-    # SMA
-    sma_indicator = SMAIndicator(close=data['Close'], window=ATR_WINDOW)
-    data['SMA'] = sma_indicator.sma_indicator()
-    # Rolling ATR Bands
-    # data['Upper_Band'] = data['SMA'] + ATR_MULTIPLIER * data['ATR']
-    # data['Lower_Band'] = data['SMA'] - ATR_MULTIPLIER * data['ATR']
+    # SMA (Media Mobile per le Rolling ATR Bands)
+    sma_indicator = SMAIndicator(close=df['Close'], window=WINDOW_SIZE)
+    df['SMA'] = sma_indicator.sma_indicator()
 
-    # RSI
-    rsi_indicator = RSIIndicator(close=data['Close'], window=RSI_WINDOW)
-    data['RSI'] = rsi_indicator.rsi()
+    # Calcolo dell'RSI
+    # Impostazione classica RSI(14). Se vuoi segnali più veloci, puoi provare RSI(7) o RSI(9).
+    rsi_indicator = RSIIndicator(
+        close=df['Close'],
+        window=WINDOW_SIZE
+    )
+    df['RSI'] = rsi_indicator.rsi()
 
-    # MACD
-    macd_indicator = MACD(close=data['Close'], window_slow=MACD_LONG_WINDOW, window_fast=MACD_SHORT_WINDOW, window_sign=MACD_SIGNAL_WINDOW)
-    data['MACD'] = macd_indicator.macd_diff()
-    # data['MACD'] = macd_indicator.macd_diff() / data['Close'] * 100  # Normalizzato
+    # Calcolo delle linee MACD
+    # Calcolo del MACD
+    macd_indicator = MACD(
+        close=df['Close'],
+        window_slow=MACD_LONG_WINDOW,
+        window_fast=MACD_SHORT_WINDOW,
+        window_sign=MACD_SIGNAL_WINDOW
+    )
+    df['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+
+    # Vortex Indicator
+    vi = VortexIndicator(
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        window=WINDOW_SIZE)
+    df['VI+'] = vi.vortex_indicator_pos()
+    df['VI-'] = vi.vortex_indicator_neg()
+    df['VI'] = df['VI+'] - df['VI-']
 
     return data
 
@@ -104,8 +133,8 @@ def create_sequences_with_target(data, features, window_size):
 
 # Caricamento dati
 df = pd.read_csv(file)
-df['Date'] = pd.to_datetime(df['Date'])
-df.set_index('Date', inplace=True)
+df['Open time'] = pd.to_datetime(df['Open time'])
+df.set_index('Open time', inplace=True)
 
 # Applicazione della funzione al DataFrame
 df_transformed = calculate_percentage_changes(df)
@@ -128,7 +157,7 @@ model = keras.Sequential([
     Dropout(0.2),
     LSTM(50),
     Dropout(0.2),
-    Dense(1, activation='tanh')  # Output (-1, 0, 1)
+    Dense(3, activation='softmax')  # Output (-1, 0, 1)
 ])
 
 model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])

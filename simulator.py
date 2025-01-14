@@ -258,7 +258,7 @@ def sar_trading_analysis(
         df = market_data
         actual_hours = time_hours
 
-    # # Copia del DataFrame per non sovrascrivere i dati originali
+    # Copia del DataFrame per non sovrascrivere i dati originali
     # df_transformed = df.copy()
     # # Calcolo delle variazioni percentuali rispetto alla chiusura precedente
     # df_transformed['Open_Perc'] = (df['Open'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
@@ -378,6 +378,8 @@ def sar_trading_analysis(
     df['VI+'] = vi.vortex_indicator_pos()
     df['VI-'] = vi.vortex_indicator_neg()
     df['VI'] = df['VI+'] - df['VI-']
+
+    print('DEBUG',df[['SAR','ATR','SMA','RSI','MACD','VI']].tail())
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
