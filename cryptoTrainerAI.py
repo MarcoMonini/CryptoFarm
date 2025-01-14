@@ -47,6 +47,7 @@ def calculate_percentage_changes(df):
 
     return df_transformed
 
+
 # Calcolo dei massimi e minimi relativi
 def calculate_relative_extrema(data, window_pivot=EXT_WINDOW_SIZE):
     price_high = data['High']
@@ -68,54 +69,54 @@ def calculate_relative_extrema(data, window_pivot=EXT_WINDOW_SIZE):
 def add_technical_indicators(data):
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
         step=STEP,
         max_step=MAX_STEP
     )
-    df['PSAR'] = sar_indicator.psar()
+    data['PSAR'] = sar_indicator.psar()
 
     # ATR
     atr_indicator = AverageTrueRange(
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
         window=WINDOW_SIZE
     )
-    df['ATR'] = atr_indicator.average_true_range()
+    data['ATR'] = atr_indicator.average_true_range()
 
     # SMA (Media Mobile per le Rolling ATR Bands)
-    sma_indicator = SMAIndicator(close=df['Close'], window=WINDOW_SIZE)
-    df['SMA'] = sma_indicator.sma_indicator()
+    sma_indicator = SMAIndicator(close=data['Close'], window=WINDOW_SIZE)
+    data['SMA'] = sma_indicator.sma_indicator()
 
     # Calcolo dell'RSI
     # Impostazione classica RSI(14). Se vuoi segnali più veloci, puoi provare RSI(7) o RSI(9).
     rsi_indicator = RSIIndicator(
-        close=df['Close'],
+        close=data['Close'],
         window=WINDOW_SIZE
     )
-    df['RSI'] = rsi_indicator.rsi()
+    data['RSI'] = rsi_indicator.rsi()
 
     # Calcolo delle linee MACD
     # Calcolo del MACD
     macd_indicator = MACD(
-        close=df['Close'],
+        close=data['Close'],
         window_slow=MACD_LONG_WINDOW,
         window_fast=MACD_SHORT_WINDOW,
         window_sign=MACD_SIGNAL_WINDOW
     )
-    df['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+    data['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
 
     # Vortex Indicator
     vi = VortexIndicator(
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
         window=WINDOW_SIZE)
-    df['VI+'] = vi.vortex_indicator_pos()
-    df['VI-'] = vi.vortex_indicator_neg()
-    df['VI'] = df['VI+'] - df['VI-']
+    data['VI+'] = vi.vortex_indicator_pos()
+    data['VI-'] = vi.vortex_indicator_neg()
+    data['VI'] = data['VI+'] - data['VI-']
 
     return data
 
@@ -157,7 +158,7 @@ model = keras.Sequential([
     Dropout(0.2),
     LSTM(50),
     Dropout(0.2),
-    Dense(3, activation='softmax')  # Output (-1, 0, 1)
+    Dense(3, activation='softmax')  # Output (0, 1, 2) (MIN, none, MAX)
 ])
 
 model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
@@ -172,3 +173,10 @@ print(f"Test Loss: {loss}, Test Accuracy: {accuracy}")
 # Previsione su nuovi dati
 predictions = model.predict(X_test)
 print(predictions[:10])
+
+# # Salva il modello in un file HDF5
+# model.save('trained_model.h5')
+# # Carica il modello salvato
+# loaded_model = load_model('trained_model.h5')
+# # Utilizzo del modello per fare previsioni
+# predictions = loaded_model.predict(X_test)
