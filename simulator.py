@@ -258,16 +258,15 @@ def sar_trading_analysis(
         df = market_data
         actual_hours = time_hours
 
-    # Copia del DataFrame per non sovrascrivere i dati originali
+    # # Copia del DataFrame per non sovrascrivere i dati originali
     # df_transformed = df.copy()
     # # Calcolo delle variazioni percentuali rispetto alla chiusura precedente
     # df_transformed['Open_Perc'] = (df['Open'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
     # df_transformed['High_Perc'] = (df['High'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
     # df_transformed['Low_Perc'] = (df['Low'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
     # df_transformed['Close_Perc'] = (df['Close'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
-    # # Rimuove i valori NaN (la prima riga avrà NaN dopo la trasformazione)
-    # df_transformed = df_transformed.dropna()
     # # Aggiustamento per garantire la continuità
+    # df_transformed = df_transformed.dropna()
     # prev_close = 0  # Punto iniziale di riferimento
     # for i in range(len(df_transformed)):
     #     df_transformed.iloc[i, df_transformed.columns.get_loc('Open_Perc')] += prev_close
@@ -276,10 +275,12 @@ def sar_trading_analysis(
     #     df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')] += prev_close
     #     # Aggiorna il valore di chiusura precedente
     #     prev_close = df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')]
-    # df['Open'] = df_transformed['Open_Perc']
-    # df['High'] = df_transformed['High_Perc']
-    # df['Low'] = df_transformed['Low_Perc']
-    # df['Close'] = df_transformed['Close_Perc']
+    # df_transformed['Open'] = df_transformed['Open_Perc']
+    # df_transformed['High'] = df_transformed['High_Perc']
+    # df_transformed['Low'] = df_transformed['Low_Perc']
+    # df_transformed['Close'] = df_transformed['Close_Perc']
+    # df_transformed = df_transformed[['Open', 'High', 'Low', 'Close']].astype(float)
+    # df = df_transformed.copy()
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
     # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
@@ -325,34 +326,13 @@ def sar_trading_analysis(
     df['Upper_Band'] = df['SMA'] + atr_multiplier * df['ATR']
     df['Lower_Band'] = df['SMA'] - atr_multiplier * df['ATR']
 
-    # kc = KeltnerChannel(
-    #     high=df['High'],
-    #     low=df['Low'],
-    #     close=df['Close'],
-    #     window=atr_window,  # finestra EMA
-    #     window_atr=atr_window,  # finestra ATR
-    #     original_version=False
-    # )
-    #
-    # df['KC_middle'] = kc.keltner_channel_mband()  # Banda centrale (EMA base)
-    # df['KC_high'] = kc.keltner_channel_hband()  # Banda superiore
-    # df['KC_low'] = kc.keltner_channel_lband()  # Banda inferiore
-
     # Calcolo dell'RSI
-    # Impostazione classica RSI(14). Se vuoi segnali più veloci, puoi provare RSI(7) o RSI(9).
     rsi_indicator = RSIIndicator(
         close=df['Close'],
         window=rsi_window
     )
     df['RSI'] = rsi_indicator.rsi()
 
-    # Pivot Points dinamici
-    # window_pivot = 10  # dimensione della finestra per cercare minimi/massimi locali
-    # Creiamo colonne che rappresentano il massimo e minimo degli ultimi N periodi
-    # df['rolling_max'] = df['High'].rolling(window_pivot).max()
-    # df['rolling_min'] = df['Low'].rolling(window_pivot).min()
-
-    # Calcolo delle linee MACD
     # Calcolo del MACD
     macd_indicator = MACD(
         close=df['Close'],
@@ -375,11 +355,11 @@ def sar_trading_analysis(
         low=df['Low'],
         close=df['Close'],
         window=rsi_window)
-    df['VI+'] = vi.vortex_indicator_pos()
-    df['VI-'] = vi.vortex_indicator_neg()
-    df['VI'] = df['VI+'] - df['VI-']
+    vip = vi.vortex_indicator_pos()
+    vim = vi.vortex_indicator_neg()
+    df['VI'] = vip - vim
 
-    print('DEBUG',df[['SAR','ATR','SMA','RSI','MACD','VI']].tail())
+    # print('DEBUG',df[['SAR','ATR','SMA','RSI','MACD','VI']].tail())
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -788,6 +768,8 @@ if __name__ == "__main__":
     if st.sidebar.button("Read from CSV"):
         st.session_state['df'] = pd.read_csv(csv_file)
         st.session_state['df'].set_index('Open time', inplace=True)
+        # Mantieni solo le colonne essenziali, converti a float
+        st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close']].astype(float)
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()

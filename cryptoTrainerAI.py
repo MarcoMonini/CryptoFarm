@@ -7,7 +7,7 @@ from scipy.signal import argrelextrema
 
 # import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 
 # Configurazioni principali
 EXT_WINDOW_SIZE = 50  # Dimensione della finestra temporale per min max
@@ -44,8 +44,13 @@ def calculate_percentage_changes(df):
         df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')] += prev_close
         # Aggiorna il valore di chiusura precedente
         prev_close = df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')]
+    df_transformed['Open'] = df_transformed['Open_Perc']
+    df_transformed['High'] = df_transformed['High_Perc']
+    df_transformed['Low'] = df_transformed['Low_Perc']
+    df_transformed['Close'] = df_transformed['Close_Perc']
+    df_final = df_transformed[['Open', 'High', 'Low', 'Close']].astype(float)
 
-    return df_transformed
+    return df_final
 
 
 # Calcolo dei massimi e minimi relativi
@@ -61,7 +66,7 @@ def calculate_relative_extrema(data, window_pivot=EXT_WINDOW_SIZE):
     for i in max_idx:
         data.loc[data.index[i], 'Label'] = 2  # Massimo relativo
     for i in min_idx:
-        data.loc[data.index[i], 'Label'] = 0  # Minimo relativo
+        data.loc[data.index[i], 'Label'] = 1  # Minimo relativo
     return data
 
 
@@ -114,11 +119,13 @@ def add_technical_indicators(data):
         low=data['Low'],
         close=data['Close'],
         window=WINDOW_SIZE)
-    data['VI+'] = vi.vortex_indicator_pos()
-    data['VI-'] = vi.vortex_indicator_neg()
-    data['VI'] = data['VI+'] - data['VI-']
+    vip = vi.vortex_indicator_pos()
+    vim = vi.vortex_indicator_neg()
+    df['VI'] = vip - vim
 
-    return data
+    final_data = data.dropna()
+
+    return final_data
 
 
 # Creazione delle sequenze temporali
@@ -133,9 +140,11 @@ def create_sequences_with_target(data, features, window_size):
 
 
 # Caricamento dati
-df = pd.read_csv(file)
-df['Open time'] = pd.to_datetime(df['Open time'])
-df.set_index('Open time', inplace=True)
+raw_df = pd.read_csv(file)
+raw_df['Open time'] = pd.to_datetime(raw_df['Open time'])
+raw_df.set_index('Open time', inplace=True)
+# Mantieni solo le colonne essenziali, converti a float
+df = raw_df[['Open', 'High', 'Low', 'Close']].astype(float)
 
 # Applicazione della funzione al DataFrame
 df_transformed = calculate_percentage_changes(df)
@@ -143,8 +152,10 @@ df_transformed = calculate_percentage_changes(df)
 df = calculate_relative_extrema(df)
 df = add_technical_indicators(df)
 
+print(df)
 # Selezione delle feature
-features = ['Open', 'High', 'Low', 'Close', 'Volume', 'RSI', 'ATR', 'PSAR', 'SMA', 'MACD', 'VI']
+features = ['Open', 'High', 'Low', 'Close', 'RSI', 'ATR', 'PSAR', 'SMA', 'MACD', 'VI']
+
 X, y = create_sequences_with_target(df, features, WINDOW_SIZE)
 
 # Dividi i dati in train e test
@@ -153,8 +164,17 @@ X_train, X_test = X[:train_size], X[train_size:]
 y_train, y_test = y[:train_size], y[train_size:]
 
 # Creazione del modello LSTM
+# model = keras.Sequential([
+#     LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
+#     Dropout(0.2),
+#     LSTM(50),
+#     Dropout(0.2),
+#     Dense(3, activation='softmax')  # Output (0, 1, 2) (MIN, none, MAX)
+# ])
+# Creazione del modello LSTM
 model = keras.Sequential([
-    LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
+    Input(shape=(X.shape[1], X.shape[2])),  # Definizione dell'input
+    LSTM(50, return_sequences=True),
     Dropout(0.2),
     LSTM(50),
     Dropout(0.2),
