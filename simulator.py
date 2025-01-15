@@ -359,59 +359,12 @@ def sar_trading_analysis(
     vim = vi.vortex_indicator_neg()
     df['VI'] = vip - vim
 
-    # print('DEBUG',df[['SAR','ATR','SMA','RSI','MACD','VI']].tail())
-
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
     buy_signals = []
     sell_signals = []
     holding = False
     for i in range(1, len(df)):
-        # ------------------------------------------------------------
-        # # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
-        # if (not holding and (df['SAR'].iloc[i] < df['Open'].iloc[i]) and
-        #         (df['SAR'].iloc[i - 1] > df['Open'].iloc[i - 1]) and
-        #         (float(df['Close'].iloc[i-1]) >= float(df['Low'].iloc[i]))):
-        #     # Salviamo la chiusura della candela come prezzo di buy
-        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i-1])))
-        #     # buy_signals.append((df.index[i], float(df['Low'].iloc[i]))) # Best
-        #     # buy_signals.append((df.index[i], float(df['High'].iloc[i]))) # Worst
-        #     holding = True
-        # # Segnale di vendita: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-        # if (holding and (df['SAR'].iloc[i - 1] < df['Open'].iloc[i - 1]) and
-        #         (df['SAR'].iloc[i] > df['Open'].iloc[i]) and
-        #         (float(df['Close'].iloc[i-1]) <= float(df['High'].iloc[i]))):
-        #     # Salviamo la chiusura della candela precedente come prezzo di sell
-        #     # print(f"Sell signal al prezzo di {float(df['Close'].iloc[i])}, mentre era stato acquisto a {buy_signals[-1][1]}")
-        #     # print(f"il profitto è {(float(df['Close'].iloc[i])-buy_signals[-1][1])}")
-        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i-1])))
-        #     # sell_signals.append((df.index[i], float(df['High'].iloc[i]))) # Best
-        #     # sell_signals.append((df.index[i], float(df['Low'].iloc[i]))) # Worst
-        #     holding = False
-        # ------------------------------------------------------------
-        # # Segnale di acquisto: quando il SAR passa da > prezzo a < prezzo (tra candela precedente e attuale)
-        # if (not holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-        #         (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
-        #     # Salviamo la chiusura della candela come prezzo di buy
-        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = True
-        # # Segnale di vendita: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-        # if (holding and (df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
-        #         (df['SAR'].iloc[i] > df['Close'].iloc[i])):
-        #     # Salviamo la chiusura della candela come prezzo di sell
-        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = False
-        #------------------------------------------------------------
-        # upper trend: quando il SAR passa da > prezzo a < prezzo
-        # if ((df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-        #         (df['SAR'].iloc[i - 1] > df['Close'].iloc[i - 1])):
-        #     upper_trend = True
-        #     lower_trend = False
-        # # lower trend: quando il SAR passa da < prezzo a > prezzo (tra candela precedente e attuale)
-        # if ((df['SAR'].iloc[i - 1] < df['Close'].iloc[i - 1]) and
-        #         (df['SAR'].iloc[i] > df['Close'].iloc[i])):
-        #     upper_trend = False
-        #     lower_trend = True
         # ------------------------------------------------------------
         # STRATEGIA ATTUALMENTE ATTIVA
         # if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
@@ -448,6 +401,13 @@ def sar_trading_analysis(
             sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
         # ------------------------------------------------------------
+        # Imposto più di una condizione in cascata e ne verifico meno di quelle che ho impostato
+        # cioè se imposto 3 condizioni, se se ne verificano 2 procedo con l'operazione
+        # condizione 1: SAR < prezzo, SAR > prezzo
+        # condizione 2: MACD < macd_buy_limit, MACD > macd_sell_limit
+        # condizione 3: VI < vi_buy_limit, VI > vi_sell_limit
+        # condizione 4: rompo le bande ATR
+        # condizione 5: RSI < rsi_buy_limit, RSI > rsi_sell_limit
 
     valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
