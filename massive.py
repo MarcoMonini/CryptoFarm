@@ -64,7 +64,7 @@ def run_simulation(wallet: float,
                                                 for rsi_buy_limit in rsi_buy_limits:
                                                     for rsi_sell_limit in rsi_sell_limits:
                                                         try:
-                                                            _, _, _, trades_df, actual_hours, lista_min_max = simulator.sar_trading_analysis(
+                                                            _, _, _, _, trades_df, actual_hours, lista_min_max = simulator.sar_trading_analysis(
                                                                 asset=asset,
                                                                 interval=interval,
                                                                 wallet=wallet,
