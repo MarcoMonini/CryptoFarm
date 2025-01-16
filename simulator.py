@@ -335,8 +335,8 @@ def sar_trading_analysis(
         window=rsi_window)
     vip = vi.vortex_indicator_pos()
     vim = vi.vortex_indicator_neg()
-    # df['VI'] = vip - vim
-    df['VI'] = vip/vim
+    df['VI'] = vip - vim
+    # df['VI'] = vip/vim
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -393,7 +393,7 @@ def sar_trading_analysis(
         cond_buy_4 = 1 if df['SAR'].iloc[i] > df['Close'].iloc[i] else 0
         cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
         sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4+cond_buy_5
-        if not holding and sum_buy > 3:
+        if not holding and sum_buy >= 3:
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
         cond_sell_1 = 1 if df['MACD'].iloc[i] > macd_sell_limit else 0
@@ -402,7 +402,7 @@ def sar_trading_analysis(
         cond_sell_4 = 1 if df['SAR'].iloc[i] < df['Close'].iloc[i] else 0
         cond_sell_5 = 1 if df['Low'].iloc[i] > df['Lower_Band'].iloc[i] else 0
         sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4+cond_sell_5
-        if holding and sum_sell > 3:
+        if holding and sum_sell >= 3:
             sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
 
@@ -626,14 +626,14 @@ def sar_trading_analysis(
         ))
         fig_vi.add_trace(go.Scatter(
             x=[df.index.min(), df.index.max()],
-            y=[macd_buy_limit, macd_buy_limit],
+            y=[vi_buy_limit, vi_buy_limit],
             mode='lines',
             line=dict(color='green', width=1, dash='dash'),
             name='Buy Limit'
         ))
         fig_vi.add_trace(go.Scatter(
             x=[df.index.min(), df.index.max()],
-            y=[macd_sell_limit, macd_sell_limit],
+            y=[vi_sell_limit, vi_sell_limit],
             mode='lines',
             line=dict(color='red', width=1, dash='dash'),
             name='Sell Limit'
@@ -753,14 +753,14 @@ if __name__ == "__main__":
         rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=10, step=1)
         rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=40, step=5)
         macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.2, step=0.05)
-        vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, value=-0.2, step=0.05)
+        vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, value=-0.5, step=0.05)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
         window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=50, step=2)
         rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=60, step=5)
         macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.05)
-        vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.05)
+        vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.5, step=0.05)
     col1, col2, col3 = st.sidebar.columns(3)
     with col1:
         macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
