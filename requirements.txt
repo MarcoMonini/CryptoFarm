@@ -6,3 +6,4 @@ ta
 scipy
 keyboard
 colorama
+tensorflow

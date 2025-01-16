@@ -10,9 +10,14 @@ import math
 import time
 from scipy.signal import argrelextrema
 import warnings
+from tensorflow.keras.models import load_model
+from cryptoTrainerAI import calculate_percentage_changes, add_technical_indicators
 
 # Disattiva i FutureWarning
 warnings.simplefilter(action='ignore', category=FutureWarning)
+EXT_WINDOW_SIZE = 80  # Dimensione della finestra temporale per min max
+FEATURES = ['Open', 'High', 'Low', 'Close', 'RSI', 'ATR', 'SAR', 'SMA', 'MACD', 'VI']
+
 
 def interval_to_minutes(interval: str) -> int:
     """
@@ -214,7 +219,8 @@ def sar_trading_analysis(
         macd_sell_limit: float = 0.4,
         vi_buy_limit: float = -0.5,
         vi_sell_limit: float = 0.5,
-        market_data: dict = None
+        market_data: dict = None,
+        modello = None
 ):
     """
     Scarica le candele di 'asset' con intervallo 'interval' (tramite una funzione
@@ -259,6 +265,30 @@ def sar_trading_analysis(
     else:
         df = market_data
         actual_hours = time_hours
+
+    # # Copia del DataFrame per non sovrascrivere i dati originali
+    # df_transformed = df.copy()
+    # # Calcolo delle variazioni percentuali rispetto alla chiusura precedente
+    # df_transformed['Open_Perc'] = (df['Open'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
+    # df_transformed['High_Perc'] = (df['High'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
+    # df_transformed['Low_Perc'] = (df['Low'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
+    # df_transformed['Close_Perc'] = (df['Close'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
+    # # Aggiustamento per garantire la continuità
+    # df_transformed = df_transformed.dropna()
+    # prev_close = 0  # Punto iniziale di riferimento
+    # for i in range(len(df_transformed)):
+    #     df_transformed.iloc[i, df_transformed.columns.get_loc('Open_Perc')] += prev_close
+    #     df_transformed.iloc[i, df_transformed.columns.get_loc('High_Perc')] += prev_close
+    #     df_transformed.iloc[i, df_transformed.columns.get_loc('Low_Perc')] += prev_close
+    #     df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')] += prev_close
+    #     # Aggiorna il valore di chiusura precedente
+    #     prev_close = df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')]
+    # df_transformed['Open'] = df_transformed['Open_Perc']
+    # df_transformed['High'] = df_transformed['High_Perc']
+    # df_transformed['Low'] = df_transformed['Low_Perc']
+    # df_transformed['Close'] = df_transformed['Close_Perc']
+    # df_transformed = df_transformed[['Open', 'High', 'Low', 'Close']].astype(float)
+    # df = df_transformed.copy()
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
     # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
@@ -336,7 +366,9 @@ def sar_trading_analysis(
     vip = vi.vortex_indicator_pos()
     vim = vi.vortex_indicator_neg()
     df['VI'] = vip - vim
-    # df['VI'] = vip/vim
+
+    df_perc = calculate_percentage_changes(df)
+    df_perc = add_technical_indicators(df_perc)
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -344,6 +376,74 @@ def sar_trading_analysis(
     sell_signals = []
     holding = False
     for i in range(1, len(df)):
+        # Se hai un modello e vuoi usarlo:
+        # assicuriamoci di avere abbastanza dati per creare la finestraf
+        if (modello is not None) and (i >= EXT_WINDOW_SIZE):
+            # Costruisci la sequenza dagli ultimi 'window_size_for_model' punti
+            # Finestra: df[features].iloc[i-window_size_for_model:i]
+            X_seq = df_perc[FEATURES].iloc[i - EXT_WINDOW_SIZE:i].values
+            X_seq = np.expand_dims(X_seq, axis=0)  # shape (1, window_size, n_eatures)
+
+            # Previsione
+            predicted_probs = modello.predict(X_seq)
+            predicted_class = np.argmax(predicted_probs, axis=1)[0]  # 0,1,2
+
+            # Esempio di interpretazione:
+            #  - 1 => segnale di buy
+            #  - 2 => segnale di sell
+            #  - 0 => no action
+            if not holding and predicted_class == 1:
+                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = True
+
+            elif holding and predicted_class == 2:
+                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = False
+        else:
+            # ------------------------------------------------------------
+            # STRATEGIA ATTUALMENTE ATTIVA
+            # if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+            #     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+            #     holding = True
+            # if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+            #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+            #     holding = False
+            # ------------------------------------------------------------
+            # if (not holding and (df['RSI'].iloc[i] < rsi_buy_limit) and
+            #         (df['SAR'].iloc[i] > df['Close'].iloc[i]) and
+            #         (df['Lower_Band'].iloc[i] > df['Low'].iloc[i]) and
+            #         (df['MACD_Hist'].iloc[i] < 0)):
+            #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            #     holding = True
+            # if (holding and (df['RSI'].iloc[i] > rsi_sell_limit) and
+            #         (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
+            #         (df['Upper_Band'].iloc[i] < df['High'].iloc[i]) and
+            #         (df['MACD_Hist'].iloc[i] > 0)):
+            #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+            #     holding = False
+            # ------------------------------------------------------------
+            # if (not holding and df['MACD_Hist'].iloc[i] < macd_buy_limit and df['MACD_Hist'].iloc[i]>df['MACD_Hist'].iloc[i-1]):
+            #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            #     holding = True
+            # if (holding and df['MACD_Hist'].iloc[i] > macd_sell_limit and df['MACD_Hist'].iloc[i]<df['MACD_Hist'].iloc[i-1]):
+            #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            #     holding = False
+            # ------------------------------------------------------------
+            # if not holding and df['VI'].iloc[i] < macd_buy_limit:
+            #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            #     holding = True
+            # if holding and df['VI'].iloc[i] > macd_sell_limit:
+            #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            #     holding = False
+            # ------------------------------------------------------------
+            # Imposto più di una condizione in cascata e ne verifico meno di quelle che ho impostato
+            # cioè se imposto 3 condizioni, se se ne verificano 2 procedo con l'operazione
+            # condizione 1: SAR < prezzo, SAR > prezzo
+            # condizione 2: MACD < macd_buy_limit, MACD > macd_sell_limit
+            # condizione 3: VI < vi_buy_limit, VI > vi_sell_limit
+            # condizione 4: rompo le bande ATR
+            # condizione 5: RSI < rsi_buy_limit, RSI > rsi_sell_limit
+            pass
         # ------------------------------------------------------------
         # STRATEGIA ATTUALMENTE ATTIVA
         # if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
@@ -720,7 +820,8 @@ if __name__ == "__main__":
     )
     if 'df' not in st.session_state:
         st.session_state['df'] = None
-
+    if 'model' not in st.session_state:
+        st.session_state['model'] = load_model('trained_model.keras')
     csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/2025-01-13T08-47_export.csv")
     if st.sidebar.button("Read from CSV"):
         st.session_state['df'] = pd.read_csv(csv_file)
@@ -799,7 +900,8 @@ if __name__ == "__main__":
             macd_sell_limit=macd_sell_limit,
             vi_buy_limit=vi_buy_limit,
             vi_sell_limit=vi_sell_limit,
-            market_data=st.session_state['df']
+            market_data=st.session_state['df'],
+            modello=st.session_state['model']
         )
         text_placeholder.subheader("Operations Report")
         if not trades_df.empty:

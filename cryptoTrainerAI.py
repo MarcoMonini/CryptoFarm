@@ -10,7 +10,7 @@ from tensorflow import keras
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 
 # Configurazioni principali
-EXT_WINDOW_SIZE = 50  # Dimensione della finestra temporale per min max
+EXT_WINDOW_SIZE = 80  # Dimensione della finestra temporale per min max
 
 WINDOW_SIZE = 10
 # ATR_WINDOW = 14   # Periodo dell'ATR
@@ -22,7 +22,7 @@ ATR_MULTIPLIER = 2
 STEP = 0.02
 MAX_STEP = 0.2
 
-file = 'C:/Users/monini.m/Documents/2025-01-13T08-47_export.csv'
+file = 'C:/Users/marco/Documents/BTC_1ANNO_15m.csv'
 
 
 def calculate_percentage_changes(df):
@@ -80,7 +80,7 @@ def add_technical_indicators(data):
         step=STEP,
         max_step=MAX_STEP
     )
-    data['PSAR'] = sar_indicator.psar()
+    data['SAR'] = sar_indicator.psar()
 
     # ATR
     atr_indicator = AverageTrueRange(
@@ -121,7 +121,7 @@ def add_technical_indicators(data):
         window=WINDOW_SIZE)
     vip = vi.vortex_indicator_pos()
     vim = vi.vortex_indicator_neg()
-    df['VI'] = vip - vim
+    data['VI'] = vip - vim
 
     final_data = data.dropna()
 
@@ -139,64 +139,125 @@ def create_sequences_with_target(data, features, window_size):
     return np.array(X), np.array(y)
 
 
-# Caricamento dati
-raw_df = pd.read_csv(file)
-raw_df['Open time'] = pd.to_datetime(raw_df['Open time'])
-raw_df.set_index('Open time', inplace=True)
-# Mantieni solo le colonne essenziali, converti a float
-df = raw_df[['Open', 'High', 'Low', 'Close']].astype(float)
+def create_balanced_sequences_with_target(data, features, window_size):
+    """
+    Crea sequenze temporali bilanciate con target equamente distribuiti tra le classi 0, 1, 2.
 
-# Applicazione della funzione al DataFrame
-df_transformed = calculate_percentage_changes(df)
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Dataset contenente i dati con le colonne richieste.
+    features : list
+        Lista di colonne usate come feature per creare le sequenze.
+    window_size : int
+        Lunghezza della finestra temporale (numero di step).
 
-df = calculate_relative_extrema(df)
-df = add_technical_indicators(df)
+    Returns
+    -------
+    X_balanced : numpy.ndarray
+        Sequenze bilanciate (shape: [num_samples, window_size, num_features]).
+    y_balanced : numpy.ndarray
+        Etichette bilanciate corrispondenti alle sequenze.
+    """
+    X, y = [], []
 
-print(df)
-# Selezione delle feature
-features = ['Open', 'High', 'Low', 'Close', 'RSI', 'ATR', 'PSAR', 'SMA', 'MACD', 'VI']
+    # Creazione delle sequenze e delle etichette
+    for i in range(len(data) - window_size - 1):
+        # Include la finestra temporale precedente
+        window = data[features].iloc[i:i + window_size].values
+        X.append(window)
+        y.append(data['Label'].iloc[i + window_size])  # Etichetta del punto corrente
 
-X, y = create_sequences_with_target(df, features, WINDOW_SIZE)
+    # Converti in numpy array
+    X = np.array(X)
+    y = np.array(y)
 
-# Dividi i dati in train e test
-train_size = int(0.7 * len(X))
-X_train, X_test = X[:train_size], X[train_size:]
-y_train, y_test = y[:train_size], y[train_size:]
+    # Trova gli indici per ogni classe
+    indices_0 = np.where(y == 0)[0]
+    indices_1 = np.where(y == 1)[0]
+    indices_2 = np.where(y == 2)[0]
 
-# Creazione del modello LSTM
-# model = keras.Sequential([
-#     LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
-#     Dropout(0.2),
-#     LSTM(50),
-#     Dropout(0.2),
-#     Dense(3, activation='softmax')  # Output (0, 1, 2) (MIN, none, MAX)
-# ])
-# Creazione del modello LSTM
-model = keras.Sequential([
-    Input(shape=(X.shape[1], X.shape[2])),  # Definizione dell'input
-    LSTM(50, return_sequences=True),
-    Dropout(0.2),
-    LSTM(50),
-    Dropout(0.2),
-    Dense(3, activation='softmax')  # Output (0, 1, 2) (MIN, none, MAX)
-])
+    # Trova il numero minimo di campioni tra le classi
+    min_samples = min(len(indices_0), len(indices_1), len(indices_2))
 
-model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    # Sottocampiona per bilanciare le classi
+    balanced_indices_0 = np.random.choice(indices_0, min_samples, replace=False)
+    balanced_indices_1 = np.random.choice(indices_1, min_samples, replace=False)
+    balanced_indices_2 = np.random.choice(indices_2, min_samples, replace=False)
 
-# Addestramento del modello
-model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=20, batch_size=32)
+    # Combina gli indici bilanciati
+    balanced_indices = np.concatenate([balanced_indices_0, balanced_indices_1, balanced_indices_2])
 
-# Valutazione del modello
-loss, accuracy = model.evaluate(X_test, y_test)
-print(f"Test Loss: {loss}, Test Accuracy: {accuracy}")
+    # Mescola gli indici per evitare che le classi siano ordinate
+    np.random.shuffle(balanced_indices)
 
-# Previsione su nuovi dati
-predictions = model.predict(X_test)
-print(predictions[:10])
+    # Seleziona le sequenze bilanciate e le etichette
+    X_balanced = X[balanced_indices]
+    y_balanced = y[balanced_indices]
 
-# # Salva il modello in un file HDF5
-# model.save('trained_model.h5')
-# # Carica il modello salvato
-# loaded_model = load_model('trained_model.h5')
-# # Utilizzo del modello per fare previsioni
-# predictions = loaded_model.predict(X_test)
+    return X_balanced, y_balanced
+
+
+if __name__ == "__main__":
+    # Caricamento dati
+    raw_df = pd.read_csv(file)
+    raw_df['Open time'] = pd.to_datetime(raw_df['Open time'])
+    raw_df.set_index('Open time', inplace=True)
+    # Mantieni solo le colonne essenziali, converti a float
+    df = raw_df[['Open', 'High', 'Low', 'Close']].astype(float)
+
+    print("calculate_percentage_changes")
+    df_transformed = calculate_percentage_changes(df)
+    print("calculate_relative_extrema")
+    df = calculate_relative_extrema(df_transformed)
+    print("add_technical_indicators")
+    df = add_technical_indicators(df)
+
+    # print(df)
+    # Selezione delle feature
+    features = ['Open', 'High', 'Low', 'Close', 'RSI', 'ATR', 'SAR', 'SMA', 'MACD', 'VI']
+
+    X, y = create_balanced_sequences_with_target(df, features, WINDOW_SIZE)
+
+    # Dividi i dati in train e test
+    train_size = int(0.7 * len(X))
+    X_train, X_test = X[:train_size], X[train_size:]
+    y_train, y_test = y[:train_size], y[train_size:]
+
+    # Creazione del modello LSTM
+    # model = keras.Sequential([
+    #     LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
+    #     Dropout(0.2),
+    #     LSTM(50),
+    #     Dropout(0.2),
+    #     Dense(3, activation='softmax')  # Output (0, 1, 2) (MIN, none, MAX)
+    # ])
+    # Creazione del modello LSTM
+    model = keras.Sequential([
+        Input(shape=(X.shape[1], X.shape[2])),  # Definizione dell'input
+        LSTM(50, return_sequences=True),
+        Dropout(0.2),
+        LSTM(50),
+        Dropout(0.2),
+        Dense(3, activation='softmax')  # Output (0, 1, 2) (MIN, none, MAX)
+    ])
+
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+    # Addestramento del modello
+    model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=10, batch_size=32)
+
+    # Valutazione del modello
+    loss, accuracy = model.evaluate(X_test, y_test)
+    print(f"Test Loss: {loss}, Test Accuracy: {accuracy}")
+
+    # Previsione su nuovi dati
+    predictions = model.predict(X_test)
+    print(predictions[:10])
+
+    # Salva il modello in un file HDF5
+    model.save('trained_model.keras')
+    # # Carica il modello salvato
+    # loaded_model = load_model('trained_model.h5')
+    # # Utilizzo del modello per fare previsioni
+    # predictions = loaded_model.predict(X_test)
