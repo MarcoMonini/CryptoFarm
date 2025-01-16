@@ -378,7 +378,7 @@ def sar_trading_analysis(
     for i in range(1, len(df)):
         # Se hai un modello e vuoi usarlo:
         # assicuriamoci di avere abbastanza dati per creare la finestraf
-        if (modello is not None) and (i >= EXT_WINDOW_SIZE):
+        if (modello is not None) and (i >= EXT_WINDOW_SIZE) and False: 
             # Costruisci la sequenza dagli ultimi 'window_size_for_model' punti
             # Finestra: df[features].iloc[i-window_size_for_model:i]
             X_seq = df_perc[FEATURES].iloc[i - EXT_WINDOW_SIZE:i].values
@@ -443,68 +443,24 @@ def sar_trading_analysis(
             # condizione 3: VI < vi_buy_limit, VI > vi_sell_limit
             # condizione 4: rompo le bande ATR
             # condizione 5: RSI < rsi_buy_limit, RSI > rsi_sell_limit
-            pass
-        # ------------------------------------------------------------
-        # STRATEGIA ATTUALMENTE ATTIVA
-        # if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
-        #     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-        #     holding = True
-        # if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-        #     holding = False
-        # ------------------------------------------------------------
-        # if (not holding and (df['RSI'].iloc[i] < rsi_buy_limit) and
-        #         (df['SAR'].iloc[i] > df['Close'].iloc[i]) and
-        #         (df['Lower_Band'].iloc[i] > df['Low'].iloc[i]) and
-        #         (df['MACD_Hist'].iloc[i] < 0)):
-        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = True
-        # if (holding and (df['RSI'].iloc[i] > rsi_sell_limit) and
-        #         (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-        #         (df['Upper_Band'].iloc[i] < df['High'].iloc[i]) and
-        #         (df['MACD_Hist'].iloc[i] > 0)):
-        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-        #     holding = False
-        # ------------------------------------------------------------
-        # if (not holding and df['MACD_Hist'].iloc[i] < macd_buy_limit and df['MACD_Hist'].iloc[i]>df['MACD_Hist'].iloc[i-1]):
-        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = True
-        # if (holding and df['MACD_Hist'].iloc[i] > macd_sell_limit and df['MACD_Hist'].iloc[i]<df['MACD_Hist'].iloc[i-1]):
-        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = False
-        # ------------------------------------------------------------
-        # if not holding and df['VI'].iloc[i] < macd_buy_limit:
-        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = True
-        # if holding and df['VI'].iloc[i] > macd_sell_limit:
-        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = False
-        # ------------------------------------------------------------
-        # Imposto più di una condizione in cascata e ne verifico meno di quelle che ho impostato
-        # cioè se imposto 3 condizioni, se se ne verificano 2 procedo con l'operazione
-        # condizione 1: SAR < prezzo, SAR > prezzo
-        # condizione 2: MACD < macd_buy_limit, MACD > macd_sell_limit
-        # condizione 3: VI < vi_buy_limit, VI > vi_sell_limit
-        # condizione 4: rompo le bande ATR
-        # condizione 5: RSI < rsi_buy_limit, RSI > rsi_sell_limit
-        cond_buy_1 = 1 if df['MACD'].iloc[i] < macd_buy_limit else 0
-        cond_buy_2 = 1 if df['RSI'].iloc[i] < rsi_buy_limit else 0
-        cond_buy_3 = 1 if df['VI'].iloc[i] < vi_buy_limit else 0
-        cond_buy_4 = 1 if df['SAR'].iloc[i] > df['Close'].iloc[i] else 0
-        cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
-        sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4+cond_buy_5
-        if not holding and sum_buy >= 3:
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = True
-        cond_sell_1 = 1 if df['MACD'].iloc[i] > macd_sell_limit else 0
-        cond_sell_2 = 1 if df['RSI'].iloc[i] > rsi_sell_limit else 0
-        cond_sell_3 = 1 if df['VI'].iloc[i] > vi_sell_limit else 0
-        cond_sell_4 = 1 if df['SAR'].iloc[i] < df['Close'].iloc[i] else 0
-        cond_sell_5 = 1 if df['Low'].iloc[i] > df['Lower_Band'].iloc[i] else 0
-        sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4+cond_sell_5
-        if holding and sum_sell >= 3:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = False
+            cond_buy_1 = 1 if df['MACD'].iloc[i] < macd_buy_limit else 0
+            cond_buy_2 = 1 if df['RSI'].iloc[i] < rsi_buy_limit else 0
+            cond_buy_3 = 1 if df['VI'].iloc[i] < vi_buy_limit else 0
+            cond_buy_4 = 1 if df['SAR'].iloc[i] > df['Close'].iloc[i] else 0
+            cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
+            sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4+cond_buy_5
+            if not holding and sum_buy >= 3:
+                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = True
+            cond_sell_1 = 1 if df['MACD'].iloc[i] > macd_sell_limit else 0
+            cond_sell_2 = 1 if df['RSI'].iloc[i] > rsi_sell_limit else 0
+            cond_sell_3 = 1 if df['VI'].iloc[i] > vi_sell_limit else 0
+            cond_sell_4 = 1 if df['SAR'].iloc[i] < df['Close'].iloc[i] else 0
+            cond_sell_5 = 1 if df['Low'].iloc[i] > df['Lower_Band'].iloc[i] else 0
+            sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4+cond_sell_5
+            if holding and sum_sell >= 3:
+                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = False
 
     valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
