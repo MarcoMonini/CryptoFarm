@@ -212,6 +212,8 @@ def sar_trading_analysis(
         rsi_sell_limit: int = 60,
         macd_buy_limit: float = -0.4,
         macd_sell_limit: float = 0.4,
+        vi_buy_limit: float = -0.5,
+        vi_sell_limit: float = 0.5,
         market_data: dict = None
 ):
     """
@@ -257,30 +259,6 @@ def sar_trading_analysis(
     else:
         df = market_data
         actual_hours = time_hours
-
-    # # Copia del DataFrame per non sovrascrivere i dati originali
-    # df_transformed = df.copy()
-    # # Calcolo delle variazioni percentuali rispetto alla chiusura precedente
-    # df_transformed['Open_Perc'] = (df['Open'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
-    # df_transformed['High_Perc'] = (df['High'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
-    # df_transformed['Low_Perc'] = (df['Low'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
-    # df_transformed['Close_Perc'] = (df['Close'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
-    # # Aggiustamento per garantire la continuità
-    # df_transformed = df_transformed.dropna()
-    # prev_close = 0  # Punto iniziale di riferimento
-    # for i in range(len(df_transformed)):
-    #     df_transformed.iloc[i, df_transformed.columns.get_loc('Open_Perc')] += prev_close
-    #     df_transformed.iloc[i, df_transformed.columns.get_loc('High_Perc')] += prev_close
-    #     df_transformed.iloc[i, df_transformed.columns.get_loc('Low_Perc')] += prev_close
-    #     df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')] += prev_close
-    #     # Aggiorna il valore di chiusura precedente
-    #     prev_close = df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')]
-    # df_transformed['Open'] = df_transformed['Open_Perc']
-    # df_transformed['High'] = df_transformed['High_Perc']
-    # df_transformed['Low'] = df_transformed['Low_Perc']
-    # df_transformed['Close'] = df_transformed['Close_Perc']
-    # df_transformed = df_transformed[['Open', 'High', 'Low', 'Close']].astype(float)
-    # df = df_transformed.copy()
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
     # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
@@ -357,7 +335,8 @@ def sar_trading_analysis(
         window=rsi_window)
     vip = vi.vortex_indicator_pos()
     vim = vi.vortex_indicator_neg()
-    df['VI'] = vip - vim
+    # df['VI'] = vip - vim
+    df['VI'] = vip/vim
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -394,12 +373,12 @@ def sar_trading_analysis(
         #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
         #     holding = False
         # ------------------------------------------------------------
-        if not holding and df['VI'].iloc[i] < macd_buy_limit:
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = True
-        if holding and df['VI'].iloc[i] > macd_sell_limit:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = False
+        # if not holding and df['VI'].iloc[i] < macd_buy_limit:
+        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = True
+        # if holding and df['VI'].iloc[i] > macd_sell_limit:
+        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = False
         # ------------------------------------------------------------
         # Imposto più di una condizione in cascata e ne verifico meno di quelle che ho impostato
         # cioè se imposto 3 condizioni, se se ne verificano 2 procedo con l'operazione
@@ -408,6 +387,24 @@ def sar_trading_analysis(
         # condizione 3: VI < vi_buy_limit, VI > vi_sell_limit
         # condizione 4: rompo le bande ATR
         # condizione 5: RSI < rsi_buy_limit, RSI > rsi_sell_limit
+        cond_buy_1 = 1 if df['MACD'].iloc[i] < macd_buy_limit else 0
+        cond_buy_2 = 1 if df['RSI'].iloc[i] < rsi_buy_limit else 0
+        cond_buy_3 = 1 if df['VI'].iloc[i] < vi_buy_limit else 0
+        cond_buy_4 = 1 if df['SAR'].iloc[i] > df['Close'].iloc[i] else 0
+        cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
+        sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4+cond_buy_5
+        if not holding and sum_buy > 3:
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+        cond_sell_1 = 1 if df['MACD'].iloc[i] > macd_sell_limit else 0
+        cond_sell_2 = 1 if df['RSI'].iloc[i] > rsi_sell_limit else 0
+        cond_sell_3 = 1 if df['VI'].iloc[i] > vi_sell_limit else 0
+        cond_sell_4 = 1 if df['SAR'].iloc[i] < df['Close'].iloc[i] else 0
+        cond_sell_5 = 1 if df['Low'].iloc[i] > df['Lower_Band'].iloc[i] else 0
+        sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4+cond_sell_5
+        if holding and sum_sell > 3:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
 
     valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
@@ -756,13 +753,14 @@ if __name__ == "__main__":
         rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=10, step=1)
         rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=40, step=5)
         macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.2, step=0.05)
+        vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, value=-0.2, step=0.05)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
         window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=50, step=2)
         rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=60, step=5)
-        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2,
-                                          step=0.05)
+        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.05)
+        vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.05)
     col1, col2, col3 = st.sidebar.columns(3)
     with col1:
         macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
@@ -799,6 +797,8 @@ if __name__ == "__main__":
             rsi_sell_limit=rsi_sell_limit,
             macd_buy_limit=macd_buy_limit,
             macd_sell_limit=macd_sell_limit,
+            vi_buy_limit=vi_buy_limit,
+            vi_sell_limit=vi_sell_limit,
             market_data=st.session_state['df']
         )
         text_placeholder.subheader("Operations Report")
