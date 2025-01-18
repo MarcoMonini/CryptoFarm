@@ -10,13 +10,13 @@ import math
 import time
 from scipy.signal import argrelextrema
 import warnings
-from tensorflow.keras.models import load_model
-from cryptoTrainerAI import calculate_percentage_changes, add_technical_indicators
+# from tensorflow.keras.models import load_model
+# from cryptoTrainerAI import calculate_percentage_changes, add_technical_indicators
 
 # Disattiva i FutureWarning
 warnings.simplefilter(action='ignore', category=FutureWarning)
-EXT_WINDOW_SIZE = 80  # Dimensione della finestra temporale per min max
-FEATURES = ['Open', 'High', 'Low', 'Close', 'RSI', 'ATR', 'SAR', 'SMA', 'MACD', 'VI']
+# EXT_WINDOW_SIZE = 80  # Dimensione della finestra temporale per min max
+# FEATURES = ['Open', 'High', 'Low', 'Close', 'RSI', 'ATR', 'SAR', 'SMA', 'MACD', 'VI']
 
 
 def interval_to_minutes(interval: str) -> int:
@@ -219,8 +219,10 @@ def sar_trading_analysis(
         macd_sell_limit: float = 0.4,
         vi_buy_limit: float = -0.5,
         vi_sell_limit: float = 0.5,
+        psarvp_buy_limit: float = -0.1,
+        psarvp_sell_limit: float = 10.1,
         market_data: dict = None,
-        modello = None
+        # modello = None
 ):
     """
     Scarica le candele di 'asset' con intervallo 'interval' (tramite una funzione
@@ -316,6 +318,7 @@ def sar_trading_analysis(
         max_step=max_step
     )
     df['SAR'] = sar_indicator.psar()
+    df['PSARVP'] = df['SAR']/df['Close']
 
     # ATR
     atr_indicator = AverageTrueRange(
@@ -367,8 +370,8 @@ def sar_trading_analysis(
     vim = vi.vortex_indicator_neg()
     df['VI'] = vip - vim
 
-    df_perc = calculate_percentage_changes(df)
-    df_perc = add_technical_indicators(df_perc)
+    # df_perc = calculate_percentage_changes(df)
+    # df_perc = add_technical_indicators(df_perc)
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -378,89 +381,89 @@ def sar_trading_analysis(
     for i in range(1, len(df)):
         # Se hai un modello e vuoi usarlo:
         # assicuriamoci di avere abbastanza dati per creare la finestraf
-        if (modello is not None) and (i >= EXT_WINDOW_SIZE) and False: 
-            # Costruisci la sequenza dagli ultimi 'window_size_for_model' punti
-            # Finestra: df[features].iloc[i-window_size_for_model:i]
-            X_seq = df_perc[FEATURES].iloc[i - EXT_WINDOW_SIZE:i].values
-            X_seq = np.expand_dims(X_seq, axis=0)  # shape (1, window_size, n_eatures)
-
-            # Previsione
-            predicted_probs = modello.predict(X_seq)
-            predicted_class = np.argmax(predicted_probs, axis=1)[0]  # 0,1,2
-
-            # Esempio di interpretazione:
-            #  - 1 => segnale di buy
-            #  - 2 => segnale di sell
-            #  - 0 => no action
-            if not holding and predicted_class == 1:
-                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                holding = True
-
-            elif holding and predicted_class == 2:
-                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                holding = False
-        else:
-            # ------------------------------------------------------------
-            # STRATEGIA ATTUALMENTE ATTIVA
-            # if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
-            #     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-            #     holding = True
-            # if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-            #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-            #     holding = False
-            # ------------------------------------------------------------
-            # if (not holding and (df['RSI'].iloc[i] < rsi_buy_limit) and
-            #         (df['SAR'].iloc[i] > df['Close'].iloc[i]) and
-            #         (df['Lower_Band'].iloc[i] > df['Low'].iloc[i]) and
-            #         (df['MACD_Hist'].iloc[i] < 0)):
-            #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            #     holding = True
-            # if (holding and (df['RSI'].iloc[i] > rsi_sell_limit) and
-            #         (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
-            #         (df['Upper_Band'].iloc[i] < df['High'].iloc[i]) and
-            #         (df['MACD_Hist'].iloc[i] > 0)):
-            #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-            #     holding = False
-            # ------------------------------------------------------------
-            # if (not holding and df['MACD_Hist'].iloc[i] < macd_buy_limit and df['MACD_Hist'].iloc[i]>df['MACD_Hist'].iloc[i-1]):
-            #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            #     holding = True
-            # if (holding and df['MACD_Hist'].iloc[i] > macd_sell_limit and df['MACD_Hist'].iloc[i]<df['MACD_Hist'].iloc[i-1]):
-            #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            #     holding = False
-            # ------------------------------------------------------------
-            # if not holding and df['VI'].iloc[i] < macd_buy_limit:
-            #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            #     holding = True
-            # if holding and df['VI'].iloc[i] > macd_sell_limit:
-            #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            #     holding = False
-            # ------------------------------------------------------------
-            # Imposto più di una condizione in cascata e ne verifico meno di quelle che ho impostato
-            # cioè se imposto 3 condizioni, se se ne verificano 2 procedo con l'operazione
-            # condizione 1: SAR < prezzo, SAR > prezzo
-            # condizione 2: MACD < macd_buy_limit, MACD > macd_sell_limit
-            # condizione 3: VI < vi_buy_limit, VI > vi_sell_limit
-            # condizione 4: rompo le bande ATR
-            # condizione 5: RSI < rsi_buy_limit, RSI > rsi_sell_limit
-            cond_buy_1 = 1 if df['MACD'].iloc[i] < macd_buy_limit else 0
-            cond_buy_2 = 1 if df['RSI'].iloc[i] < rsi_buy_limit else 0
-            cond_buy_3 = 1 if df['VI'].iloc[i] < vi_buy_limit else 0
-            cond_buy_4 = 1 if df['SAR'].iloc[i] > df['Close'].iloc[i] else 0
-            cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
-            sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4+cond_buy_5
-            if not holding and sum_buy >= 3:
-                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                holding = True
-            cond_sell_1 = 1 if df['MACD'].iloc[i] > macd_sell_limit else 0
-            cond_sell_2 = 1 if df['RSI'].iloc[i] > rsi_sell_limit else 0
-            cond_sell_3 = 1 if df['VI'].iloc[i] > vi_sell_limit else 0
-            cond_sell_4 = 1 if df['SAR'].iloc[i] < df['Close'].iloc[i] else 0
-            cond_sell_5 = 1 if df['Low'].iloc[i] > df['Lower_Band'].iloc[i] else 0
-            sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4+cond_sell_5
-            if holding and sum_sell >= 3:
-                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                holding = False
+        # if (modello is not None) and (i >= EXT_WINDOW_SIZE) and False:
+        #     # Costruisci la sequenza dagli ultimi 'window_size_for_model' punti
+        #     # Finestra: df[features].iloc[i-window_size_for_model:i]
+        #     X_seq = df_perc[FEATURES].iloc[i - EXT_WINDOW_SIZE:i].values
+        #     X_seq = np.expand_dims(X_seq, axis=0)  # shape (1, window_size, n_eatures)
+        #
+        #     # Previsione
+        #     predicted_probs = modello.predict(X_seq)
+        #     predicted_class = np.argmax(predicted_probs, axis=1)[0]  # 0,1,2
+        #
+        #     # Esempio di interpretazione:
+        #     #  - 1 => segnale di buy
+        #     #  - 2 => segnale di sell
+        #     #  - 0 => no action
+        #     if not holding and predicted_class == 1:
+        #         buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #         holding = True
+        #
+        #     elif holding and predicted_class == 2:
+        #         sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #         holding = False
+        # else:
+        # ------------------------------------------------------------
+        # STRATEGIA ATTUALMENTE ATTIVA
+        # if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+        #     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+        #     holding = True
+        # if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+        #     holding = False
+        # ------------------------------------------------------------
+        # if (not holding and (df['RSI'].iloc[i] < rsi_buy_limit) and
+        #         (df['SAR'].iloc[i] > df['Close'].iloc[i]) and
+        #         (df['Lower_Band'].iloc[i] > df['Low'].iloc[i]) and
+        #         (df['MACD_Hist'].iloc[i] < 0)):
+        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = True
+        # if (holding and (df['RSI'].iloc[i] > rsi_sell_limit) and
+        #         (df['SAR'].iloc[i] < df['Close'].iloc[i]) and
+        #         (df['Upper_Band'].iloc[i] < df['High'].iloc[i]) and
+        #         (df['MACD_Hist'].iloc[i] > 0)):
+        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+        #     holding = False
+        # ------------------------------------------------------------
+        # if (not holding and df['MACD_Hist'].iloc[i] < macd_buy_limit and df['MACD_Hist'].iloc[i]>df['MACD_Hist'].iloc[i-1]):
+        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = True
+        # if (holding and df['MACD_Hist'].iloc[i] > macd_sell_limit and df['MACD_Hist'].iloc[i]<df['MACD_Hist'].iloc[i-1]):
+        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = False
+        # ------------------------------------------------------------
+        # if not holding and df['VI'].iloc[i] < macd_buy_limit:
+        #     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = True
+        # if holding and df['VI'].iloc[i] > macd_sell_limit:
+        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = False
+        # ------------------------------------------------------------
+        # Imposto più di una condizione in cascata e ne verifico meno di quelle che ho impostato
+        # cioè se imposto 3 condizioni, se se ne verificano 2 procedo con l'operazione
+        # condizione 1: SAR < prezzo, SAR > prezzo
+        # condizione 2: MACD < macd_buy_limit, MACD > macd_sell_limit
+        # condizione 3: VI < vi_buy_limit, VI > vi_sell_limit
+        # condizione 4: rompo le bande ATR
+        # condizione 5: RSI < rsi_buy_limit, RSI > rsi_sell_limit
+        cond_buy_1 = 1 if df['MACD'].iloc[i] < macd_buy_limit else 0
+        cond_buy_2 = 1 if df['RSI'].iloc[i] < rsi_buy_limit else 0
+        cond_buy_3 = 1 if df['VI'].iloc[i] < vi_buy_limit else 0
+        cond_buy_4 = 1 if df['PSARVP'].iloc[i] < psarvp_buy_limit else 0
+        # cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
+        sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4
+        if not holding and sum_buy >= 3:
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+        cond_sell_1 = 1 if df['MACD'].iloc[i] > macd_sell_limit else 0
+        cond_sell_2 = 1 if df['RSI'].iloc[i] > rsi_sell_limit else 0
+        cond_sell_3 = 1 if df['VI'].iloc[i] > vi_sell_limit else 0
+        cond_sell_4 = 1 if df['PSARVP'].iloc[i] > psarvp_sell_limit else 0
+        # cond_sell_5 = 1 if df['Low'].iloc[i] > df['Lower_Band'].iloc[i] else 0
+        sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4
+        if holding and sum_sell >= 3:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
 
     valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
@@ -549,6 +552,7 @@ def sar_trading_analysis(
     fig_rsi = go.Figure()
     fig_macd = go.Figure()
     fig_vi = go.Figure()
+    fig_psarvp = go.Figure()
     if show:
         # Candele (candlestick)
         fig.add_trace(go.Candlestick(
@@ -694,6 +698,27 @@ def sar_trading_analysis(
             line=dict(color='red', width=1, dash='dash'),
             name='Sell Limit'
         ))
+        # PSAR versus Price
+        fig_psarvp.add_trace(go.Scatter(
+            x=df.index,
+            y=df['PSARVP'],
+            name='PSAR vs Price',
+            marker=dict(color='yellow')
+        ))
+        fig_psarvp.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[psarvp_buy_limit, psarvp_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ))
+        fig_psarvp.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[psarvp_sell_limit, psarvp_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
+        ))
 
         # Layout e aspetto del grafico principale
         fig.update_layout(
@@ -731,6 +756,14 @@ def sar_trading_analysis(
             template="plotly_dark",
             height=300
         )
+        # Configurare il layout del grafico per l'PSARPVP
+        fig_psarvp.update_layout(
+            title='PSAR vs Price (PSARVP)',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
 
     # ======================================
     # Creazione del DataFrame finale con le operazioni
@@ -762,7 +795,7 @@ def sar_trading_analysis(
           f"rsi_buy_limit={rsi_buy_limit}, rsi_sell_limit={rsi_sell_limit}, "
           f"profitto totale={round(trades_df['Profit'].sum())} USD")
 
-    return fig, fig_rsi, fig_macd, fig_vi, trades_df, actual_hours, valori_ottimi
+    return fig, fig_rsi, fig_macd, fig_vi, fig_psarvp, trades_df, actual_hours, valori_ottimi
 
 
 if __name__ == "__main__":
@@ -776,20 +809,21 @@ if __name__ == "__main__":
     )
     if 'df' not in st.session_state:
         st.session_state['df'] = None
-    if 'model' not in st.session_state:
-        st.session_state['model'] = load_model('trained_model.keras')
-    csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/2025-01-13T08-47_export.csv")
-    if st.sidebar.button("Read from CSV"):
-        st.session_state['df'] = pd.read_csv(csv_file)
-        st.session_state['df'].set_index('Open time', inplace=True)
-        # Mantieni solo le colonne essenziali, converti a float
-        st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close']].astype(float)
+    # if 'model' not in st.session_state:
+    #     st.session_state['model'] = load_model('trained_model.keras')
+    # csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/2025-01-13T08-47_export.csv")
+    # if st.sidebar.button("Read from CSV"):
+    #     st.session_state['df'] = pd.read_csv(csv_file)
+    #     st.session_state['df'].set_index('Open time', inplace=True)
+    #     # Mantieni solo le colonne essenziali, converti a float
+    #     st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close']].astype(float)
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
     fig_rsi_placeholder = st.empty()
     fig_macd_placeholder = st.empty()
     fig_vi_placeholder = st.empty()
+    fig_psarvp_placeholder = st.empty()
     st.sidebar.title("Market parameters")
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -811,6 +845,7 @@ if __name__ == "__main__":
         rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=40, step=5)
         macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.2, step=0.05)
         vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, value=-0.5, step=0.05)
+        psarvp_buy_limit = st.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=0.95, step=0.05)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
@@ -818,24 +853,25 @@ if __name__ == "__main__":
         rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=60, step=5)
         macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.05)
         vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.5, step=0.05)
-    col1, col2, col3 = st.sidebar.columns(3)
-    with col1:
-        macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
-    with col2:
-        macd_long_window = st.number_input(label="MACD Long Window", min_value=1, max_value=100, value=26, step=1)
-    with col3:
-        macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
+        psarvp_sell_limit = st.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0, value=1.05, step=0.05)
+    # col1, col2, col3 = st.sidebar.columns(3)
+    # with col1:
+    #     macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
+    # with col2:
+    #     macd_long_window = st.number_input(label="MACD Long Window", min_value=1, max_value=100, value=26, step=1)
+    # with col3:
+    #     macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
 
     if st.sidebar.button("SIMULATE"):
         df, _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
         st.session_state['df'] = df
 
-    if st.sidebar.button("Print Data"):
-        if st.session_state['df'] is not None:
-            st.write(st.session_state['df'])
+    # if st.sidebar.button("Print Data"):
+    #     if st.session_state['df'] is not None:
+    #         st.write(st.session_state['df'])
 
     if st.session_state['df'] is not None:
-        fig, fig_rsi, fig_macd, fig_vi, trades_df, _, _ = sar_trading_analysis(
+        fig, fig_rsi, fig_macd, fig_vi, fig_psarvp, trades_df, _, _ = sar_trading_analysis(
             asset=symbol,
             interval=interval,
             wallet=wallet,  # Wallet iniziale
@@ -847,17 +883,19 @@ if __name__ == "__main__":
             atr_window=atr_window,
             window_pivot=window_pivot,
             rsi_window=rsi_window,
-            macd_short_window=macd_short_window,
-            macd_long_window=macd_long_window,
-            macd_signal_window=macd_signal_window,
+            # macd_short_window=macd_short_window,
+            # macd_long_window=macd_long_window,
+            # macd_signal_window=macd_signal_window,
             rsi_buy_limit=rsi_buy_limit,
             rsi_sell_limit=rsi_sell_limit,
             macd_buy_limit=macd_buy_limit,
             macd_sell_limit=macd_sell_limit,
             vi_buy_limit=vi_buy_limit,
             vi_sell_limit=vi_sell_limit,
+            psarvp_buy_limit=psarvp_buy_limit,
+            psarvp_sell_limit=psarvp_sell_limit,
             market_data=st.session_state['df'],
-            modello=st.session_state['model']
+            # modello=st.session_state['model']
         )
         text_placeholder.subheader("Operations Report")
         if not trades_df.empty:
@@ -871,3 +909,4 @@ if __name__ == "__main__":
         fig_rsi_placeholder.plotly_chart(fig_rsi, use_container_width=True)
         fig_macd_placeholder.plotly_chart(fig_macd, use_container_width=True)
         fig_vi_placeholder.plotly_chart(fig_vi, use_container_width=True)
+        fig_psarvp_placeholder.plotly_chart(fig_psarvp, use_container_width=True)
