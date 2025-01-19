@@ -101,8 +101,26 @@ def run_simulation(wallet: float,
                                                         'Asset': asset,
                                                         'Intervallo': interval,
                                                         'Tempo': time_string,
-                                                        'Operazioni Chiuse': 0,
+                                                        'RSI Buy Limit': rsi_buy_limit,
+                                                        'RSI Sell Limit': rsi_sell_limit,
+                                                        'MACD Buy Limit': macd_buy_limit,
+                                                        'MACD Sell Limit': macd_sell_limit,
+                                                        'VI Buy Limit': vi_buy_limit,
+                                                        'VI Sell Limit': vi_sell_limit,
+                                                        'PSARVP Buy Limit': psarvp_buy_limit,
+                                                        'PSARVP Sell Limit': psarvp_sell_limit,
+                                                        'Numero condizioni': num_cond,
                                                         'Profitto Totale': 0,
+                                                        'Profitto Medio': 0,
+                                                        'Operazioni Chiuse': 0,
+                                                        'Operazioni in Profitto': 0,
+                                                        'Operazioni in Perdita': 0,
+                                                        'Pareggi': 0,
+                                                        'Win Rate (%)': 0,
+                                                        'Profitto Medio (Gain)': 0,
+                                                        'Perdita Media (Loss)': 0,
+                                                        'Max Profit Trade': 0,
+                                                        'Min Profit Trade': 0,
                                                         'ROI totale (%)': 0,
                                                         'ROI giornaliero (%)': 0
                                                     })
@@ -186,12 +204,13 @@ def run_simulation(wallet: float,
                                                     # 'Finestra MACD segnale': macd_signal_windows,
                                                     'RSI Buy Limit': rsi_buy_limit,
                                                     'RSI Sell Limit': rsi_sell_limit,
-                                                    'MACD Buy Limit': macd_buy_limits,
-                                                    'MACD Sell Limit': macd_sell_limits,
-                                                    'VI Buy Limit': vi_buy_limits,
-                                                    'VI Sell Limit': vi_sell_limits,
-                                                    'PSARVP Buy Limit': psarvp_buy_limits,
-                                                    'PSARVP Sell Limit': psarvp_sell_limits,
+                                                    'MACD Buy Limit': macd_buy_limit,
+                                                    'MACD Sell Limit': macd_sell_limit,
+                                                    'VI Buy Limit': vi_buy_limit,
+                                                    'VI Sell Limit': vi_sell_limit,
+                                                    'PSARVP Buy Limit': psarvp_buy_limit,
+                                                    'PSARVP Sell Limit': psarvp_sell_limit,
+                                                    'Numero condizioni': num_cond,
                                                     'Prezzo Massimo': prezzo_massimo,
                                                     'Prezzo Minimo': prezzo_minimo,
                                                     'Variazione di prezzo (%)': variazione_prezzo,
@@ -216,12 +235,13 @@ def run_simulation(wallet: float,
 if __name__ == "__main__":
     # ------------------------------
     # Parametri fissati per l'ottimizzazione
-    wallet = 100.0  # Capitale iniziale
-    hours = 480  # Numero di ore
+    wallet = 1000.0  # Capitale iniziale
+    hours = 8760  # Numero di ore
     assets = ["AAVEUSDC", "AMPUSDT", "ADAUSDC", "AVAXUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
-              "ETHUSDC", "LINKUSDC", "SOLUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+            "ETHUSDC", "LINKUSDC", "SOLUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
     # assets = ["XRPBTC","ADABTC","ETHBTC","SOLBTC","DOGEBTC","BNBBTC","SUIBTC","LTCBTC","LINKBTC","AVAXBTC","TRXBTC", "DOTBTC"]
     intervals = ["15m"]
+    # assets = ["BTCUSDC","SOLUSDC","XRPUSDT","AMPUSDT","ZENUSDT"]
     # steps = [0.04] DEFAULT 0.001
     # max_steps = [0.4] # DEFAULT 0.4
     # atr_multipliers = [2.4] DEFAULT 3.2
@@ -231,15 +251,15 @@ if __name__ == "__main__":
     # macd_short_windows = [12] DEFAULT 12
     # macd_long_windows = [26] DEFAULT 26
     # macd_signal_windows = [9] DEFAULT 9
-    rsi_buy_limits = [22,24,26,28,30,32]
-    rsi_sell_limits = [66,68,70,72,74,76]
-    macd_buy_limits = [-0.2,-0.25,-0.3,-0.35,-0.4,-0.45,-0.5]
-    macd_sell_limits = [0.2,0.25,0.3,0.35,0.4,0.45,0.5]
-    vi_buy_limits = [-0.5,-0.6,-0.7,-0.8]
-    vi_sell_limits = [0.5,0.6,0.7,0.8]
-    psarvp_buy_limits = [0.95,0.96,0.97,0.98]
-    psarvp_sell_limits = [1.02,1.03,1.04,1.05]
-    num_conds = [2,3,4]
+    rsi_buy_limits = [30]
+    rsi_sell_limits = [79]
+    macd_buy_limits = [-0.48]
+    macd_sell_limits = [0.4]
+    vi_buy_limits = [-0.45]
+    vi_sell_limits = [0.6]
+    psarvp_buy_limits = [0.99]
+    psarvp_sell_limits = [1.03]
+    num_conds = [2]
 
     dati = simulator.download_market_data(assets, intervals, hours)
     simulazioni = run_simulation(wallet=wallet,

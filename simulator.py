@@ -221,6 +221,8 @@ def sar_trading_analysis(
         vi_sell_limit: float = 0.5,
         psarvp_buy_limit: float = -0.1,
         psarvp_sell_limit: float = 10.1,
+        num_cond: int = 3,
+        strategia: str = "",
         market_data: dict = None,
         # modello = None
 ):
@@ -404,13 +406,13 @@ def sar_trading_analysis(
         #         holding = False
         # else:
         # ------------------------------------------------------------
-        # STRATEGIA ATTUALMENTE ATTIVA
-        # if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
-        #     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-        #     holding = True
-        # if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-        #     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-        #     holding = False
+        if strategia == "ATR Bands":
+            if not holding and (df['SAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+                buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+                holding = True
+            if holding and (df['SAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+                sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+                holding = False
         # ------------------------------------------------------------
         # if (not holding and (df['RSI'].iloc[i] < rsi_buy_limit) and
         #         (df['SAR'].iloc[i] > df['Close'].iloc[i]) and
@@ -446,24 +448,25 @@ def sar_trading_analysis(
         # condizione 3: VI < vi_buy_limit, VI > vi_sell_limit
         # condizione 4: rompo le bande ATR
         # condizione 5: RSI < rsi_buy_limit, RSI > rsi_sell_limit
-        cond_buy_1 = 1 if df['MACD'].iloc[i] < macd_buy_limit else 0
-        cond_buy_2 = 1 if df['RSI'].iloc[i] < rsi_buy_limit else 0
-        cond_buy_3 = 1 if df['VI'].iloc[i] < vi_buy_limit else 0
-        cond_buy_4 = 1 if df['PSARVP'].iloc[i] < psarvp_buy_limit else 0
-        # cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
-        sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4
-        if not holding and sum_buy >= 3:
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = True
-        cond_sell_1 = 1 if df['MACD'].iloc[i] > macd_sell_limit else 0
-        cond_sell_2 = 1 if df['RSI'].iloc[i] > rsi_sell_limit else 0
-        cond_sell_3 = 1 if df['VI'].iloc[i] > vi_sell_limit else 0
-        cond_sell_4 = 1 if df['PSARVP'].iloc[i] > psarvp_sell_limit else 0
-        # cond_sell_5 = 1 if df['Low'].iloc[i] > df['Lower_Band'].iloc[i] else 0
-        sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4
-        if holding and sum_sell >= 3:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = False
+        if strategia == "Buy/Sell Limits":
+            cond_buy_1 = 1 if df['MACD'].iloc[i] < macd_buy_limit else 0
+            cond_buy_2 = 1 if df['RSI'].iloc[i] < rsi_buy_limit else 0
+            cond_buy_3 = 1 if df['VI'].iloc[i] < vi_buy_limit else 0
+            cond_buy_4 = 1 if df['PSARVP'].iloc[i] < psarvp_buy_limit else 0
+            # cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
+            sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4
+            if not holding and sum_buy >= num_cond:
+                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = True
+            cond_sell_1 = 1 if df['MACD'].iloc[i] > macd_sell_limit else 0
+            cond_sell_2 = 1 if df['RSI'].iloc[i] > rsi_sell_limit else 0
+            cond_sell_3 = 1 if df['VI'].iloc[i] > vi_sell_limit else 0
+            cond_sell_4 = 1 if df['PSARVP'].iloc[i] > psarvp_sell_limit else 0
+            # cond_sell_5 = 1 if df['Low'].iloc[i] > df['Lower_Band'].iloc[i] else 0
+            sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4
+            if holding and sum_sell >= num_cond:
+                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = False
 
     valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
@@ -837,23 +840,26 @@ if __name__ == "__main__":
     symbol = asset + currency
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
+    strategia = st.sidebar.selectbox(label="Strategia",
+                                options=["ATR Bands", "Buy/Sell Limits"],
+                                index=0)
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        step = st.number_input(label="PSAR Step", min_value=0.0001, max_value=1.000, value=0.040, step=0.010)
+        step = st.number_input(label="PSAR Step", min_value=0.0001, max_value=1.000, value=0.01, step=0.010)
         atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=2.4, step=0.1)
-        rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=10, step=1)
-        rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=40, step=5)
-        macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.2, step=0.05)
-        vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, value=-0.5, step=0.05)
-        psarvp_buy_limit = st.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=0.95, step=0.05)
+        rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=12, step=1)
+        rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=30, step=5)
+        macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.48, step=0.05)
+        vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, value=-0.45, step=0.05)
+        psarvp_buy_limit = st.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=0.99, step=0.05)
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
         window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=50, step=2)
-        rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=60, step=5)
-        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.2, step=0.05)
-        vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.5, step=0.05)
-        psarvp_sell_limit = st.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0, value=1.05, step=0.05)
+        rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=79, step=5)
+        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.4, step=0.05)
+        vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.6, step=0.05)
+        psarvp_sell_limit = st.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0, value=1.03, step=0.05)
     # col1, col2, col3 = st.sidebar.columns(3)
     # with col1:
     #     macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
@@ -861,7 +867,7 @@ if __name__ == "__main__":
     #     macd_long_window = st.number_input(label="MACD Long Window", min_value=1, max_value=100, value=26, step=1)
     # with col3:
     #     macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
-
+    num_cond = st.sidebar.number_input(label="Numero di condizioni", min_value=1, max_value=5, value=2, step=1)
     if st.sidebar.button("SIMULATE"):
         df, _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
         st.session_state['df'] = df
@@ -894,6 +900,8 @@ if __name__ == "__main__":
             vi_sell_limit=vi_sell_limit,
             psarvp_buy_limit=psarvp_buy_limit,
             psarvp_sell_limit=psarvp_sell_limit,
+            num_cond=num_cond,
+            strategia=strategia,
             market_data=st.session_state['df'],
             # modello=st.session_state['model']
         )

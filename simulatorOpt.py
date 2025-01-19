@@ -1,8 +1,54 @@
+import streamlit as st
 import pandas as pd
 from ta.volatility import AverageTrueRange
 from ta.momentum import RSIIndicator
 from ta.trend import MACD, SMAIndicator, PSARIndicator, VortexIndicator
 from simulator import get_market_data, interval_to_minutes
+
+@st.cache_data
+def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window):
+    df_copy = df.copy()
+    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
+    sar_indicator = PSARIndicator(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        step=step,
+        max_step=max_step
+    )
+    sar = sar_indicator.psar()
+    df_copy['PSARVP'] = sar / df_copy['Close']
+
+    # Calcolo dell'RSI
+    rsi_indicator = RSIIndicator(
+        close=df_copy['Close'],
+        window=rsi_window
+    )
+    df_copy['RSI'] = rsi_indicator.rsi()
+
+    # Vortex Indicator
+    vi = VortexIndicator(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        window=rsi_window)
+    vip = vi.vortex_indicator_pos()
+    vim = vi.vortex_indicator_neg()
+    df_copy['VI'] = vip - vim
+
+    # Calcolo del MACD
+    macd_indicator = MACD(
+        close=df_copy['Close'],
+        window_slow=macd_long_window,
+        window_fast=macd_short_window,
+        window_sign=macd_signal_window
+    )
+    # Aggiungere le colonne del MACD al DataFrame
+    macd = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+    # Calcolo del MACD normalizzato come percentuale del prezzo
+    df_copy['MACD'] = macd / df_copy['Close'] * 100  # normalizzato
+
+    return df_copy
 
 def sar_trading_analysis(
         asset: str,
@@ -71,64 +117,13 @@ def sar_trading_analysis(
         df = market_data
         actual_hours = candlestick_minutes * len(df) / 60
 
-    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
-    sar_indicator = PSARIndicator(
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
-        step=step,
-        max_step=max_step
-    )
-    df['SAR'] = sar_indicator.psar()
-    df['PSARVP'] = df['SAR']/df['Close']
-
-    # ATR
-    # atr_indicator = AverageTrueRange(
-    #     high=df['High'],
-    #     low=df['Low'],
-    #     close=df['Close'],
-    #     window=atr_window
-    # )
-    # df['ATR'] = atr_indicator.average_true_range()
-    # # SMA (Media Mobile per le Rolling ATR Bands)
-    # sma_indicator = SMAIndicator(close=df['Close'], window=atr_window)
-    # df['SMA'] = sma_indicator.sma_indicator()
-    # # Rolling ATR Bands
-    # df['Upper_Band'] = df['SMA'] + atr_multiplier * df['ATR']
-    # df['Lower_Band'] = df['SMA'] - atr_multiplier * df['ATR']
-
-    # Calcolo dell'RSI
-    rsi_indicator = RSIIndicator(
-        close=df['Close'],
-        window=rsi_window
-    )
-    df['RSI'] = rsi_indicator.rsi()
-
-    # Calcolo del MACD
-    macd_indicator = MACD(
-        close=df['Close'],
-        window_slow=macd_long_window,
-        window_fast=macd_short_window,
-        window_sign=macd_signal_window
-    )
-    # Aggiungere le colonne del MACD al DataFrame
-    # df['MACD'] = macd_indicator.macd()  # Linea MACD
-    # df['Signal_Line'] = macd_indicator.macd_signal()  # Linea di segnale
-    df['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
-    # Calcolo del MACD normalizzato come percentuale del prezzo
-    # df['MACD'] = df['MACD'] / df['Close'] * 100  # normalizzato
-    # df['Signal_Line'] = df['Signal_Line'] / df['Close'] * 100  # normalizzato
-    df['MACD'] = df['MACD'] / df['Close'] * 100  # normalizzato
-
-    # Vortex Indicator
-    vi = VortexIndicator(
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
-        window=rsi_window)
-    vip = vi.vortex_indicator_pos()
-    vim = vi.vortex_indicator_neg()
-    df['VI'] = vip - vim
+    df = add_technical_indicator(df,
+                                 step=step,
+                                 max_step=max_step,
+                                 rsi_window=rsi_window,
+                                 macd_long_window=macd_long_window,
+                                 macd_short_window=macd_short_window,
+                                 macd_signal_window=macd_signal_window)
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -137,8 +132,6 @@ def sar_trading_analysis(
     holding = False
     for i in range(1, len(df)):
         # ------------------------------------------------------------
-        # Imposto più di una condizione in cascata e ne verifico meno di quelle che ho impostato
-        # cioè se imposto 3 condizioni, se se ne verificano 2 procedo con l'operazione
         cond_buy_1 = 1 if df['MACD'].iloc[i] < macd_buy_limit else 0
         cond_buy_2 = 1 if df['RSI'].iloc[i] < rsi_buy_limit else 0
         cond_buy_3 = 1 if df['VI'].iloc[i] < vi_buy_limit else 0
@@ -234,7 +227,11 @@ def sar_trading_analysis(
             'Quantity', 'Profit', 'Wallet_After'
         ])
 
-    print(f"{wallet} su {asset}, profitto totale={round(trades_df['Profit'].sum())}")
+    print(f"{wallet} su {asset}, profitto totale={round(trades_df['Profit'].sum())}, num_cond={num_cond},"
+          f" rsi_sell_limit = {rsi_sell_limit}, rsi_buy_limit = {rsi_buy_limit}, "
+          f"macd_buy_limit = {macd_buy_limit}, macd_sell_limit = {macd_sell_limit}, "
+          f"vi_buy_limit = {vi_buy_limit}, vi_sell_limit = {vi_sell_limit}, "
+          f"sarvp_buy_limit = {psarvp_buy_limit}, psarvp_sell_limit = {psarvp_sell_limit}")
 
     return trades_df, actual_hours
 
