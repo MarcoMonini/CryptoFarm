@@ -236,9 +236,9 @@ if __name__ == "__main__":
     # ------------------------------
     # Parametri fissati per l'ottimizzazione
     wallet = 1000.0  # Capitale iniziale
-    hours = 8760  # Numero di ore
-    assets = ["AAVEUSDC", "AMPUSDT", "ADAUSDC", "AVAXUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
-            "ETHUSDC", "LINKUSDC", "SOLUSDC", "PEPEUSDC", "RUNEUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+    hours = 1200  # Numero di ore
+    assets = ["AAVEUSDC", "AMPUSDT", "ADAUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
+            "ETHUSDC", "LINKUSDC", "SOLUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
     # assets = ["XRPBTC","ADABTC","ETHBTC","SOLBTC","DOGEBTC","BNBBTC","SUIBTC","LTCBTC","LINKBTC","AVAXBTC","TRXBTC", "DOTBTC"]
     intervals = ["15m"]
     # assets = ["BTCUSDC","SOLUSDC","XRPUSDT","AMPUSDT","ZENUSDT"]
@@ -251,15 +251,16 @@ if __name__ == "__main__":
     # macd_short_windows = [12] DEFAULT 12
     # macd_long_windows = [26] DEFAULT 26
     # macd_signal_windows = [9] DEFAULT 9
-    rsi_buy_limits = [30]
-    rsi_sell_limits = [79]
-    macd_buy_limits = [-0.48]
-    macd_sell_limits = [0.4]
-    vi_buy_limits = [-0.45]
-    vi_sell_limits = [0.6]
-    psarvp_buy_limits = [0.99]
-    psarvp_sell_limits = [1.03]
-    num_conds = [2]
+
+    rsi_buy_limits = [27, 30, 34]
+    rsi_sell_limits = [72, 79, 82]
+    macd_buy_limits = [-0.44, -0.48, -0.51]
+    macd_sell_limits = [0.36, 0.4, 0.48]
+    vi_buy_limits = [-0.41, -0.45, -0.49]
+    vi_sell_limits = [0.52, 0.6, 0.64]
+    psarvp_buy_limits = [1.01, 1.03, 1.04]
+    psarvp_sell_limits = [0.96, 0.97, 0.99]
+    num_conds = [2, 3]
 
     dati = simulator.download_market_data(assets, intervals, hours)
     simulazioni = run_simulation(wallet=wallet,

@@ -6,7 +6,7 @@ from ta.trend import MACD, SMAIndicator, PSARIndicator, VortexIndicator
 from simulator import get_market_data, interval_to_minutes
 
 @st.cache_data
-def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window):
+def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window, atr_window, atr_multiplier):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
@@ -48,6 +48,23 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     # Calcolo del MACD normalizzato come percentuale del prezzo
     df_copy['MACD'] = macd / df_copy['Close'] * 100  # normalizzato
 
+    # ATR
+    atr_indicator = AverageTrueRange(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        window=atr_window
+    )
+    df_copy['ATR'] = atr_indicator.average_true_range()
+
+    # SMA (Media Mobile per le Rolling ATR Bands)
+    sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
+    df_copy['SMA'] = sma_indicator.sma_indicator()
+
+    # Rolling ATR Bands
+    df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
+    df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+
     return df_copy
 
 def sar_trading_analysis(
@@ -58,8 +75,8 @@ def sar_trading_analysis(
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
         step: float = 0.001,  # compreso tra 0.001 e 0.1
         max_step: float = 0.4,  # compreso tra 0.1 e 1
-        atr_multiplier: float = 3.2,  # Moltiplicatore per le Rolling ATR Bands
-        atr_window: int = 10,  # compreso tra 2 e 30
+        atr_multiplier: float = 2.4,  # Moltiplicatore per le Rolling ATR Bands
+        atr_window: int = 6,  # compreso tra 2 e 30
         rsi_window: int = 12,  # compreso tra 2 e 50
         macd_short_window: int = 12,  # compreso tra 4 e 20
         macd_long_window: int = 26,  # compreso tra 20 e 50
@@ -123,7 +140,9 @@ def sar_trading_analysis(
                                  rsi_window=rsi_window,
                                  macd_long_window=macd_long_window,
                                  macd_short_window=macd_short_window,
-                                 macd_signal_window=macd_signal_window)
+                                 macd_signal_window=macd_signal_window,
+                                 atr_window=atr_window,
+                                 atr_multiplier=atr_multiplier)
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -135,20 +154,26 @@ def sar_trading_analysis(
         cond_buy_1 = 1 if df['MACD'].iloc[i] < macd_buy_limit else 0
         cond_buy_2 = 1 if df['RSI'].iloc[i] < rsi_buy_limit else 0
         cond_buy_3 = 1 if df['VI'].iloc[i] < vi_buy_limit else 0
-        cond_buy_4 = 1 if df['PSARVP'].iloc[i] < psarvp_buy_limit else 0
-        # cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
-        sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4
+        cond_buy_4 = 1 if df['PSARVP'].iloc[i] > psarvp_buy_limit else 0
+        cond_buy_5 = 1 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i] else 0
+        sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4+cond_buy_5
         if not holding and sum_buy >= num_cond:
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+                buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+            else:
+                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
         cond_sell_1 = 1 if df['MACD'].iloc[i] > macd_sell_limit else 0
         cond_sell_2 = 1 if df['RSI'].iloc[i] > rsi_sell_limit else 0
         cond_sell_3 = 1 if df['VI'].iloc[i] > vi_sell_limit else 0
-        cond_sell_4 = 1 if df['PSARVP'].iloc[i] > psarvp_sell_limit else 0
-        # cond_sell_5 = 1 if df['Low'].iloc[i] > df['Lower_Band'].iloc[i] else 0
-        sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4
+        cond_sell_4 = 1 if df['PSARVP'].iloc[i] < psarvp_sell_limit else 0
+        cond_sell_5 = 1 if df['High'].iloc[i] > df['Upper_Band'].iloc[i] else 0
+        sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4+cond_sell_5
         if holding and sum_sell >= num_cond:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+                sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+            else:
+                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
 
     # ======================================
