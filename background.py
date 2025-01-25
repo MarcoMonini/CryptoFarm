@@ -327,8 +327,8 @@ API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 print(Style.BRIGHT + f"KEY = {API_KEY}, SECRET = {API_SECRET}")
 asset = os.getenv("ASSET", "BTC")
-valuta = os.getenv("VALUTA", "USDC")
-symbol = asset + valuta
+currency = os.getenv("CURRENCY", "USDC")
+symbol = asset + currency
 interval = os.getenv("CANDLES_TIME", "15m")
 step = float(os.getenv("PSAR_STEP", 0.01))
 max_step = float(os.getenv("PSAR_MAX_STEP", 0.4))
@@ -355,7 +355,7 @@ stepQty = 0
 client = Client(API_KEY, API_SECRET)
 balance = print_user_and_wallet_info(client=client)
 asset_balance = get_asset_balance(balance=balance, asset=asset)
-usd_balance = get_asset_balance(balance=balance, asset=valuta)
+currency_balance = get_asset_balance(balance=balance, asset=currency)
 exchange_info = client.get_exchange_info()
 symbol_info = next((s for s in exchange_info['symbols'] if s['symbol'] == symbol), None)
 if symbol_info:
@@ -400,7 +400,7 @@ last_signal_candle_time = None
 last_update = None
 holding = False
 
-if asset_balance > usd_balance:
+if asset_balance > currency_balance:
     holding = True
 else:
     holding = False
@@ -409,12 +409,19 @@ else:
 print(Style.BRIGHT + Fore.YELLOW + "Il Job sta per iniziare.")
 print(Style.BRIGHT + "Riepilogo parametri")
 print(f" Simbolo: {symbol} ({asset_balance}), holding: {holding}")
-print(f" USD disponibili: {usd_balance}")
+print(f" {currency} disponibili: {currency_balance}")
 print(f" Intervallo: {interval}")
-print(f" PSAR Step: {step}")
-print(f" PSAR Max Step: {max_step}")
-print(f" ATR Moltiplicatore: {atr_multiplier}")
-print(f" ATR Window: {atr_window}")
+print(f" PSAR, Step: {step}, Max Step: {max_step}")
+print(f" ATR, Moltiplicatore: {atr_multiplier}, Window: {atr_window}")
+print(f" RSI, Window: {rsi_window}")
+print(f" MACD: Long: {macd_long_window}, Short: {macd_short_window}, Signal: {macd_signal_window}")
+print(f" Number of conditions: {num_cond}")
+print("Buy/Sell Limits")
+print(f" RSI, Buy: {rsi_buy_limit}, Sell: {rsi_sell_limit}")
+print(f" MACD, Buy: {macd_buy_limit}, Sell: {macd_sell_limit}")
+print(f" VI, Buy: {vi_buy_limit}, Sell: {vi_sell_limit}")
+print(f" PSAVP, Buy: {psarvp_buy_limit}, Sell: {psarvp_sell_limit}")
+
 
 while True:
     while not data_queue.empty():
@@ -460,10 +467,10 @@ while True:
             #   buy_signals.append((current_candle_time, current_candle_price))
                 print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
                 balance = print_user_and_wallet_info(client=client)
-                usd_balance = get_asset_balance(balance=balance, asset=valuta)
-                quantity = usd_balance / current_candle_price
+                currency_balance = get_asset_balance(balance=balance, asset=currency)
+                quantity = currency_balance / current_candle_price
                 adjusted_quantity = adjust_quantity(quantity, minQty, maxQty, stepQty)
-                print(Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={usd_balance}$)")
+                print(Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={currency_balance}$)")
                 # Piazza l'ordine di acquisto
                 response = place_order(client=client,
                                        symbol=symbol,
@@ -474,8 +481,8 @@ while True:
                 time.sleep(10)
                 balance = print_user_and_wallet_info(client=client)
                 asset_balance = get_asset_balance(balance=balance, asset=asset)
-                usd_balance = get_asset_balance(balance=balance, asset=valuta)
-                if asset_balance > usd_balance:
+                currency_balance = get_asset_balance(balance=balance, asset=currency)
+                if asset_balance > currency_balance:
                     last_signal_candle_time = current_candle_time
                     holding = True
                     print(Style.BRIGHT + f"BUY Order Completed, holding: {holding}")
@@ -506,8 +513,8 @@ while True:
                 time.sleep(10)
                 balance = print_user_and_wallet_info(client=client)
                 asset_balance = get_asset_balance(balance=balance, asset=asset)
-                usd_balance = get_asset_balance(balance=balance, asset=valuta)
-                if asset_balance < usd_balance:
+                currency_balance = get_asset_balance(balance=balance, asset=currency)
+                if asset_balance < currency_balance:
                     last_signal_candle_time = current_candle_time
                     holding = False
                     print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
