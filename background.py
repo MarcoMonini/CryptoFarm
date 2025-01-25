@@ -103,14 +103,6 @@ def run_socket(data_queue, stop_event, symbol:str, interval:str):
         except Exception as e:
             print(f"Errore nella gestione del WebSocket: {e}")
 
-    # while not stop_event.is_set():
-    #     try:
-    #         run_socket(data_queue, stop_event, symbol, interval)
-    #     except Exception as e:
-    #         print(f"Errore durante l'esecuzione del WebSocket: {e}")
-    #         print("Tentativo di riconnessione in 5 secondi...")
-    #         time.sleep(5)  # Attendi prima di riconnettere
-
     twm.stop_socket(socket_id)
     twm.stop()
     print("WebSocket chiuso.")
@@ -375,15 +367,6 @@ else:
 df = fetch_initial_candles(client=client, symbol=symbol, interval=interval)
 data_queue = queue.Queue()
 stop_event = threading.Event()
-# socket_thread = threading.Thread(
-#             target=run_socket,
-#             args=(data_queue,
-#                   stop_event,
-#                   symbol,
-#                   interval),
-#             daemon=True
-#         )
-# socket_thread.start()
 
 # Avvia il WebSocket in un thread separato
 socket_thread = threading.Thread(
@@ -422,7 +405,6 @@ print(f" MACD, Buy: {macd_buy_limit}, Sell: {macd_sell_limit}")
 print(f" VI, Buy: {vi_buy_limit}, Sell: {vi_sell_limit}")
 print(f" PSAVP, Buy: {psarvp_buy_limit}, Sell: {psarvp_sell_limit}")
 
-
 while True:
     while not data_queue.empty():
         data = data_queue.get()
@@ -454,7 +436,7 @@ while True:
         current_candle_price = df_copy["Close"].iloc[i]
 
         if last_signal_candle_time != current_candle_time:
-            #CONDIZIONI PER IL BUY
+            # CONDIZIONI PER IL BUY
             cond_buy_1 = 1 if df_copy['MACD'].iloc[i] <= macd_buy_limit else 0
             cond_buy_2 = 1 if df_copy['RSI'].iloc[i] <= rsi_buy_limit else 0
             cond_buy_3 = 1 if df_copy['VI'].iloc[i] <= vi_buy_limit else 0
@@ -462,9 +444,6 @@ while True:
             cond_buy_5 = 1 if current_candle_price <= df_copy['Lower_Band'].iloc[i] else 0
             sum_buy = cond_buy_1 + cond_buy_2 + cond_buy_3 + cond_buy_4 + cond_buy_5
             if not holding and sum_buy >= num_cond:
-            # if (not holding and df_copy["PSAR"].iloc[i] > current_candle_price
-            #        and (current_candle_price <= df_copy["Lower_Band"].iloc[i])):
-            #   buy_signals.append((current_candle_time, current_candle_price))
                 print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
                 balance = print_user_and_wallet_info(client=client)
                 currency_balance = get_asset_balance(balance=balance, asset=currency)
@@ -495,9 +474,6 @@ while True:
             cond_sell_5 = 1 if current_candle_price >= df_copy['Upper_Band'].iloc[i] else 0
             sum_sell = cond_sell_1 + cond_sell_2 + cond_sell_3 + cond_sell_4 + cond_sell_5
             if holding and sum_sell >= num_cond:
-            # if (holding and df_copy["PSAR"].iloc[i] < current_candle_price
-            #       and (current_candle_price >= df_copy["Upper_Band"].iloc[i])):
-            #   sell_signals.append((current_candle_time, current_candle_price))
                 print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
                 balance = print_user_and_wallet_info(client=client)
                 asset_balance = get_asset_balance(balance=balance, asset=asset)
@@ -518,17 +494,9 @@ while True:
                     last_signal_candle_time = current_candle_time
                     holding = False
                     print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
-                # if response:
-                #     last_signal_candle_time = current_candle_time
-                #     holding = False
-
-# if keyboard.is_pressed('q'):
-#     print(Style.BRIGHT + Fore.RED + "\nHai premuto 'q'. Sto terminando il Job...")
-#     break
 
 time.sleep(1)
-
-# print(Style.BRIGHT + Fore.GREEN + "Job terminato.")
+print(Style.BRIGHT + Fore.RED + "Job terminato.")
 
 
 
