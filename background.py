@@ -1,7 +1,8 @@
 from binance import ThreadedWebsocketManager, Client
 import pandas as pd
-from ta.trend import PSARIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
+from ta.momentum import RSIIndicator
+from ta.trend import MACD, SMAIndicator, PSARIndicator, VortexIndicator
 import time
 import queue
 import threading
@@ -86,7 +87,7 @@ def run_socket(data_queue, stop_event, symbol:str, interval:str):
                 "closed": kline["x"],
             }
             if kline["x"]:
-                print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
+                print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}")
 
             data_queue.put(data)
 
@@ -97,24 +98,84 @@ def run_socket(data_queue, stop_event, symbol:str, interval:str):
     )
 
     while not stop_event.is_set():
-        time.sleep(0.5)
+        try:
+            time.sleep(1)
+        except Exception as e:
+            print(f"Errore nella gestione del WebSocket: {e}")
+
+    # while not stop_event.is_set():
+    #     try:
+    #         run_socket(data_queue, stop_event, symbol, interval)
+    #     except Exception as e:
+    #         print(f"Errore durante l'esecuzione del WebSocket: {e}")
+    #         print("Tentativo di riconnessione in 5 secondi...")
+    #         time.sleep(5)  # Attendi prima di riconnettere
 
     twm.stop_socket(socket_id)
     twm.stop()
+    print("WebSocket chiuso.")
 
-
-def numberInput(placeholder:str) -> float:
-    while True:
+# Funzione per inizializzare e avviare il WebSocket
+def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str):
+    """
+    Avvia il WebSocket e gestisce la riconnessione automatica in caso di errore o chiusura.
+    """
+    while not stop_event.is_set():
         try:
-            user_input = float(input(placeholder))
-            # Controlla che sia maggiore di 0
-            if user_input > 0:
-                print(Fore.GREEN + f"Hai inserito un valore valido: {user_input}")
-                return user_input
-            else:
-                print(Fore.RED + "Errore: Per favore, inserisci un numero valido.")
-        except ValueError:
-            print(Fore.RED + "Errore: Per favore, inserisci un numero valido.")
+            print(Style.BRIGHT + Fore.YELLOW + "Avvio WebSocket...")
+            # Crea un nuovo ThreadedWebsocketManager
+            twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
+            twm.start()
+
+            # Funzione per gestire i messaggi ricevuti
+            def handle_socket_message(msg):
+                if msg["e"] == "kline":
+                    kline = msg["k"]
+                    data = {
+                        "timestamp": pd.to_datetime(kline["t"], unit="ms"),
+                        "open": float(kline["o"]),
+                        "high": float(kline["h"]),
+                        "low": float(kline["l"]),
+                        "close": float(kline["c"]),
+                        "volume": float(kline["v"]),
+                        "closed": kline["x"],
+                    }
+                    if kline["x"]:
+                        print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
+                    data_queue.put(data)
+
+            # Funzione per gestire la chiusura del WebSocket
+            # def handle_socket_close(ws, close_status_code, close_msg):
+            #     print(f"WebSocket chiuso. Codice: {close_status_code}, Messaggio: {close_msg}")
+            #     if close_status_code == 1001:
+            #         print("Chiusura volontaria (1001 - Going Away).")
+            #     else:
+            #         print("Chiusura inaspettata. Tentativo di riconnessione...")
+            # Associa il gestore di chiusura al WebSocket
+            #  twm._ws.on_close = handle_socket_close
+
+            # Avvia il WebSocket per il kline
+            socket_id = twm.start_kline_socket(
+                callback=handle_socket_message,
+                symbol=symbol,
+                interval=interval
+            )
+
+            print(Style.BRIGHT + Fore.GREEN + "WebSocket avviato con successo.")
+
+            # Mantieni il WebSocket attivo fino a quando non viene richiesto di fermarsi
+            while not stop_event.is_set():
+                time.sleep(1)
+
+            # Ferma il WebSocket in modo pulito
+            twm.stop_socket(socket_id)
+            twm.stop()
+            print(Style.BRIGHT + Fore.RED + "WebSocket terminato.")
+
+        except Exception as e:
+            print(Style.BRIGHT + Fore.RED + f"Errore nel WebSocket: {e}")
+            print(Style.BRIGHT + Fore.YELLOW + "Tentativo di riconnessione in 5 secondi...")
+            time.sleep(5)  # Aspetta prima di tentare di riconnettere
 
 
 def get_asset_balance(balance, asset):
@@ -125,6 +186,68 @@ def get_asset_balance(balance, asset):
         return asset_info['free']
     else:
         return 0
+
+
+def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window, atr_window, atr_multiplier):
+    df_copy = df.copy()
+    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
+    sar_indicator = PSARIndicator(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        step=step,
+        max_step=max_step
+    )
+    sar = sar_indicator.psar()
+    df_copy['PSARVP'] = sar / df_copy['Close']
+
+    # Calcolo dell'RSI
+    rsi_indicator = RSIIndicator(
+        close=df_copy['Close'],
+        window=rsi_window
+    )
+    df_copy['RSI'] = rsi_indicator.rsi()
+
+    # Vortex Indicator
+    vi = VortexIndicator(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        window=rsi_window)
+    vip = vi.vortex_indicator_pos()
+    vim = vi.vortex_indicator_neg()
+    df_copy['VI'] = vip - vim
+
+    # Calcolo del MACD
+    macd_indicator = MACD(
+        close=df_copy['Close'],
+        window_slow=macd_long_window,
+        window_fast=macd_short_window,
+        window_sign=macd_signal_window
+    )
+    # Aggiungere le colonne del MACD al DataFrame
+    macd = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+    # Calcolo del MACD normalizzato come percentuale del prezzo
+    df_copy['MACD'] = macd / df_copy['Close'] * 100  # normalizzato
+
+    # ATR
+    atr_indicator = AverageTrueRange(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        window=atr_window
+    )
+    df_copy['ATR'] = atr_indicator.average_true_range()
+
+    # SMA (Media Mobile per le Rolling ATR Bands)
+    sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
+    df_copy['SMA'] = sma_indicator.sma_indicator()
+
+    # Rolling ATR Bands
+    df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
+    df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+
+    return df_copy
 
 
 def adjust_quantity(quantity, min_qty, max_qty, step_size):
@@ -207,19 +330,23 @@ asset = os.getenv("ASSET", "BTC")
 valuta = os.getenv("VALUTA", "USDC")
 symbol = asset + valuta
 interval = os.getenv("CANDLES_TIME", "15m")
-step = float(os.getenv("PSAR_STEP", 0.04))
+step = float(os.getenv("PSAR_STEP", 0.01))
 max_step = float(os.getenv("PSAR_MAX_STEP", 0.4))
 atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 2.4))
 atr_window = int(os.getenv("ATR_WINDOW", 6))
-
-# asset = input("Inserisci l'asset da utilizzare (es. BTC): ")
-# valuta = input("Inserisci la valuta da utilizzare (USDC/USDT): ")
-# symbol = asset + valuta
-# interval = input("Inserisci l'intervallo di tempo delle candele (3m, 5m, 15m...): ")
-# step = numberInput("Inserisci lo Step per il calcolo del PSAR (consigliato 0.04): ")
-# max_step = numberInput("Inserisci il Max Step per il calcolo del PSAR (consigliato 0.4): ")
-# atr_multiplier = numberInput("Inserisci il moltiplicatore per l'ATR (consigliato 3.2): ")
-# atr_window = int(numberInput("Inserisci la finestra per l'ATR (consigliato 10): "))
+rsi_window=int(os.getenv("RSI_WINDOW", 12))
+macd_long_window=int(os.getenv("MACD_LONG_WINDOW", 26))
+macd_short_window=int(os.getenv("MACD_SHORT_WINDOW", 12))
+macd_signal_window=int(os.getenv("MACD_SIGNAL_WINDOW", 9))
+rsi_buy_limit=float(os.getenv("RSI_BUY_LIMIT", 27))
+rsi_sell_limit=float(os.getenv("RSI_SELL_LIMIT", 79))
+macd_buy_limit=float(os.getenv("MACD_BUY_LIMIT", -0.44))
+macd_sell_limit=float(os.getenv("MACD_SElL_LIMIT", 0.48))
+vi_buy_limit=float(os.getenv("VI_BUY_LIMIT", -0.41))
+vi_sell_limit=float(os.getenv("VI_SELL_LIMIT", 0.62))
+psarvp_buy_limit=float(os.getenv("PSAVP_BUY_LIMIT", 1.01))
+psarvp_sell_limit=float(os.getenv("PSARVP_SELL_LIMIT", 0.97))
+num_cond=float(os.getenv("NUM_CONDITIONS", 2))
 
 minQty = 0
 maxQty = 0
@@ -248,19 +375,27 @@ else:
 df = fetch_initial_candles(client=client, symbol=symbol, interval=interval)
 data_queue = queue.Queue()
 stop_event = threading.Event()
-socket_thread = threading.Thread(
-            target=run_socket,
-            args=(data_queue,
-                  stop_event,
-                  symbol,
-                  interval),
-            daemon=True
-        )
-socket_thread.start()
-running = True
+# socket_thread = threading.Thread(
+#             target=run_socket,
+#             args=(data_queue,
+#                   stop_event,
+#                   symbol,
+#                   interval),
+#             daemon=True
+#         )
+# socket_thread.start()
 
-buy_signals = []
-sell_signals = []
+# Avvia il WebSocket in un thread separato
+socket_thread = threading.Thread(
+    target=run_socket_with_reconnect,
+    args=(data_queue, stop_event, symbol, interval),
+    daemon=True
+)
+socket_thread.start()
+
+running = True
+# buy_signals = []
+# sell_signals = []
 last_signal_candle_time = None
 last_update = None
 holding = False
@@ -271,7 +406,7 @@ else:
     holding = False
 
 # Thread per ascoltare l'input
-print(Style.BRIGHT + Fore.YELLOW + "Il Job sta per inziare. Per terminarlo premi 'q'.")
+print(Style.BRIGHT + Fore.YELLOW + "Il Job sta per iniziare.")
 print(Style.BRIGHT + "Riepilogo parametri")
 print(f" Simbolo: {symbol} ({asset_balance}), holding: {holding}")
 print(f" USD disponibili: {usd_balance}")
@@ -295,101 +430,96 @@ while True:
             data["volume"],
         ]
 
-    df_copy = df.copy()
+    # df_copy = df.copy()
+    df_copy = add_technical_indicator(df,
+                                 step=step,
+                                 max_step=max_step,
+                                 rsi_window=rsi_window,
+                                 macd_long_window=macd_long_window,
+                                 macd_short_window=macd_short_window,
+                                 macd_signal_window=macd_signal_window,
+                                 atr_window=atr_window,
+                                 atr_multiplier=atr_multiplier)
 
-    if len(df_copy) >= atr_window:
-        atr_indicator = AverageTrueRange(
-            high=df_copy["High"],
-            low=df_copy["Low"],
-            close=df_copy["Close"],
-            window=atr_window
-        )
-        df_copy["ATR"] = atr_indicator.average_true_range()
+    if len(df_copy) > 1:
+        i = len(df_copy) - 1
+        current_candle_time = df_copy.index[i]
+        current_candle_price = df_copy["Close"].iloc[i]
 
-        sma_indicator = SMAIndicator(close=df_copy["Close"], window=atr_window)
-        df_copy["SMA"] = sma_indicator.sma_indicator()
-        df_copy["Upper_Band"] = df_copy["SMA"] + atr_multiplier * df_copy["ATR"]
-        df_copy["Lower_Band"] = df_copy["SMA"] - atr_multiplier * df_copy["ATR"]
+        if last_signal_candle_time != current_candle_time:
+            #CONDIZIONI PER IL BUY
+            cond_buy_1 = 1 if df_copy['MACD'].iloc[i] <= macd_buy_limit else 0
+            cond_buy_2 = 1 if df_copy['RSI'].iloc[i] <= rsi_buy_limit else 0
+            cond_buy_3 = 1 if df_copy['VI'].iloc[i] <= vi_buy_limit else 0
+            cond_buy_4 = 1 if df_copy['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
+            cond_buy_5 = 1 if current_candle_price <= df_copy['Lower_Band'].iloc[i] else 0
+            sum_buy = cond_buy_1 + cond_buy_2 + cond_buy_3 + cond_buy_4 + cond_buy_5
+            if not holding and sum_buy >= num_cond:
+            # if (not holding and df_copy["PSAR"].iloc[i] > current_candle_price
+            #        and (current_candle_price <= df_copy["Lower_Band"].iloc[i])):
+            #   buy_signals.append((current_candle_time, current_candle_price))
+                print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
+                balance = print_user_and_wallet_info(client=client)
+                usd_balance = get_asset_balance(balance=balance, asset=valuta)
+                quantity = usd_balance / current_candle_price
+                adjusted_quantity = adjust_quantity(quantity, minQty, maxQty, stepQty)
+                print(Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={usd_balance}$)")
+                # Piazza l'ordine di acquisto
+                response = place_order(client=client,
+                                       symbol=symbol,
+                                       side="BUY",
+                                       order_type="MARKET",
+                                       quantity=adjusted_quantity)
+                # aspetto e verifico che l'ordine è andato a buon fine
+                time.sleep(10)
+                balance = print_user_and_wallet_info(client=client)
+                asset_balance = get_asset_balance(balance=balance, asset=asset)
+                usd_balance = get_asset_balance(balance=balance, asset=valuta)
+                if asset_balance > usd_balance:
+                    last_signal_candle_time = current_candle_time
+                    holding = True
+                    print(Style.BRIGHT + f"BUY Order Completed, holding: {holding}")
 
-        sar_indicator = PSARIndicator(
-            high=df_copy["High"],
-            low=df_copy["Low"],
-            close=df_copy["Close"],
-            step=step,
-            max_step=max_step
-        )
-        df_copy["PSAR"] = sar_indicator.psar()
+            # CONDIZIONI PER IL SELL
+            cond_sell_1 = 1 if df_copy['MACD'].iloc[i] >= macd_sell_limit else 0
+            cond_sell_2 = 1 if df_copy['RSI'].iloc[i] >= rsi_sell_limit else 0
+            cond_sell_3 = 1 if df_copy['VI'].iloc[i] >= vi_sell_limit else 0
+            cond_sell_4 = 1 if df_copy['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
+            cond_sell_5 = 1 if current_candle_price >= df_copy['Upper_Band'].iloc[i] else 0
+            sum_sell = cond_sell_1 + cond_sell_2 + cond_sell_3 + cond_sell_4 + cond_sell_5
+            if holding and sum_sell >= num_cond:
+            # if (holding and df_copy["PSAR"].iloc[i] < current_candle_price
+            #       and (current_candle_price >= df_copy["Upper_Band"].iloc[i])):
+            #   sell_signals.append((current_candle_time, current_candle_price))
+                print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
+                balance = print_user_and_wallet_info(client=client)
+                asset_balance = get_asset_balance(balance=balance, asset=asset)
+                adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
+                print(Style.BRIGHT + Fore.RED + f"Procceding with SELL Order, quantity={adjusted_quantity} (={adjusted_quantity * current_candle_price}$)")
+                # Piazza l'ordine di vendita
+                response = place_order(client=client,
+                                       symbol=symbol,
+                                       side="SELL",
+                                       order_type="MARKET",
+                                       quantity=adjusted_quantity)
+                # aspetto e verifico che l'ordine è andato a buon fine
+                time.sleep(10)
+                balance = print_user_and_wallet_info(client=client)
+                asset_balance = get_asset_balance(balance=balance, asset=asset)
+                usd_balance = get_asset_balance(balance=balance, asset=valuta)
+                if asset_balance < usd_balance:
+                    last_signal_candle_time = current_candle_time
+                    holding = False
+                    print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
+                # if response:
+                #     last_signal_candle_time = current_candle_time
+                #     holding = False
 
-        if len(df_copy) > 1:
-            i = len(df_copy) - 1
-            current_candle_time = df_copy.index[i]
-            current_candle_price = df_copy["Close"].iloc[i]
+# if keyboard.is_pressed('q'):
+#     print(Style.BRIGHT + Fore.RED + "\nHai premuto 'q'. Sto terminando il Job...")
+#     break
 
-            # print(f"-) Price: {current_candle_price}, PSAR: {df_copy["PSAR"].iloc[i]} ")
-            # print(f"-) LowerBand: {df_copy["Lower_Band"].iloc[i]}, UpperBand: {df_copy["Upper_Band"].iloc[i]}")
-            # print(f"-) holding: {holding}, Time: {current_candle_time}")
-
-            if last_signal_candle_time != current_candle_time:
-                if (not holding and df_copy["PSAR"].iloc[i] > current_candle_price
-                        and (current_candle_price <= df_copy["Lower_Band"].iloc[i])):
-                    buy_signals.append((current_candle_time, current_candle_price))
-                    print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
-                    balance = print_user_and_wallet_info(client=client)
-                    usd_balance = get_asset_balance(balance=balance, asset=valuta)
-                    quantity = usd_balance / current_candle_price
-                    adjusted_quantity = adjust_quantity(quantity, minQty, maxQty, stepQty)
-                    print(Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={usd_balance}$)")
-                    # Piazza l'ordine di acquisto
-                    response = place_order(client=client,
-                                           symbol=symbol,
-                                           side="BUY",
-                                           order_type="MARKET",
-                                           quantity=adjusted_quantity)
-                    # aspetto e verifico che l'ordine è andato a buon fine
-                    time.sleep(10)
-                    balance = print_user_and_wallet_info(client=client)
-                    asset_balance = get_asset_balance(balance=balance, asset=asset)
-                    usd_balance = get_asset_balance(balance=balance, asset=valuta)
-                    if asset_balance > usd_balance:
-                        last_signal_candle_time = current_candle_time
-                        holding = True
-                        print(Style.BRIGHT + f"BUY Order Completed, holding: {holding}")
-                    # if response:
-                    #     last_signal_candle_time = current_candle_time
-                    #     holding = True
-
-                elif (holding and df_copy["PSAR"].iloc[i] < current_candle_price
-                      and (current_candle_price >= df_copy["Upper_Band"].iloc[i])):
-                    sell_signals.append((current_candle_time, current_candle_price))
-                    print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
-                    balance = print_user_and_wallet_info(client=client)
-                    asset_balance = get_asset_balance(balance=balance, asset=asset)
-                    adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
-                    print(Style.BRIGHT + Fore.RED + f"Procceding with SELL Order, quantity={adjusted_quantity} (={adjusted_quantity * current_candle_price}$)")
-                    # Piazza l'ordine di vendita
-                    response = place_order(client=client,
-                                           symbol=symbol,
-                                           side="SELL",
-                                           order_type="MARKET",
-                                           quantity=adjusted_quantity)
-                    # aspetto e verifico che l'ordine è andato a buon fine
-                    time.sleep(10)
-                    balance = print_user_and_wallet_info(client=client)
-                    asset_balance = get_asset_balance(balance=balance, asset=asset)
-                    usd_balance = get_asset_balance(balance=balance, asset=valuta)
-                    if asset_balance < usd_balance:
-                        last_signal_candle_time = current_candle_time
-                        holding = False
-                        print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
-                    # if response:
-                    #     last_signal_candle_time = current_candle_time
-                    #     holding = False
-
-    # if keyboard.is_pressed('q'):
-    #     print(Style.BRIGHT + Fore.RED + "\nHai premuto 'q'. Sto terminando il Job...")
-    #     break
-
-    time.sleep(1)
+time.sleep(1)
 
 # print(Style.BRIGHT + Fore.GREEN + "Job terminato.")
 
