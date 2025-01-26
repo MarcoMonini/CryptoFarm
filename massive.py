@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import simulator
-from simulatorOpt import sar_trading_analysis
+from simulatorOpt import trading_analysis_opt
 
 
 def run_simulation(wallet: float,
@@ -50,15 +50,6 @@ def run_simulation(wallet: float,
         for asset in assets:
             # Usa i dati già scaricati
             df = market_data.get(asset, {}).get(interval, None)
-            # for step in steps:
-            #     for max_step in max_steps:
-            #         for atr_multiplier in atr_multipliers:
-            #             for atr_window in atr_windows:
-            #                 for window_pivot in window_pivots:
-            #                     for rsi_window in rsi_windows:
-            #                         for macd_short_window in macd_short_windows:
-            #                             for macd_long_window in macd_long_windows:
-            #                                 for macd_signal_window in macd_signal_windows:
             for rsi_buy_limit in rsi_buy_limits:
                 for rsi_sell_limit in rsi_sell_limits:
                     for macd_buy_limit in macd_buy_limits:
@@ -69,7 +60,7 @@ def run_simulation(wallet: float,
                                         for psarvp_sell_limit in psarvp_sell_limits:
                                             for num_cond in num_conds:
                                                 try:
-                                                    trades_df, actual_hours = sar_trading_analysis(
+                                                    trades_df, actual_hours = trading_analysis_opt(
                                                         asset=asset,
                                                         interval=interval,
                                                         wallet=wallet,
@@ -236,31 +227,32 @@ if __name__ == "__main__":
     # ------------------------------
     # Parametri fissati per l'ottimizzazione
     wallet = 1000.0  # Capitale iniziale
-    hours = 1200  # Numero di ore
+    hours = 3600  # Numero di ore
     assets = ["AAVEUSDC", "AMPUSDT", "ADAUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
             "ETHUSDC", "LINKUSDC", "SOLUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
     # assets = ["XRPBTC","ADABTC","ETHBTC","SOLBTC","DOGEBTC","BNBBTC","SUIBTC","LTCBTC","LINKBTC","AVAXBTC","TRXBTC", "DOTBTC"]
     intervals = ["15m"]
+    # assets = ["AAVEUSDC","DEXEUSDT"]
     # assets = ["BTCUSDC","SOLUSDC","XRPUSDT","AMPUSDT","ZENUSDT"]
-    # steps = [0.04] DEFAULT 0.001
+    # steps = [0.01] DEFAULT 0.01
     # max_steps = [0.4] # DEFAULT 0.4
-    # atr_multipliers = [2.4] DEFAULT 3.2
-    # atr_windows = [6] DEFAULT 10
+    # atr_multipliers = [2.4] DEFAULT 2.4
+    # atr_windows = [6] DEFAULT 6
     # window_pivots = [150]
     # rsi_windows = [10] DEFAULT 12
     # macd_short_windows = [12] DEFAULT 12
     # macd_long_windows = [26] DEFAULT 26
     # macd_signal_windows = [9] DEFAULT 9
 
-    rsi_buy_limits = [27, 30, 34]
-    rsi_sell_limits = [72, 79, 82]
-    macd_buy_limits = [-0.44, -0.48, -0.51]
-    macd_sell_limits = [0.36, 0.4, 0.48]
-    vi_buy_limits = [-0.41, -0.45, -0.49]
-    vi_sell_limits = [0.52, 0.6, 0.64]
-    psarvp_buy_limits = [1.01, 1.03, 1.04]
-    psarvp_sell_limits = [0.96, 0.97, 0.99]
-    num_conds = [2, 3]
+    rsi_buy_limits = [25]
+    rsi_sell_limits = [75]
+    macd_buy_limits = [-0.66]
+    macd_sell_limits = [0.66]
+    vi_buy_limits = [-0.82]
+    vi_sell_limits = [0.82]
+    psarvp_buy_limits = [1.08]
+    psarvp_sell_limits = [0.92]
+    num_conds = [2]
 
     dati = simulator.download_market_data(assets, intervals, hours)
     simulazioni = run_simulation(wallet=wallet,
