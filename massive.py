@@ -228,8 +228,9 @@ if __name__ == "__main__":
     # Parametri fissati per l'ottimizzazione
     wallet = 1000.0  # Capitale iniziale
     hours = 3600  # Numero di ore
-    assets = ["AAVEUSDC", "AMPUSDT", "ADAUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
-            "ETHUSDC", "LINKUSDC", "SOLUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+    # assets = ["AAVEUSDC", "AMPUSDT", "ADAUSDC", "BNBUSDC", "BTCUSDC", "DEXEUSDT", "DOGEUSDC", "DOTUSDC",
+    #         "ETHUSDC", "LINKUSDC", "SOLUSDC", "SUIUSDC", "ZENUSDT", "XRPUSDT"]
+    assets = ["XRPUSDT","HBARUSDT","SOLUSDT","ADAUSDC","SUIUSDC","XLMUSDT","LTCUSDT"]
     # assets = ["XRPBTC","ADABTC","ETHBTC","SOLBTC","DOGEBTC","BNBBTC","SUIBTC","LTCBTC","LINKBTC","AVAXBTC","TRXBTC", "DOTBTC"]
     intervals = ["15m"]
     # assets = ["AAVEUSDC","DEXEUSDT"]

@@ -1,22 +1,21 @@
 import pandas as pd
 import plotly.graph_objects as go
 from ta.volatility import AverageTrueRange
-from ta.momentum import RSIIndicator
+from ta.momentum import RSIIndicator, TSIIndicator, ROCIndicator, AwesomeOscillatorIndicator, StochRSIIndicator, PercentageVolumeOscillator
 from ta.trend import MACD, SMAIndicator, PSARIndicator, VortexIndicator
+from ta.volume import AccDistIndexIndicator, OnBalanceVolumeIndicator, ForceIndexIndicator, VolumePriceTrendIndicator, MFIIndicator
 from binance import Client
 import streamlit as st
-# import numpy as np
+import numpy as np
 import math
 import time
-# from scipy.signal import argrelextrema
+from scipy.signal import argrelextrema
 import warnings
 # from tensorflow.keras.models import load_model
 # from cryptoTrainerAI import calculate_percentage_changes, add_technical_indicators
 
 # Disattiva i FutureWarning
 warnings.simplefilter(action='ignore', category=FutureWarning)
-# EXT_WINDOW_SIZE = 80  # Dimensione della finestra temporale per min max
-# FEATURES = ['Open', 'High', 'Low', 'Close', 'RSI', 'ATR', 'SAR', 'SMA', 'MACD', 'VI']
 
 
 def interval_to_minutes(interval: str) -> int:
@@ -235,7 +234,6 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
         window_fast=macd_short_window,
         window_sign=macd_signal_window
     )
-    # Aggiungere le colonne del MACD al DataFrame
     macd = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
     # Calcolo del MACD normalizzato come percentuale del prezzo
     df_copy['MACD'] = macd / df_copy['Close'] * 100  # normalizzato
@@ -256,6 +254,69 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     # Rolling ATR Bands
     df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
     df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+
+    # TSI
+    tsi_indicator = TSIIndicator(close=df_copy['Close'])
+    df_copy['TSI'] = tsi_indicator.tsi()
+
+    # ROC
+    roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
+    df_copy['ROC'] = roc_indicator.roc()
+
+    # Awesome Oscillator
+    ao_indicator = AwesomeOscillatorIndicator(
+        high=df_copy['High'],
+        low=df_copy['Low']
+    )
+    df_copy['AO'] = ao_indicator.awesome_oscillator()
+
+    # Stochastic RSI
+    stoch_rsi_indicator = StochRSIIndicator(close=df_copy['Close'], window=rsi_window)
+    df_copy['StochRSI'] = stoch_rsi_indicator.stochrsi()
+
+    # Percentage Volume Oscillator
+    pvo_indicator = PercentageVolumeOscillator(volume=df_copy['Volume'])
+    df_copy['PVO'] = pvo_indicator.pvo()
+
+    # Accumulation/Distribution Index
+    adi_indicator = AccDistIndexIndicator(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        volume=df_copy['Volume']
+    )
+    df_copy['ADI'] = adi_indicator.acc_dist_index()
+
+    # On-Balance Volume
+    obv_indicator = OnBalanceVolumeIndicator(
+        close=df_copy['Close'],
+        volume=df_copy['Volume']
+    )
+    df_copy['OBV'] = obv_indicator.on_balance_volume()
+
+    # Force Index
+    fi_indicator = ForceIndexIndicator(
+        close=df_copy['Close'],
+        volume=df_copy['Volume']
+    )
+    df_copy['ForceIndex'] = fi_indicator.force_index()
+
+    # Volume Price Trend
+    vpt_indicator = VolumePriceTrendIndicator(
+        close=df_copy['Close'],
+        volume=df_copy['Volume']
+    )
+    df_copy['VPT'] = vpt_indicator.volume_price_trend()
+
+    # Money Flow Index
+    mfi_indicator = MFIIndicator(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        volume=df_copy['Volume'],
+        window=rsi_window
+    )
+    df_copy['MFI'] = mfi_indicator.money_flow_index()
 
     return df_copy
 
@@ -335,20 +396,20 @@ def trading_analysis(
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
     # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
-    # price_high = df['High']
-    # price_low = df['Low']
+    price_high = df['High']
+    price_low = df['Low']
     # Trova gli indici dei massimi e minimi relativi
-    # order = int(window_pivot / 2)
-    # max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
-    # min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
-    # # Inizializza gli array per massimi e minimi
-    # rel_max = []
-    # rel_min = []
-    # # Popola gli array con tuple (indice, prezzo)
-    # for i in min_idx:
-    #     rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
-    # for i in max_idx:
-    #     rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
+    order = int(window_pivot / 2)
+    max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
+    min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
+    # Inizializza gli array per massimi e minimi
+    rel_max = []
+    rel_min = []
+    # Popola gli array con tuple (indice, prezzo)
+    for i in min_idx:
+        rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
+    for i in max_idx:
+        rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
 
     df = add_technical_indicator(df,
                                  step=step,
@@ -359,70 +420,6 @@ def trading_analysis(
                                  macd_signal_window=macd_signal_window,
                                  atr_window=atr_window,
                                  atr_multiplier=atr_multiplier)
-
-    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
-    # sar_indicator = PSARIndicator(
-    #     high=df['High'],
-    #     low=df['Low'],
-    #     close=df['Close'],
-    #     step=step,
-    #     max_step=max_step
-    # )
-    # df['SAR'] = sar_indicator.psar()
-    # df['PSARVP'] = df['SAR']/df['Close']
-    #
-    # # ATR
-    # atr_indicator = AverageTrueRange(
-    #     high=df['High'],
-    #     low=df['Low'],
-    #     close=df['Close'],
-    #     window=atr_window
-    # )
-    # df['ATR'] = atr_indicator.average_true_range()
-    #
-    # # SMA (Media Mobile per le Rolling ATR Bands)
-    # sma_indicator = SMAIndicator(close=df['Close'], window=atr_window)
-    # df['SMA'] = sma_indicator.sma_indicator()
-    #
-    # # Rolling ATR Bands
-    # df['Upper_Band'] = df['SMA'] + atr_multiplier * df['ATR']
-    # df['Lower_Band'] = df['SMA'] - atr_multiplier * df['ATR']
-    #
-    # # Calcolo dell'RSI
-    # rsi_indicator = RSIIndicator(
-    #     close=df['Close'],
-    #     window=rsi_window
-    # )
-    # df['RSI'] = rsi_indicator.rsi()
-    #
-    # # Calcolo del MACD
-    # macd_indicator = MACD(
-    #     close=df['Close'],
-    #     window_slow=macd_long_window,
-    #     window_fast=macd_short_window,
-    #     window_sign=macd_signal_window
-    # )
-    # # Aggiungere le colonne del MACD al DataFrame
-    # # df['MACD'] = macd_indicator.macd()  # Linea MACD
-    # # df['Signal_Line'] = macd_indicator.macd_signal()  # Linea di segnale
-    # df['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
-    # # Calcolo del MACD normalizzato come percentuale del prezzo
-    # # df['MACD'] = df['MACD'] / df['Close'] * 100  # normalizzato
-    # # df['Signal_Line'] = df['Signal_Line'] / df['Close'] * 100  # normalizzato
-    # df['MACD'] = df['MACD'] / df['Close'] * 100  # normalizzato
-    #
-    # # Vortex Indicator
-    # vi = VortexIndicator(
-    #     high=df['High'],
-    #     low=df['Low'],
-    #     close=df['Close'],
-    #     window=rsi_window)
-    # vip = vi.vortex_indicator_pos()
-    # vim = vi.vortex_indicator_neg()
-    # df['VI'] = vip - vim
-
-    # df_perc = calculate_percentage_changes(df)
-    # df_perc = add_technical_indicators(df_perc)
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -489,35 +486,35 @@ def trading_analysis(
                     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
                 holding = False
 
-    # valori_ottimi = []  # Lista per salvare i risultati
-    # for item in rel_min:
-    #     index = item[0]  # L'indice è il primo elemento della tupla
-    #     if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
-    #         valori_ottimi.append({'Type': "Min",
-    #                               'Prezzo': df.loc[index, 'Low'],
-    #                               'RSI': df.loc[index, 'RSI'],
-    #                               'PSAR': df.loc[index, 'SAR'],
-    #                               'SMA': df.loc[index, 'SMA'],
-    #                               'ATR': df.loc[index, 'ATR'],
-    #                               'MACD': df.loc[index, 'MACD'],
-    #                               'VI': df.loc[index, 'VI'],
-    #                               })
-    #     else:
-    #         print(f"Index {index} not found in DataFrame.")
-    # for item in rel_max:
-    #     index = item[0]  # L'indice è il primo elemento della tupla
-    #     if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
-    #         valori_ottimi.append({'Type': "Max",
-    #                               'Prezzo': df.loc[index, 'Low'],
-    #                               'RSI': df.loc[index, 'RSI'],
-    #                               'PSAR': df.loc[index, 'SAR'],
-    #                               'SMA': df.loc[index, 'SMA'],
-    #                               'ATR': df.loc[index, 'ATR'],
-    #                               'MACD': df.loc[index, 'MACD'],
-    #                               'VI': df.loc[index, 'VI'],
-    #                               })
-    #     else:
-    #         print(f"Index {index} not found in DataFrame.")
+    valori_ottimi = []  # Lista per salvare i risultati
+    for item in rel_min:
+        index = item[0]  # L'indice è il primo elemento della tupla
+        if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
+            valori_ottimi.append({'Type': "Min",
+                                  'Prezzo': df.loc[index, 'Low'],
+                                  'RSI': df.loc[index, 'RSI'],
+                                  'PSAR': df.loc[index, 'PSAR'],
+                                  'SMA': df.loc[index, 'SMA'],
+                                  'ATR': df.loc[index, 'ATR'],
+                                  'MACD': df.loc[index, 'MACD'],
+                                  'VI': df.loc[index, 'VI'],
+                                  })
+        else:
+            print(f"Index {index} not found in DataFrame.")
+    for item in rel_max:
+        index = item[0]  # L'indice è il primo elemento della tupla
+        if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
+            valori_ottimi.append({'Type': "Max",
+                                  'Prezzo': df.loc[index, 'Low'],
+                                  'RSI': df.loc[index, 'RSI'],
+                                  'PSAR': df.loc[index, 'PSAR'],
+                                  'SMA': df.loc[index, 'SMA'],
+                                  'ATR': df.loc[index, 'ATR'],
+                                  'MACD': df.loc[index, 'MACD'],
+                                  'VI': df.loc[index, 'VI'],
+                                  })
+        else:
+            print(f"Index {index} not found in DataFrame.")
 
     # ======================================
     # Simulazione di trading con commissioni
@@ -577,6 +574,16 @@ def trading_analysis(
     fig_macd = go.Figure()
     fig_vi = go.Figure()
     fig_psarvp = go.Figure()
+    fig_tsi = go.Figure()
+    fig_roc = go.Figure()
+    fig_ao = go.Figure()
+    fig_stochrsi = go.Figure()
+    fig_pvo = go.Figure()
+    fig_adi = go.Figure()
+    fig_obv = go.Figure()
+    fig_fi = go.Figure()
+    fig_vpt = go.Figure()
+    fig_mfi = go.Figure()
     if show:
         # Candele (candlestick)
         fig.add_trace(go.Candlestick(
@@ -611,26 +618,26 @@ def trading_analysis(
             name='Lower ATR'
         ))
 
-        # # Massimi relativi
-        # if rel_max:
-        #     max_times, max_prices = zip(*rel_max)
-        #     fig.add_trace(go.Scatter(
-        #         x=max_times,
-        #         y=max_prices,
-        #         mode='markers',
-        #         marker=dict(size=10, color='red', symbol='square-open'),
-        #         name='Local Max'
-        #     ))
-        # # Minimi relativi
-        # if rel_min:
-        #     min_times, min_prices = zip(*rel_min)
-        #     fig.add_trace(go.Scatter(
-        #         x=min_times,
-        #         y=min_prices,
-        #         mode='markers',
-        #         marker=dict(size=10, color='green', symbol='square-open'),
-        #         name='Local Min'
-        #     ))
+        # Massimi relativi
+        if rel_max:
+            max_times, max_prices = zip(*rel_max)
+            fig.add_trace(go.Scatter(
+                x=max_times,
+                y=max_prices,
+                mode='markers',
+                marker=dict(size=10, color='red', symbol='square-open'),
+                name='Local Max'
+            ))
+        # Minimi relativi
+        if rel_min:
+            min_times, min_prices = zip(*rel_min)
+            fig.add_trace(go.Scatter(
+                x=min_times,
+                y=min_prices,
+                mode='markers',
+                marker=dict(size=10, color='green', symbol='square-open'),
+                name='Local Min'
+            ))
 
         # Segnali di acquisto
         if buy_signals:
@@ -744,6 +751,96 @@ def trading_analysis(
             name='Sell Limit'
         ))
 
+        # TSI
+        fig_tsi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['TSI'],
+            mode='lines',
+            line=dict(color='blue', width=2),
+            name='TSI'
+        ))
+
+        # ROC
+        fig_roc.add_trace(go.Scatter(
+            x=df.index,
+            y=df['ROC'],
+            mode='lines',
+            line=dict(color='orange', width=2),
+            name='ROC'
+        ))
+
+        # Awesome Oscillator
+        fig_ao.add_trace(go.Scatter(
+            x=df.index,
+            y=df['AO'],
+            mode='lines',
+            line=dict(color='cyan', width=2),
+            name='Awesome Oscillator'
+        ))
+
+        # Stochastic RSI
+        fig_stochrsi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['StochRSI'],
+            mode='lines',
+            line=dict(color='magenta', width=2),
+            name='Stochastic RSI'
+        ))
+
+        # Percentage Volume Oscillator
+        fig_pvo.add_trace(go.Scatter(
+            x=df.index,
+            y=df['PVO'],
+            mode='lines',
+            line=dict(color='brown', width=2),
+            name='PVO'
+        ))
+
+        # Accumulation/Distribution Index
+        fig_adi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['ADI'],
+            mode='lines',
+            line=dict(color='gold', width=2),
+            name='Accumulation/Distribution Index'
+        ))
+
+        # On-Balance Volume
+        fig_obv.add_trace(go.Scatter(
+            x=df.index,
+            y=df['OBV'],
+            mode='lines',
+            line=dict(color='teal', width=2),
+            name='On-Balance Volume'
+        ))
+
+        # Force Index
+        fig_fi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['ForceIndex'],
+            mode='lines',
+            line=dict(color='darkblue', width=2),
+            name='Force Index'
+        ))
+
+        # Volume Price Trend
+        fig_vpt.add_trace(go.Scatter(
+            x=df.index,
+            y=df['VPT'],
+            mode='lines',
+            line=dict(color='darkgreen', width=2),
+            name='Volume Price Trend'
+        ))
+
+        # Money Flow Index
+        fig_mfi.add_trace(go.Scatter(
+            x=df.index,
+            y=df['MFI'],
+            mode='lines',
+            line=dict(color='darkred', width=2),
+            name='Money Flow Index'
+        ))
+
         # Layout e aspetto del grafico principale
         fig.update_layout(
             title=f"{asset} ({interval}) CandleChart",
@@ -789,6 +886,88 @@ def trading_analysis(
             height=300
         )
 
+        # Configurare il layout del grafico per il TSI
+        fig_tsi.update_layout(
+            title='True Strength Index (TSI)',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per il ROC
+        fig_roc.update_layout(
+            title='Rate of Change (ROC)',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per l'Awesome Oscillator
+        fig_ao.update_layout(
+            title='Awesome Oscillator (AO)',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per lo Stochastic RSI
+        fig_stochrsi.update_layout(
+            title='Stochastic RSI',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per il PVO
+        fig_pvo.update_layout(
+            title='Percentage Volume Oscillator (PVO)',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per l'ADI
+        fig_adi.update_layout(
+            title='Accumulation/Distribution Index (ADI)',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per l'OBV
+        fig_obv.update_layout(
+            title='On-Balance Volume (OBV)',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per il Force Index
+        fig_fi.update_layout(
+            title='Force Index',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per il VPT
+        fig_vpt.update_layout(
+            title='Volume Price Trend (VPT)',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+        # Configurare il layout del grafico per il MFI
+        fig_mfi.update_layout(
+            title='Money Flow Index (MFI)',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            template="plotly_dark",
+            height=300
+        )
+
+
     # ======================================
     # Creazione del DataFrame finale con le operazioni
     if operations:
@@ -819,7 +998,9 @@ def trading_analysis(
           f"rsi_buy_limit={rsi_buy_limit}, rsi_sell_limit={rsi_sell_limit}, "
           f"profitto totale={round(trades_df['Profit'].sum())} USD")
 
-    return fig, fig_rsi, fig_macd, fig_vi, fig_psarvp, trades_df, actual_hours
+    return (fig, fig_rsi, fig_macd, fig_vi, fig_psarvp, fig_tsi, fig_roc,
+            fig_ao, fig_stochrsi, fig_pvo, fig_adi, fig_obv,
+            fig_fi, fig_vpt, fig_mfi, trades_df, actual_hours)
 
 
 if __name__ == "__main__":
@@ -845,9 +1026,19 @@ if __name__ == "__main__":
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
     fig_rsi_placeholder = st.empty()
+    fig_stochrsi_placeholder = st.empty()
+    fig_tsi_placeholder = st.empty()
     fig_macd_placeholder = st.empty()
     fig_vi_placeholder = st.empty()
     fig_psarvp_placeholder = st.empty()
+    fig_roc_placeholder = st.empty()
+    fig_ao_placeholder = st.empty()
+    fig_pvo_placeholder = st.empty()
+    fig_adi_placeholder = st.empty()
+    fig_obv_placeholder = st.empty()
+    fig_fi_placeholder = st.empty()
+    fig_vpt_placeholder = st.empty()
+    fig_mfi_placeholder = st.empty()
     st.sidebar.title("Market parameters")
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -898,7 +1089,9 @@ if __name__ == "__main__":
     #         st.write(st.session_state['df'])
 
     if st.session_state['df'] is not None:
-        fig, fig_rsi, fig_macd, fig_vi, fig_psarvp, trades_df, _ = trading_analysis(
+        (fig, fig_rsi, fig_macd, fig_vi, fig_psarvp, fig_tsi, fig_roc,
+         fig_ao, fig_stochrsi, fig_pvo, fig_adi, fig_obv,
+         fig_fi, fig_vpt, fig_mfi, trades_df, actual_hours) = trading_analysis(
             asset=symbol,
             interval=interval,
             wallet=wallet,  # Wallet iniziale
@@ -936,6 +1129,16 @@ if __name__ == "__main__":
 
         fig_placeholder.plotly_chart(fig, use_container_width=True)
         fig_rsi_placeholder.plotly_chart(fig_rsi, use_container_width=True)
+        fig_stochrsi_placeholder.plotly_chart(fig_stochrsi, use_container_width=True)
+        fig_tsi_placeholder.plotly_chart(fig_tsi, use_container_width=True)
         fig_macd_placeholder.plotly_chart(fig_macd, use_container_width=True)
         fig_vi_placeholder.plotly_chart(fig_vi, use_container_width=True)
         fig_psarvp_placeholder.plotly_chart(fig_psarvp, use_container_width=True)
+        fig_roc_placeholder.plotly_chart(fig_roc, use_container_width=True)
+        fig_ao_placeholder.plotly_chart(fig_ao, use_container_width=True)
+        fig_pvo_placeholder.plotly_chart(fig_pvo, use_container_width=True)
+        fig_adi_placeholder.plotly_chart(fig_adi, use_container_width=True)
+        fig_obv_placeholder.plotly_chart(fig_obv, use_container_width=True)
+        fig_fi_placeholder.plotly_chart(fig_fi, use_container_width=True)
+        fig_vpt_placeholder.plotly_chart(fig_vpt, use_container_width=True)
+        fig_mfi_placeholder.plotly_chart(fig_mfi, use_container_width=True)

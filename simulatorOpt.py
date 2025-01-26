@@ -173,15 +173,15 @@ def trading_analysis_opt(
         # Aggiungiamo qualche metrica sul periodo analizzato
         apertura = df['Open'].iloc[0]  # Prezzo di apertura (prima candela)
         chiusura = df['Close'].iloc[-1]  # Prezzo di chiusura (ultima candela)
-        high_max = df['High'].max()
-        low_min = df['Low'].min()
+        # high_max = df['High'].max()
+        # low_min = df['Low'].min()
         # Variazione percentuale (close finale su open iniziale)
         variazione = (chiusura - apertura) / apertura * 100
         # Volatilità: std dei rendimenti "Close-to-Close", in termini %
         volatilita = df['Close'].pct_change().std() * 100
         # Inseriamo questi valori su ogni riga del DataFrame trades_df.
-        trades_df['massimo'] = high_max
-        trades_df['minimo'] = low_min
+        trades_df['apertura'] = apertura
+        trades_df['chiusura'] = chiusura
         trades_df['variazione(%)'] = variazione
         trades_df['volatilita(%)'] = volatilita
     else:
