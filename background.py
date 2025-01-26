@@ -8,8 +8,8 @@ import queue
 import threading
 import os
 from datetime import datetime
-import keyboard
-from colorama import Fore, Back, Style, init
+# import keyboard
+from colorama import Fore, Style, init
 import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)
