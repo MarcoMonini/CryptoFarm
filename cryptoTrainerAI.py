@@ -48,7 +48,7 @@ def calculate_percentage_changes(df):
     df_transformed['High'] = df_transformed['High_Perc']
     df_transformed['Low'] = df_transformed['Low_Perc']
     df_transformed['Close'] = df_transformed['Close_Perc']
-    df_final = df_transformed[['Open', 'High', 'Low', 'Close']].astype(float)
+    df_final = df_transformed[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
 
     return df_final
 
@@ -204,7 +204,7 @@ if __name__ == "__main__":
     raw_df['Open time'] = pd.to_datetime(raw_df['Open time'])
     raw_df.set_index('Open time', inplace=True)
     # Mantieni solo le colonne essenziali, converti a float
-    df = raw_df[['Open', 'High', 'Low', 'Close']].astype(float)
+    df = raw_df[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
 
     print("calculate_percentage_changes")
     df_transformed = calculate_percentage_changes(df)

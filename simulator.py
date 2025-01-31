@@ -345,6 +345,18 @@ def trading_analysis(
         vi_sell_limit: float = 0.5,
         psarvp_buy_limit: float = -0.1,
         psarvp_sell_limit: float = 10.1,
+        srsi_buy_limit: float = 0.01,
+        srsi_sell_limit: float = 0.99,
+        tsi_buy_limit: int = -50,
+        tsi_sell_limit: int = 50,
+        roc_buy_limit: float = -5.0,
+        roc_sell_limit: float = 5.0,
+        ao_buy_limit: float = -0.1,
+        ao_sell_limit: float = 0.1,
+        pvo_buy_limit: int = -50,
+        pvo_sell_limit:int = 50,
+        mfi_buy_limit: int = 30,
+        mfi_sell_limit: int = 70,
         num_cond: int = 3,
         strategia: str = "",
         market_data: dict = None,
@@ -461,24 +473,41 @@ def trading_analysis(
                 holding = False
         # ------------------------------------------------------------
         if strategia == "Buy/Sell Limits":
-            cond_buy_1 = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
-            cond_buy_2 = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
-            cond_buy_3 = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
-            cond_buy_4 = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
-            cond_buy_5 = 1 if df['Low'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
-            sum_buy = cond_buy_1 + cond_buy_2 + cond_buy_3 + cond_buy_4 + cond_buy_5
+            # CONDIZIONI DI BUY
+            cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
+            cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
+            cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
+            cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
+            cond_buy_atr = 1 if df['Low'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
+            cond_buy_srsi = 1 if df['StochRSI'].iloc[i] <= srsi_buy_limit else 0
+            cond_buy_tsi = 1 if df['TSI'].iloc[i] <= tsi_buy_limit else 0
+            cond_buy_roc = 1 if df['ROC'].iloc[i] <= roc_buy_limit else 0
+            cond_buy_ao = 1 if df['AO'].iloc[i] <= ao_buy_limit else 0
+            cond_buy_pvo = 1 if df['PVO'].iloc[i] <= pvo_buy_limit else 0
+            cond_buy_mfi = 1 if df['MFI'].iloc[i] <= mfi_buy_limit else 0
+            sum_buy = (cond_buy_macd+cond_buy_rsi+cond_buy_vi+cond_buy_psarvp+cond_buy_atr+cond_buy_srsi+cond_buy_tsi+
+                       cond_buy_roc+cond_buy_ao+cond_buy_pvo+cond_buy_mfi)
             if not holding and sum_buy >= num_cond:
                 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
                     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
                 else:
                     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
                 holding = True
-            cond_sell_1 = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
-            cond_sell_2 = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
-            cond_sell_3 = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
-            cond_sell_4 = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
-            cond_sell_5 = 1 if df['High'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
-            sum_sell = cond_sell_1 + cond_sell_2 + cond_sell_3 + cond_sell_4 + cond_sell_5
+
+            # CONDIZIONI DI SELL
+            cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
+            cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
+            cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
+            cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
+            cond_sell_atr = 1 if df['High'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
+            cond_sell_srsi = 1 if df['StochRSI'].iloc[i] >= srsi_sell_limit else 0
+            cond_sell_tsi = 1 if df['TSI'].iloc[i] >= tsi_sell_limit else 0
+            cond_sell_roc = 1 if df['ROC'].iloc[i] >= roc_sell_limit else 0
+            cond_sell_ao = 1 if df['AO'].iloc[i] >= ao_sell_limit else 0
+            cond_sell_pvo = 1 if df['PVO'].iloc[i] >= pvo_sell_limit else 0
+            cond_sell_mfi = 1 if df['MFI'].iloc[i] >= mfi_sell_limit else 0
+            sum_sell = (cond_sell_macd+cond_sell_rsi+cond_sell_vi+cond_sell_psavp+cond_sell_atr+cond_sell_srsi+
+                        cond_sell_tsi+cond_sell_roc+cond_sell_ao+cond_sell_pvo+cond_sell_mfi)
             if holding and sum_sell >= num_cond:
                 if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
                     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
@@ -668,7 +697,6 @@ def trading_analysis(
             line=dict(color='purple', width=2),
             name='RSI'
         ))
-        # Linea tratteggiata a 70 (overbought)
         fig_rsi.add_trace(go.Scatter(
             x=[df.index.min(), df.index.max()],
             y=[rsi_sell_limit, rsi_sell_limit],
@@ -676,8 +704,6 @@ def trading_analysis(
             line=dict(color='red', width=1, dash='dash'),
             name='Sell Limit'
         ))
-
-        # Linea tratteggiata a 30 (oversold)
         fig_rsi.add_trace(go.Scatter(
             x=[df.index.min(), df.index.max()],
             y=[rsi_buy_limit, rsi_buy_limit],
@@ -759,6 +785,20 @@ def trading_analysis(
             line=dict(color='blue', width=2),
             name='TSI'
         ))
+        fig_tsi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[tsi_buy_limit, tsi_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ))
+        fig_tsi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[tsi_sell_limit, tsi_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
+        ))
 
         # ROC
         fig_roc.add_trace(go.Scatter(
@@ -767,6 +807,20 @@ def trading_analysis(
             mode='lines',
             line=dict(color='orange', width=2),
             name='ROC'
+        ))
+        fig_roc.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[roc_buy_limit, roc_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ))
+        fig_roc.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[roc_sell_limit, roc_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
         ))
 
         # Awesome Oscillator
@@ -777,6 +831,20 @@ def trading_analysis(
             line=dict(color='cyan', width=2),
             name='Awesome Oscillator'
         ))
+        fig_ao.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[ao_buy_limit, ao_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ))
+        fig_ao.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[ao_sell_limit, ao_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
+        ))
 
         # Stochastic RSI
         fig_stochrsi.add_trace(go.Scatter(
@@ -786,6 +854,20 @@ def trading_analysis(
             line=dict(color='magenta', width=2),
             name='Stochastic RSI'
         ))
+        fig_stochrsi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[srsi_buy_limit, srsi_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ))
+        fig_stochrsi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[srsi_sell_limit, srsi_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
+        ))
 
         # Percentage Volume Oscillator
         fig_pvo.add_trace(go.Scatter(
@@ -794,6 +876,20 @@ def trading_analysis(
             mode='lines',
             line=dict(color='brown', width=2),
             name='PVO'
+        ))
+        fig_pvo.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[pvo_buy_limit, pvo_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ))
+        fig_pvo.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[pvo_sell_limit, pvo_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
         ))
 
         # Accumulation/Distribution Index
@@ -839,6 +935,20 @@ def trading_analysis(
             mode='lines',
             line=dict(color='darkred', width=2),
             name='Money Flow Index'
+        ))
+        fig_mfi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[mfi_buy_limit, mfi_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ))
+        fig_mfi.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[mfi_sell_limit, mfi_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
         ))
 
         # Layout e aspetto del grafico principale
@@ -1064,6 +1174,13 @@ if __name__ == "__main__":
         macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.66, step=0.01)
         vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, value=-0.82, step=0.01)
         psarvp_buy_limit = st.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=1.08, step=0.01)
+        srsi_buy_limit = st.number_input(label="StochasticRSI Buy Limit", min_value=0.00, max_value=1.00, value=0.00, step=0.01)
+        tsi_buy_limit = st.number_input(label="TSI Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
+        roc_buy_limit = st.number_input(label="ROC Buy Limit", min_value=-50, max_value=50, value=-10, step=1)
+        ao_buy_limit = st.number_input(label="AO Buy Limit", min_value=-0.50, max_value=0.50, value=-0.10, step=0.01)
+        pvo_buy_limit = st.number_input(label="PVO Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
+        mfi_buy_limit = st.number_input(label="MFI Buy Limit", min_value=0, max_value=100, value=30, step=1)
+
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
@@ -1072,6 +1189,13 @@ if __name__ == "__main__":
         macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.66, step=0.01)
         vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.82, step=0.01)
         psarvp_sell_limit = st.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0, value=0.92, step=0.01)
+        srsi_sell_limit = st.number_input(label="StochasticRSI Sell Limit", min_value=0.00, max_value=1.00, value=1.00, step=0.01)
+        tsi_sell_limit = st.number_input(label="TSI Sell Limit", min_value=-100.0, max_value=100.0, value=50, step=1)
+        roc_sell_limit = st.number_input(label="ROC Sell Limit", min_value=-50, max_value=50, value=10, step=1)
+        ao_sell_limit = st.number_input(label="AO Sell Limit", min_value=-0.50, max_value=0.50, value=0.10, step=0.01)
+        pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-100, max_value=100, value=50, step=1)
+        mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=0, max_value=100, value=70, step=1)
+
     # col1, col2, col3 = st.sidebar.columns(3)
     # with col1:
     #     macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
@@ -1103,9 +1227,6 @@ if __name__ == "__main__":
             atr_window=atr_window,
             window_pivot=window_pivot,
             rsi_window=rsi_window,
-            # macd_short_window=macd_short_window,
-            # macd_long_window=macd_long_window,
-            # macd_signal_window=macd_signal_window,
             rsi_buy_limit=rsi_buy_limit,
             rsi_sell_limit=rsi_sell_limit,
             macd_buy_limit=macd_buy_limit,
@@ -1114,10 +1235,21 @@ if __name__ == "__main__":
             vi_sell_limit=vi_sell_limit,
             psarvp_buy_limit=psarvp_buy_limit,
             psarvp_sell_limit=psarvp_sell_limit,
+            srsi_buy_limit=srsi_buy_limit,
+            srsi_sell_limit=srsi_sell_limit,
+            tsi_buy_limit=tsi_buy_limit,
+            tsi_sell_limit=tsi_sell_limit,
+            roc_buy_limit=roc_buy_limit,
+            roc_sell_limit=roc_sell_limit,
+            ao_buy_limit=ao_buy_limit,
+            ao_sell_limit=ao_sell_limit,
+            pvo_buy_limit=pvo_buy_limit,
+            pvo_sell_limit=pvo_sell_limit,
+            mfi_buy_limit=mfi_buy_limit,
+            mfi_sell_limit=mfi_sell_limit,
             num_cond=num_cond,
             strategia=strategia,
             market_data=st.session_state['df'],
-            # modello=st.session_state['model']
         )
         text_placeholder.subheader("Operations Report")
         if not trades_df.empty:
