@@ -1190,7 +1190,7 @@ if __name__ == "__main__":
         vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.82, step=0.01)
         psarvp_sell_limit = st.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0, value=0.92, step=0.01)
         srsi_sell_limit = st.number_input(label="StochasticRSI Sell Limit", min_value=0.00, max_value=1.00, value=1.00, step=0.01)
-        tsi_sell_limit = st.number_input(label="TSI Sell Limit", min_value=-100.0, max_value=100.0, value=50, step=1)
+        tsi_sell_limit = st.number_input(label="TSI Sell Limit", min_value=-100, max_value=100, value=50, step=1)
         roc_sell_limit = st.number_input(label="ROC Sell Limit", min_value=-50, max_value=50, value=10, step=1)
         ao_sell_limit = st.number_input(label="AO Sell Limit", min_value=-0.50, max_value=0.50, value=0.10, step=0.01)
         pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-100, max_value=100, value=50, step=1)
