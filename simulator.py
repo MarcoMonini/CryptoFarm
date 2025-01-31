@@ -268,7 +268,8 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
         high=df_copy['High'],
         low=df_copy['Low']
     )
-    df_copy['AO'] = ao_indicator.awesome_oscillator()
+    ao = ao_indicator.awesome_oscillator()
+    df_copy['AO'] = ao / df_copy['Close'] * 100
 
     # Stochastic RSI
     stoch_rsi_indicator = StochRSIIndicator(close=df_copy['Close'], window=rsi_window)
@@ -1144,11 +1145,11 @@ if __name__ == "__main__":
     fig_roc_placeholder = st.empty()
     fig_ao_placeholder = st.empty()
     fig_pvo_placeholder = st.empty()
+    fig_mfi_placeholder = st.empty()
     fig_adi_placeholder = st.empty()
     fig_obv_placeholder = st.empty()
     fig_fi_placeholder = st.empty()
     fig_vpt_placeholder = st.empty()
-    fig_mfi_placeholder = st.empty()
     st.sidebar.title("Market parameters")
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -1269,8 +1270,9 @@ if __name__ == "__main__":
         fig_roc_placeholder.plotly_chart(fig_roc, use_container_width=True)
         fig_ao_placeholder.plotly_chart(fig_ao, use_container_width=True)
         fig_pvo_placeholder.plotly_chart(fig_pvo, use_container_width=True)
+        fig_mfi_placeholder.plotly_chart(fig_mfi, use_container_width=True)
         fig_adi_placeholder.plotly_chart(fig_adi, use_container_width=True)
         fig_obv_placeholder.plotly_chart(fig_obv, use_container_width=True)
         fig_fi_placeholder.plotly_chart(fig_fi, use_container_width=True)
         fig_vpt_placeholder.plotly_chart(fig_vpt, use_container_width=True)
-        fig_mfi_placeholder.plotly_chart(fig_mfi, use_container_width=True)
+
