@@ -18,7 +18,7 @@ init(autoreset=True)
 
 
 # stampa in debug le informazioni dell'utente collegato tramite API
-def print_user_and_wallet_info(client:Client):
+def print_user_and_wallet_info(client: Client):
     try:
         account_info = client.get_account()
         print(Style.BRIGHT + Fore.GREEN + f"UID: {account_info['uid']}, Tipo: {account_info['accountType']}, "
@@ -35,7 +35,7 @@ def print_user_and_wallet_info(client:Client):
             for balance in non_zero_balances:
                 print(Style.BRIGHT + Fore.GREEN + f"- {balance['free']} {balance['asset']}")
         else:
-            print(Style.BRIGHT + Fore.RED +"Nessun saldo disponibile.")
+            print(Style.BRIGHT + Fore.RED + "Nessun saldo disponibile.")
 
         return non_zero_balances
 
@@ -45,7 +45,7 @@ def print_user_and_wallet_info(client:Client):
 
 
 # funzione per ottenere i dati iniziali
-def fetch_initial_candles(client:Client, symbol:str, interval:str) -> pd.DataFrame:
+def fetch_initial_candles(client: Client, symbol: str, interval: str) -> pd.DataFrame:
     print("Fetching initial candles...")
     try:
         klines = client.get_klines(symbol=symbol, interval=interval, limit=50)
@@ -69,105 +69,71 @@ def fetch_initial_candles(client:Client, symbol:str, interval:str) -> pd.DataFra
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
 
 
-# Funzione che gira in un thread dedicato e ascolta il WebSocket
-def run_socket(data_queue, stop_event, symbol:str, interval:str):
-    twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
-    twm.start()
-
-    def handle_socket_message(msg):
-        if msg["e"] == "kline":
-            kline = msg["k"]
-            data = {
-                "timestamp": pd.to_datetime(kline["t"], unit="ms"),
-                "open": float(kline["o"]),
-                "high": float(kline["h"]),
-                "low": float(kline["l"]),
-                "close": float(kline["c"]),
-                "volume": float(kline["v"]),
-                "closed": kline["x"],
-            }
-            if kline["x"]:
-                print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}")
-
-            data_queue.put(data)
-
-    socket_id = twm.start_kline_socket(
-        callback=handle_socket_message,
-        symbol=symbol,
-        interval=interval
-    )
-
-    while not stop_event.is_set():
-        try:
-            time.sleep(1)
-        except Exception as e:
-            print(f"Errore nella gestione del WebSocket: {e}")
-
-    twm.stop_socket(socket_id)
-    twm.stop()
-    print("WebSocket chiuso.")
-
 # Funzione per inizializzare e avviare il WebSocket
 def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str):
     """
     Avvia il WebSocket e gestisce la riconnessione automatica in caso di errore o chiusura.
+    Se non vengono ricevuti messaggi "kline" per 5 minuti, il WebSocket viene chiuso e riavviato.
     """
+    # Intervallo di tempo (in secondi) oltre il quale riavviare il WebSocket se non arrivano kline
+    MAX_INACTIVITY = 300  # 5 minuti
+
     while not stop_event.is_set():
-        try:
-            print(Style.BRIGHT + Fore.YELLOW + "Avvio WebSocket...")
-            # Crea un nuovo ThreadedWebsocketManager
-            twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
-            twm.start()
+        print(Style.BRIGHT + Fore.YELLOW + "Avvio WebSocket...")
 
-            # Funzione per gestire i messaggi ricevuti
-            def handle_socket_message(msg):
-                if msg["e"] == "kline":
-                    kline = msg["k"]
-                    data = {
-                        "timestamp": pd.to_datetime(kline["t"], unit="ms"),
-                        "open": float(kline["o"]),
-                        "high": float(kline["h"]),
-                        "low": float(kline["l"]),
-                        "close": float(kline["c"]),
-                        "volume": float(kline["v"]),
-                        "closed": kline["x"],
-                    }
-                    if kline["x"]:
-                        print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
-                    data_queue.put(data)
+        # Crea un nuovo ThreadedWebsocketManager
+        twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
+        twm.start()
 
-            # Funzione per gestire la chiusura del WebSocket
-            # def handle_socket_close(ws, close_status_code, close_msg):
-            #     print(f"WebSocket chiuso. Codice: {close_status_code}, Messaggio: {close_msg}")
-            #     if close_status_code == 1001:
-            #         print("Chiusura volontaria (1001 - Going Away).")
-            #     else:
-            #         print("Chiusura inaspettata. Tentativo di riconnessione...")
-            # Associa il gestore di chiusura al WebSocket
-            #  twm._ws.on_close = handle_socket_close
+        # Variabile per tracciare l'ultimo timestamp in cui è arrivato un messaggio "kline"
+        last_kline_time = time.time()
 
-            # Avvia il WebSocket per il kline
-            socket_id = twm.start_kline_socket(
-                callback=handle_socket_message,
-                symbol=symbol,
-                interval=interval
-            )
+        # Funzione per gestire i messaggi ricevuti
+        def handle_socket_message(msg):
+            nonlocal last_kline_time  # per modificare la variabile definita nel blocco esterno
 
-            print(Style.BRIGHT + Fore.GREEN + "WebSocket avviato con successo.")
+            if msg["e"] == "kline":
+                # Aggiorna il tempo di ultimo kline ricevuto
+                last_kline_time = time.time()
 
-            # Mantieni il WebSocket attivo fino a quando non viene richiesto di fermarsi
-            while not stop_event.is_set():
-                time.sleep(1)
+                kline = msg["k"]
+                data = {
+                    "timestamp": pd.to_datetime(kline["t"], unit="ms"),
+                    "open": float(kline["o"]),
+                    "high": float(kline["h"]),
+                    "low": float(kline["l"]),
+                    "close": float(kline["c"]),
+                    "volume": float(kline["v"]),
+                    "closed": kline["x"],
+                }
+                if kline["x"]:
+                    print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
+                data_queue.put(data)
 
-            # Ferma il WebSocket in modo pulito
-            twm.stop_socket(socket_id)
-            twm.stop()
-            print(Style.BRIGHT + Fore.RED + "WebSocket terminato.")
+        # Avvia il WebSocket per il kline
+        socket_id = twm.start_kline_socket(
+            callback=handle_socket_message,
+            symbol=symbol,
+            interval=interval
+        )
 
-        except Exception as e:
-            print(Style.BRIGHT + Fore.RED + f"Errore nel WebSocket: {e}")
-            print(Style.BRIGHT + Fore.YELLOW + "Tentativo di riconnessione in 5 secondi...")
-            time.sleep(5)  # Aspetta prima di tentare di riconnettere
+        print(Style.BRIGHT + Fore.GREEN + "WebSocket avviato con successo.")
+
+        # Mantieni il WebSocket attivo fino a quando non viene richiesto di fermarsi
+        while not stop_event.is_set():
+            time.sleep(1)
+            # Controlla se è trascorso troppo tempo dall'ultimo messaggio "kline"
+            if time.time() - last_kline_time > MAX_INACTIVITY:
+                print(Style.BRIGHT + Fore.RED + "Nessun kline ricevuto negli ultimi 5 minuti. Riavvio del WebSocket...")
+                break
+
+        # Ferma il WebSocket in modo pulito
+        twm.stop_socket(socket_id)
+        twm.stop()
+        print(Style.BRIGHT + Fore.RED + "WebSocket terminato.")
+
+        # Se lo stop_event non è stato impostato, il while continuerà
+        # e il WebSocket verrà riavviato automaticamente.
 
 
 def get_asset_balance(balance, asset):
@@ -180,7 +146,8 @@ def get_asset_balance(balance, asset):
         return 0
 
 
-def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window, atr_window, atr_multiplier):
+def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window,
+                            atr_window, atr_multiplier):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
@@ -256,7 +223,7 @@ def adjust_quantity(quantity, min_qty, max_qty, step_size):
         float: Quantità regolata per rispettare i parametri.
     """
     # Assicurati che la quantità sia all'interno dei limiti
-    print("adjust quantity",quantity,min_qty,max_qty,step_size)
+    print("adjust quantity", quantity, min_qty, max_qty, step_size)
     if quantity < min_qty:
         return 0.0  # Non abbastanza per effettuare un ordine
     if quantity > max_qty:
@@ -268,7 +235,7 @@ def adjust_quantity(quantity, min_qty, max_qty, step_size):
     return round(adjusted_quantity, precision)
 
 
-def place_order(client:Client, symbol:str, side:str, order_type:str, quantity:float, price:float=None) -> bool:
+def place_order(client: Client, symbol: str, side: str, order_type: str, quantity: float, price: float = None) -> bool:
     """
     Crea un ordine su Binance.
 
@@ -326,19 +293,19 @@ step = float(os.getenv("PSAR_STEP", 0.001))
 max_step = float(os.getenv("PSAR_MAX_STEP", 0.4))
 atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 2.4))
 atr_window = int(os.getenv("ATR_WINDOW", 6))
-rsi_window=int(os.getenv("RSI_WINDOW", 12))
-macd_long_window=int(os.getenv("MACD_LONG_WINDOW", 26))
-macd_short_window=int(os.getenv("MACD_SHORT_WINDOW", 12))
-macd_signal_window=int(os.getenv("MACD_SIGNAL_WINDOW", 9))
-rsi_buy_limit=float(os.getenv("RSI_BUY_LIMIT", 25))
-rsi_sell_limit=float(os.getenv("RSI_SELL_LIMIT", 75))
-macd_buy_limit=float(os.getenv("MACD_BUY_LIMIT", -0.66))
-macd_sell_limit=float(os.getenv("MACD_SElL_LIMIT", 0.66))
-vi_buy_limit=float(os.getenv("VI_BUY_LIMIT", -0.82))
-vi_sell_limit=float(os.getenv("VI_SELL_LIMIT", 0.82))
-psarvp_buy_limit=float(os.getenv("PSAVP_BUY_LIMIT", 1.08))
-psarvp_sell_limit=float(os.getenv("PSARVP_SELL_LIMIT", 0.92))
-num_cond=float(os.getenv("NUM_CONDITIONS", 2))
+rsi_window = int(os.getenv("RSI_WINDOW", 12))
+macd_long_window = int(os.getenv("MACD_LONG_WINDOW", 26))
+macd_short_window = int(os.getenv("MACD_SHORT_WINDOW", 12))
+macd_signal_window = int(os.getenv("MACD_SIGNAL_WINDOW", 9))
+rsi_buy_limit = float(os.getenv("RSI_BUY_LIMIT", 25))
+rsi_sell_limit = float(os.getenv("RSI_SELL_LIMIT", 75))
+macd_buy_limit = float(os.getenv("MACD_BUY_LIMIT", -0.66))
+macd_sell_limit = float(os.getenv("MACD_SElL_LIMIT", 0.66))
+vi_buy_limit = float(os.getenv("VI_BUY_LIMIT", -0.82))
+vi_sell_limit = float(os.getenv("VI_SELL_LIMIT", 0.82))
+psarvp_buy_limit = float(os.getenv("PSAVP_BUY_LIMIT", 1.08))
+psarvp_sell_limit = float(os.getenv("PSARVP_SELL_LIMIT", 0.92))
+num_cond = float(os.getenv("NUM_CONDITIONS", 2))
 
 minQty = 0
 maxQty = 0
@@ -362,7 +329,6 @@ if symbol_info:
             print(f"  stepQty: {stepQty}")
 else:
     print(Fore.RED + f"La coppia {symbol} non è disponibile.")
-
 
 df = fetch_initial_candles(client=client, symbol=symbol, interval=interval)
 data_queue = queue.Queue()
@@ -421,14 +387,14 @@ while True:
 
     # df_copy = df.copy()
     df_copy = add_technical_indicator(df,
-                                 step=step,
-                                 max_step=max_step,
-                                 rsi_window=rsi_window,
-                                 macd_long_window=macd_long_window,
-                                 macd_short_window=macd_short_window,
-                                 macd_signal_window=macd_signal_window,
-                                 atr_window=atr_window,
-                                 atr_multiplier=atr_multiplier)
+                                      step=step,
+                                      max_step=max_step,
+                                      rsi_window=rsi_window,
+                                      macd_long_window=macd_long_window,
+                                      macd_short_window=macd_short_window,
+                                      macd_signal_window=macd_signal_window,
+                                      atr_window=atr_window,
+                                      atr_multiplier=atr_multiplier)
 
     if len(df_copy) > 1:
         i = len(df_copy) - 1
@@ -444,12 +410,14 @@ while True:
             cond_buy_5 = 1 if current_candle_price <= df_copy['Lower_Band'].iloc[i] else 0
             sum_buy = cond_buy_1 + cond_buy_2 + cond_buy_3 + cond_buy_4 + cond_buy_5
             if not holding and sum_buy >= num_cond:
-                print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
+                print(
+                    Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
                 balance = print_user_and_wallet_info(client=client)
                 currency_balance = get_asset_balance(balance=balance, asset=currency)
                 quantity = currency_balance / current_candle_price
                 adjusted_quantity = adjust_quantity(quantity, minQty, maxQty, stepQty)
-                print(Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={currency_balance}$)")
+                print(
+                    Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={currency_balance}$)")
                 # Piazza l'ordine di acquisto
                 response = place_order(client=client,
                                        symbol=symbol,
@@ -474,11 +442,13 @@ while True:
             cond_sell_5 = 1 if current_candle_price >= df_copy['Upper_Band'].iloc[i] else 0
             sum_sell = cond_sell_1 + cond_sell_2 + cond_sell_3 + cond_sell_4 + cond_sell_5
             if holding and sum_sell >= num_cond:
-                print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
+                print(
+                    Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
                 balance = print_user_and_wallet_info(client=client)
                 asset_balance = get_asset_balance(balance=balance, asset=asset)
                 adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
-                print(Style.BRIGHT + Fore.RED + f"Procceding with SELL Order, quantity={adjusted_quantity} (={adjusted_quantity * current_candle_price}$)")
+                print(
+                    Style.BRIGHT + Fore.RED + f"Procceding with SELL Order, quantity={adjusted_quantity} (={adjusted_quantity * current_candle_price}$)")
                 # Piazza l'ordine di vendita
                 response = place_order(client=client,
                                        symbol=symbol,
@@ -497,6 +467,3 @@ while True:
 
 time.sleep(1)
 print(Style.BRIGHT + Fore.RED + "Job terminato.")
-
-
-
