@@ -1204,7 +1204,7 @@ if __name__ == "__main__":
     #     macd_long_window = st.number_input(label="MACD Long Window", min_value=1, max_value=100, value=26, step=1)
     # with col3:
     #     macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
-    num_cond = st.sidebar.number_input(label="Numero di condizioni", min_value=1, max_value=5, value=2, step=1)
+    num_cond = st.sidebar.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)
     if st.sidebar.button("SIMULATE"):
         df, _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
         st.session_state['df'] = df
