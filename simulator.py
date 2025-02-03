@@ -476,6 +476,7 @@ def trading_analysis(
         if strategia == "Buy/Sell Limits":
             # CONDIZIONI DI BUY
             cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
+            cond_buy_macd2 = 1 if df['MACD'].iloc[i] > df['MACD'].tail(10).min() else 0  # il MACD ha invertito direzione
             cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
             cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
             cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
@@ -483,11 +484,11 @@ def trading_analysis(
             cond_buy_srsi = 1 if df['StochRSI'].iloc[i] <= srsi_buy_limit else 0
             cond_buy_tsi = 1 if df['TSI'].iloc[i] <= tsi_buy_limit else 0
             cond_buy_roc = 1 if df['ROC'].iloc[i] <= roc_buy_limit else 0
-            cond_buy_ao = 1 if df['AO'].iloc[i] <= ao_buy_limit else 0
+            # cond_buy_ao = 1 if df['AO'].iloc[i] <= ao_buy_limit else 0
             cond_buy_pvo = 1 if df['PVO'].iloc[i] <= pvo_buy_limit else 0
             cond_buy_mfi = 1 if df['MFI'].iloc[i] <= mfi_buy_limit else 0
-            sum_buy = (cond_buy_macd+cond_buy_rsi+cond_buy_vi+cond_buy_psarvp+cond_buy_atr+cond_buy_srsi+cond_buy_tsi+
-                       cond_buy_roc+cond_buy_ao+cond_buy_pvo+cond_buy_mfi)
+            sum_buy = (cond_buy_macd+cond_buy_macd2+cond_buy_rsi+cond_buy_vi+cond_buy_psarvp+cond_buy_atr+cond_buy_srsi+
+                       cond_buy_tsi+cond_buy_roc+cond_buy_pvo+cond_buy_mfi)
             if not holding and sum_buy >= num_cond:
                 if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
                     buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
@@ -497,6 +498,7 @@ def trading_analysis(
 
             # CONDIZIONI DI SELL
             cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
+            cond_sell_macd2 = 1 if df['MACD'].iloc[i] < df['MACD'].tail(10).max() else 0  # il MACD ha invertito direzione
             cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
             cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
             cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
@@ -504,11 +506,11 @@ def trading_analysis(
             cond_sell_srsi = 1 if df['StochRSI'].iloc[i] >= srsi_sell_limit else 0
             cond_sell_tsi = 1 if df['TSI'].iloc[i] >= tsi_sell_limit else 0
             cond_sell_roc = 1 if df['ROC'].iloc[i] >= roc_sell_limit else 0
-            cond_sell_ao = 1 if df['AO'].iloc[i] >= ao_sell_limit else 0
+            # cond_sell_ao = 1 if df['AO'].iloc[i] >= ao_sell_limit else 0
             cond_sell_pvo = 1 if df['PVO'].iloc[i] >= pvo_sell_limit else 0
             cond_sell_mfi = 1 if df['MFI'].iloc[i] >= mfi_sell_limit else 0
-            sum_sell = (cond_sell_macd+cond_sell_rsi+cond_sell_vi+cond_sell_psavp+cond_sell_atr+cond_sell_srsi+
-                        cond_sell_tsi+cond_sell_roc+cond_sell_ao+cond_sell_pvo+cond_sell_mfi)
+            sum_sell = (cond_sell_macd+cond_sell_macd2+cond_sell_rsi+cond_sell_vi+cond_sell_psavp+cond_sell_atr+
+                        cond_sell_srsi+cond_sell_tsi+cond_sell_roc+cond_sell_pvo+cond_sell_mfi)
             if holding and sum_sell >= num_cond:
                 if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
                     sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
@@ -832,20 +834,20 @@ def trading_analysis(
             line=dict(color='cyan', width=2),
             name='Awesome Oscillator'
         ))
-        fig_ao.add_trace(go.Scatter(
-            x=[df.index.min(), df.index.max()],
-            y=[ao_buy_limit, ao_buy_limit],
-            mode='lines',
-            line=dict(color='green', width=1, dash='dash'),
-            name='Buy Limit'
-        ))
-        fig_ao.add_trace(go.Scatter(
-            x=[df.index.min(), df.index.max()],
-            y=[ao_sell_limit, ao_sell_limit],
-            mode='lines',
-            line=dict(color='red', width=1, dash='dash'),
-            name='Sell Limit'
-        ))
+        # fig_ao.add_trace(go.Scatter(
+        #     x=[df.index.min(), df.index.max()],
+        #     y=[ao_buy_limit, ao_buy_limit],
+        #     mode='lines',
+        #     line=dict(color='green', width=1, dash='dash'),
+        #     name='Buy Limit'
+        # ))
+        # fig_ao.add_trace(go.Scatter(
+        #     x=[df.index.min(), df.index.max()],
+        #     y=[ao_sell_limit, ao_sell_limit],
+        #     mode='lines',
+        #     line=dict(color='red', width=1, dash='dash'),
+        #     name='Sell Limit'
+        # ))
 
         # Stochastic RSI
         fig_stochrsi.add_trace(go.Scatter(
@@ -1143,9 +1145,9 @@ if __name__ == "__main__":
     fig_vi_placeholder = st.empty()
     fig_psarvp_placeholder = st.empty()
     fig_roc_placeholder = st.empty()
-    fig_ao_placeholder = st.empty()
     fig_pvo_placeholder = st.empty()
     fig_mfi_placeholder = st.empty()
+    fig_ao_placeholder = st.empty()
     fig_adi_placeholder = st.empty()
     fig_obv_placeholder = st.empty()
     fig_fi_placeholder = st.empty()
@@ -1268,9 +1270,9 @@ if __name__ == "__main__":
         fig_vi_placeholder.plotly_chart(fig_vi, use_container_width=True)
         fig_psarvp_placeholder.plotly_chart(fig_psarvp, use_container_width=True)
         fig_roc_placeholder.plotly_chart(fig_roc, use_container_width=True)
-        fig_ao_placeholder.plotly_chart(fig_ao, use_container_width=True)
         fig_pvo_placeholder.plotly_chart(fig_pvo, use_container_width=True)
         fig_mfi_placeholder.plotly_chart(fig_mfi, use_container_width=True)
+        fig_ao_placeholder.plotly_chart(fig_ao, use_container_width=True)
         fig_adi_placeholder.plotly_chart(fig_adi, use_container_width=True)
         fig_obv_placeholder.plotly_chart(fig_obv, use_container_width=True)
         fig_fi_placeholder.plotly_chart(fig_fi, use_container_width=True)
