@@ -77,63 +77,76 @@ def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str
     """
     # Intervallo di tempo (in secondi) oltre il quale riavviare il WebSocket se non arrivano kline
     MAX_INACTIVITY = 300  # 5 minuti
+    print("Creo e avvio il WebsocketManager")
+    twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
+    twm.start()
+
+    # Variabile per tracciare l'ultimo timestamp in cui è arrivato un messaggio "kline"
+    last_kline_time = time.time()
+    socket_id = None
+
+    def handle_socket_message(msg):
+        nonlocal last_kline_time  # per modificare la variabile definita nel blocco esterno
+        if msg["e"] == "kline":
+            # Aggiorna il tempo di ultimo kline ricevuto
+            last_kline_time = time.time()
+
+            kline = msg["k"]
+            data = {
+                "timestamp": pd.to_datetime(kline["t"], unit="ms"),
+                "open": float(kline["o"]),
+                "high": float(kline["h"]),
+                "low": float(kline["l"]),
+                "close": float(kline["c"]),
+                "volume": float(kline["v"]),
+                "closed": kline["x"],
+            }
+            if kline["x"]:
+                print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
+            data_queue.put(data)
 
     while not stop_event.is_set():
-        print(Style.BRIGHT + Fore.YELLOW + "Avvio WebSocket...")
+        # Se lo socket non è attivo (ad esempio perché è il primo giro o dopo una disconnessione), lo avviamo
+        if socket_id is None:
+            print(Style.BRIGHT + Fore.YELLOW + "Avvio WebSocket...")
+            socket_id = twm.start_kline_socket(
+                callback=handle_socket_message,
+                symbol=symbol,
+                interval=interval
+            )
+            print(Style.BRIGHT + Fore.GREEN + "WebSocket avviato con successo.")
 
-        # Crea un nuovo ThreadedWebsocketManager
-        twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
-        twm.start()
-
-        # Variabile per tracciare l'ultimo timestamp in cui è arrivato un messaggio "kline"
-        last_kline_time = time.time()
-
-        # Funzione per gestire i messaggi ricevuti
-        def handle_socket_message(msg):
-            nonlocal last_kline_time  # per modificare la variabile definita nel blocco esterno
-
-            if msg["e"] == "kline":
-                # Aggiorna il tempo di ultimo kline ricevuto
-                last_kline_time = time.time()
-
-                kline = msg["k"]
-                data = {
-                    "timestamp": pd.to_datetime(kline["t"], unit="ms"),
-                    "open": float(kline["o"]),
-                    "high": float(kline["h"]),
-                    "low": float(kline["l"]),
-                    "close": float(kline["c"]),
-                    "volume": float(kline["v"]),
-                    "closed": kline["x"],
-                }
-                if kline["x"]:
-                    print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
-                data_queue.put(data)
-
-        # Avvia il WebSocket per il kline
-        socket_id = twm.start_kline_socket(
-            callback=handle_socket_message,
-            symbol=symbol,
-            interval=interval
-        )
-
-        print(Style.BRIGHT + Fore.GREEN + "WebSocket avviato con successo.")
-
+        time.sleep(1)
+        # Controlla se è trascorso troppo tempo dall'ultimo messaggio
+        if time.time() - last_kline_time > MAX_INACTIVITY:
+            print("Nessun kline ricevuto negli ultimi 5 minuti. Riavvio del WebSocket...")
+            # Ferma solo lo specifico socket
+            twm.stop_socket(socket_id)
+            socket_id = None  # in modo che al prossimo giro venga ricreato
+            print("WebSocket fermato...")
+            last_kline_time = time.time()  # resetta il timer (altrimenti rischia di rilanciare lo stop immediatamente)
+            
         # Mantieni il WebSocket attivo fino a quando non viene richiesto di fermarsi
-        while not stop_event.is_set():
-            time.sleep(1)
-            # Controlla se è trascorso troppo tempo dall'ultimo messaggio "kline"
-            if time.time() - last_kline_time > MAX_INACTIVITY:
-                print(Style.BRIGHT + Fore.RED + "Nessun kline ricevuto negli ultimi 5 minuti. Riavvio del WebSocket...")
-                break
+        # while not stop_event.is_set():
+        #     time.sleep(1)
+        #     # Controlla se è trascorso troppo tempo dall'ultimo messaggio "kline"
+        #     if time.time() - last_kline_time > MAX_INACTIVITY:
+        #       print(Style.BRIGHT + Fore.RED + "Nessun kline ricevuto negli ultimi 5 minuti. Riavvio del WebSocket...")
+        #         break
 
-        # Ferma il WebSocket in modo pulito
+    # Se arriviamo qui vuol dire che stop_event è settato
+    # Chiudiamo in modo pulito tutto
+    if socket_id is not None:
         twm.stop_socket(socket_id)
-        twm.stop()
-        print(Style.BRIGHT + Fore.RED + "WebSocket terminato.")
+    twm.stop()
+    print("WebSocket fermato correttamente.")
+    # # Ferma il WebSocket in modo pulito
+    # twm.stop_socket(socket_id)
+    # twm.stop()
+    # print(Style.BRIGHT + Fore.RED + "WebSocket terminato.")
 
-        # Se lo stop_event non è stato impostato, il while continuerà
-        # e il WebSocket verrà riavviato automaticamente.
+    # Se lo stop_event non è stato impostato, il while continuerà
+    # e il WebSocket verrà riavviato automaticamente.
 
 
 def get_asset_balance(balance, asset):
