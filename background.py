@@ -125,7 +125,7 @@ def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str
             socket_id = None  # in modo che al prossimo giro venga ricreato
             print("WebSocket fermato...")
             last_kline_time = time.time()  # resetta il timer (altrimenti rischia di rilanciare lo stop immediatamente)
-            
+
         # Mantieni il WebSocket attivo fino a quando non viene richiesto di fermarsi
         # while not stop_event.is_set():
         #     time.sleep(1)

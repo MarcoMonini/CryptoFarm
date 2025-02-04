@@ -465,6 +465,34 @@ def trading_analysis(
         #         holding = False
         # else:
         # ------------------------------------------------------------
+        if strategia == "Live Bot":
+            # CONDIZIONI DI BUY
+            cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
+            cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
+            cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
+            cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
+            cond_buy_atr = 1 if df['Low'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
+            sum_buy = cond_buy_macd + cond_buy_rsi + cond_buy_vi + cond_buy_psarvp + cond_buy_atr
+            if not holding and sum_buy >= num_cond:
+                if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+                    buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+                else:
+                    buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = True
+            # CONDIZIONI DI SELL
+            cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
+            cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
+            cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
+            cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
+            cond_sell_atr = 1 if df['High'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
+            sum_sell = cond_sell_macd + cond_sell_rsi + cond_sell_vi + cond_sell_psavp + cond_sell_atr
+            if holding and sum_sell >= num_cond:
+                if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+                    sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+                else:
+                    sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = False
+        # ------------------------------------------------------------
         if strategia == "ATR Bands":
             if not holding and (df['PSAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
                 buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
@@ -473,7 +501,7 @@ def trading_analysis(
                 sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
                 holding = False
         # ------------------------------------------------------------
-        if strategia == "Buy/Sell Limits":
+        if strategia == "Buy/Sell Limits+":
             # CONDIZIONI DI BUY
             cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
             cond_buy_macd2 = 1 if df['MACD'].iloc[i] > df['MACD'].tail(10).min() else 0  # il MACD ha invertito direzione
@@ -495,7 +523,6 @@ def trading_analysis(
                 else:
                     buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
                 holding = True
-
             # CONDIZIONI DI SELL
             cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
             cond_sell_macd2 = 1 if df['MACD'].iloc[i] < df['MACD'].tail(10).max() else 0  # il MACD ha invertito direzione
@@ -517,6 +544,13 @@ def trading_analysis(
                 else:
                     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
                 holding = False
+        # ------------------------------------------------------------
+        if strategia == "MACD Inversion":
+            if not holding and df['MACD'].iloc[i] > df['MACD'].iloc[i-1]:
+                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            if holding and df['MACD'].iloc[i] < df['MACD'].iloc[i-1]:
+                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        # ------------------------------------------------------------
 
     valori_ottimi = []  # Lista per salvare i risultati
     for item in rel_min:
@@ -1166,7 +1200,7 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                options=["ATR Bands", "Buy/Sell Limits"],
+                                options=["Live Bot", "ATR Bands", "Buy/Sell Limits+", "MACD Inversion"],
                                 index=0)
     col1, col2 = st.sidebar.columns(2)
     with col1:
