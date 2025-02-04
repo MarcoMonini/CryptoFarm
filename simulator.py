@@ -548,8 +548,10 @@ def trading_analysis(
         if strategia == "MACD Inversion":
             if not holding and df['MACD'].iloc[i] > df['MACD'].iloc[i-1]:
                 buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = True
             if holding and df['MACD'].iloc[i] < df['MACD'].iloc[i-1]:
                 sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = False
         # ------------------------------------------------------------
 
     valori_ottimi = []  # Lista per salvare i risultati
