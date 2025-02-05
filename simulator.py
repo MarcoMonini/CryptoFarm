@@ -1183,7 +1183,7 @@ if __name__ == "__main__":
                                      index=0)
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.010, step=0.001,
+        step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.001, step=0.001,
                                format="%.3f")
         atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=2.4, step=0.1)
         rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=12, step=1)
@@ -1193,7 +1193,7 @@ if __name__ == "__main__":
         vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, value=-0.82, step=0.01)
         psarvp_buy_limit = st.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=1.08,
                                            step=0.01)
-        srsi_buy_limit = st.number_input(label="StochasticRSI Buy Limit", min_value=0.00, max_value=1.00, value=0.00,
+        srsi_buy_limit = st.number_input(label="StochasticRSI Buy Limit", min_value=0.00, max_value=1.00, value=0.01,
                                          step=0.01)
         tsi_buy_limit = st.number_input(label="TSI Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
         roc_buy_limit = st.number_input(label="ROC Buy Limit", min_value=-50, max_value=50, value=-10, step=1)
@@ -1204,14 +1204,14 @@ if __name__ == "__main__":
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
         atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
-        window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=50, step=2)
+        window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=100, step=2)
         rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=75, step=1)
         macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.66,
                                           step=0.01)
         vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.82, step=0.01)
         psarvp_sell_limit = st.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0, value=0.92,
                                             step=0.01)
-        srsi_sell_limit = st.number_input(label="StochasticRSI Sell Limit", min_value=0.00, max_value=1.00, value=1.00,
+        srsi_sell_limit = st.number_input(label="StochasticRSI Sell Limit", min_value=0.00, max_value=1.00, value=0.99,
                                           step=0.01)
         tsi_sell_limit = st.number_input(label="TSI Sell Limit", min_value=-100, max_value=100, value=50, step=1)
         roc_sell_limit = st.number_input(label="ROC Sell Limit", min_value=-50, max_value=50, value=10, step=1)
@@ -1219,13 +1219,6 @@ if __name__ == "__main__":
         pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-100, max_value=100, value=50, step=1)
         mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=0, max_value=100, value=70, step=1)
 
-    # col1, col2, col3 = st.sidebar.columns(3)
-    # with col1:
-    #     macd_short_window = st.number_input(label="MACD Short Window", min_value=1, max_value=100, value=12, step=1)
-    # with col2:
-    #     macd_long_window = st.number_input(label="MACD Long Window", min_value=1, max_value=100, value=26, step=1)
-    # with col3:
-    #     macd_signal_window = st.number_input(label="MACD Signal Window", min_value=1, max_value=100, value=9, step=1)
     num_cond = st.sidebar.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)
     if st.sidebar.button("SIMULATE"):
         df, _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
