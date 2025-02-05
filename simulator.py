@@ -1231,15 +1231,15 @@ if __name__ == "__main__":
         df, _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
         st.session_state['df'] = df
 
-    if st.sidebar.button("Print Data"):
-        if st.session_state['df'] is not None:
-            st.write(st.session_state['df'])
-    csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
-    if st.sidebar.button("Read from CSV"):
-        st.session_state['df'] = pd.read_csv(csv_file)
-        st.session_state['df'].set_index('Open time', inplace=True)
-        # Mantieni solo le colonne essenziali, converti a float
-        st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+    # if st.sidebar.button("Print Data"):
+    #     if st.session_state['df'] is not None:
+    #         st.write(st.session_state['df'])
+    # csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
+    # if st.sidebar.button("Read from CSV"):
+    #     st.session_state['df'] = pd.read_csv(csv_file)
+    #     st.session_state['df'].set_index('Open time', inplace=True)
+    #     # Mantieni solo le colonne essenziali, converti a float
+    #     st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
 
     if st.session_state['df'] is not None:
         (fig, trades_df, actual_hours) = trading_analysis(
