@@ -202,7 +202,8 @@ def download_market_data(assets: list, intervals: list, hours: int):
 
 @st.cache_data
 def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window,
-                            atr_window, atr_multiplier):
+                            atr_window, atr_multiplier,
+                            dinamic_atr:bool = False, din_macd_div:float = 1.2, din_roc_div:float = 12 ):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
@@ -256,17 +257,29 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
     df_copy['SMA'] = sma_indicator.sma_indicator()
 
+    # ROC
+    roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
+    df_copy['ROC'] = roc_indicator.roc()
+
     # Rolling ATR Bands
-    df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
-    df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+    if dinamic_atr:
+        macd_factor = (1 + df_copy['MACD'].abs()) / din_macd_div
+        roc_factor = (10 + df_copy['ROC'].abs()) / din_roc_div
+        # Calcolo un fattore finale, riga per riga:
+        dyn_factor = macd_factor * roc_factor  # Questa è una Serie
+        df_copy['Dyn_Multiplier'] = atr_multiplier * dyn_factor
+
+        df_copy['Upper_Band'] = df_copy['SMA'] + df_copy['Dyn_Multiplier'] * df_copy['ATR']
+        df_copy['Lower_Band'] = df_copy['SMA'] - df_copy['Dyn_Multiplier'] * df_copy['ATR']
+    else:
+        df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
+        df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
 
     # TSI
     tsi_indicator = TSIIndicator(close=df_copy['Close'])
     df_copy['TSI'] = tsi_indicator.tsi()
 
-    # ROC
-    roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
-    df_copy['ROC'] = roc_indicator.roc()
+
 
     # Awesome Oscillator
     ao_indicator = AwesomeOscillatorIndicator(
@@ -365,6 +378,8 @@ def trading_analysis(
         mfi_sell_limit: int = 70,
         num_cond: int = 3,
         strategia: str = "",
+        din_macd_div:float = 1.2,
+        din_roc_div:float = 12,
         market_data: dict = None,
         # modello = None
 ):
@@ -429,6 +444,10 @@ def trading_analysis(
     for i in max_idx:
         rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
 
+    dinamic_atr = False
+    if strategia == "Dinamic ATR Bands":
+        dinamic_atr = True
+
     df = add_technical_indicator(df,
                                  step=step,
                                  max_step=max_step,
@@ -437,7 +456,10 @@ def trading_analysis(
                                  macd_short_window=macd_short_window,
                                  macd_signal_window=macd_signal_window,
                                  atr_window=atr_window,
-                                 atr_multiplier=atr_multiplier)
+                                 atr_multiplier=atr_multiplier,
+                                 dinamic_atr = dinamic_atr,
+                                 din_macd_div=din_macd_div,
+                                 din_roc_div=din_roc_div)
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -555,12 +577,12 @@ def trading_analysis(
                     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
                 holding = False
         # ------------------------------------------------------------
-        if strategia == "MACD Inversion":
-            if not holding and df['MACD'].iloc[i] > df['MACD'].iloc[i - 1]:
-                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if strategia == "Dinamic ATR Bands":
+            if not holding and df['Low'].iloc[i] <= df['Lower_Band'].iloc[i]:
+                buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
                 holding = True
-            if holding and df['MACD'].iloc[i] < df['MACD'].iloc[i - 1]:
-                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            if holding and df['High'].iloc[i] >= df['Upper_Band'].iloc[i]:
+                sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
                 holding = False
         # ------------------------------------------------------------
 
@@ -1179,7 +1201,7 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=["Live Bot", "ATR Bands", "Buy/Sell Limits+", "MACD Inversion"],
+                                     options=["Live Bot", "ATR Bands", "Buy/Sell Limits+", "Dinamic ATR Bands"],
                                      index=0)
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -1200,6 +1222,7 @@ if __name__ == "__main__":
         ao_buy_limit = st.number_input(label="AO Buy Limit", min_value=-0.50, max_value=0.50, value=-0.10, step=0.01)
         pvo_buy_limit = st.number_input(label="PVO Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
         mfi_buy_limit = st.number_input(label="MFI Buy Limit", min_value=0, max_value=100, value=30, step=1)
+        din_macd_div = st.number_input(label="Dinamic MACD Dividend", min_value=0.0, max_value=10.0, value=1.2, step=0.1)
 
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
@@ -1218,21 +1241,29 @@ if __name__ == "__main__":
         ao_sell_limit = st.number_input(label="AO Sell Limit", min_value=-0.50, max_value=0.50, value=0.10, step=0.01)
         pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-100, max_value=100, value=50, step=1)
         mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=0, max_value=100, value=70, step=1)
+        din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=0.0, max_value=100.0, value=12.0,
+                                       step=1.0)
 
     num_cond = st.sidebar.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)
-    if st.sidebar.button("SIMULATE"):
-        df, _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
-        st.session_state['df'] = df
 
-    # if st.sidebar.button("Print Data"):
-    #     if st.session_state['df'] is not None:
-    #         st.write(st.session_state['df'])
-    # csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
-    # if st.sidebar.button("Read from CSV"):
-    #     st.session_state['df'] = pd.read_csv(csv_file)
-    #     st.session_state['df'].set_index('Open time', inplace=True)
-    #     # Mantieni solo le colonne essenziali, converti a float
-    #     st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+    col1, col2, col3 = st.sidebar.columns(3)
+    macd_short_window = col1.number_input(label="MACD Short", min_value=0, max_value=100, value=12, step=1)
+    macd_long_window = col2.number_input(label="MACD Long", min_value=0, max_value=100, value=26, step=1)
+    macd_signal_window = col3.number_input(label="MACD Signal", min_value=0, max_value=100, value=9, step=1)
+
+    if st.sidebar.button("SIMULATE"):
+            df, _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
+            st.session_state['df'] = df
+
+        # if st.sidebar.button("Print Data"):
+        #     if st.session_state['df'] is not None:
+        #         st.write(st.session_state['df'])
+        # csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
+        # if st.sidebar.button("Read from CSV"):
+        #     st.session_state['df'] = pd.read_csv(csv_file)
+        #     st.session_state['df'].set_index('Open time', inplace=True)
+        #     # Mantieni solo le colonne essenziali, converti a float
+        #     st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
 
     if st.session_state['df'] is not None:
         (fig, trades_df, actual_hours) = trading_analysis(
@@ -1247,6 +1278,9 @@ if __name__ == "__main__":
             atr_window=atr_window,
             window_pivot=window_pivot,
             rsi_window=rsi_window,
+            macd_short_window = macd_short_window,
+            macd_long_window = macd_long_window,
+            macd_signal_window =macd_signal_window,
             rsi_buy_limit=rsi_buy_limit,
             rsi_sell_limit=rsi_sell_limit,
             macd_buy_limit=macd_buy_limit,
@@ -1269,6 +1303,8 @@ if __name__ == "__main__":
             mfi_sell_limit=mfi_sell_limit,
             num_cond=num_cond,
             strategia=strategia,
+            din_macd_div=din_macd_div,
+            din_roc_div=din_roc_div,
             market_data=st.session_state['df'],
         )
         text_placeholder.subheader("Operations Report")
