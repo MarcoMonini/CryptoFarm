@@ -523,11 +523,11 @@ def trading_analysis(
                 holding = False
         # ------------------------------------------------------------
         if strategia == "ATR Bands":
-            if not holding and (df['PSAR'].iloc[i] > df['Close'].iloc[i]) and df['Low'].iloc[i] < df['Lower_Band'].iloc[
+            if not holding and df['Low'].iloc[i] < df['Lower_Band'].iloc[
                 i]:
                 buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
                 holding = True
-            if holding and (df['PSAR'].iloc[i] < df['Close'].iloc[i]) and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+            if holding and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
                 sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
                 holding = False
         # ------------------------------------------------------------
