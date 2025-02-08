@@ -15,6 +15,7 @@ import time
 from scipy.signal import argrelextrema
 import warnings
 
+
 # from tensorflow.keras.models import load_model
 # from cryptoTrainerAI import calculate_percentage_changes, add_technical_indicators
 
@@ -466,6 +467,7 @@ def trading_analysis(
     buy_signals = []
     sell_signals = []
     holding = False
+    # last_signal_candle_index = 0
     for i in range(1, len(df)):
         # Se hai un modello e vuoi usarlo:
         # assicuriamoci di avere abbastanza dati per creare la finestraf
@@ -581,9 +583,11 @@ def trading_analysis(
             if not holding and df['Low'].iloc[i] <= df['Lower_Band'].iloc[i]:
                 buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
                 holding = True
+                # last_signal_candle_index = i
             if holding and df['High'].iloc[i] >= df['Upper_Band'].iloc[i]:
                 sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
                 holding = False
+                # last_signal_candle_index = i
         # ------------------------------------------------------------
 
     valori_ottimi = []  # Lista per salvare i risultati
@@ -669,22 +673,6 @@ def trading_analysis(
 
     # ======================================
     # 4. Creazione del grafico
-    # fig = go.Figure()
-    # fig_rsi = go.Figure()
-    # fig_macd = go.Figure()
-    # fig_vi = go.Figure()
-    # fig_psarvp = go.Figure()
-    # fig_tsi = go.Figure()
-    # fig_roc = go.Figure()
-    # fig_ao = go.Figure()
-    # fig_stochrsi = go.Figure()
-    # fig_pvo = go.Figure()
-    # fig_adi = go.Figure()
-    # fig_obv = go.Figure()
-    # fig_fi = go.Figure()
-    # fig_vpt = go.Figure()
-    # fig_mfi = go.Figure()
-
     rows = 15
     candlestick_height_px = 400
     indicators_height_px = candlestick_height_px / 2
@@ -697,9 +685,11 @@ def trading_analysis(
                                         "Relative Strength Index (RSI)", "True Strength Index (TSI)",
                                         "Stochastic RSI", "Vortex Indicator (VI)", "PSAR versus Price (PSARVP)",
                                         "Rate of Change (ROC)", "Percentage Volume Oscillator (PVO)",
-                                        "Money Flow Index (MFI)", "Awesome Oscillator (AO)",
-                                        "Accumulation/Distribution Index (ADI)", "On-Balance Volume (OBV)",
-                                        "Force Index (FI)", "Volume Price Trend (VPD)")
+                                        "Money Flow Index (MFI)",
+                                        # "Awesome Oscillator (AO)",
+                                        # "Accumulation/Distribution Index (ADI)", "On-Balance Volume (OBV)",
+                                        # "Force Index (FI)", "Volume Price Trend (VPD)"
+                                        )
                         )
     if show:
         index = 1
@@ -1060,16 +1050,16 @@ def trading_analysis(
         )
 
         # Awesome Oscillator
-        index += 1
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['AO'],
-            mode='lines',
-            line=dict(color='cyan', width=2),
-            name='AO'
-        ),
-            row=index, col=1
-        )
+        # index += 1
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['AO'],
+        #     mode='lines',
+        #     line=dict(color='cyan', width=2),
+        #     name='AO'
+        # ),
+        #     row=index, col=1
+        # )
         # fig_ao.add_trace(go.Scatter(
         #     x=[df.index.min(), df.index.max()],
         #     y=[ao_buy_limit, ao_buy_limit],
@@ -1085,52 +1075,52 @@ def trading_analysis(
         #     name='Sell Limit'
         # ))
         # Accumulation/Distribution Index
-        index += 1
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['ADI'],
-            mode='lines',
-            line=dict(color='gold', width=2),
-            name='ADI'
-        ),
-            row=index, col=1
-        )
+        # index += 1
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['ADI'],
+        #     mode='lines',
+        #     line=dict(color='gold', width=2),
+        #     name='ADI'
+        # ),
+        #     row=index, col=1
+        # )
 
         # On-Balance Volume
-        index += 1
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['OBV'],
-            mode='lines',
-            line=dict(color='teal', width=2),
-            name='OBV'
-        ),
-            row=index, col=1
-        )
+        # index += 1
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['OBV'],
+        #     mode='lines',
+        #     line=dict(color='teal', width=2),
+        #     name='OBV'
+        # ),
+        #     row=index, col=1
+        # )
 
         # Force Index
-        index += 1
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['ForceIndex'],
-            mode='lines',
-            line=dict(color='darkblue', width=2),
-            name='FI'
-        ),
-            row=index, col=1
-        )
+        # index += 1
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['ForceIndex'],
+        #     mode='lines',
+        #     line=dict(color='darkblue', width=2),
+        #     name='FI'
+        # ),
+        #     row=index, col=1
+        # )
 
         # Volume Price Trend
-        index += 1
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['VPT'],
-            mode='lines',
-            line=dict(color='darkgreen', width=2),
-            name='VPT'
-        ),
-            row=index, col=1
-        )
+        # index += 1
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['VPT'],
+        #     mode='lines',
+        #     line=dict(color='darkgreen', width=2),
+        #     name='VPT'
+        # ),
+        #     row=index, col=1
+        # )
 
         fig.update_layout(
             template="plotly_dark",
@@ -1222,7 +1212,7 @@ if __name__ == "__main__":
         ao_buy_limit = st.number_input(label="AO Buy Limit", min_value=-0.50, max_value=0.50, value=-0.10, step=0.01)
         pvo_buy_limit = st.number_input(label="PVO Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
         mfi_buy_limit = st.number_input(label="MFI Buy Limit", min_value=0, max_value=100, value=30, step=1)
-        din_macd_div = st.number_input(label="Dinamic MACD Dividend", min_value=0.0, max_value=10.0, value=1.2, step=0.1)
+        din_macd_div = st.number_input(label="Dinamic MACD Dividend", min_value=-10.0, max_value=10.0, value=1.2, step=0.1)
 
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
@@ -1241,7 +1231,7 @@ if __name__ == "__main__":
         ao_sell_limit = st.number_input(label="AO Sell Limit", min_value=-0.50, max_value=0.50, value=0.10, step=0.01)
         pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-100, max_value=100, value=50, step=1)
         mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=0, max_value=100, value=70, step=1)
-        din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=0.0, max_value=100.0, value=12.0,
+        din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=100.0, value=12.0,
                                        step=1.0)
 
     num_cond = st.sidebar.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)

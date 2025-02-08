@@ -1,10 +1,146 @@
-# import streamlit as st
-# from ta.volatility import AverageTrueRange
-# from ta.momentum import RSIIndicator
-# from ta.trend import MACD, SMAIndicator, PSARIndicator, VortexIndicator
+import streamlit as st
+from ta.volatility import AverageTrueRange
+from ta.momentum import ROCIndicator
+from ta.trend import MACD, SMAIndicator
 import pandas as pd
-from simulator import get_market_data, interval_to_minutes, add_technical_indicator
+from simulator import get_market_data, interval_to_minutes
 
+
+@st.cache_data
+def add_technical_indicator_opt(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window,
+                            atr_window, atr_multiplier,
+                            dinamic_atr:bool = False, din_macd_div:float = 1.2, din_roc_div:float = 12 ):
+    df_copy = df.copy()
+    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
+    # sar_indicator = PSARIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     step=step,
+    #     max_step=max_step
+    # )
+    # df_copy['PSAR'] = sar_indicator.psar()
+    # df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
+
+    # Calcolo dell'RSI
+    # rsi_indicator = RSIIndicator(
+    #     close=df_copy['Close'],
+    #     window=rsi_window
+    # )
+    # df_copy['RSI'] = rsi_indicator.rsi()
+    #
+    # # Vortex Indicator
+    # vi = VortexIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     window=rsi_window)
+    # vip = vi.vortex_indicator_pos()
+    # vim = vi.vortex_indicator_neg()
+    # df_copy['VI'] = vip - vim
+
+    # Calcolo del MACD
+    macd_indicator = MACD(
+        close=df_copy['Close'],
+        window_slow=macd_long_window,
+        window_fast=macd_short_window,
+        window_sign=macd_signal_window
+    )
+    macd = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+    # Calcolo del MACD normalizzato come percentuale del prezzo
+    df_copy['MACD'] = macd / df_copy['Close'] * 100  # normalizzato
+
+    # ATR
+    atr_indicator = AverageTrueRange(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        window=atr_window
+    )
+    df_copy['ATR'] = atr_indicator.average_true_range()
+
+    # SMA (Media Mobile per le Rolling ATR Bands)
+    sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
+    df_copy['SMA'] = sma_indicator.sma_indicator()
+
+    # ROC
+    roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
+    df_copy['ROC'] = roc_indicator.roc()
+
+    # Rolling ATR Bands
+    if dinamic_atr:
+        macd_factor = (1 + df_copy['MACD'].abs()) / din_macd_div
+        roc_factor = (10 + df_copy['ROC'].abs()) / din_roc_div
+        # Calcolo un fattore finale, riga per riga:
+        dyn_factor = macd_factor * roc_factor  # Questa è una Serie
+        df_copy['Dyn_Multiplier'] = atr_multiplier * dyn_factor
+
+        df_copy['Upper_Band'] = df_copy['SMA'] + df_copy['Dyn_Multiplier'] * df_copy['ATR']
+        df_copy['Lower_Band'] = df_copy['SMA'] - df_copy['Dyn_Multiplier'] * df_copy['ATR']
+    else:
+        df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
+        df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+
+    # TSI
+    # tsi_indicator = TSIIndicator(close=df_copy['Close'])
+    # df_copy['TSI'] = tsi_indicator.tsi()
+    # # Awesome Oscillator
+    # ao_indicator = AwesomeOscillatorIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low']
+    # )
+    # ao = ao_indicator.awesome_oscillator()
+    # df_copy['AO'] = ao / df_copy['Close'] * 100
+    #
+    # # Stochastic RSI
+    # stoch_rsi_indicator = StochRSIIndicator(close=df_copy['Close'], window=rsi_window)
+    # df_copy['StochRSI'] = stoch_rsi_indicator.stochrsi()
+    #
+    # # Percentage Volume Oscillator
+    # pvo_indicator = PercentageVolumeOscillator(volume=df_copy['Volume'])
+    # df_copy['PVO'] = pvo_indicator.pvo()
+    #
+    # # Accumulation/Distribution Index
+    # adi_indicator = AccDistIndexIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     volume=df_copy['Volume']
+    # )
+    # df_copy['ADI'] = adi_indicator.acc_dist_index()
+    #
+    # # On-Balance Volume
+    # obv_indicator = OnBalanceVolumeIndicator(
+    #     close=df_copy['Close'],
+    #     volume=df_copy['Volume']
+    # )
+    # df_copy['OBV'] = obv_indicator.on_balance_volume()
+    #
+    # # Force Index
+    # fi_indicator = ForceIndexIndicator(
+    #     close=df_copy['Close'],
+    #     volume=df_copy['Volume']
+    # )
+    # df_copy['ForceIndex'] = fi_indicator.force_index()
+    #
+    # # Volume Price Trend
+    # vpt_indicator = VolumePriceTrendIndicator(
+    #     close=df_copy['Close'],
+    #     volume=df_copy['Volume']
+    # )
+    # df_copy['VPT'] = vpt_indicator.volume_price_trend()
+    #
+    # # Money Flow Index
+    # mfi_indicator = MFIIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     volume=df_copy['Volume'],
+    #     window=rsi_window
+    # )
+    # df_copy['MFI'] = mfi_indicator.money_flow_index()
+
+    return df_copy
 
 def trading_analysis_opt(
         asset: str,
@@ -29,6 +165,8 @@ def trading_analysis_opt(
         psarvp_buy_limit: float = -0.1,
         psarvp_sell_limit: float = 10.1,
         num_cond: int = 3,
+        din_macd_div:float = 1.2,
+        din_roc_div:float = 12.0,
         market_data: dict = None,
 ):
     """
@@ -73,7 +211,8 @@ def trading_analysis_opt(
         df = market_data
         actual_hours = candlestick_minutes * len(df) / 60
 
-    df = add_technical_indicator(df,
+    dinamic_atr = True
+    df = add_technical_indicator_opt(df,
                                  step=step,
                                  max_step=max_step,
                                  rsi_window=rsi_window,
@@ -81,7 +220,11 @@ def trading_analysis_opt(
                                  macd_short_window=macd_short_window,
                                  macd_signal_window=macd_signal_window,
                                  atr_window=atr_window,
-                                 atr_multiplier=atr_multiplier)
+                                 atr_multiplier=atr_multiplier,
+                                 dinamic_atr=dinamic_atr,
+                                 din_macd_div=din_macd_div,
+                                 din_roc_div=din_roc_div
+                                 )
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
@@ -89,30 +232,11 @@ def trading_analysis_opt(
     sell_signals = []
     holding = False
     for i in range(1, len(df)):
-        # ------------------------------------------------------------
-        cond_buy_1 = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
-        cond_buy_2 = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
-        cond_buy_3 = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
-        cond_buy_4 = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
-        cond_buy_5 = 1 if df['Low'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
-        sum_buy = cond_buy_1+cond_buy_2+cond_buy_3+cond_buy_4+cond_buy_5
-        if not holding and sum_buy >= num_cond:
-            if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
-                buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-            else:
-                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if not holding and df['Low'].iloc[i] <= df['Lower_Band'].iloc[i]:
+            buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
             holding = True
-        cond_sell_1 = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
-        cond_sell_2 = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
-        cond_sell_3 = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
-        cond_sell_4 = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
-        cond_sell_5 = 1 if df['High'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
-        sum_sell = cond_sell_1+cond_sell_2+cond_sell_3+cond_sell_4+cond_sell_5
-        if holding and sum_sell >= num_cond:
-            if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-                sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-            else:
-                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if holding and df['High'].iloc[i] >= df['Upper_Band'].iloc[i]:
+            sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
             holding = False
 
     # ======================================
@@ -191,11 +315,13 @@ def trading_analysis_opt(
             'Quantity', 'Profit', 'Wallet_After'
         ])
 
-    print(f"{wallet} su {asset}, profitto totale={round(trades_df['Profit'].sum())}, num_cond={num_cond},"
-          f" rsi_sell_limit = {rsi_sell_limit}, rsi_buy_limit = {rsi_buy_limit}, "
-          f"macd_buy_limit = {macd_buy_limit}, macd_sell_limit = {macd_sell_limit}, "
-          f"vi_buy_limit = {vi_buy_limit}, vi_sell_limit = {vi_sell_limit}, "
-          f"sarvp_buy_limit = {psarvp_buy_limit}, psarvp_sell_limit = {psarvp_sell_limit}")
+    # print(f"{wallet} su {asset}, profitto totale={round(trades_df['Profit'].sum())}, num_cond={num_cond},"
+    #       f" rsi_sell_limit = {rsi_sell_limit}, rsi_buy_limit = {rsi_buy_limit}, "
+    #       f"macd_buy_limit = {macd_buy_limit}, macd_sell_limit = {macd_sell_limit}, "
+    #       f"vi_buy_limit = {vi_buy_limit}, vi_sell_limit = {vi_sell_limit}, "
+    #       f"sarvp_buy_limit = {psarvp_buy_limit}, psarvp_sell_limit = {psarvp_sell_limit}")
+    print(f"{wallet} su {asset}, profitto totale={round(trades_df['Profit'].sum())}, atr_multiplier={atr_multiplier},"
+          f"atr_window={atr_window}, macd_dividend={din_macd_div}, roc_dividend={din_roc_div}")
 
     return trades_df, actual_hours
 
