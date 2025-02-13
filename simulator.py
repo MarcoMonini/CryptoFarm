@@ -262,13 +262,22 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
     df_copy['ROC'] = roc_indicator.roc()
 
+    # 1. Calcola i rendimenti percentuali
+    returns = df['Close'].pct_change()
+    # Calcolo dei rendimenti logaritmici
+    # returns = np.log(df_copy['Close'] / df_copy['Close'].shift(1))
+    # Calcolo della volatilità come deviazione standard (rolling)
+    df_copy['Volatility'] = returns.rolling(atr_window).std() * 100
+
     # Rolling ATR Bands
     if dinamic_atr:
-        macd_factor = (1 + df_copy['MACD'].abs()) / din_macd_div
-        roc_factor = (10 + df_copy['ROC'].abs()) / din_roc_div
+        # macd_factor = (1 + df_copy['MACD'].abs()) / din_macd_div
+        # roc_factor = (10 + df_copy['ROC'].abs()) / din_roc_div
         # Calcolo un fattore finale, riga per riga:
-        dyn_factor = macd_factor * roc_factor  # Questa è una Serie
-        df_copy['Dyn_Multiplier'] = atr_multiplier * dyn_factor
+        # dyn_factor = macd_factor * roc_factor  # Questa è una Serie
+        # df_copy['Dyn_Multiplier'] = atr_multiplier * dyn_factor
+
+        df_copy['Dyn_Multiplier'] = df_copy['Volatility'] * din_roc_div
 
         df_copy['Upper_Band'] = df_copy['SMA'] + df_copy['Dyn_Multiplier'] * df_copy['ATR']
         df_copy['Lower_Band'] = df_copy['SMA'] - df_copy['Dyn_Multiplier'] * df_copy['ATR']
@@ -279,8 +288,6 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     # TSI
     tsi_indicator = TSIIndicator(close=df_copy['Close'])
     df_copy['TSI'] = tsi_indicator.tsi()
-
-
 
     # Awesome Oscillator
     ao_indicator = AwesomeOscillatorIndicator(
@@ -467,7 +474,12 @@ def trading_analysis(
     buy_signals = []
     sell_signals = []
     holding = False
-    # last_signal_candle_index = 0
+    last_signal_candle_index = 0
+    stop_loss_percent = 4  # %
+
+    stop_loss_price = None
+    got_stop_loss = False
+    stop_loss_percent = (100 - stop_loss_percent) / 100
     for i in range(1, len(df)):
         # Se hai un modello e vuoi usarlo:
         # assicuriamoci di avere abbastanza dati per creare la finestraf
@@ -522,14 +534,27 @@ def trading_analysis(
                     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
                 holding = False
         # ------------------------------------------------------------
-        if strategia == "ATR Bands":
-            if not holding and df['Low'].iloc[i] < df['Lower_Band'].iloc[
-                i]:
+        if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
+            if not holding and last_signal_candle_index != i and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+                if got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i]:
+                    continue
                 buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
                 holding = True
-            if holding and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+                last_signal_candle_index = i
+                got_stop_loss = False
+                stop_loss_price = df['Lower_Band'].iloc[i] * stop_loss_percent
+            if holding and last_signal_candle_index != i and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
                 sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
                 holding = False
+                last_signal_candle_index = i
+                stop_loss_price = None
+            if holding and stop_loss_price is not None and df['Low'].iloc[i] < stop_loss_price and df['PSAR'].iloc[i] > df['Close'].iloc[i]:
+                # devo vendere per STOP LOSS
+                sell_signals.append((df.index[i], stop_loss_price))
+                holding = False
+                last_signal_candle_index = i
+                got_stop_loss = True
+                stop_loss_price = None
         # ------------------------------------------------------------
         if strategia == "Buy/Sell Limits+":
             # CONDIZIONI DI BUY
@@ -578,16 +603,6 @@ def trading_analysis(
                 else:
                     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
                 holding = False
-        # ------------------------------------------------------------
-        if strategia == "Dinamic ATR Bands":
-            if not holding and df['Low'].iloc[i] <= df['Lower_Band'].iloc[i]:
-                buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-                holding = True
-                # last_signal_candle_index = i
-            if holding and df['High'].iloc[i] >= df['Upper_Band'].iloc[i]:
-                sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-                holding = False
-                # last_signal_candle_index = i
         # ------------------------------------------------------------
 
     valori_ottimi = []  # Lista per salvare i risultati
@@ -673,7 +688,7 @@ def trading_analysis(
 
     # ======================================
     # 4. Creazione del grafico
-    rows = 15
+    rows = 16
     candlestick_height_px = 400
     indicators_height_px = candlestick_height_px / 2
     total_height = candlestick_height_px + ((rows - 1) * indicators_height_px)
@@ -685,7 +700,7 @@ def trading_analysis(
                                         "Relative Strength Index (RSI)", "True Strength Index (TSI)",
                                         "Stochastic RSI", "Vortex Indicator (VI)", "PSAR versus Price (PSARVP)",
                                         "Rate of Change (ROC)", "Percentage Volume Oscillator (PVO)",
-                                        "Money Flow Index (MFI)",
+                                        "Money Flow Index (MFI)", "Volatility"
                                         # "Awesome Oscillator (AO)",
                                         # "Accumulation/Distribution Index (ADI)", "On-Balance Volume (OBV)",
                                         # "Force Index (FI)", "Volume Price Trend (VPD)"
@@ -1048,6 +1063,16 @@ def trading_analysis(
         ),
             row=index, col=1
         )
+        index += 1
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['Volatility'],
+            mode='lines',
+            line=dict(color='darkred', width=2),
+            name='Volatility'
+        ),
+            row=index, col=1
+        )
 
         # Awesome Oscillator
         # index += 1
@@ -1231,7 +1256,7 @@ if __name__ == "__main__":
         ao_sell_limit = st.number_input(label="AO Sell Limit", min_value=-0.50, max_value=0.50, value=0.10, step=0.01)
         pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-100, max_value=100, value=50, step=1)
         mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=0, max_value=100, value=70, step=1)
-        din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=100.0, value=12.0,
+        din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=1000.0, value=12.0,
                                        step=1.0)
 
     num_cond = st.sidebar.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)
@@ -1248,12 +1273,12 @@ if __name__ == "__main__":
         # if st.sidebar.button("Print Data"):
         #     if st.session_state['df'] is not None:
         #         st.write(st.session_state['df'])
-        # csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
-        # if st.sidebar.button("Read from CSV"):
-        #     st.session_state['df'] = pd.read_csv(csv_file)
-        #     st.session_state['df'].set_index('Open time', inplace=True)
-        #     # Mantieni solo le colonne essenziali, converti a float
-        #     st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+    csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
+    if st.sidebar.button("Read from CSV"):
+        st.session_state['df'] = pd.read_csv(csv_file)
+        st.session_state['df'].set_index('Open time', inplace=True)
+        # Mantieni solo le colonne essenziali, converti a float
+        st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
 
     if st.session_state['df'] is not None:
         (fig, trades_df, actual_hours) = trading_analysis(
