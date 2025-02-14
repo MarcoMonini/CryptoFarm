@@ -1266,13 +1266,15 @@ if __name__ == "__main__":
     macd_long_window = col2.number_input(label="MACD Long", min_value=0, max_value=100, value=26, step=1)
     macd_signal_window = col3.number_input(label="MACD Signal", min_value=0, max_value=100, value=9, step=1)
 
-    if st.sidebar.button("SIMULATE"):
-            df, _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
-            st.session_state['df'] = df
+    col1, col2 = st.sidebar.columns(2)
 
-        # if st.sidebar.button("Print Data"):
-        #     if st.session_state['df'] is not None:
-        #         st.write(st.session_state['df'])
+    if col1.button("SIMULATE"):
+        st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
+
+    if col2.button("SAVE DATA"):
+        if st.session_state['df'] is not None:
+            st.write(st.session_state['df'])
+
     csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
     if st.sidebar.button("Read from CSV"):
         st.session_state['df'] = pd.read_csv(csv_file)
