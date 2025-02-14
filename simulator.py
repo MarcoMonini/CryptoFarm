@@ -262,25 +262,16 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
     df_copy['ROC'] = roc_indicator.roc()
 
-    # 1. Calcola i rendimenti percentuali
-    returns = df['Close'].pct_change()
-    # Calcolo dei rendimenti logaritmici
-    # returns = np.log(df_copy['Close'] / df_copy['Close'].shift(1))
-    # Calcolo della volatilità come deviazione standard (rolling)
-    df_copy['Volatility'] = returns.rolling(atr_window).std() * 100
-
     # Rolling ATR Bands
     if dinamic_atr:
-        # macd_factor = (1 + df_copy['MACD'].abs()) / din_macd_div
+        macd_factor = (1 + df_copy['MACD'].abs()) / din_macd_div
         # roc_factor = (10 + df_copy['ROC'].abs()) / din_roc_div
         # Calcolo un fattore finale, riga per riga:
         # dyn_factor = macd_factor * roc_factor  # Questa è una Serie
-        # df_copy['Dyn_Multiplier'] = atr_multiplier * dyn_factor
+        df_copy['ATR_Multiplier'] = macd_factor
 
-        df_copy['Dyn_Multiplier'] = df_copy['Volatility'] * din_roc_div
-
-        df_copy['Upper_Band'] = df_copy['SMA'] + df_copy['Dyn_Multiplier'] * df_copy['ATR']
-        df_copy['Lower_Band'] = df_copy['SMA'] - df_copy['Dyn_Multiplier'] * df_copy['ATR']
+        df_copy['Upper_Band'] = df_copy['SMA'] + df_copy['ATR_Multiplier'] * df_copy['ATR']
+        df_copy['Lower_Band'] = df_copy['SMA'] - df_copy['ATR_Multiplier'] * df_copy['ATR']
     else:
         df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
         df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
@@ -385,6 +376,7 @@ def trading_analysis(
         mfi_buy_limit: int = 30,
         mfi_sell_limit: int = 70,
         num_cond: int = 3,
+        stop_loss: int = 100,
         strategia: str = "",
         din_macd_div:float = 1.2,
         din_roc_div:float = 12,
@@ -437,20 +429,20 @@ def trading_analysis(
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
     # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
-    price_high = df['High']
-    price_low = df['Low']
-    # Trova gli indici dei massimi e minimi relativi
-    order = int(window_pivot / 2)
-    max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
-    min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
-    # Inizializza gli array per massimi e minimi
-    rel_max = []
-    rel_min = []
-    # Popola gli array con tuple (indice, prezzo)
-    for i in min_idx:
-        rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
-    for i in max_idx:
-        rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
+    # price_high = df['High']
+    # price_low = df['Low']
+    # # Trova gli indici dei massimi e minimi relativi
+    # order = int(window_pivot / 2)
+    # max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
+    # min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
+    # # Inizializza gli array per massimi e minimi
+    # rel_max = []
+    # rel_min = []
+    # # Popola gli array con tuple (indice, prezzo)
+    # for i in min_idx:
+    #     rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
+    # for i in max_idx:
+    #     rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
 
     dinamic_atr = False
     if strategia == "Dinamic ATR Bands":
@@ -475,7 +467,7 @@ def trading_analysis(
     sell_signals = []
     holding = False
     last_signal_candle_index = 0
-    stop_loss_percent = 4  # %
+    stop_loss_percent = stop_loss  # %
 
     stop_loss_price = None
     got_stop_loss = False
@@ -605,35 +597,35 @@ def trading_analysis(
                 holding = False
         # ------------------------------------------------------------
 
-    valori_ottimi = []  # Lista per salvare i risultati
-    for item in rel_min:
-        index = item[0]  # L'indice è il primo elemento della tupla
-        if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
-            valori_ottimi.append({'Type': "Min",
-                                  'Prezzo': df.loc[index, 'Low'],
-                                  'RSI': df.loc[index, 'RSI'],
-                                  'PSAR': df.loc[index, 'PSAR'],
-                                  'SMA': df.loc[index, 'SMA'],
-                                  'ATR': df.loc[index, 'ATR'],
-                                  'MACD': df.loc[index, 'MACD'],
-                                  'VI': df.loc[index, 'VI'],
-                                  })
-        else:
-            print(f"Index {index} not found in DataFrame.")
-    for item in rel_max:
-        index = item[0]  # L'indice è il primo elemento della tupla
-        if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
-            valori_ottimi.append({'Type': "Max",
-                                  'Prezzo': df.loc[index, 'Low'],
-                                  'RSI': df.loc[index, 'RSI'],
-                                  'PSAR': df.loc[index, 'PSAR'],
-                                  'SMA': df.loc[index, 'SMA'],
-                                  'ATR': df.loc[index, 'ATR'],
-                                  'MACD': df.loc[index, 'MACD'],
-                                  'VI': df.loc[index, 'VI'],
-                                  })
-        else:
-            print(f"Index {index} not found in DataFrame.")
+    # valori_ottimi = []  # Lista per salvare i risultati
+    # for item in rel_min:
+    #     index = item[0]  # L'indice è il primo elemento della tupla
+    #     if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
+    #         valori_ottimi.append({'Type': "Min",
+    #                               'Prezzo': df.loc[index, 'Low'],
+    #                               'RSI': df.loc[index, 'RSI'],
+    #                               'PSAR': df.loc[index, 'PSAR'],
+    #                               'SMA': df.loc[index, 'SMA'],
+    #                               'ATR': df.loc[index, 'ATR'],
+    #                               'MACD': df.loc[index, 'MACD'],
+    #                               'VI': df.loc[index, 'VI'],
+    #                               })
+    #     else:
+    #         print(f"Index {index} not found in DataFrame.")
+    # for item in rel_max:
+    #     index = item[0]  # L'indice è il primo elemento della tupla
+    #     if index in df.index:  # Verifica che l'indice sia presente nel DataFrame
+    #         valori_ottimi.append({'Type': "Max",
+    #                               'Prezzo': df.loc[index, 'Low'],
+    #                               'RSI': df.loc[index, 'RSI'],
+    #                               'PSAR': df.loc[index, 'PSAR'],
+    #                               'SMA': df.loc[index, 'SMA'],
+    #                               'ATR': df.loc[index, 'ATR'],
+    #                               'MACD': df.loc[index, 'MACD'],
+    #                               'VI': df.loc[index, 'VI'],
+    #                               })
+    #     else:
+    #         print(f"Index {index} not found in DataFrame.")
 
     # ======================================
     # Simulazione di trading con commissioni
@@ -688,7 +680,7 @@ def trading_analysis(
 
     # ======================================
     # 4. Creazione del grafico
-    rows = 16
+    rows = 10
     candlestick_height_px = 400
     indicators_height_px = candlestick_height_px / 2
     total_height = candlestick_height_px + ((rows - 1) * indicators_height_px)
@@ -700,7 +692,7 @@ def trading_analysis(
                                         "Relative Strength Index (RSI)", "True Strength Index (TSI)",
                                         "Stochastic RSI", "Vortex Indicator (VI)", "PSAR versus Price (PSARVP)",
                                         "Rate of Change (ROC)", "Percentage Volume Oscillator (PVO)",
-                                        "Money Flow Index (MFI)", "Volatility"
+                                        "Money Flow Index (MFI)"
                                         # "Awesome Oscillator (AO)",
                                         # "Accumulation/Distribution Index (ADI)", "On-Balance Volume (OBV)",
                                         # "Force Index (FI)", "Volume Price Trend (VPD)"
@@ -748,30 +740,30 @@ def trading_analysis(
         ),
             row=index, col=1
         )
-        # Massimi relativi
-        if rel_max:
-            max_times, max_prices = zip(*rel_max)
-            fig.add_trace(go.Scatter(
-                x=max_times,
-                y=max_prices,
-                mode='markers',
-                marker=dict(size=10, color='red', symbol='square-open'),
-                name='Local Max'
-            ),
-                row=index, col=1
-            )
-        # Minimi relativi
-        if rel_min:
-            min_times, min_prices = zip(*rel_min)
-            fig.add_trace(go.Scatter(
-                x=min_times,
-                y=min_prices,
-                mode='markers',
-                marker=dict(size=10, color='green', symbol='square-open'),
-                name='Local Min'
-            ),
-                row=index, col=1
-            )
+        # # Massimi relativi
+        # if rel_max:
+        #     max_times, max_prices = zip(*rel_max)
+        #     fig.add_trace(go.Scatter(
+        #         x=max_times,
+        #         y=max_prices,
+        #         mode='markers',
+        #         marker=dict(size=10, color='red', symbol='square-open'),
+        #         name='Local Max'
+        #     ),
+        #         row=index, col=1
+        #     )
+        # # Minimi relativi
+        # if rel_min:
+        #     min_times, min_prices = zip(*rel_min)
+        #     fig.add_trace(go.Scatter(
+        #         x=min_times,
+        #         y=min_prices,
+        #         mode='markers',
+        #         marker=dict(size=10, color='green', symbol='square-open'),
+        #         name='Local Min'
+        #     ),
+        #         row=index, col=1
+        #     )
 
         # Segnali di acquisto
         if buy_signals:
@@ -1063,16 +1055,6 @@ def trading_analysis(
         ),
             row=index, col=1
         )
-        index += 1
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['Volatility'],
-            mode='lines',
-            line=dict(color='darkred', width=2),
-            name='Volatility'
-        ),
-            row=index, col=1
-        )
 
         # Awesome Oscillator
         # index += 1
@@ -1222,7 +1204,7 @@ if __name__ == "__main__":
     with col1:
         step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.001, step=0.001,
                                format="%.3f")
-        atr_multiplier = st.number_input(label="ATR Multiplier", min_value=1.0, max_value=5.0, value=2.4, step=0.1)
+        atr_multiplier = st.number_input(label="ATR Multiplier", min_value=0.1, max_value=5.0, value=2.4, step=0.1)
         rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=12, step=1)
         rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=25, step=1)
         macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.66,
@@ -1259,7 +1241,9 @@ if __name__ == "__main__":
         din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=1000.0, value=12.0,
                                        step=1.0)
 
-    num_cond = st.sidebar.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)
+    col1, col2 = st.sidebar.columns(2)
+    num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)
+    stop_loss = col2.number_input(label="Stop Loss %", min_value=1, max_value=100, value=5, step=1)
 
     col1, col2, col3 = st.sidebar.columns(3)
     macd_short_window = col1.number_input(label="MACD Short", min_value=0, max_value=100, value=12, step=1)
@@ -1319,6 +1303,7 @@ if __name__ == "__main__":
             mfi_buy_limit=mfi_buy_limit,
             mfi_sell_limit=mfi_sell_limit,
             num_cond=num_cond,
+            stop_loss=stop_loss,
             strategia=strategia,
             din_macd_div=din_macd_div,
             din_roc_div=din_roc_div,
