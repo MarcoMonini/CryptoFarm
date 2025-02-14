@@ -527,9 +527,11 @@ def trading_analysis(
                 holding = False
         # ------------------------------------------------------------
         if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
-            if not holding and last_signal_candle_index != i and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+            if not holding and last_signal_candle_index != i and df['Low'].iloc[i] < df['Lower_Band'].iloc[i] :
                 if got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i]:
-                    continue
+                     continue
+                # if df['PSAR'].iloc[i] > df['Close'].iloc[i]:
+                #    continue
                 buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
                 holding = True
                 last_signal_candle_index = i
@@ -1255,8 +1257,8 @@ if __name__ == "__main__":
     if col1.button("SIMULATE"):
         st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
 
-    if col2.button("SAVE DATA"):
-        if st.session_state['df'] is not None:
+    if st.session_state['df'] is not None:
+        if col2.button("SAVE DATA"):
             st.write(st.session_state['df'])
 
     csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
