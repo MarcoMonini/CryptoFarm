@@ -378,7 +378,7 @@ def trading_analysis(
         mfi_buy_limit: int = 30,
         mfi_sell_limit: int = 70,
         num_cond: int = 3,
-        stop_loss: int = 100,
+        stop_loss: int = 99,
         strategia: str = "",
         din_macd_div:float = 1.2,
         din_roc_div:float = 12,
@@ -529,11 +529,8 @@ def trading_analysis(
                 holding = False
         # ------------------------------------------------------------
         if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
-            if not holding and last_signal_candle_index != i and df['Low'].iloc[i] < df['Lower_Band'].iloc[i] :
-                if got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i]:
-                     continue
-                # if df['PSAR'].iloc[i] > df['Close'].iloc[i]:
-                #    continue
+            if (not holding and last_signal_candle_index != i and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]
+                  and not (got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i])) :
                 buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
                 holding = True
                 last_signal_candle_index = i
@@ -544,6 +541,7 @@ def trading_analysis(
                 holding = False
                 last_signal_candle_index = i
                 stop_loss_price = None
+                got_stop_loss = False
             if holding and stop_loss_price is not None and df['Low'].iloc[i] < stop_loss_price and df['PSAR'].iloc[i] > df['Close'].iloc[i]:
                 # devo vendere per STOP LOSS
                 sell_signals.append((df.index[i], stop_loss_price))
@@ -1247,7 +1245,7 @@ if __name__ == "__main__":
 
     col1, col2 = st.sidebar.columns(2)
     num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)
-    stop_loss = col2.number_input(label="Stop Loss %", min_value=1, max_value=100, value=5, step=1)
+    stop_loss = col2.number_input(label="Stop Loss %", min_value=0.1, max_value=100.0, value=1.0, step=1.0)
 
     col1, col2, col3 = st.sidebar.columns(3)
     macd_short_window = col1.number_input(label="MACD Short", min_value=0, max_value=100, value=12, step=1)
@@ -1269,6 +1267,8 @@ if __name__ == "__main__":
         st.session_state['df'].set_index('Open time', inplace=True)
         # Mantieni solo le colonne essenziali, converti a float
         st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+
+    show_graph = st.sidebar.checkbox(label="Show Graphs", value=1)
 
     if st.session_state['df'] is not None:
         (fig, trades_df, actual_hours) = trading_analysis(
@@ -1307,6 +1307,7 @@ if __name__ == "__main__":
             mfi_buy_limit=mfi_buy_limit,
             mfi_sell_limit=mfi_sell_limit,
             num_cond=num_cond,
+            stop_loss=stop_loss,
             strategia=strategia,
             din_macd_div=din_macd_div,
             din_roc_div=din_roc_div,
@@ -1324,5 +1325,5 @@ if __name__ == "__main__":
             text_placeholder.write(f"Total profit: {total_profit:.2f} {currency}, Winrate: {win_rate:.2f}%")
         else:
             text_placeholder.write("No operation performed.")
-
-        fig_placeholder.plotly_chart(fig, use_container_width=True)
+        if show_graph:
+            fig_placeholder.plotly_chart(fig, use_container_width=True)

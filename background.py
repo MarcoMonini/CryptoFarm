@@ -159,8 +159,17 @@ def get_asset_balance(balance, asset):
         return 0
 
 
-def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window,
-                            atr_window, atr_multiplier):
+def add_technical_indicator(df,
+                            step: float = 0.01,
+                            max_step : float = 0.4,
+                            macd_long_window: int = 26,
+                            macd_short_window: int = 12,
+                            macd_signal_window: int = 9,
+                            atr_window: int = 4,
+                            band_macd_div: float = 2.0,
+                            # atr_multiplier: float = 2.4,
+                            # rsi_window: int = 6,
+                            ):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
@@ -170,27 +179,10 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
         step=step,
         max_step=max_step
     )
-    sar = sar_indicator.psar()
-    df_copy['PSARVP'] = sar / df_copy['Close']
+    df_copy['PSAR'] = sar_indicator.psar()
+    # df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
 
-    # Calcolo dell'RSI
-    rsi_indicator = RSIIndicator(
-        close=df_copy['Close'],
-        window=rsi_window
-    )
-    df_copy['RSI'] = rsi_indicator.rsi()
-
-    # Vortex Indicator
-    vi = VortexIndicator(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        window=rsi_window)
-    vip = vi.vortex_indicator_pos()
-    vim = vi.vortex_indicator_neg()
-    df_copy['VI'] = vip - vim
-
-    # Calcolo del MACD
+    # MACD
     macd_indicator = MACD(
         close=df_copy['Close'],
         window_slow=macd_long_window,
@@ -214,10 +206,29 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     # SMA (Media Mobile per le Rolling ATR Bands)
     sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
     df_copy['SMA'] = sma_indicator.sma_indicator()
-
+    macd_factor = (1 + df_copy['MACD'].abs()) / band_macd_div
     # Rolling ATR Bands
-    df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
-    df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+    df_copy['Upper_Band'] = df_copy['SMA'] + macd_factor * df_copy['ATR']
+    df_copy['Lower_Band'] = df_copy['SMA'] - macd_factor * df_copy['ATR']
+    # df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
+    # df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+
+    # Calcolo dell'RSI
+    # rsi_indicator = RSIIndicator(
+    #     close=df_copy['Close'],
+    #     window=rsi_window
+    # )
+    # df_copy['RSI'] = rsi_indicator.rsi()
+
+    # Vortex Indicator
+    # vi = VortexIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     window=rsi_window)
+    # vip = vi.vortex_indicator_pos()
+    # vim = vi.vortex_indicator_neg()
+    # df_copy['VI'] = vip - vim
 
     return df_copy
 
@@ -297,30 +308,78 @@ def place_order(client: Client, symbol: str, side: str, order_type: str, quantit
         return False
 
 
+def proceed_buy(client, asset,  currency, symbol) -> bool:
+    balance = print_user_and_wallet_info(client=client)
+    currency_balance = get_asset_balance(balance=balance, asset=currency)
+    quantity = currency_balance / current_candle_price
+    adjusted_quantity = adjust_quantity(quantity, minQty, maxQty, stepQty)
+    print(Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={currency_balance}$)")
+    # Piazza l'ordine di acquisto
+    response = place_order(client=client,
+                           symbol=symbol,
+                           side="BUY",
+                           order_type="MARKET",
+                           quantity=adjusted_quantity)
+    # aspetto e verifico che l'ordine è andato a buon fine
+    time.sleep(10)
+    balance = print_user_and_wallet_info(client=client)
+    asset_balance = get_asset_balance(balance=balance, asset=asset)
+    currency_balance = get_asset_balance(balance=balance, asset=currency)
+    if asset_balance > currency_balance:
+        return True
+    else:
+        return False
+
+def proceed_sell(client, asset,  currency, symbol) -> bool:
+    balance = print_user_and_wallet_info(client=client)
+    asset_balance = get_asset_balance(balance=balance, asset=asset)
+    adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
+    print(Style.BRIGHT + Fore.RED + f"Procceding with SELL Order, quantity={adjusted_quantity} (={asset_balance}$)")
+    # Piazza l'ordine di vendita
+    response = place_order(client=client,
+                           symbol=symbol,
+                           side="SELL",
+                           order_type="MARKET",
+                           quantity=adjusted_quantity)
+    # aspetto e verifico che l'ordine è andato a buon fine
+    time.sleep(10)
+    balance = print_user_and_wallet_info(client=client)
+    asset_balance = get_asset_balance(balance=balance, asset=asset)
+    currency_balance = get_asset_balance(balance=balance, asset=currency)
+    if asset_balance < currency_balance:
+        return True
+    else:
+        return False
+
+
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 print(Style.BRIGHT + f"KEY = {API_KEY}, SECRET = {API_SECRET}")
-asset = os.getenv("ASSET", "BTC")
-currency = os.getenv("CURRENCY", "USDC")
+asset = os.getenv("ASSET", "AMP")
+currency = os.getenv("CURRENCY", "USDT")
 symbol = asset + currency
 interval = os.getenv("CANDLES_TIME", "15m")
-step = float(os.getenv("PSAR_STEP", 0.001))
+step = float(os.getenv("PSAR_STEP", 0.004))
 max_step = float(os.getenv("PSAR_MAX_STEP", 0.4))
-atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 2.4))
-atr_window = int(os.getenv("ATR_WINDOW", 6))
-rsi_window = int(os.getenv("RSI_WINDOW", 12))
+atr_window = int(os.getenv("ATR_WINDOW", 4))
 macd_long_window = int(os.getenv("MACD_LONG_WINDOW", 26))
 macd_short_window = int(os.getenv("MACD_SHORT_WINDOW", 12))
 macd_signal_window = int(os.getenv("MACD_SIGNAL_WINDOW", 9))
-rsi_buy_limit = float(os.getenv("RSI_BUY_LIMIT", 25))
-rsi_sell_limit = float(os.getenv("RSI_SELL_LIMIT", 75))
-macd_buy_limit = float(os.getenv("MACD_BUY_LIMIT", -0.66))
-macd_sell_limit = float(os.getenv("MACD_SElL_LIMIT", 0.66))
-vi_buy_limit = float(os.getenv("VI_BUY_LIMIT", -0.82))
-vi_sell_limit = float(os.getenv("VI_SELL_LIMIT", 0.82))
-psarvp_buy_limit = float(os.getenv("PSAVP_BUY_LIMIT", 1.08))
-psarvp_sell_limit = float(os.getenv("PSARVP_SELL_LIMIT", 0.92))
-num_cond = float(os.getenv("NUM_CONDITIONS", 2))
+band_macd_div = float(os.getenv("BAND_MACD_DIV", 2.0))
+stop_loss_percent = float(os.getenv("STOP_LOSS", 99.0))
+stop_loss_percent = (100 - stop_loss_percent) / 100
+
+# atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 2.4))
+# rsi_window = int(os.getenv("RSI_WINDOW", 12))
+# rsi_buy_limit = float(os.getenv("RSI_BUY_LIMIT", 25))
+# rsi_sell_limit = float(os.getenv("RSI_SELL_LIMIT", 75))
+# macd_buy_limit = float(os.getenv("MACD_BUY_LIMIT", -0.66))
+# macd_sell_limit = float(os.getenv("MACD_SElL_LIMIT", 0.66))
+# vi_buy_limit = float(os.getenv("VI_BUY_LIMIT", -0.82))
+# vi_sell_limit = float(os.getenv("VI_SELL_LIMIT", 0.82))
+# psarvp_buy_limit = float(os.getenv("PSAVP_BUY_LIMIT", 1.08))
+# psarvp_sell_limit = float(os.getenv("PSARVP_SELL_LIMIT", 0.92))
+# num_cond = float(os.getenv("NUM_CONDITIONS", 2))
 
 minQty = 0
 maxQty = 0
@@ -358,11 +417,11 @@ socket_thread = threading.Thread(
 socket_thread.start()
 
 running = True
-# buy_signals = []
-# sell_signals = []
 last_signal_candle_time = None
 last_update = None
 holding = False
+got_stop_loss = False
+stop_loss_price = None
 
 if asset_balance > currency_balance:
     holding = True
@@ -376,15 +435,17 @@ print(f" Simbolo: {symbol} ({asset_balance}), holding: {holding}")
 print(f" {currency} disponibili: {currency_balance}")
 print(f" Intervallo: {interval}")
 print(f" PSAR, Step: {step}, Max Step: {max_step}")
-print(f" ATR, Moltiplicatore: {atr_multiplier}, Window: {atr_window}")
-print(f" RSI, Window: {rsi_window}")
+print(f" ATR Window: {atr_window}")
 print(f" MACD: Long: {macd_long_window}, Short: {macd_short_window}, Signal: {macd_signal_window}")
-print(f" Number of conditions: {num_cond}")
-print("Buy/Sell Limits")
-print(f" RSI, Buy: {rsi_buy_limit}, Sell: {rsi_sell_limit}")
-print(f" MACD, Buy: {macd_buy_limit}, Sell: {macd_sell_limit}")
-print(f" VI, Buy: {vi_buy_limit}, Sell: {vi_sell_limit}")
-print(f" PSAVP, Buy: {psarvp_buy_limit}, Sell: {psarvp_sell_limit}")
+print(f"MACD Bands divider: {band_macd_div}")
+
+# print(f" RSI, Window: {rsi_window}")
+# print(f" Number of conditions: {num_cond}")
+# print("Buy/Sell Limits")
+# print(f" RSI, Buy: {rsi_buy_limit}, Sell: {rsi_sell_limit}")
+# print(f" MACD, Buy: {macd_buy_limit}, Sell: {macd_sell_limit}")
+# print(f" VI, Buy: {vi_buy_limit}, Sell: {vi_sell_limit}")
+# print(f" PSAVP, Buy: {psarvp_buy_limit}, Sell: {psarvp_sell_limit}")
 
 while True:
     while not data_queue.empty():
@@ -404,80 +465,47 @@ while True:
     df_copy = add_technical_indicator(df,
                                       step=step,
                                       max_step=max_step,
-                                      rsi_window=rsi_window,
                                       macd_long_window=macd_long_window,
                                       macd_short_window=macd_short_window,
                                       macd_signal_window=macd_signal_window,
                                       atr_window=atr_window,
-                                      atr_multiplier=atr_multiplier)
+                                      band_macd_div=band_macd_div
+                                      # rsi_window=rsi_window,
+                                      # atr_multiplier=atr_multiplier
+                                      )
 
     if len(df_copy) > 1:
         i = len(df_copy) - 1
         current_candle_time = df_copy.index[i]
         current_candle_price = df_copy["Close"].iloc[i]
+        if (not holding and current_candle_price <= df_copy['Lower_Band'].iloc[i]
+                and not (got_stop_loss and df_copy['PSAR'].iloc[i] > current_candle_price)):
+            print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
+            response = proceed_buy(client=client, asset=asset, symbol=symbol, currency=currency)
+            if response:
+                last_signal_candle_time = current_candle_time
+                holding = True
+                got_stop_loss = False
+                stop_loss_price = current_candle_price * stop_loss_percent
+                print(Style.BRIGHT + f"BUY Order Completed, holding: {holding}")
 
-        if last_signal_candle_time != current_candle_time:
-            # CONDIZIONI PER IL BUY
-            cond_buy_1 = 1 if df_copy['MACD'].iloc[i] <= macd_buy_limit else 0
-            cond_buy_2 = 1 if df_copy['RSI'].iloc[i] <= rsi_buy_limit else 0
-            cond_buy_3 = 1 if df_copy['VI'].iloc[i] <= vi_buy_limit else 0
-            cond_buy_4 = 1 if df_copy['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
-            cond_buy_5 = 1 if current_candle_price <= df_copy['Lower_Band'].iloc[i] else 0
-            sum_buy = cond_buy_1 + cond_buy_2 + cond_buy_3 + cond_buy_4 + cond_buy_5
-            if not holding and sum_buy >= num_cond:
-                print(
-                    Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
-                balance = print_user_and_wallet_info(client=client)
-                currency_balance = get_asset_balance(balance=balance, asset=currency)
-                quantity = currency_balance / current_candle_price
-                adjusted_quantity = adjust_quantity(quantity, minQty, maxQty, stepQty)
-                print(
-                    Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={currency_balance}$)")
-                # Piazza l'ordine di acquisto
-                response = place_order(client=client,
-                                       symbol=symbol,
-                                       side="BUY",
-                                       order_type="MARKET",
-                                       quantity=adjusted_quantity)
-                # aspetto e verifico che l'ordine è andato a buon fine
-                time.sleep(10)
-                balance = print_user_and_wallet_info(client=client)
-                asset_balance = get_asset_balance(balance=balance, asset=asset)
-                currency_balance = get_asset_balance(balance=balance, asset=currency)
-                if asset_balance > currency_balance:
-                    last_signal_candle_time = current_candle_time
-                    holding = True
-                    print(Style.BRIGHT + f"BUY Order Completed, holding: {holding}")
-
-            # CONDIZIONI PER IL SELL
-            cond_sell_1 = 1 if df_copy['MACD'].iloc[i] >= macd_sell_limit else 0
-            cond_sell_2 = 1 if df_copy['RSI'].iloc[i] >= rsi_sell_limit else 0
-            cond_sell_3 = 1 if df_copy['VI'].iloc[i] >= vi_sell_limit else 0
-            cond_sell_4 = 1 if df_copy['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
-            cond_sell_5 = 1 if current_candle_price >= df_copy['Upper_Band'].iloc[i] else 0
-            sum_sell = cond_sell_1 + cond_sell_2 + cond_sell_3 + cond_sell_4 + cond_sell_5
-            if holding and sum_sell >= num_cond:
-                print(
-                    Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
-                balance = print_user_and_wallet_info(client=client)
-                asset_balance = get_asset_balance(balance=balance, asset=asset)
-                adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
-                print(
-                    Style.BRIGHT + Fore.RED + f"Procceding with SELL Order, quantity={adjusted_quantity} (={adjusted_quantity * current_candle_price}$)")
-                # Piazza l'ordine di vendita
-                response = place_order(client=client,
-                                       symbol=symbol,
-                                       side="SELL",
-                                       order_type="MARKET",
-                                       quantity=adjusted_quantity)
-                # aspetto e verifico che l'ordine è andato a buon fine
-                time.sleep(10)
-                balance = print_user_and_wallet_info(client=client)
-                asset_balance = get_asset_balance(balance=balance, asset=asset)
-                currency_balance = get_asset_balance(balance=balance, asset=currency)
-                if asset_balance < currency_balance:
+            if holding and current_candle_price >= df_copy['Upper_Band'].iloc[i]:
+                print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
+                response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency)
+                if response:
                     last_signal_candle_time = current_candle_time
                     holding = False
+                    print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
+
+            if (holding and stop_loss_price is not None and current_candle_price < stop_loss_price
+                    and df_copy['PSAR'].iloc[i] > current_candle_price):
+                print(Style.BRIGHT + Fore.RED + f"Stop Loss Signal detected at {current_candle_time} and price {current_candle_price}")
+                response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency)
+                if response:
+                    last_signal_candle_time = current_candle_time
+                    holding = False
+                    got_stop_loss = True
+                    stop_loss_price = None
                     print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
 
 time.sleep(1)
