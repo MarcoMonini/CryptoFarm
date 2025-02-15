@@ -262,6 +262,10 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
     df_copy['ROC'] = roc_indicator.roc()
 
+    # TSI
+    tsi_indicator = TSIIndicator(close=df_copy['Close'])
+    df_copy['TSI'] = tsi_indicator.tsi()
+
     # Rolling ATR Bands
     if dinamic_atr:
         macd_factor = (1 + df_copy['MACD'].abs()) / din_macd_div
@@ -276,9 +280,7 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
         df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
         df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
 
-    # TSI
-    tsi_indicator = TSIIndicator(close=df_copy['Close'])
-    df_copy['TSI'] = tsi_indicator.tsi()
+
 
     # Awesome Oscillator
     ao_indicator = AwesomeOscillatorIndicator(
@@ -429,20 +431,20 @@ def trading_analysis(
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
     # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
-    # price_high = df['High']
-    # price_low = df['Low']
-    # # Trova gli indici dei massimi e minimi relativi
-    # order = int(window_pivot / 2)
-    # max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
-    # min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
-    # # Inizializza gli array per massimi e minimi
-    # rel_max = []
-    # rel_min = []
-    # # Popola gli array con tuple (indice, prezzo)
-    # for i in min_idx:
-    #     rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
-    # for i in max_idx:
-    #     rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
+    price_high = df['High']
+    price_low = df['Low']
+    # Trova gli indici dei massimi e minimi relativi
+    order = int(window_pivot / 2)
+    max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
+    min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
+    # Inizializza gli array per massimi e minimi
+    rel_max = []
+    rel_min = []
+    # Popola gli array con tuple (indice, prezzo)
+    for i in min_idx:
+        rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
+    for i in max_idx:
+        rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
 
     dinamic_atr = False
     if strategia == "Dinamic ATR Bands":
@@ -1305,7 +1307,6 @@ if __name__ == "__main__":
             mfi_buy_limit=mfi_buy_limit,
             mfi_sell_limit=mfi_sell_limit,
             num_cond=num_cond,
-            stop_loss=stop_loss,
             strategia=strategia,
             din_macd_div=din_macd_div,
             din_roc_div=din_roc_div,
@@ -1313,9 +1314,14 @@ if __name__ == "__main__":
         )
         text_placeholder.subheader("Operations Report")
         if not trades_df.empty:
-            text_placeholder.write(trades_df)
+            # text_placeholder.write(trades_df)
             total_profit = trades_df['Profit'].sum()
-            text_placeholder.write(f"Total profit: {total_profit:.2f} {currency}")
+            num_trades = len(trades_df)
+            profitable_trades = trades_df[trades_df['Profit'] > 0]
+            num_profitable = len(profitable_trades)
+            win_rate = (
+                    num_profitable / num_trades * 100) if num_trades > 0 else 0.0
+            text_placeholder.write(f"Total profit: {total_profit:.2f} {currency}, Winrate: {win_rate:.2f}%")
         else:
             text_placeholder.write("No operation performed.")
 
