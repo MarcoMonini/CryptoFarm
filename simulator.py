@@ -470,7 +470,6 @@ def trading_analysis(
     holding = False
     last_signal_candle_index = 0
     stop_loss_percent = stop_loss  # %
-
     stop_loss_price = None
     got_stop_loss = False
     stop_loss_percent = (100 - stop_loss_percent) / 100
