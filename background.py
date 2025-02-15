@@ -437,7 +437,7 @@ print(f" Intervallo: {interval}")
 print(f" PSAR, Step: {step}, Max Step: {max_step}")
 print(f" ATR Window: {atr_window}")
 print(f" MACD: Long: {macd_long_window}, Short: {macd_short_window}, Signal: {macd_signal_window}")
-print(f"MACD Bands divider: {band_macd_div}")
+print(f" MACD Bands divider: {band_macd_div}")
 
 # print(f" RSI, Window: {rsi_window}")
 # print(f" Number of conditions: {num_cond}")
@@ -460,6 +460,10 @@ while True:
             data["close"],
             data["volume"],
         ]
+
+    # Mantieni solo le ultime 100 righe
+    if len(df) > 100:
+        df = df.iloc[-100:]  # Tiene solo le ultime 100 righe
 
     # df_copy = df.copy()
     df_copy = add_technical_indicator(df,
