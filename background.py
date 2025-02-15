@@ -206,7 +206,7 @@ def add_technical_indicator(df,
     # SMA (Media Mobile per le Rolling ATR Bands)
     sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
     df_copy['SMA'] = sma_indicator.sma_indicator()
-    macd_factor = (1 + df_copy['MACD'].abs()) / band_macd_div
+    macd_factor = (0.5 + df_copy['MACD'].abs()) / band_macd_div
     # Rolling ATR Bands
     df_copy['Upper_Band'] = df_copy['SMA'] + macd_factor * df_copy['ATR']
     df_copy['Lower_Band'] = df_copy['SMA'] - macd_factor * df_copy['ATR']

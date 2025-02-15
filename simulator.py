@@ -268,7 +268,7 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
 
     # Rolling ATR Bands
     if dinamic_atr:
-        macd_factor = (1 + df_copy['MACD'].abs()) / din_macd_div
+        macd_factor = (0.5 + df_copy['MACD'].abs()) / din_macd_div
         # roc_factor = (10 + df_copy['ROC'].abs()) / din_roc_div
         # Calcolo un fattore finale, riga per riga:
         # dyn_factor = macd_factor * roc_factor  # Questa è una Serie
