@@ -162,12 +162,12 @@ def get_asset_balance(balance, asset):
 def add_technical_indicator(df,
                             step: float = 0.01,
                             max_step : float = 0.4,
+                            atr_window: int = 4,
+                            atr_multiplier: float = 2.4,
                             macd_long_window: int = 26,
                             macd_short_window: int = 12,
                             macd_signal_window: int = 9,
-                            atr_window: int = 4,
                             band_macd_div: float = 2.0,
-                            # atr_multiplier: float = 2.4,
                             # rsi_window: int = 6,
                             ):
     df_copy = df.copy()
@@ -183,16 +183,16 @@ def add_technical_indicator(df,
     # df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
 
     # MACD
-    macd_indicator = MACD(
-        close=df_copy['Close'],
-        window_slow=macd_long_window,
-        window_fast=macd_short_window,
-        window_sign=macd_signal_window
-    )
+    # macd_indicator = MACD(
+    #     close=df_copy['Close'],
+    #     window_slow=macd_long_window,
+    #     window_fast=macd_short_window,
+    #     window_sign=macd_signal_window
+    # )
     # Aggiungere le colonne del MACD al DataFrame
-    macd = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+    # macd = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
     # Calcolo del MACD normalizzato come percentuale del prezzo
-    df_copy['MACD'] = macd / df_copy['Close'] * 100  # normalizzato
+    # df_copy['MACD'] = macd / df_copy['Close'] * 100  # normalizzato
 
     # ATR
     atr_indicator = AverageTrueRange(
@@ -206,12 +206,12 @@ def add_technical_indicator(df,
     # SMA (Media Mobile per le Rolling ATR Bands)
     sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
     df_copy['SMA'] = sma_indicator.sma_indicator()
-    macd_factor = (0.5 + df_copy['MACD'].abs()) / band_macd_div
+    # macd_factor = (0.5 + df_copy['MACD'].abs()) / band_macd_div
     # Rolling ATR Bands
-    df_copy['Upper_Band'] = df_copy['SMA'] + macd_factor * df_copy['ATR']
-    df_copy['Lower_Band'] = df_copy['SMA'] - macd_factor * df_copy['ATR']
-    # df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
-    # df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+    # df_copy['Upper_Band'] = df_copy['SMA'] + macd_factor * df_copy['ATR']
+    # df_copy['Lower_Band'] = df_copy['SMA'] - macd_factor * df_copy['ATR']
+    df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
+    df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
 
     # Calcolo dell'RSI
     # rsi_indicator = RSIIndicator(
@@ -359,17 +359,18 @@ asset = os.getenv("ASSET", "AMP")
 currency = os.getenv("CURRENCY", "USDT")
 symbol = asset + currency
 interval = os.getenv("CANDLES_TIME", "15m")
-step = float(os.getenv("PSAR_STEP", 0.004))
+step = float(os.getenv("PSAR_STEP", 0.01))
 max_step = float(os.getenv("PSAR_MAX_STEP", 0.4))
-atr_window = int(os.getenv("ATR_WINDOW", 4))
-macd_long_window = int(os.getenv("MACD_LONG_WINDOW", 26))
-macd_short_window = int(os.getenv("MACD_SHORT_WINDOW", 12))
-macd_signal_window = int(os.getenv("MACD_SIGNAL_WINDOW", 9))
-band_macd_div = float(os.getenv("BAND_MACD_DIV", 2.0))
+atr_window = int(os.getenv("ATR_WINDOW", 5))
+atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 0.5))
 stop_loss_percent = float(os.getenv("STOP_LOSS", 99.0))
+
 stop_loss_percent = (100 - stop_loss_percent) / 100
 
-# atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 2.4))
+# macd_long_window = int(os.getenv("MACD_LONG_WINDOW", 26))
+# macd_short_window = int(os.getenv("MACD_SHORT_WINDOW", 12))
+# macd_signal_window = int(os.getenv("MACD_SIGNAL_WINDOW", 9))
+# band_macd_div = float(os.getenv("BAND_MACD_DIV", 2.0))
 # rsi_window = int(os.getenv("RSI_WINDOW", 12))
 # rsi_buy_limit = float(os.getenv("RSI_BUY_LIMIT", 25))
 # rsi_sell_limit = float(os.getenv("RSI_SELL_LIMIT", 75))
@@ -435,9 +436,9 @@ print(f" Simbolo: {symbol} ({asset_balance}), holding: {holding}")
 print(f" {currency} disponibili: {currency_balance}")
 print(f" Intervallo: {interval}")
 print(f" PSAR, Step: {step}, Max Step: {max_step}")
-print(f" ATR Window: {atr_window}")
-print(f" MACD: Long: {macd_long_window}, Short: {macd_short_window}, Signal: {macd_signal_window}")
-print(f" MACD Bands divider: {band_macd_div}")
+print(f" ATR, Window: {atr_window}, Multiplier: {atr_multiplier}")
+# print(f" MACD: Long: {macd_long_window}, Short: {macd_short_window}, Signal: {macd_signal_window}")
+# print(f" MACD Bands divider: {band_macd_div}")
 
 # print(f" RSI, Window: {rsi_window}")
 # print(f" Number of conditions: {num_cond}")
@@ -469,19 +470,21 @@ while True:
     df_copy = add_technical_indicator(df,
                                       step=step,
                                       max_step=max_step,
-                                      macd_long_window=macd_long_window,
-                                      macd_short_window=macd_short_window,
-                                      macd_signal_window=macd_signal_window,
                                       atr_window=atr_window,
-                                      band_macd_div=band_macd_div
+                                      atr_multiplier=atr_multiplier
+                                      # macd_long_window=macd_long_window,
+                                      # macd_short_window=macd_short_window,
+                                      # macd_signal_window=macd_signal_window,
+                                      # band_macd_div=band_macd_div,
                                       # rsi_window=rsi_window,
-                                      # atr_multiplier=atr_multiplier
                                       )
 
     if len(df_copy) > 1:
         i = len(df_copy) - 1
         current_candle_time = df_copy.index[i]
         current_candle_price = df_copy["Close"].iloc[i]
+        # print(f"Current Candle Price: {current_candle_price}, Holding: {holding}")
+        # print(f"Upper Band: {df_copy['Upper_Band'].iloc[i]}, Lower Band: {df_copy['Lower_Band'].iloc[i]}")
         if (not holding and current_candle_price <= df_copy['Lower_Band'].iloc[i]
                 and not (got_stop_loss and df_copy['PSAR'].iloc[i] > current_candle_price)):
             print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
@@ -493,24 +496,24 @@ while True:
                 stop_loss_price = current_candle_price * stop_loss_percent
                 print(Style.BRIGHT + f"BUY Order Completed, holding: {holding}")
 
-            if holding and current_candle_price >= df_copy['Upper_Band'].iloc[i]:
-                print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
-                response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency)
-                if response:
-                    last_signal_candle_time = current_candle_time
-                    holding = False
-                    print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
+        if holding and current_candle_price >= df_copy['Upper_Band'].iloc[i]:
+            print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
+            response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency)
+            if response:
+                last_signal_candle_time = current_candle_time
+                holding = False
+                print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
 
-            if (holding and stop_loss_price is not None and current_candle_price < stop_loss_price
-                    and df_copy['PSAR'].iloc[i] > current_candle_price):
-                print(Style.BRIGHT + Fore.RED + f"Stop Loss Signal detected at {current_candle_time} and price {current_candle_price}")
-                response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency)
-                if response:
-                    last_signal_candle_time = current_candle_time
-                    holding = False
-                    got_stop_loss = True
-                    stop_loss_price = None
-                    print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
+        if (holding and stop_loss_price is not None and current_candle_price < stop_loss_price
+                and df_copy['PSAR'].iloc[i] > current_candle_price):
+            print(Style.BRIGHT + Fore.RED + f"Stop Loss Signal detected at {current_candle_time} and price {current_candle_price}")
+            response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency)
+            if response:
+                last_signal_candle_time = current_candle_time
+                holding = False
+                got_stop_loss = True
+                stop_loss_price = None
+                print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
 
 time.sleep(1)
 print(Style.BRIGHT + Fore.RED + "Job terminato.")

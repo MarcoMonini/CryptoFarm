@@ -229,7 +229,7 @@ def trading_analysis_opt(
                                  macd_short_window=macd_short_window,
                                  macd_signal_window=macd_signal_window,
                                  atr_window=atr_window,
-                                 # atr_multiplier=atr_multiplier,
+                                 atr_multiplier=atr_multiplier,
                                  dinamic_atr=dinamic_atr,
                                  din_macd_div=din_macd_div,
                                  # din_roc_div=din_roc_div
