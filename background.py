@@ -308,7 +308,7 @@ def place_order(client: Client, symbol: str, side: str, order_type: str, quantit
         return False
 
 
-def proceed_buy(client, asset,  currency, symbol) -> bool:
+def proceed_buy(client, asset,  currency, symbol, current_candle_price) -> bool:
     balance = print_user_and_wallet_info(client=client)
     currency_balance = get_asset_balance(balance=balance, asset=currency)
     quantity = currency_balance / current_candle_price
@@ -325,12 +325,14 @@ def proceed_buy(client, asset,  currency, symbol) -> bool:
     balance = print_user_and_wallet_info(client=client)
     asset_balance = get_asset_balance(balance=balance, asset=asset)
     currency_balance = get_asset_balance(balance=balance, asset=currency)
-    if asset_balance > currency_balance:
+    asset_price_balance = asset_balance * current_candle_price
+
+    if asset_price_balance > currency_balance:
         return True
     else:
         return False
 
-def proceed_sell(client, asset,  currency, symbol) -> bool:
+def proceed_sell(client, asset,  currency, symbol, current_candle_price) -> bool:
     balance = print_user_and_wallet_info(client=client)
     asset_balance = get_asset_balance(balance=balance, asset=asset)
     adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
@@ -346,7 +348,8 @@ def proceed_sell(client, asset,  currency, symbol) -> bool:
     balance = print_user_and_wallet_info(client=client)
     asset_balance = get_asset_balance(balance=balance, asset=asset)
     currency_balance = get_asset_balance(balance=balance, asset=currency)
-    if asset_balance < currency_balance:
+    asset_price_balance = asset_balance * current_candle_price
+    if asset_price_balance < currency_balance:
         return True
     else:
         return False
@@ -424,7 +427,10 @@ holding = False
 got_stop_loss = False
 stop_loss_price = None
 
-if asset_balance > currency_balance:
+current_asset_price = df["Close"].iloc[len(df) - 1]
+asset_price_balance = asset_balance * current_asset_price
+
+if asset_price_balance > currency_balance:
     holding = True
 else:
     holding = False
@@ -432,7 +438,7 @@ else:
 # Thread per ascoltare l'input
 print(Style.BRIGHT + Fore.YELLOW + "Il Job sta per iniziare.")
 print(Style.BRIGHT + "Riepilogo parametri")
-print(f" Simbolo: {symbol} ({asset_balance}), holding: {holding}")
+print(f" Simbolo: {symbol} ({asset_price_balance}), holding: {holding}")
 print(f" {currency} disponibili: {currency_balance}")
 print(f" Intervallo: {interval}")
 print(f" PSAR, Step: {step}, Max Step: {max_step}")
@@ -488,7 +494,7 @@ while True:
         if (not holding and current_candle_price <= df_copy['Lower_Band'].iloc[i]
                 and not (got_stop_loss and df_copy['PSAR'].iloc[i] > current_candle_price)):
             print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
-            response = proceed_buy(client=client, asset=asset, symbol=symbol, currency=currency)
+            response = proceed_buy(client=client, asset=asset, symbol=symbol, currency=currency, current_candle_price=current_candle_price)
             if response:
                 last_signal_candle_time = current_candle_time
                 holding = True
@@ -498,7 +504,7 @@ while True:
 
         if holding and current_candle_price >= df_copy['Upper_Band'].iloc[i]:
             print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
-            response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency)
+            response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency, current_candle_price=current_candle_price)
             if response:
                 last_signal_candle_time = current_candle_time
                 holding = False
