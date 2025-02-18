@@ -15,7 +15,6 @@ import time
 from scipy.signal import argrelextrema
 import warnings
 
-
 # from tensorflow.keras.models import load_model
 # from cryptoTrainerAI import calculate_percentage_changes, add_technical_indicators
 
@@ -203,8 +202,8 @@ def download_market_data(assets: list, intervals: list, hours: int):
 
 @st.cache_data
 def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window,
-                            atr_window, atr_multiplier,
-                            dinamic_atr:bool = False, din_macd_div:float = 1.2, din_roc_div:float = 12 ):
+                            atr_window, atr_multiplier, dinamic_atr: bool = False,
+                            din_macd_div: float = 1.2):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
@@ -258,14 +257,6 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
     df_copy['SMA'] = sma_indicator.sma_indicator()
 
-    # ROC
-    roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
-    df_copy['ROC'] = roc_indicator.roc()
-
-    # TSI
-    tsi_indicator = TSIIndicator(close=df_copy['Close'])
-    df_copy['TSI'] = tsi_indicator.tsi()
-
     # Rolling ATR Bands
     if dinamic_atr:
         macd_factor = (0.5 + df_copy['MACD'].abs()) / din_macd_div
@@ -280,15 +271,13 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
         df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
         df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
 
+    # ROC
+    roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
+    df_copy['ROC'] = roc_indicator.roc()
 
-
-    # Awesome Oscillator
-    ao_indicator = AwesomeOscillatorIndicator(
-        high=df_copy['High'],
-        low=df_copy['Low']
-    )
-    ao = ao_indicator.awesome_oscillator()
-    df_copy['AO'] = ao / df_copy['Close'] * 100
+    # TSI
+    tsi_indicator = TSIIndicator(close=df_copy['Close'])
+    df_copy['TSI'] = tsi_indicator.tsi()
 
     # Stochastic RSI
     stoch_rsi_indicator = StochRSIIndicator(close=df_copy['Close'], window=rsi_window)
@@ -297,36 +286,6 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     # Percentage Volume Oscillator
     pvo_indicator = PercentageVolumeOscillator(volume=df_copy['Volume'])
     df_copy['PVO'] = pvo_indicator.pvo()
-
-    # Accumulation/Distribution Index
-    adi_indicator = AccDistIndexIndicator(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        volume=df_copy['Volume']
-    )
-    df_copy['ADI'] = adi_indicator.acc_dist_index()
-
-    # On-Balance Volume
-    obv_indicator = OnBalanceVolumeIndicator(
-        close=df_copy['Close'],
-        volume=df_copy['Volume']
-    )
-    df_copy['OBV'] = obv_indicator.on_balance_volume()
-
-    # Force Index
-    fi_indicator = ForceIndexIndicator(
-        close=df_copy['Close'],
-        volume=df_copy['Volume']
-    )
-    df_copy['ForceIndex'] = fi_indicator.force_index()
-
-    # Volume Price Trend
-    vpt_indicator = VolumePriceTrendIndicator(
-        close=df_copy['Close'],
-        volume=df_copy['Volume']
-    )
-    df_copy['VPT'] = vpt_indicator.volume_price_trend()
 
     # Money Flow Index
     mfi_indicator = MFIIndicator(
@@ -341,47 +300,290 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     return df_copy
 
 
+def calculate_latest_atr(df: pd.DataFrame, i: int, atr_window: int = 14, atr_multiplier: float = 2.4):
+    """
+    Calcola SOLO l'ultimo valore di RSI e MACD sulla candela 'i'
+    del DataFrame 'df', ritagliando una finestra minima attorno a 'i'.
+
+    Ritorna un dizionario con le chiavi: {'RSI': float, 'MACD': float, 'MACD_Hist': float}
+    """
+
+    # needed_bars = max(atr_window) + 5  # 5 in più di "sicurezza"
+    needed_bars = atr_window + 12
+    start_idx = max(0, i - needed_bars + 1)
+    end_idx = i + 1  # slice in pandas: end non è incluso
+    # Estrai la finestra di dati
+    temp_df = df.iloc[start_idx:end_idx].copy()
+
+    # Se la finestra è troppo corta, restituiamo df_copy con tutte None
+    if len(temp_df) < needed_bars:
+        df_copy = df.copy()
+        df_copy['ATR'] = None
+        df_copy['SMA'] = None
+        df_copy['Upper_Band'] = None
+        df_copy['Lower_Band'] = None
+        return df_copy
+
+    # ATR
+    atr_indicator = AverageTrueRange(
+        high=temp_df['High'],
+        low=temp_df['Low'],
+        close=temp_df['Close'],
+        window=atr_window
+    )
+    atr = atr_indicator.average_true_range()
+
+    # SMA (Media Mobile per le Rolling ATR Bands)
+    sma_indicator = SMAIndicator(close=temp_df['Close'], window=atr_window)
+    sma = sma_indicator.sma_indicator()
+    temp_df['Upper_Band'] = sma + atr_multiplier * atr
+    temp_df['Lower_Band'] = sma - atr_multiplier * atr
+
+    # return temp_df['Upper_Band'].iloc[-1], temp_df['Lower_Band'].iloc[-1]
+    return temp_df
+
+
+# ================================================
+#  Funzione che simula l'andamento in tempo reale del prezzo
+# ================================================
+@st.cache_data
+def simulate_candles(raw_df, atr_window:int=6, atr_multiplier:float=2):
+    """
+    raw_df: DataFrame con colonne ['Open', 'High', 'Low', 'Close', 'Volume']
+    Altre parametri: come nel tuo add_technical_indicator.
+    stop_loss: % di stop loss
+    strategia: stringa per la strategia
+    """
+
+    df = raw_df.copy()
+
+    # Inizializza strutture per salvare i segnali
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    # got_stop_loss = False
+    # stop_loss_percent = (100 - stop_loss) / 100.0
+    # stop_loss_price = None
+    last_signal_candle_index = -1  # inizialmente
+
+    # Per evitare di ricalcolare da zero,
+    # puoi calcolare UNA SOLA volta gli indicatori "storici" fino alla prima candela.
+    # Tuttavia, nella logica semplificata, rifaremo "add_technical_indicator" in ogni step.
+
+    # Loop sulle candele
+    for i in range(len(df)):
+
+        o = df['Open'].iloc[i]
+        h = df['High'].iloc[i]
+        l = df['Low'].iloc[i]
+        c = df['Close'].iloc[i]
+
+        n_steps = 12
+        is_green = (c >= o)
+
+        # Verifichiamo se è candela verde o rossa
+        # (puoi anche decidere con un'altra logica, es: "Close >= Open => verde" di default)
+        # Definiamo i 3 segmenti e costruiamo i 30 step di prezzo
+        # Candela verde: open -> low (10 step), low -> high (10 step), high -> close (10 step)
+        # Candela rossa: open -> high (10 step), high -> low (10 step), low -> close (10 step)
+        # Per comodità, uso una piccola funzione di supporto per generare "n" step dal prezzo A al prezzo B
+        def linspace_steps(a, b, n=n_steps):
+            return np.linspace(a, b, n, endpoint=False)[1:]  # escludiamo la "prima" perché corrisponde a a
+
+        prices_sequence = []
+        if is_green:
+            # Segmento 1: open -> low
+            segment1 = linspace_steps(o, l, n=int(n_steps/2))
+            # Segmento 2: low -> high
+            segment2 = linspace_steps(l, h, n=int(n_steps*2))
+            # Segmento 3: high -> close
+            segment3 = linspace_steps(h, c, n=int(n_steps/2))
+        else:
+            # Segmento 1: open -> high
+            segment1 = linspace_steps(o, h, n=int(n_steps/2))
+            # Segmento 2: high -> low
+            segment2 = linspace_steps(h, l, n=int(n_steps*2))
+            # Segmento 3: low -> close
+            segment3 = linspace_steps(l, c, n=int(n_steps/2))
+        prices_sequence = list(segment1) + list(segment2) + list(segment3)
+
+        # A questo punto abbiamo 3*9 = 27 prezzi intermedi,
+        # se vogliamo esattamente 30 step (includendo anche l'ultimo?),
+        # possiamo aggiungere l'ultimo prezzo "Close" come step finale,
+        # così da totalizzare 28 (oppure gestire diversamente).
+        # Per semplicità, qui aggiungo manualmente l'ultimo step = c
+        # (ma dipende da come preferisci gestire i conti).
+        prices_sequence.append(c)
+        # Inizializza i valori "in costruzione" della candela:
+        step_open = o
+        step_high = o
+        step_low = o
+        step_close = o
+
+        # Ora eseguiamo la simulazione step-by-step
+        for price in prices_sequence:
+            # Aggiorniamo SOLO l'ultima candela con un "Close" fittizio = price
+            # e lasciamo invariati Open, High, Low "finali" della candela,
+            # in modo che eventuali indicatori che usano 'High', 'Low'
+            # vedano la candela 'per intero'.
+
+
+            # Aggiorna i valori di High e Low dinamicamente
+            if price > step_high:
+                step_high = price
+            if price < step_low:
+                step_low = price
+            # Aggiorna la chiusura
+            step_close = price
+
+            temp_df = df.copy()
+            # Sovrascrivi sulla candela i-esima i valori dinamici
+            temp_df.at[temp_df.index[i], 'Open'] = step_open
+            temp_df.at[temp_df.index[i], 'High'] = step_high
+            temp_df.at[temp_df.index[i], 'Low'] = step_low
+            temp_df.at[temp_df.index[i], 'Close'] = step_close
+
+            df_utile = calculate_latest_atr(i=i, df=temp_df, atr_window=atr_window, atr_multiplier=atr_multiplier)
+            # print(f"Iteration {i}: len(df_utile)={len(df_utile)}")
+
+            row = df_utile.iloc[-1]
+            # print(f"Candela {i}, open={step_open}, high={step_high}, low={step_low}, close={step_close}")
+            # print(f"lower={row['Lower_Band']}, upper={row['Upper_Band']}")
+            if not holding and last_signal_candle_index != i and row['Lower_Band'] is not None and row['Close'] <= row['Lower_Band']:
+                buy_signals.append((df.index[i], float(row['Close'])))
+                holding = True
+                last_signal_candle_index = i
+
+                # Condizione di Sell
+            if holding and last_signal_candle_index != i and row['Upper_Band'] is not None and row['Close'] >= row['Upper_Band']:
+                sell_signals.append((df.index[i], float(row['Close'])))
+                holding = False
+                last_signal_candle_index = i
+
+    return buy_signals, sell_signals
+
+
+def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limit, rsi_sell_limit,
+                               vi_buy_limit, vi_sell_limit, psarvp_buy_limit, psarvp_sell_limit,
+                               srsi_buy_limit, srsi_sell_limit, tsi_buy_limit, tsi_sell_limit,
+                               roc_buy_limit, roc_sell_limit, pvo_buy_limit, pvo_sell_limit,
+                               mfi_buy_limit, mfi_sell_limit, num_cond):
+    buy_signals = []
+    sell_signals = []
+    holding = False
+
+    for i in range(1, len(df)):
+        # CONDIZIONI DI BUY
+        cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
+        cond_buy_macd2 = 1 if df['MACD'].iloc[i] > df['MACD'].tail(
+            10).min() else 0  # il MACD ha invertito direzione
+        cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
+        cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
+        cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
+        cond_buy_atr = 1 if df['Low'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
+        cond_buy_srsi = 1 if df['StochRSI'].iloc[i] <= srsi_buy_limit else 0
+        cond_buy_tsi = 1 if df['TSI'].iloc[i] <= tsi_buy_limit else 0
+        cond_buy_roc = 1 if df['ROC'].iloc[i] <= roc_buy_limit else 0
+        cond_buy_pvo = 1 if df['PVO'].iloc[i] <= pvo_buy_limit else 0
+        cond_buy_mfi = 1 if df['MFI'].iloc[i] <= mfi_buy_limit else 0
+        sum_buy = (
+                cond_buy_macd + cond_buy_macd2 + cond_buy_rsi + cond_buy_vi + cond_buy_psarvp + cond_buy_atr + cond_buy_srsi +
+                cond_buy_tsi + cond_buy_roc + cond_buy_pvo + cond_buy_mfi)
+        if not holding and sum_buy >= num_cond:
+            if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
+                buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+            else:
+                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+        # CONDIZIONI DI SELL
+        cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
+        cond_sell_macd2 = 1 if df['MACD'].iloc[i] < df['MACD'].tail(
+            10).max() else 0  # il MACD ha invertito direzione
+        cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
+        cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
+        cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
+        cond_sell_atr = 1 if df['High'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
+        cond_sell_srsi = 1 if df['StochRSI'].iloc[i] >= srsi_sell_limit else 0
+        cond_sell_tsi = 1 if df['TSI'].iloc[i] >= tsi_sell_limit else 0
+        cond_sell_roc = 1 if df['ROC'].iloc[i] >= roc_sell_limit else 0
+        cond_sell_pvo = 1 if df['PVO'].iloc[i] >= pvo_sell_limit else 0
+        cond_sell_mfi = 1 if df['MFI'].iloc[i] >= mfi_sell_limit else 0
+        sum_sell = (
+                cond_sell_macd + cond_sell_macd2 + cond_sell_rsi + cond_sell_vi + cond_sell_psavp + cond_sell_atr +
+                cond_sell_srsi + cond_sell_tsi + cond_sell_roc + cond_sell_pvo + cond_sell_mfi)
+        if holding and sum_sell >= num_cond:
+            if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
+                sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+            else:
+                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
+
+    return buy_signals, sell_signals
+
+
+def atr_buy_sell_simulation(df, stop_loss_percent):
+    # Identificazione dei segnali di acquisto e vendita
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    last_signal_candle_index = -1
+    # stop_loss_percent = stop_loss  # %
+    stop_loss_price = None
+    got_stop_loss = False
+    # stop_loss_percent = (100 - stop_loss_percent) / 100
+    stop_loss_decimal = stop_loss_percent / 100
+
+    for i in range(1, len(df)):
+        if (not holding and last_signal_candle_index != i and df['Low'].iloc[i] <= df['Lower_Band'].iloc[i]
+                and not (got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i])):
+            buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+            holding = True
+            last_signal_candle_index = i
+            got_stop_loss = False
+            stop_loss_price = df['Lower_Band'].iloc[i] * (1 - stop_loss_decimal)
+        if holding and last_signal_candle_index != i and df['High'].iloc[i] >= df['Upper_Band'].iloc[i]:
+            sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+            holding = False
+            last_signal_candle_index = i
+            stop_loss_price = None
+            got_stop_loss = False
+        if holding and stop_loss_price is not None and df['Low'].iloc[i] < stop_loss_price and df['PSAR'].iloc[i] > \
+                df['Close'].iloc[i]:
+            # devo vendere per STOP LOSS
+            sell_signals.append((df.index[i], stop_loss_price))
+            holding = False
+            last_signal_candle_index = i
+            got_stop_loss = True
+            stop_loss_price = None
+
+    return buy_signals, sell_signals
+
+
 def trading_analysis(
         asset: str,
         interval: str,
         wallet: float,
-        step: float,  # compreso tra 0.001 e 0.1
-        max_step: float,  # compreso tra 0.1 e 1
         time_hours: int = 24,
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
         show: bool = True,
-        atr_multiplier: float = 1.5,  # Moltiplicatore per le Rolling ATR Bands
-        atr_window: int = 14,  # compreso tra 2 e 30
-        window_pivot: int = 10,  # compreso tra 2 e 30 (numeri pari)
-        rsi_window: int = 10,  # compreso tra 2 e 50
-        macd_short_window: int = 12,  # compreso tra 4 e 20
-        macd_long_window: int = 26,  # compreso tra 20 e 50
-        macd_signal_window: int = 9,  # short < signal < long
-        rsi_buy_limit: int = 40,
-        rsi_sell_limit: int = 60,
-        macd_buy_limit: float = -0.4,
-        macd_sell_limit: float = 0.4,
-        vi_buy_limit: float = -0.5,
-        vi_sell_limit: float = 0.5,
-        psarvp_buy_limit: float = -0.1,
-        psarvp_sell_limit: float = 10.1,
-        srsi_buy_limit: float = 0.01,
-        srsi_sell_limit: float = 0.99,
-        tsi_buy_limit: int = -50,
-        tsi_sell_limit: int = 50,
-        roc_buy_limit: float = -5.0,
-        roc_sell_limit: float = 5.0,
-        ao_buy_limit: float = -0.1,
-        ao_sell_limit: float = 0.1,
-        pvo_buy_limit: int = -50,
-        pvo_sell_limit: int = 50,
-        mfi_buy_limit: int = 30,
-        mfi_sell_limit: int = 70,
+        step: float = 0.01,  max_step: float = 0.4,
+        atr_multiplier: float = 1.5, atr_window: int = 14,
+        window_pivot: int = 10,
+        rsi_window: int = 10,
+        macd_short_window: int = 12, macd_long_window: int = 26, macd_signal_window: int = 9,
+        rsi_buy_limit: int = 40, rsi_sell_limit: int = 60,
+        macd_buy_limit: float = -0.4, macd_sell_limit: float = 0.4,
+        vi_buy_limit: float = -0.5, vi_sell_limit: float = 0.5,
+        psarvp_buy_limit: float = -0.1, psarvp_sell_limit: float = 10.1,
+        srsi_buy_limit: float = 0.01, srsi_sell_limit: float = 0.99,
+        tsi_buy_limit: int = -50, tsi_sell_limit: int = 50,
+        roc_buy_limit: float = -5.0, roc_sell_limit: float = 5.0,
+        pvo_buy_limit: int = -50, pvo_sell_limit: int = 50,
+        mfi_buy_limit: int = 30, mfi_sell_limit: int = 70,
         num_cond: int = 3,
         stop_loss: int = 99,
         strategia: str = "",
-        din_macd_div:float = 1.2,
-        din_roc_div:float = 12,
+        din_macd_div: float = 1.2,
         market_data: dict = None,
         # modello = None
 ):
@@ -450,153 +652,34 @@ def trading_analysis(
     if strategia == "Dinamic ATR Bands":
         dinamic_atr = True
 
-    df = add_technical_indicator(df,
-                                 step=step,
-                                 max_step=max_step,
-                                 rsi_window=rsi_window,
-                                 macd_long_window=macd_long_window,
-                                 macd_short_window=macd_short_window,
+    df = add_technical_indicator(df, step=step, max_step=max_step, rsi_window=rsi_window,
+                                 macd_long_window=macd_long_window, macd_short_window=macd_short_window,
                                  macd_signal_window=macd_signal_window,
-                                 atr_window=atr_window,
-                                 atr_multiplier=atr_multiplier,
-                                 dinamic_atr = dinamic_atr,
-                                 din_macd_div=din_macd_div,
-                                 din_roc_div=din_roc_div)
+                                 atr_window=atr_window, atr_multiplier=atr_multiplier, dinamic_atr=dinamic_atr,
+                                 din_macd_div=din_macd_div)
 
     # ======================================
-    # Identificazione dei segnali di acquisto e vendita
+    # Identificazione dei segnali di acquisto e vendita in base alla strategia
     buy_signals = []
     sell_signals = []
-    holding = False
-    last_signal_candle_index = 0
-    stop_loss_percent = stop_loss  # %
-    stop_loss_price = None
-    got_stop_loss = False
-    stop_loss_percent = (100 - stop_loss_percent) / 100
-    for i in range(1, len(df)):
-        # Se hai un modello e vuoi usarlo:
-        # assicuriamoci di avere abbastanza dati per creare la finestraf
-        # if (modello is not None) and (i >= EXT_WINDOW_SIZE) and False:
-        #     # Costruisci la sequenza dagli ultimi 'window_size_for_model' punti
-        #     # Finestra: df[features].iloc[i-window_size_for_model:i]
-        #     X_seq = df_perc[FEATURES].iloc[i - EXT_WINDOW_SIZE:i].values
-        #     X_seq = np.expand_dims(X_seq, axis=0)  # shape (1, window_size, n_eatures)
-        #
-        #     # Previsione
-        #     predicted_probs = modello.predict(X_seq)
-        #     predicted_class = np.argmax(predicted_probs, axis=1)[0]  # 0,1,2
-        #
-        #     # Esempio di interpretazione:
-        #     #  - 1 => segnale di buy
-        #     #  - 2 => segnale di sell
-        #     #  - 0 => no action
-        #     if not holding and predicted_class == 1:
-        #         buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #         holding = True
-        #
-        #     elif holding and predicted_class == 2:
-        #         sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #         holding = False
-        # else:
-        # ------------------------------------------------------------
-        if strategia == "Live Bot":
-            # CONDIZIONI DI BUY
-            cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
-            cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
-            cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
-            cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
-            cond_buy_atr = 1 if df['Low'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
-            sum_buy = cond_buy_macd + cond_buy_rsi + cond_buy_vi + cond_buy_psarvp + cond_buy_atr
-            if not holding and sum_buy >= num_cond:
-                if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
-                    buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-                else:
-                    buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                holding = True
-            # CONDIZIONI DI SELL
-            cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
-            cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
-            cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
-            cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
-            cond_sell_atr = 1 if df['High'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
-            sum_sell = cond_sell_macd + cond_sell_rsi + cond_sell_vi + cond_sell_psavp + cond_sell_atr
-            if holding and sum_sell >= num_cond:
-                if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-                    sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-                else:
-                    sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                holding = False
-        # ------------------------------------------------------------
-        if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
-            if (not holding and last_signal_candle_index != i and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]
-                  and not (got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i])) :
-                buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-                holding = True
-                last_signal_candle_index = i
-                got_stop_loss = False
-                stop_loss_price = df['Lower_Band'].iloc[i] * stop_loss_percent
-            if holding and last_signal_candle_index != i and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-                sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-                holding = False
-                last_signal_candle_index = i
-                stop_loss_price = None
-                got_stop_loss = False
-            if holding and stop_loss_price is not None and df['Low'].iloc[i] < stop_loss_price and df['PSAR'].iloc[i] > df['Close'].iloc[i]:
-                # devo vendere per STOP LOSS
-                sell_signals.append((df.index[i], stop_loss_price))
-                holding = False
-                last_signal_candle_index = i
-                got_stop_loss = True
-                stop_loss_price = None
-        # ------------------------------------------------------------
-        if strategia == "Buy/Sell Limits+":
-            # CONDIZIONI DI BUY
-            cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
-            cond_buy_macd2 = 1 if df['MACD'].iloc[i] > df['MACD'].tail(
-                10).min() else 0  # il MACD ha invertito direzione
-            cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
-            cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
-            cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
-            cond_buy_atr = 1 if df['Low'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
-            cond_buy_srsi = 1 if df['StochRSI'].iloc[i] <= srsi_buy_limit else 0
-            cond_buy_tsi = 1 if df['TSI'].iloc[i] <= tsi_buy_limit else 0
-            cond_buy_roc = 1 if df['ROC'].iloc[i] <= roc_buy_limit else 0
-            # cond_buy_ao = 1 if df['AO'].iloc[i] <= ao_buy_limit else 0
-            cond_buy_pvo = 1 if df['PVO'].iloc[i] <= pvo_buy_limit else 0
-            cond_buy_mfi = 1 if df['MFI'].iloc[i] <= mfi_buy_limit else 0
-            sum_buy = (
-                    cond_buy_macd + cond_buy_macd2 + cond_buy_rsi + cond_buy_vi + cond_buy_psarvp + cond_buy_atr + cond_buy_srsi +
-                    cond_buy_tsi + cond_buy_roc + cond_buy_pvo + cond_buy_mfi)
-            if not holding and sum_buy >= num_cond:
-                if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
-                    buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
-                else:
-                    buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                holding = True
-            # CONDIZIONI DI SELL
-            cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
-            cond_sell_macd2 = 1 if df['MACD'].iloc[i] < df['MACD'].tail(
-                10).max() else 0  # il MACD ha invertito direzione
-            cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
-            cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
-            cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
-            cond_sell_atr = 1 if df['High'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
-            cond_sell_srsi = 1 if df['StochRSI'].iloc[i] >= srsi_sell_limit else 0
-            cond_sell_tsi = 1 if df['TSI'].iloc[i] >= tsi_sell_limit else 0
-            cond_sell_roc = 1 if df['ROC'].iloc[i] >= roc_sell_limit else 0
-            # cond_sell_ao = 1 if df['AO'].iloc[i] >= ao_sell_limit else 0
-            cond_sell_pvo = 1 if df['PVO'].iloc[i] >= pvo_sell_limit else 0
-            cond_sell_mfi = 1 if df['MFI'].iloc[i] >= mfi_sell_limit else 0
-            sum_sell = (
-                    cond_sell_macd + cond_sell_macd2 + cond_sell_rsi + cond_sell_vi + cond_sell_psavp + cond_sell_atr +
-                    cond_sell_srsi + cond_sell_tsi + cond_sell_roc + cond_sell_pvo + cond_sell_mfi)
-            if holding and sum_sell >= num_cond:
-                if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-                    sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
-                else:
-                    sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                holding = False
-        # ------------------------------------------------------------
+    if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
+        buy_signals, sell_signals = atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
+    if strategia == "Buy/Sell Limits":
+        buy_signals, sell_signals = (
+            buy_sell_limits_simulation(df=df,
+                                       macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
+                                       rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
+                                       vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit,
+                                       psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit,
+                                       srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit,
+                                       tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit,
+                                       roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit,
+                                       pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit,
+                                       mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
+                                       num_cond=num_cond))
+    if strategia == "ATR Live Trade":
+        buy_signals, sell_signals = simulate_candles(raw_df=df, atr_window=atr_window, atr_multiplier=atr_multiplier)
+
 
     # valori_ottimi = []  # Lista per salvare i risultati
     # for item in rel_min:
@@ -694,9 +777,6 @@ def trading_analysis(
                                         "Stochastic RSI", "Vortex Indicator (VI)", "PSAR versus Price (PSARVP)",
                                         "Rate of Change (ROC)", "Percentage Volume Oscillator (PVO)",
                                         "Money Flow Index (MFI)"
-                                        # "Awesome Oscillator (AO)",
-                                        # "Accumulation/Distribution Index (ADI)", "On-Balance Volume (OBV)",
-                                        # "Force Index (FI)", "Volume Price Trend (VPD)"
                                         )
                         )
     if show:
@@ -1199,7 +1279,7 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=["Live Bot", "ATR Bands", "Buy/Sell Limits+", "Dinamic ATR Bands"],
+                                     options=["Buy/Sell Limits", "ATR Bands", "Dinamic ATR Bands", "ATR Live Trade"],
                                      index=0)
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -1220,7 +1300,8 @@ if __name__ == "__main__":
         ao_buy_limit = st.number_input(label="AO Buy Limit", min_value=-0.50, max_value=0.50, value=-0.10, step=0.01)
         pvo_buy_limit = st.number_input(label="PVO Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
         mfi_buy_limit = st.number_input(label="MFI Buy Limit", min_value=0, max_value=100, value=30, step=1)
-        din_macd_div = st.number_input(label="Dinamic MACD Dividend", min_value=-10.0, max_value=10.0, value=1.2, step=0.1)
+        din_macd_div = st.number_input(label="Dinamic MACD Dividend", min_value=-10.0, max_value=10.0, value=1.2,
+                                       step=0.1)
 
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
@@ -1240,11 +1321,11 @@ if __name__ == "__main__":
         pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-100, max_value=100, value=50, step=1)
         mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=0, max_value=100, value=70, step=1)
         din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=1000.0, value=12.0,
-                                       step=1.0)
+                                      step=1.0)
 
     col1, col2 = st.sidebar.columns(2)
     num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)
-    stop_loss = col2.number_input(label="Stop Loss %", min_value=0.1, max_value=100.0, value=1.0, step=1.0)
+    stop_loss = col2.number_input(label="Stop Loss %", min_value=0.1, max_value=100.0, value=99.0, step=1.0)
 
     col1, col2, col3 = st.sidebar.columns(3)
     macd_short_window = col1.number_input(label="MACD Short", min_value=0, max_value=100, value=12, step=1)
@@ -1278,38 +1359,22 @@ if __name__ == "__main__":
             max_step=max_step,
             time_hours=time_hours,
             fee_percent=0.1,  # %
-            atr_multiplier=atr_multiplier,
-            atr_window=atr_window,
-            window_pivot=window_pivot,
-            rsi_window=rsi_window,
-            macd_short_window = macd_short_window,
-            macd_long_window = macd_long_window,
-            macd_signal_window =macd_signal_window,
-            rsi_buy_limit=rsi_buy_limit,
-            rsi_sell_limit=rsi_sell_limit,
-            macd_buy_limit=macd_buy_limit,
-            macd_sell_limit=macd_sell_limit,
-            vi_buy_limit=vi_buy_limit,
-            vi_sell_limit=vi_sell_limit,
-            psarvp_buy_limit=psarvp_buy_limit,
-            psarvp_sell_limit=psarvp_sell_limit,
-            srsi_buy_limit=srsi_buy_limit,
-            srsi_sell_limit=srsi_sell_limit,
-            tsi_buy_limit=tsi_buy_limit,
-            tsi_sell_limit=tsi_sell_limit,
-            roc_buy_limit=roc_buy_limit,
-            roc_sell_limit=roc_sell_limit,
-            ao_buy_limit=ao_buy_limit,
-            ao_sell_limit=ao_sell_limit,
-            pvo_buy_limit=pvo_buy_limit,
-            pvo_sell_limit=pvo_sell_limit,
-            mfi_buy_limit=mfi_buy_limit,
-            mfi_sell_limit=mfi_sell_limit,
+            atr_multiplier=atr_multiplier, atr_window=atr_window,
+            window_pivot=window_pivot, rsi_window=rsi_window,
+            macd_short_window=macd_short_window, macd_long_window=macd_long_window, macd_signal_window=macd_signal_window,
+            rsi_buy_limit=rsi_buy_limit,rsi_sell_limit=rsi_sell_limit,
+            macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
+            vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit,
+            psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit,
+            srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit,
+            tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit,
+            roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit,
+            pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit,
+            mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
             num_cond=num_cond,
             stop_loss=stop_loss,
             strategia=strategia,
             din_macd_div=din_macd_div,
-            din_roc_div=din_roc_div,
             market_data=st.session_state['df'],
         )
         text_placeholder.subheader("Operations Report")
