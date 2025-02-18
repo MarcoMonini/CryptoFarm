@@ -300,7 +300,8 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     return df_copy
 
 
-def calculate_latest_atr(df: pd.DataFrame, i: int, atr_window: int = 14, atr_multiplier: float = 2.4):
+def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, atr_multiplier: float = 2.4,
+                                step: float = 0.01, max_step: float = 0.4):
     """
     Calcola SOLO l'ultimo valore di RSI e MACD sulla candela 'i'
     del DataFrame 'df', ritagliando una finestra minima attorno a 'i'.
@@ -308,7 +309,7 @@ def calculate_latest_atr(df: pd.DataFrame, i: int, atr_window: int = 14, atr_mul
     Ritorna un dizionario con le chiavi: {'RSI': float, 'MACD': float, 'MACD_Hist': float}
     """
 
-    # needed_bars = max(atr_window) + 5  # 5 in più di "sicurezza"
+    # needed_bars = max(atr_window, macd_short_window, macd_long_window, macd_signal_window) + 5
     needed_bars = atr_window + 12
     start_idx = max(0, i - needed_bars + 1)
     end_idx = i + 1  # slice in pandas: end non è incluso
@@ -316,12 +317,13 @@ def calculate_latest_atr(df: pd.DataFrame, i: int, atr_window: int = 14, atr_mul
     temp_df = df.iloc[start_idx:end_idx].copy()
 
     # Se la finestra è troppo corta, restituiamo df_copy con tutte None
-    if len(temp_df) < needed_bars:
+    if len(temp_df) < atr_window:
         df_copy = df.copy()
         df_copy['ATR'] = None
         df_copy['SMA'] = None
         df_copy['Upper_Band'] = None
         df_copy['Lower_Band'] = None
+        df_copy['PSAR'] = None
         return df_copy
 
     # ATR
@@ -339,7 +341,15 @@ def calculate_latest_atr(df: pd.DataFrame, i: int, atr_window: int = 14, atr_mul
     temp_df['Upper_Band'] = sma + atr_multiplier * atr
     temp_df['Lower_Band'] = sma - atr_multiplier * atr
 
-    # return temp_df['Upper_Band'].iloc[-1], temp_df['Lower_Band'].iloc[-1]
+    sar_indicator = PSARIndicator(
+        high=temp_df['High'],
+        low=temp_df['Low'],
+        close=temp_df['Close'],
+        step=step,
+        max_step=max_step
+    )
+    temp_df['PSAR'] = sar_indicator.psar()
+
     return temp_df
 
 
@@ -347,7 +357,8 @@ def calculate_latest_atr(df: pd.DataFrame, i: int, atr_window: int = 14, atr_mul
 #  Funzione che simula l'andamento in tempo reale del prezzo
 # ================================================
 @st.cache_data
-def simulate_candles(raw_df, atr_window:int=6, atr_multiplier:float=2):
+def simulate_candles(raw_df, atr_window: int = 6, atr_multiplier: float = 2, step: float = 0.01, max_step: float = 0.4,
+                     stop_loss_percent: float = 99.0):
     """
     raw_df: DataFrame con colonne ['Open', 'High', 'Low', 'Close', 'Volume']
     Altre parametri: come nel tuo add_technical_indicator.
@@ -361,10 +372,11 @@ def simulate_candles(raw_df, atr_window:int=6, atr_multiplier:float=2):
     buy_signals = []
     sell_signals = []
     holding = False
-    # got_stop_loss = False
-    # stop_loss_percent = (100 - stop_loss) / 100.0
-    # stop_loss_price = None
     last_signal_candle_index = -1  # inizialmente
+    # variabili per lo Stop Loss
+    stop_loss_price = None
+    got_stop_loss = False
+    stop_loss_decimal = stop_loss_percent / 100
 
     # Per evitare di ricalcolare da zero,
     # puoi calcolare UNA SOLA volta gli indicatori "storici" fino alla prima candela.
@@ -378,7 +390,7 @@ def simulate_candles(raw_df, atr_window:int=6, atr_multiplier:float=2):
         l = df['Low'].iloc[i]
         c = df['Close'].iloc[i]
 
-        n_steps = 12
+        n_steps = 10
         is_green = (c >= o)
 
         # Verifichiamo se è candela verde o rossa
@@ -393,18 +405,18 @@ def simulate_candles(raw_df, atr_window:int=6, atr_multiplier:float=2):
         prices_sequence = []
         if is_green:
             # Segmento 1: open -> low
-            segment1 = linspace_steps(o, l, n=int(n_steps/2))
+            segment1 = linspace_steps(o, l, n=int(n_steps / 2))
             # Segmento 2: low -> high
-            segment2 = linspace_steps(l, h, n=int(n_steps*2))
+            segment2 = linspace_steps(l, h, n=int(n_steps * 2))
             # Segmento 3: high -> close
-            segment3 = linspace_steps(h, c, n=int(n_steps/2))
+            segment3 = linspace_steps(h, c, n=int(n_steps / 2))
         else:
             # Segmento 1: open -> high
-            segment1 = linspace_steps(o, h, n=int(n_steps/2))
+            segment1 = linspace_steps(o, h, n=int(n_steps / 2))
             # Segmento 2: high -> low
-            segment2 = linspace_steps(h, l, n=int(n_steps*2))
+            segment2 = linspace_steps(h, l, n=int(n_steps * 2))
             # Segmento 3: low -> close
-            segment3 = linspace_steps(l, c, n=int(n_steps/2))
+            segment3 = linspace_steps(l, c, n=int(n_steps / 2))
         prices_sequence = list(segment1) + list(segment2) + list(segment3)
 
         # A questo punto abbiamo 3*9 = 27 prezzi intermedi,
@@ -427,7 +439,6 @@ def simulate_candles(raw_df, atr_window:int=6, atr_multiplier:float=2):
             # in modo che eventuali indicatori che usano 'High', 'Low'
             # vedano la candela 'per intero'.
 
-
             # Aggiorna i valori di High e Low dinamicamente
             if price > step_high:
                 step_high = price
@@ -443,22 +454,36 @@ def simulate_candles(raw_df, atr_window:int=6, atr_multiplier:float=2):
             temp_df.at[temp_df.index[i], 'Low'] = step_low
             temp_df.at[temp_df.index[i], 'Close'] = step_close
 
-            df_utile = calculate_latest_atr(i=i, df=temp_df, atr_window=atr_window, atr_multiplier=atr_multiplier)
-            # print(f"Iteration {i}: len(df_utile)={len(df_utile)}")
+            df_utile = calculate_latest_indicators(i=i, df=temp_df, atr_window=atr_window,
+                                                   atr_multiplier=atr_multiplier,
+                                                   step=step, max_step=max_step)
 
             row = df_utile.iloc[-1]
-            # print(f"Candela {i}, open={step_open}, high={step_high}, low={step_low}, close={step_close}")
-            # print(f"lower={row['Lower_Band']}, upper={row['Upper_Band']}")
-            if not holding and last_signal_candle_index != i and row['Lower_Band'] is not None and row['Close'] <= row['Lower_Band']:
+            # Condizione di BUY
+            if (not holding and last_signal_candle_index != i and
+                    row['Lower_Band'] is not None and row['Close'] <= row['Lower_Band'] and
+                    not (got_stop_loss and row['PSAR'] is not None and row['PSAR'] > row['Close'])):
                 buy_signals.append((df.index[i], float(row['Close'])))
                 holding = True
                 last_signal_candle_index = i
-
-                # Condizione di Sell
-            if holding and last_signal_candle_index != i and row['Upper_Band'] is not None and row['Close'] >= row['Upper_Band']:
+                got_stop_loss = False
+                stop_loss_price = float(row['Close']) * (1 - stop_loss_decimal)
+            # Condizione di SELL
+            if (holding and last_signal_candle_index != i and
+                    row['Upper_Band'] is not None and row['Close'] >= row['Upper_Band']):
                 sell_signals.append((df.index[i], float(row['Close'])))
                 holding = False
                 last_signal_candle_index = i
+                stop_loss_price = None
+                got_stop_loss = False
+            # Condizione STOP LOSS
+            if (holding and stop_loss_price is not None and row['Close'] < stop_loss_price and
+                    row['PSAR'] > row['Close']):
+                sell_signals.append((df.index[i], float(row['Close'])))
+                holding = False
+                last_signal_candle_index = i
+                got_stop_loss = True
+                stop_loss_price = None
 
     return buy_signals, sell_signals
 
@@ -527,10 +552,8 @@ def atr_buy_sell_simulation(df, stop_loss_percent):
     sell_signals = []
     holding = False
     last_signal_candle_index = -1
-    # stop_loss_percent = stop_loss  # %
     stop_loss_price = None
     got_stop_loss = False
-    # stop_loss_percent = (100 - stop_loss_percent) / 100
     stop_loss_decimal = stop_loss_percent / 100
 
     for i in range(1, len(df)):
@@ -547,10 +570,46 @@ def atr_buy_sell_simulation(df, stop_loss_percent):
             last_signal_candle_index = i
             stop_loss_price = None
             got_stop_loss = False
-        if holding and stop_loss_price is not None and df['Low'].iloc[i] < stop_loss_price and df['PSAR'].iloc[i] > \
-                df['Close'].iloc[i]:
+        if (holding and stop_loss_price is not None and df['Low'].iloc[i] < stop_loss_price and
+                df['PSAR'].iloc[i] > df['Close'].iloc[i]):
             # devo vendere per STOP LOSS
             sell_signals.append((df.index[i], stop_loss_price))
+            holding = False
+            last_signal_candle_index = i
+            got_stop_loss = True
+            stop_loss_price = None
+
+    return buy_signals, sell_signals
+
+
+def close_atr_buy_sell_simulation(df, stop_loss_percent):
+    # Identificazione dei segnali di acquisto e vendita
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    last_signal_candle_index = -1
+    stop_loss_price = None
+    got_stop_loss = False
+    stop_loss_decimal = stop_loss_percent / 100
+
+    for i in range(1, len(df)):
+        if (not holding and last_signal_candle_index != i and df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
+                and not (got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i])):
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+            last_signal_candle_index = i
+            got_stop_loss = False
+            stop_loss_price = float(df['Close'].iloc[i]) * (1 - stop_loss_decimal)
+        if holding and last_signal_candle_index != i and df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
+            last_signal_candle_index = i
+            stop_loss_price = None
+            got_stop_loss = False
+        if (holding and stop_loss_price is not None and df['Close'].iloc[i] < stop_loss_price and
+                df['PSAR'].iloc[i] > df['Close'].iloc[i]):
+            # devo vendere per STOP LOSS
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
             last_signal_candle_index = i
             got_stop_loss = True
@@ -566,7 +625,7 @@ def trading_analysis(
         time_hours: int = 24,
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
         show: bool = True,
-        step: float = 0.01,  max_step: float = 0.4,
+        step: float = 0.01, max_step: float = 0.4,
         atr_multiplier: float = 1.5, atr_window: int = 14,
         window_pivot: int = 10,
         rsi_window: int = 10,
@@ -664,6 +723,8 @@ def trading_analysis(
     sell_signals = []
     if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
         buy_signals, sell_signals = atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
+    if strategia == "ATR Close":
+        buy_signals, sell_signals = close_atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
     if strategia == "Buy/Sell Limits":
         buy_signals, sell_signals = (
             buy_sell_limits_simulation(df=df,
@@ -678,8 +739,8 @@ def trading_analysis(
                                        mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
                                        num_cond=num_cond))
     if strategia == "ATR Live Trade":
-        buy_signals, sell_signals = simulate_candles(raw_df=df, atr_window=atr_window, atr_multiplier=atr_multiplier)
-
+        buy_signals, sell_signals = simulate_candles(raw_df=df, atr_window=atr_window, atr_multiplier=atr_multiplier,
+                                                     step=step, max_step=max_step, stop_loss_percent=stop_loss)
 
     # valori_ottimi = []  # Lista per salvare i risultati
     # for item in rel_min:
@@ -1241,9 +1302,7 @@ def trading_analysis(
             'Quantity', 'Profit', 'Wallet_After'
         ])
 
-    print(f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, step={step}, max_step={max_step}, "
-          f"atr_multiplier={atr_multiplier}, atr_window={atr_window}, rsi_window={rsi_window}, "
-          f"rsi_buy_limit={rsi_buy_limit}, rsi_sell_limit={rsi_sell_limit}, "
+    print(f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, strategia: {strategia}, "
           f"profitto totale={round(trades_df['Profit'].sum())} USD")
 
     return fig, trades_df, actual_hours
@@ -1279,7 +1338,7 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=["Buy/Sell Limits", "ATR Bands", "Dinamic ATR Bands", "ATR Live Trade"],
+                                     options=["Buy/Sell Limits", "ATR Bands", "Dinamic ATR Bands","ATR Close", "ATR Live Trade"],
                                      index=0)
     col1, col2 = st.sidebar.columns(2)
     with col1:
@@ -1297,7 +1356,7 @@ if __name__ == "__main__":
                                          step=0.01)
         tsi_buy_limit = st.number_input(label="TSI Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
         roc_buy_limit = st.number_input(label="ROC Buy Limit", min_value=-50, max_value=50, value=-10, step=1)
-        ao_buy_limit = st.number_input(label="AO Buy Limit", min_value=-0.50, max_value=0.50, value=-0.10, step=0.01)
+        # ao_buy_limit = st.number_input(label="AO Buy Limit", min_value=-0.50, max_value=0.50, value=-0.10, step=0.01)
         pvo_buy_limit = st.number_input(label="PVO Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
         mfi_buy_limit = st.number_input(label="MFI Buy Limit", min_value=0, max_value=100, value=30, step=1)
         din_macd_div = st.number_input(label="Dinamic MACD Dividend", min_value=-10.0, max_value=10.0, value=1.2,
@@ -1317,7 +1376,7 @@ if __name__ == "__main__":
                                           step=0.01)
         tsi_sell_limit = st.number_input(label="TSI Sell Limit", min_value=-100, max_value=100, value=50, step=1)
         roc_sell_limit = st.number_input(label="ROC Sell Limit", min_value=-50, max_value=50, value=10, step=1)
-        ao_sell_limit = st.number_input(label="AO Sell Limit", min_value=-0.50, max_value=0.50, value=0.10, step=0.01)
+        # ao_sell_limit = st.number_input(label="AO Sell Limit", min_value=-0.50, max_value=0.50, value=0.10, step=0.01)
         pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-100, max_value=100, value=50, step=1)
         mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=0, max_value=100, value=70, step=1)
         din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=1000.0, value=12.0,
@@ -1361,8 +1420,9 @@ if __name__ == "__main__":
             fee_percent=0.1,  # %
             atr_multiplier=atr_multiplier, atr_window=atr_window,
             window_pivot=window_pivot, rsi_window=rsi_window,
-            macd_short_window=macd_short_window, macd_long_window=macd_long_window, macd_signal_window=macd_signal_window,
-            rsi_buy_limit=rsi_buy_limit,rsi_sell_limit=rsi_sell_limit,
+            macd_short_window=macd_short_window, macd_long_window=macd_long_window,
+            macd_signal_window=macd_signal_window,
+            rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
             macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
             vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit,
             psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit,
