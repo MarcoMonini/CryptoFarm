@@ -290,10 +290,10 @@ if __name__ == "__main__":
     # din_roc_divs = [12, 13, 14, 15]
     assets = ["AMPUSDT"]
     atr_windows = [4, 5, 6]
-    atr_multipliers = [0.35, 0.4, 0.45, 0.5, 0.55, 0.6]
+    atr_multipliers = [0.6, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2.2]
     # din_macd_divs = [1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3]
-    steps = [0.01, 0.012, 0.015]
-    stop_loss_percents = [0.1, 0.2, 99]
+    steps = [0.01]
+    stop_loss_percents = [2.9, 99]
 
     dati = download_market_data(assets, intervals, hours)
     simulazioni = run_simulation(wallet=wallet,

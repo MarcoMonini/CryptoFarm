@@ -220,7 +220,7 @@ def trading_analysis_opt(
         df = market_data
         actual_hours = candlestick_minutes * len(df) / 60
 
-    dinamic_atr = True
+    dinamic_atr = False
     df = add_technical_indicator_opt(df,
                                  step=step,
                                  max_step=max_step,
@@ -243,26 +243,26 @@ def trading_analysis_opt(
     last_signal_candle_index = 0
     stop_loss_price = None
     got_stop_loss = False
-    stop_loss_percent = (100 - stop_loss) / 100
+    stop_loss_decimal = stop_loss / 100
 
     for i in range(1, len(df)):
-        if (not holding and last_signal_candle_index != i and df['Low'].iloc[i] < df['Lower_Band'].iloc[i]
+        if (not holding and last_signal_candle_index != i and df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
                 and not (got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i])):
-            buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
             last_signal_candle_index = i
             got_stop_loss = False
-            stop_loss_price = df['Lower_Band'].iloc[i] * stop_loss_percent
-        if holding and last_signal_candle_index != i and df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-            sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+            stop_loss_price = float(df['Close'].iloc[i]) * (1 - stop_loss_decimal)
+        if holding and last_signal_candle_index != i and df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
             last_signal_candle_index = i
             stop_loss_price = None
             got_stop_loss = False
-        if (holding and stop_loss_price is not None and df['Low'].iloc[i] <= stop_loss_price
+        if (holding and stop_loss_price is not None and df['Close'].iloc[i] < stop_loss_price
                 and df['PSAR'].iloc[i] > df['Close'].iloc[i]):
             # devo vendere per STOP LOSS
-            sell_signals.append((df.index[i], stop_loss_price))
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
             last_signal_candle_index = i
             got_stop_loss = True
@@ -350,7 +350,7 @@ def trading_analysis_opt(
     #       f"vi_buy_limit = {vi_buy_limit}, vi_sell_limit = {vi_sell_limit}, "
     #       f"sarvp_buy_limit = {psarvp_buy_limit}, psarvp_sell_limit = {psarvp_sell_limit}")
     print(f"{wallet} su {asset}, profitto totale={round(trades_df['Profit'].sum())},"
-          f"atr_window={atr_window}, macd_dividend={din_macd_div}, stop_loss={stop_loss}")
+          f"atr_window={atr_window}, atr_multiplier={atr_multiplier}, stop_loss={stop_loss}")
 
     return trades_df, actual_hours
 

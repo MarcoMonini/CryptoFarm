@@ -259,17 +259,13 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
 
     # Rolling ATR Bands
     if dinamic_atr:
-        macd_factor = (0.5 + df_copy['MACD'].abs()) / din_macd_div
-        # roc_factor = (10 + df_copy['ROC'].abs()) / din_roc_div
-        # Calcolo un fattore finale, riga per riga:
-        # dyn_factor = macd_factor * roc_factor  # Questa è una Serie
-        df_copy['ATR_Multiplier'] = macd_factor
+        # dipende dal macd
+        atr_multiplier = (0.5 + df_copy['MACD'].abs()) / din_macd_div
+        # df_copy['Upper_Band'] = df_copy['SMA'] + macd_factor * df_copy['ATR']
+        # df_copy['Lower_Band'] = df_copy['SMA'] - macd_factor * df_copy['ATR']
 
-        df_copy['Upper_Band'] = df_copy['SMA'] + df_copy['ATR_Multiplier'] * df_copy['ATR']
-        df_copy['Lower_Band'] = df_copy['SMA'] - df_copy['ATR_Multiplier'] * df_copy['ATR']
-    else:
-        df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
-        df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+    df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
+    df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
 
     # ROC
     roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
@@ -708,7 +704,7 @@ def trading_analysis(
         rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
 
     dinamic_atr = False
-    if strategia == "Dinamic ATR Bands":
+    if strategia == "Dinamic ATR Bands" or strategia == "Dinamic ATR Close":
         dinamic_atr = True
 
     df = add_technical_indicator(df, step=step, max_step=max_step, rsi_window=rsi_window,
@@ -723,7 +719,7 @@ def trading_analysis(
     sell_signals = []
     if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
         buy_signals, sell_signals = atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
-    if strategia == "ATR Close":
+    if strategia == "ATR Close" or strategia == "Dinamic ATR Close":
         buy_signals, sell_signals = close_atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
     if strategia == "Buy/Sell Limits":
         buy_signals, sell_signals = (
@@ -1338,7 +1334,8 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=["Buy/Sell Limits", "ATR Bands", "Dinamic ATR Bands","ATR Close", "ATR Live Trade"],
+                                     options=["Buy/Sell Limits", "ATR Bands", "Dinamic ATR Bands","ATR Close",
+                                              "Dinamic ATR Close", "ATR Live Trade"],
                                      index=0)
     col1, col2 = st.sidebar.columns(2)
     with col1:

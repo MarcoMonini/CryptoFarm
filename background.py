@@ -1,7 +1,7 @@
 from binance import ThreadedWebsocketManager, Client
 import pandas as pd
 from ta.volatility import AverageTrueRange
-from ta.momentum import RSIIndicator
+# from ta.momentum import RSIIndicator
 from ta.trend import MACD, SMAIndicator, PSARIndicator, VortexIndicator
 import time
 import queue
@@ -48,7 +48,7 @@ def print_user_and_wallet_info(client: Client):
 def fetch_initial_candles(client: Client, symbol: str, interval: str) -> pd.DataFrame:
     print("Fetching initial candles...")
     try:
-        klines = client.get_klines(symbol=symbol, interval=interval, limit=50)
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=90)
         candles = []
         for kline in klines:
             candles.append({
@@ -103,7 +103,8 @@ def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str
             }
             if kline["x"]:
                 print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
-            data_queue.put(data)
+                # aggiungo alla coda solo se la candela si è chiusa
+                data_queue.put(data)
 
     while not stop_event.is_set():
         # Se lo socket non è attivo (ad esempio perché è il primo giro o dopo una disconnessione), lo avviamo
@@ -171,7 +172,8 @@ def add_technical_indicator(df,
                             # rsi_window: int = 6,
                             ):
     df_copy = df.copy()
-    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
+
+    # PSAR
     sar_indicator = PSARIndicator(
         high=df_copy['High'],
         low=df_copy['Low'],
@@ -180,19 +182,6 @@ def add_technical_indicator(df,
         max_step=max_step
     )
     df_copy['PSAR'] = sar_indicator.psar()
-    # df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
-
-    # MACD
-    # macd_indicator = MACD(
-    #     close=df_copy['Close'],
-    #     window_slow=macd_long_window,
-    #     window_fast=macd_short_window,
-    #     window_sign=macd_signal_window
-    # )
-    # Aggiungere le colonne del MACD al DataFrame
-    # macd = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
-    # Calcolo del MACD normalizzato come percentuale del prezzo
-    # df_copy['MACD'] = macd / df_copy['Close'] * 100  # normalizzato
 
     # ATR
     atr_indicator = AverageTrueRange(
@@ -203,32 +192,13 @@ def add_technical_indicator(df,
     )
     df_copy['ATR'] = atr_indicator.average_true_range()
 
-    # SMA (Media Mobile per le Rolling ATR Bands)
+    # SMA
     sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
     df_copy['SMA'] = sma_indicator.sma_indicator()
-    # macd_factor = (0.5 + df_copy['MACD'].abs()) / band_macd_div
+
     # Rolling ATR Bands
-    # df_copy['Upper_Band'] = df_copy['SMA'] + macd_factor * df_copy['ATR']
-    # df_copy['Lower_Band'] = df_copy['SMA'] - macd_factor * df_copy['ATR']
     df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
     df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
-
-    # Calcolo dell'RSI
-    # rsi_indicator = RSIIndicator(
-    #     close=df_copy['Close'],
-    #     window=rsi_window
-    # )
-    # df_copy['RSI'] = rsi_indicator.rsi()
-
-    # Vortex Indicator
-    # vi = VortexIndicator(
-    #     high=df_copy['High'],
-    #     low=df_copy['Low'],
-    #     close=df_copy['Close'],
-    #     window=rsi_window)
-    # vip = vi.vortex_indicator_pos()
-    # vim = vi.vortex_indicator_neg()
-    # df_copy['VI'] = vip - vim
 
     return df_copy
 
@@ -365,10 +335,10 @@ interval = os.getenv("CANDLES_TIME", "15m")
 step = float(os.getenv("PSAR_STEP", 0.01))
 max_step = float(os.getenv("PSAR_MAX_STEP", 0.4))
 atr_window = int(os.getenv("ATR_WINDOW", 5))
-atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 0.5))
+atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 1.6))
 stop_loss_percent = float(os.getenv("STOP_LOSS", 99.0))
 
-stop_loss_percent = (100 - stop_loss_percent) / 100
+stop_loss_decimal = stop_loss_percent / 100
 
 # macd_long_window = int(os.getenv("MACD_LONG_WINDOW", 26))
 # macd_short_window = int(os.getenv("MACD_SHORT_WINDOW", 12))
@@ -499,7 +469,7 @@ while True:
                 last_signal_candle_time = current_candle_time
                 holding = True
                 got_stop_loss = False
-                stop_loss_price = current_candle_price * stop_loss_percent
+                stop_loss_price = current_candle_price * (1 - stop_loss_decimal)
                 print(Style.BRIGHT + f"BUY Order Completed, holding: {holding}")
 
         if holding and current_candle_price >= df_copy['Upper_Band'].iloc[i]:
@@ -520,6 +490,8 @@ while True:
                 got_stop_loss = True
                 stop_loss_price = None
                 print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
+        
+    time.sleep(1)
 
 time.sleep(1)
 print(Style.BRIGHT + Fore.RED + "Job terminato.")
