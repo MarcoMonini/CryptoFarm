@@ -496,8 +496,8 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
     for i in range(1, len(df)):
         # CONDIZIONI DI BUY
         cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
-        cond_buy_macd2 = 1 if df['MACD'].iloc[i] > df['MACD'].tail(
-            10).min() else 0  # il MACD ha invertito direzione
+        # cond_buy_macd2 = 1 if df['MACD'].iloc[i] > df['MACD'].tail(
+        #     10).min() else 0  # il MACD ha invertito direzione
         cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
         cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
         cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
@@ -508,7 +508,7 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
         cond_buy_pvo = 1 if df['PVO'].iloc[i] <= pvo_buy_limit else 0
         cond_buy_mfi = 1 if df['MFI'].iloc[i] <= mfi_buy_limit else 0
         sum_buy = (
-                cond_buy_macd + cond_buy_macd2 + cond_buy_rsi + cond_buy_vi + cond_buy_psarvp + cond_buy_atr + cond_buy_srsi +
+                cond_buy_macd + cond_buy_rsi + cond_buy_vi + cond_buy_psarvp + cond_buy_atr + cond_buy_srsi +
                 cond_buy_tsi + cond_buy_roc + cond_buy_pvo + cond_buy_mfi)
         if not holding and sum_buy >= num_cond:
             if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
@@ -518,8 +518,8 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
             holding = True
         # CONDIZIONI DI SELL
         cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
-        cond_sell_macd2 = 1 if df['MACD'].iloc[i] < df['MACD'].tail(
-            10).max() else 0  # il MACD ha invertito direzione
+        # cond_sell_macd2 = 1 if df['MACD'].iloc[i] < df['MACD'].tail(
+        #    10).max() else 0  # il MACD ha invertito direzione
         cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
         cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
         cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
@@ -530,7 +530,7 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
         cond_sell_pvo = 1 if df['PVO'].iloc[i] >= pvo_sell_limit else 0
         cond_sell_mfi = 1 if df['MFI'].iloc[i] >= mfi_sell_limit else 0
         sum_sell = (
-                cond_sell_macd + cond_sell_macd2 + cond_sell_rsi + cond_sell_vi + cond_sell_psavp + cond_sell_atr +
+                cond_sell_macd + cond_sell_rsi + cond_sell_vi + cond_sell_psavp + cond_sell_atr +
                 cond_sell_srsi + cond_sell_tsi + cond_sell_roc + cond_sell_pvo + cond_sell_mfi)
         if holding and sum_sell >= num_cond:
             if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
@@ -541,6 +541,56 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
 
     return buy_signals, sell_signals
 
+def buy_sell_limits_close_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limit, rsi_sell_limit,
+                               vi_buy_limit, vi_sell_limit, psarvp_buy_limit, psarvp_sell_limit,
+                               srsi_buy_limit, srsi_sell_limit, tsi_buy_limit, tsi_sell_limit,
+                               roc_buy_limit, roc_sell_limit, pvo_buy_limit, pvo_sell_limit,
+                               mfi_buy_limit, mfi_sell_limit, num_cond, stop_loss_percent):
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    last_signal_candle_index = -1
+    stop_loss_price = None
+    got_stop_loss = False
+    stop_loss_decimal = stop_loss_percent / 100
+
+    for i in range(1, len(df)):
+        # CONDIZIONI DI BUY
+        cond_buy_atr = 1 if df['Close'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
+        cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
+        cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
+        cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
+        cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
+        cond_buy_srsi = 1 if df['StochRSI'].iloc[i] <= srsi_buy_limit else 0
+        cond_buy_tsi = 1 if df['TSI'].iloc[i] <= tsi_buy_limit else 0
+        cond_buy_roc = 1 if df['ROC'].iloc[i] <= roc_buy_limit else 0
+        cond_buy_pvo = 1 if df['PVO'].iloc[i] <= pvo_buy_limit else 0
+        cond_buy_mfi = 1 if df['MFI'].iloc[i] <= mfi_buy_limit else 0
+        sum_buy = (cond_buy_macd + cond_buy_rsi + cond_buy_vi + cond_buy_psarvp + cond_buy_atr + cond_buy_srsi +
+                cond_buy_tsi + cond_buy_roc + cond_buy_pvo + cond_buy_mfi)
+        if not holding and last_signal_candle_index != i and sum_buy >= num_cond:
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+            last_signal_candle_index = i
+        # CONDIZIONI DI SELL
+        cond_sell_atr = 1 if df['Close'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
+        cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
+        cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
+        cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
+        cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
+        cond_sell_srsi = 1 if df['StochRSI'].iloc[i] >= srsi_sell_limit else 0
+        cond_sell_tsi = 1 if df['TSI'].iloc[i] >= tsi_sell_limit else 0
+        cond_sell_roc = 1 if df['ROC'].iloc[i] >= roc_sell_limit else 0
+        cond_sell_pvo = 1 if df['PVO'].iloc[i] >= pvo_sell_limit else 0
+        cond_sell_mfi = 1 if df['MFI'].iloc[i] >= mfi_sell_limit else 0
+        sum_sell = (cond_sell_macd + cond_sell_rsi + cond_sell_vi + cond_sell_psavp + cond_sell_atr +
+                cond_sell_srsi + cond_sell_tsi + cond_sell_roc + cond_sell_pvo + cond_sell_mfi)
+        if holding and last_signal_candle_index != i and sum_sell >= num_cond:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
+            last_signal_candle_index = i
+
+    return buy_signals, sell_signals
 
 def atr_buy_sell_simulation(df, stop_loss_percent):
     # Identificazione dei segnali di acquisto e vendita
@@ -704,7 +754,7 @@ def trading_analysis(
         rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
 
     dinamic_atr = False
-    if strategia == "Dinamic ATR Bands" or strategia == "Dinamic ATR Close":
+    if strategia == "Dinamic ATR Bands" or strategia == "Dinamic Close ATR":
         dinamic_atr = True
 
     df = add_technical_indicator(df, step=step, max_step=max_step, rsi_window=rsi_window,
@@ -717,9 +767,10 @@ def trading_analysis(
     # Identificazione dei segnali di acquisto e vendita in base alla strategia
     buy_signals = []
     sell_signals = []
+
     if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
         buy_signals, sell_signals = atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
-    if strategia == "ATR Close" or strategia == "Dinamic ATR Close":
+    if strategia == "Close ATR" or strategia == "Dinamic Close ATR":
         buy_signals, sell_signals = close_atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
     if strategia == "Buy/Sell Limits":
         buy_signals, sell_signals = (
@@ -734,6 +785,20 @@ def trading_analysis(
                                        pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit,
                                        mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
                                        num_cond=num_cond))
+    if strategia == "Close Buy/Sell Limits":
+        buy_signals, sell_signals = (
+            buy_sell_limits_close_simulation(df=df,
+                                       macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
+                                       rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
+                                       vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit,
+                                       psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit,
+                                       srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit,
+                                       tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit,
+                                       roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit,
+                                       pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit,
+                                       mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
+                                       num_cond=num_cond, stop_loss_percent=stop_loss))
+
     if strategia == "ATR Live Trade":
         buy_signals, sell_signals = simulate_candles(raw_df=df, atr_window=atr_window, atr_multiplier=atr_multiplier,
                                                      step=step, max_step=max_step, stop_loss_percent=stop_loss)
@@ -1334,53 +1399,54 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=["Buy/Sell Limits", "ATR Bands", "Dinamic ATR Bands","ATR Close",
-                                              "Dinamic ATR Close", "ATR Live Trade"],
+                                     options=["Buy/Sell Limits", "Close Buy/Sell Limits", "ATR Bands",
+                                              "Close ATR", "Dinamic ATR Bands", "Dinamic Close ATR",
+                                              "ATR Live Trade"],
                                      index=0)
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.001, step=0.001,
+        step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.01, step=0.001,
                                format="%.3f")
-        atr_multiplier = st.number_input(label="ATR Multiplier", min_value=0.1, max_value=5.0, value=2.4, step=0.1)
+        atr_multiplier = st.number_input(label="ATR Multiplier", min_value=0.1, max_value=5.0, value=1.6, step=0.1)
         rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=12, step=1)
-        rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=1, max_value=99, value=25, step=1)
-        macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-0.66,
+        rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=0, max_value=100, value=25, step=1)
+        macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-2.5, #value=-0.66,
                                          step=0.01)
-        vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, value=-0.82, step=0.01)
-        psarvp_buy_limit = st.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=1.08,
+        vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, step=0.01, value=-2.0) # value=-0.82
+        psarvp_buy_limit = st.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=2.0, #value=1.08
                                            step=0.01)
-        srsi_buy_limit = st.number_input(label="StochasticRSI Buy Limit", min_value=0.00, max_value=1.00, value=0.01,
+        srsi_buy_limit = st.number_input(label="StochasticRSI Buy Limit", min_value=-1.00, max_value=1.00, value=-0.01,
                                          step=0.01)
-        tsi_buy_limit = st.number_input(label="TSI Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
-        roc_buy_limit = st.number_input(label="ROC Buy Limit", min_value=-50, max_value=50, value=-10, step=1)
+        tsi_buy_limit = st.number_input(label="TSI Buy Limit", min_value=-100, max_value=100, value=-100, step=1)
+        roc_buy_limit = st.number_input(label="ROC Buy Limit", min_value=-100, max_value=100, value=-80, step=1)
         # ao_buy_limit = st.number_input(label="AO Buy Limit", min_value=-0.50, max_value=0.50, value=-0.10, step=0.01)
-        pvo_buy_limit = st.number_input(label="PVO Buy Limit", min_value=-100, max_value=100, value=-50, step=1)
-        mfi_buy_limit = st.number_input(label="MFI Buy Limit", min_value=0, max_value=100, value=30, step=1)
+        pvo_buy_limit = st.number_input(label="PVO Buy Limit", min_value=-110, max_value=110, value=-110, step=1)
+        mfi_buy_limit = st.number_input(label="MFI Buy Limit", min_value=-100, max_value=200, value=-10, step=1)
         din_macd_div = st.number_input(label="Dinamic MACD Dividend", min_value=-10.0, max_value=10.0, value=1.2,
                                        step=0.1)
 
     with col2:
         max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
-        atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=6, step=1)
+        atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=5, step=1)
         window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=100, step=2)
-        rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=1, max_value=99, value=75, step=1)
-        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=0.66,
+        rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=0, max_value=100, value=75, step=1)
+        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=2.5, #value=0.66,
                                           step=0.01)
-        vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, value=0.82, step=0.01)
-        psarvp_sell_limit = st.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0, value=0.92,
+        vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0,  step=0.01,value=2.0)# value=0.82
+        psarvp_sell_limit = st.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0,value=0.0, # value=0.92,
                                             step=0.01)
-        srsi_sell_limit = st.number_input(label="StochasticRSI Sell Limit", min_value=0.00, max_value=1.00, value=0.99,
+        srsi_sell_limit = st.number_input(label="StochasticRSI Sell Limit", min_value=-1.00, max_value=2.00, value=1.01,
                                           step=0.01)
-        tsi_sell_limit = st.number_input(label="TSI Sell Limit", min_value=-100, max_value=100, value=50, step=1)
-        roc_sell_limit = st.number_input(label="ROC Sell Limit", min_value=-50, max_value=50, value=10, step=1)
+        tsi_sell_limit = st.number_input(label="TSI Sell Limit", min_value=-100, max_value=100, value=100, step=1)
+        roc_sell_limit = st.number_input(label="ROC Sell Limit", min_value=-100, max_value=100, value=80, step=1)
         # ao_sell_limit = st.number_input(label="AO Sell Limit", min_value=-0.50, max_value=0.50, value=0.10, step=0.01)
-        pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-100, max_value=100, value=50, step=1)
-        mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=0, max_value=100, value=70, step=1)
+        pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-110, max_value=110, value=110, step=1)
+        mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=-100, max_value=200, value=110, step=1)
         din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=1000.0, value=12.0,
                                       step=1.0)
 
     col1, col2 = st.sidebar.columns(2)
-    num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=2, step=1)
+    num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=1, step=1)
     stop_loss = col2.number_input(label="Stop Loss %", min_value=0.1, max_value=100.0, value=99.0, step=1.0)
 
     col1, col2, col3 = st.sidebar.columns(3)
@@ -1419,15 +1485,15 @@ if __name__ == "__main__":
             window_pivot=window_pivot, rsi_window=rsi_window,
             macd_short_window=macd_short_window, macd_long_window=macd_long_window,
             macd_signal_window=macd_signal_window,
-            rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
-            macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
-            vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit,
-            psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit,
-            srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit,
-            tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit,
-            roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit,
-            pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit,
-            mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
+            rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit, # OK
+            macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit, # NO, DA TOGLIERE
+            vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit, # NO, DA TOGLIERE
+            psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit, # NO, DA TOGLIERE
+            srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit, # NO, DA TOGLIERE
+            tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit, # NO, DA TOGLIERE
+            roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit, # NO, DA TOGLIERE
+            pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit, # NO, DA TOGLIERE
+            mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit, # NO, DA TOGLIERE
             num_cond=num_cond,
             stop_loss=stop_loss,
             strategia=strategia,

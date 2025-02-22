@@ -490,7 +490,7 @@ while True:
                 got_stop_loss = True
                 stop_loss_price = None
                 print(Style.BRIGHT + f"SELL Order Completed, holding: {holding}")
-        
+
     time.sleep(1)
 
 time.sleep(1)
