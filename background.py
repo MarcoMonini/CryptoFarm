@@ -449,8 +449,8 @@ while True:
         sum_buy = cond_atr_buy + cond_rsi_buy
         if not holding and sum_buy >= num_cond:
             # procedo all'acquisto
-            print(
-                Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} and price {current_candle_price}")
+            print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} "
+                                              f"and price {current_candle_price}")
             response = proceed_buy(client=client, asset=asset, symbol=symbol, currency=currency,
                                    current_candle_price=current_candle_price)
             if response:
@@ -463,8 +463,10 @@ while True:
         sum_sell = cond_atr_sell + cond_rsi_sell
         if not holding and sum_sell >= num_cond:
             # procedo alla vendita
-            print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} and price {current_candle_price}")
-            response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency, current_candle_price=current_candle_price)
+            print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} "
+                                            f"and price {current_candle_price}")
+            response = proceed_sell(client=client, asset=asset, symbol=symbol, currency=currency,
+                                    current_candle_price=current_candle_price)
             if response:
                 last_signal_candle_time = current_candle_time
                 holding = False
