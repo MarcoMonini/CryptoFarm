@@ -208,7 +208,7 @@ def adjust_quantity(quantity, min_qty, max_qty, step_size):
         float: Quantità regolata per rispettare i parametri.
     """
     # Assicurati che la quantità sia all'interno dei limiti
-    print("adjust quantity", quantity, min_qty, max_qty, step_size)
+    # print("adjust quantity", quantity, min_qty, max_qty, step_size)
     if quantity < min_qty:
         return 0.0  # Non abbastanza per effettuare un ordine
     if quantity > max_qty:
