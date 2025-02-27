@@ -1432,7 +1432,7 @@ if __name__ == "__main__":
     macd_signal_window = col3.number_input(label="MACD Signal", min_value=0, max_value=100, value=9, step=1)
 
     col1, col2 = st.sidebar.columns(2)
-    window_pivot = col1.number_input(label="Min-Max Window", min_value=2, max_value=500, value=100, step=2)
+    window_pivot = st.sidebar.number_input(label="Min-Max Window", min_value=2, max_value=500, value=100, step=2)
 
     rsi_buy_limit = col1.number_input(label="RSI Buy limit", min_value=0, max_value=100, value=25, step=1)
     rsi_sell_limit = col2.number_input(label="RSI Sell limit", min_value=0, max_value=100, value=75, step=1)
