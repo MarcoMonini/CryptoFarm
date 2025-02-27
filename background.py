@@ -474,5 +474,3 @@ while True:
 
     time.sleep(1)
 
-time.sleep(1)
-print(Style.BRIGHT + Fore.RED + "Job terminato.")

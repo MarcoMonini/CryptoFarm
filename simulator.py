@@ -202,7 +202,7 @@ def download_market_data(assets: list, intervals: list, hours: int):
 
 @st.cache_data
 def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window,
-                            atr_window, atr_multiplier, dinamic_atr: bool = False,
+                            sma_window,atr_window, atr_multiplier, dinamic_atr: bool = False,
                             din_macd_div: float = 1.2):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
@@ -254,7 +254,7 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     df_copy['ATR'] = atr_indicator.average_true_range()
 
     # SMA (Media Mobile per le Rolling ATR Bands)
-    sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
+    sma_indicator = SMAIndicator(close=df_copy['Close'], window=sma_window)
     df_copy['SMA'] = sma_indicator.sma_indicator()
 
     # Rolling ATR Bands
@@ -672,7 +672,7 @@ def trading_analysis(
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
         show: bool = True,
         step: float = 0.01, max_step: float = 0.4,
-        atr_multiplier: float = 1.5, atr_window: int = 14,
+        atr_multiplier: float = 1.5, atr_window: int = 12, sma_window: int = 12,
         window_pivot: int = 10,
         rsi_window: int = 10,
         macd_short_window: int = 12, macd_long_window: int = 26, macd_signal_window: int = 9,
@@ -757,7 +757,7 @@ def trading_analysis(
     if strategia == "Dinamic ATR Bands" or strategia == "Dinamic Close ATR":
         dinamic_atr = True
 
-    df = add_technical_indicator(df, step=step, max_step=max_step, rsi_window=rsi_window,
+    df = add_technical_indicator(df, step=step, max_step=max_step, rsi_window=rsi_window, sma_window=sma_window,
                                  macd_long_window=macd_long_window, macd_short_window=macd_short_window,
                                  macd_signal_window=macd_signal_window,
                                  atr_window=atr_window, atr_multiplier=atr_multiplier, dinamic_atr=dinamic_atr,
@@ -943,6 +943,17 @@ def trading_analysis(
         ),
             row=index, col=1
         )
+
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['SMA'],
+            mode='lines',
+            line=dict(color='blue', width=1, dash='dash'),
+            name='SMA'
+        ),
+            row=index, col=1
+        )
+
         # # Massimi relativi
         # if rel_max:
         #     max_times, max_prices = zip(*rel_max)
@@ -1403,51 +1414,17 @@ if __name__ == "__main__":
                                               "Close ATR", "Dinamic ATR Bands", "Dinamic Close ATR",
                                               "ATR Live Trade"],
                                      index=0)
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        step = st.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.01, step=0.001,
-                               format="%.3f")
-        atr_multiplier = st.number_input(label="ATR Multiplier", min_value=0.1, max_value=5.0, value=1.6, step=0.1)
-        rsi_window = st.number_input(label="RSI Window", min_value=2, max_value=500, value=12, step=1)
-        rsi_buy_limit = st.number_input(label="RSI Buy limit", min_value=0, max_value=100, value=25, step=1)
-        macd_buy_limit = st.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-2.5, #value=-0.66,
-                                         step=0.01)
-        vi_buy_limit = st.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, step=0.01, value=-2.0) # value=-0.82
-        psarvp_buy_limit = st.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=2.0, #value=1.08
-                                           step=0.01)
-        srsi_buy_limit = st.number_input(label="StochasticRSI Buy Limit", min_value=-1.00, max_value=1.00, value=-0.01,
-                                         step=0.01)
-        tsi_buy_limit = st.number_input(label="TSI Buy Limit", min_value=-100, max_value=100, value=-100, step=1)
-        roc_buy_limit = st.number_input(label="ROC Buy Limit", min_value=-100, max_value=100, value=-80, step=1)
-        # ao_buy_limit = st.number_input(label="AO Buy Limit", min_value=-0.50, max_value=0.50, value=-0.10, step=0.01)
-        pvo_buy_limit = st.number_input(label="PVO Buy Limit", min_value=-110, max_value=110, value=-110, step=1)
-        mfi_buy_limit = st.number_input(label="MFI Buy Limit", min_value=-100, max_value=200, value=-10, step=1)
-        din_macd_div = st.number_input(label="Dinamic MACD Dividend", min_value=-10.0, max_value=10.0, value=1.2,
-                                       step=0.1)
-
-    with col2:
-        max_step = st.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
-        atr_window = st.number_input(label="ATR Window", min_value=1, max_value=100, value=5, step=1)
-        window_pivot = st.number_input(label="Min-Max Window", min_value=2, max_value=500, value=100, step=2)
-        rsi_sell_limit = st.number_input(label="RSI Sell limit", min_value=0, max_value=100, value=75, step=1)
-        macd_sell_limit = st.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=2.5, #value=0.66,
-                                          step=0.01)
-        vi_sell_limit = st.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0,  step=0.01,value=2.0)# value=0.82
-        psarvp_sell_limit = st.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0,value=0.0, # value=0.92,
-                                            step=0.01)
-        srsi_sell_limit = st.number_input(label="StochasticRSI Sell Limit", min_value=-1.00, max_value=2.00, value=1.01,
-                                          step=0.01)
-        tsi_sell_limit = st.number_input(label="TSI Sell Limit", min_value=-100, max_value=100, value=100, step=1)
-        roc_sell_limit = st.number_input(label="ROC Sell Limit", min_value=-100, max_value=100, value=80, step=1)
-        # ao_sell_limit = st.number_input(label="AO Sell Limit", min_value=-0.50, max_value=0.50, value=0.10, step=0.01)
-        pvo_sell_limit = st.number_input(label="PVO Sell Limit", min_value=-110, max_value=110, value=110, step=1)
-        mfi_sell_limit = st.number_input(label="MFI Sell Limit", min_value=-100, max_value=200, value=110, step=1)
-        din_roc_div = st.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=1000.0, value=12.0,
-                                      step=1.0)
+    if st.sidebar.button("SIMULATE"):
+        st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
 
     col1, col2 = st.sidebar.columns(2)
-    num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=1, step=1)
-    stop_loss = col2.number_input(label="Stop Loss %", min_value=0.1, max_value=100.0, value=99.0, step=1.0)
+
+    step = col1.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.01, step=0.001, format="%.3f")
+    max_step = col2.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
+    atr_multiplier = col1.number_input(label="ATR Multiplier", min_value=0.1, max_value=5.0, value=1.6, step=0.1)
+    atr_window = col2.number_input(label="ATR Window", min_value=1, max_value=100, value=5, step=1)
+    rsi_window = col1.number_input(label="RSI Window", min_value=2, max_value=500, value=12, step=1)
+    sma_window = col2.number_input(label="SMA Window", min_value=1, max_value=500, value=12, step=1)
 
     col1, col2, col3 = st.sidebar.columns(3)
     macd_short_window = col1.number_input(label="MACD Short", min_value=0, max_value=100, value=12, step=1)
@@ -1455,12 +1432,48 @@ if __name__ == "__main__":
     macd_signal_window = col3.number_input(label="MACD Signal", min_value=0, max_value=100, value=9, step=1)
 
     col1, col2 = st.sidebar.columns(2)
+    window_pivot = col1.number_input(label="Min-Max Window", min_value=2, max_value=500, value=100, step=2)
 
-    if col1.button("SIMULATE"):
-        st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
+    rsi_buy_limit = col1.number_input(label="RSI Buy limit", min_value=0, max_value=100, value=25, step=1)
+    rsi_sell_limit = col2.number_input(label="RSI Sell limit", min_value=0, max_value=100, value=75, step=1)
+
+    macd_buy_limit = col1.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-2.5, # value=-0.66,
+                                      step=0.01)
+    macd_sell_limit = col2.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=2.5, # value=0.66,
+                                      step=0.01)
+
+    vi_buy_limit = col1.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, step=0.01,
+                                   value=-2.0)  # value=-0.82
+    vi_sell_limit = col2.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, step=0.01,
+                                    value=2.0)  # value=0.82
+
+    psarvp_buy_limit = col1.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=2.0, # value=1.08
+                                       step=0.01)
+    psarvp_sell_limit = col2.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0, value=0.0, # value=0.92,
+                                        step=0.01)
+
+    srsi_buy_limit = col1.number_input(label="StochasticRSI Buy Limit", min_value=-1.00, max_value=1.00, value=-0.01,
+                                     step=0.01)
+    srsi_sell_limit = col2.number_input(label="StochasticRSI Sell Limit", min_value=-1.00, max_value=2.00, value=1.01,
+                                      step=0.01)
+    tsi_buy_limit = col1.number_input(label="TSI Buy Limit", min_value=-100, max_value=100, value=-100, step=1)
+    tsi_sell_limit = col2.number_input(label="TSI Sell Limit", min_value=-100, max_value=100, value=100, step=1)
+    roc_buy_limit = col1.number_input(label="ROC Buy Limit", min_value=-100, max_value=100, value=-80, step=1)
+    roc_sell_limit = col2.number_input(label="ROC Sell Limit", min_value=-100, max_value=100, value=80, step=1)
+    pvo_buy_limit = col1.number_input(label="PVO Buy Limit", min_value=-110, max_value=110, value=-110, step=1)
+    pvo_sell_limit = col2.number_input(label="PVO Sell Limit", min_value=-110, max_value=110, value=110, step=1)
+    mfi_buy_limit = col1.number_input(label="MFI Buy Limit", min_value=-100, max_value=200, value=-10, step=1)
+    mfi_sell_limit = col2.number_input(label="MFI Sell Limit", min_value=-100, max_value=200, value=110, step=1)
+    din_macd_div = col1.number_input(label="Dinamic MACD Dividend", min_value=-10.0, max_value=10.0, value=1.2,
+                                   step=0.1)
+    din_roc_div = col2.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=1000.0, value=12.0,
+                                  step=1.0)
+
+    num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=1, step=1)
+    stop_loss = col2.number_input(label="Stop Loss %", min_value=0.1, max_value=100.0, value=99.0, step=1.0)
 
     if st.session_state['df'] is not None:
-        if col2.button("SAVE DATA"):
+        if st.sidebar.button("SAVE DATA"):
             st.write(st.session_state['df'])
 
     csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
@@ -1482,7 +1495,7 @@ if __name__ == "__main__":
             time_hours=time_hours,
             fee_percent=0.1,  # %
             atr_multiplier=atr_multiplier, atr_window=atr_window,
-            window_pivot=window_pivot, rsi_window=rsi_window,
+            window_pivot=window_pivot, rsi_window=rsi_window, sma_window=sma_window,
             macd_short_window=macd_short_window, macd_long_window=macd_long_window,
             macd_signal_window=macd_signal_window,
             rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit, # OK
