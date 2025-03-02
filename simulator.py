@@ -2,11 +2,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from ta.volatility import AverageTrueRange
-from ta.momentum import RSIIndicator, TSIIndicator, ROCIndicator, AwesomeOscillatorIndicator, StochRSIIndicator, \
-    PercentageVolumeOscillator
-from ta.trend import MACD, SMAIndicator, PSARIndicator, VortexIndicator
-from ta.volume import AccDistIndexIndicator, OnBalanceVolumeIndicator, ForceIndexIndicator, VolumePriceTrendIndicator, \
-    MFIIndicator
+from ta.momentum import RSIIndicator
+from ta.trend import MACD, SMAIndicator, PSARIndicator
 from binance import Client
 import streamlit as st
 import numpy as np
@@ -224,14 +221,14 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
     df_copy['RSI'] = rsi_indicator.rsi()
 
     # Vortex Indicator
-    vi = VortexIndicator(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        window=rsi_window)
-    vip = vi.vortex_indicator_pos()
-    vim = vi.vortex_indicator_neg()
-    df_copy['VI'] = vip - vim
+    # vi = VortexIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     window=rsi_window)
+    # vip = vi.vortex_indicator_pos()
+    # vim = vi.vortex_indicator_neg()
+    # df_copy['VI'] = vip - vim
 
     # Calcolo del MACD
     macd_indicator = MACD(
@@ -266,32 +263,34 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
 
     df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
     df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+    df_copy['Upper_Band'][:atr_window] = None
+    df_copy['Lower_Band'][:atr_window] = None
 
     # ROC
-    roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
-    df_copy['ROC'] = roc_indicator.roc()
-
-    # TSI
-    tsi_indicator = TSIIndicator(close=df_copy['Close'])
-    df_copy['TSI'] = tsi_indicator.tsi()
-
-    # Stochastic RSI
-    stoch_rsi_indicator = StochRSIIndicator(close=df_copy['Close'], window=rsi_window)
-    df_copy['StochRSI'] = stoch_rsi_indicator.stochrsi()
-
-    # Percentage Volume Oscillator
-    pvo_indicator = PercentageVolumeOscillator(volume=df_copy['Volume'])
-    df_copy['PVO'] = pvo_indicator.pvo()
-
-    # Money Flow Index
-    mfi_indicator = MFIIndicator(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        volume=df_copy['Volume'],
-        window=rsi_window
-    )
-    df_copy['MFI'] = mfi_indicator.money_flow_index()
+    # roc_indicator = ROCIndicator(close=df_copy['Close'], window=rsi_window)
+    # df_copy['ROC'] = roc_indicator.roc()
+    #
+    # # TSI
+    # tsi_indicator = TSIIndicator(close=df_copy['Close'])
+    # df_copy['TSI'] = tsi_indicator.tsi()
+    #
+    # # Stochastic RSI
+    # stoch_rsi_indicator = StochRSIIndicator(close=df_copy['Close'], window=rsi_window)
+    # df_copy['StochRSI'] = stoch_rsi_indicator.stochrsi()
+    #
+    # # Percentage Volume Oscillator
+    # pvo_indicator = PercentageVolumeOscillator(volume=df_copy['Volume'])
+    # df_copy['PVO'] = pvo_indicator.pvo()
+    #
+    # # Money Flow Index
+    # mfi_indicator = MFIIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     volume=df_copy['Volume'],
+    #     window=rsi_window
+    # )
+    # df_copy['MFI'] = mfi_indicator.money_flow_index()
 
     return df_copy
 
@@ -542,25 +541,22 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
 
     return buy_signals, sell_signals
 
-def buy_sell_limits_close_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limit, rsi_sell_limit,
-                               # vi_buy_limit, vi_sell_limit, psarvp_buy_limit, psarvp_sell_limit,
-                               # srsi_buy_limit, srsi_sell_limit, tsi_buy_limit, tsi_sell_limit,
-                               # roc_buy_limit, roc_sell_limit, pvo_buy_limit, pvo_sell_limit,
-                               # mfi_buy_limit, mfi_sell_limit,
-                               num_cond, stop_loss_percent):
+def buy_sell_limits_close_simulation(df,rsi_buy_limit:int = 25, rsi_sell_limit:int = 75,
+                                     macd_buy_limit:float = -2.5, macd_sell_limit:float = 2.5,
+                                     num_cond:int = 1, stop_loss_percent:float = 99.0):
     buy_signals = []
     sell_signals = []
     holding = False
     last_signal_candle_index = -1
-    stop_loss_price = None
-    got_stop_loss = False
-    stop_loss_decimal = stop_loss_percent / 100
+    # stop_loss_price = None
+    # got_stop_loss = False
+    # stop_loss_decimal = stop_loss_percent / 100
 
     for i in range(1, len(df)):
         # CONDIZIONI DI BUY
         cond_buy_atr = 1 if df['Close'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
-        cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
         cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
+        # cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
         # cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
         # cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
         # cond_buy_srsi = 1 if df['StochRSI'].iloc[i] <= srsi_buy_limit else 0
@@ -568,17 +564,15 @@ def buy_sell_limits_close_simulation(df, macd_buy_limit, macd_sell_limit, rsi_bu
         # cond_buy_roc = 1 if df['ROC'].iloc[i] <= roc_buy_limit else 0
         # cond_buy_pvo = 1 if df['PVO'].iloc[i] <= pvo_buy_limit else 0
         # cond_buy_mfi = 1 if df['MFI'].iloc[i] <= mfi_buy_limit else 0
-        sum_buy = cond_buy_macd + cond_buy_rsi
-                # cond_buy_vi + cond_buy_psarvp + cond_buy_atr + cond_buy_srsi +
-                # cond_buy_tsi + cond_buy_roc + cond_buy_pvo + cond_buy_mfi)
+        sum_buy = cond_buy_rsi + cond_buy_atr
         if not holding and last_signal_candle_index != i and sum_buy >= num_cond:
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
             last_signal_candle_index = i
         # CONDIZIONI DI SELL
-        cond_sell_atr = 1 if df['Close'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
-        cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
         cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
+        cond_sell_atr = 1 if df['Close'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
+        # cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
         # cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
         # cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
         # cond_sell_srsi = 1 if df['StochRSI'].iloc[i] >= srsi_sell_limit else 0
@@ -586,9 +580,7 @@ def buy_sell_limits_close_simulation(df, macd_buy_limit, macd_sell_limit, rsi_bu
         # cond_sell_roc = 1 if df['ROC'].iloc[i] >= roc_sell_limit else 0
         # cond_sell_pvo = 1 if df['PVO'].iloc[i] >= pvo_sell_limit else 0
         # cond_sell_mfi = 1 if df['MFI'].iloc[i] >= mfi_sell_limit else 0
-        sum_sell = cond_sell_macd + cond_sell_rsi
-                # + cond_sell_vi + cond_sell_psavp + cond_sell_atr +
-                # cond_sell_srsi + cond_sell_tsi + cond_sell_roc + cond_sell_pvo + cond_sell_mfi)
+        sum_sell = cond_sell_rsi + cond_sell_atr
         if holding and last_signal_candle_index != i and sum_sell >= num_cond:
             sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
@@ -667,7 +659,7 @@ def close_atr_buy_sell_simulation(df, stop_loss_percent):
 
     return buy_signals, sell_signals
 
-def simulate_trading_with_commisions(buy_signals:list, sell_signals:list, fee_percent: float = 0.1):
+def simulate_trading_with_commisions(buy_signals:list, sell_signals:list, wallet:float = 100,  fee_percent: float = 0.1):
     operations = []
     holding = False  # Flag che indica se stiamo detenendo l'asset
     quantity = 0.0  # Quantità dell'asset comprata
@@ -738,7 +730,7 @@ def trading_analysis(
         # roc_buy_limit: float = -5.0, roc_sell_limit: float = 5.0,
         # pvo_buy_limit: int = -50, pvo_sell_limit: int = 50,
         # mfi_buy_limit: int = 30, mfi_sell_limit: int = 70,
-        num_cond: int = 3,
+        num_cond: int = 1,
         stop_loss: int = 99,
         strategia: str = "",
         din_macd_div: float = 1.2,
@@ -888,7 +880,7 @@ def trading_analysis(
 
     # ======================================
     # Simulazione di trading con commissioni
-    operations = simulate_trading_with_commisions(buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent)
+    operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent)
 
     # ======================================
     # 4. Creazione del grafico

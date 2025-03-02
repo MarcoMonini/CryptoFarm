@@ -461,7 +461,7 @@ while True:
         cond_atr_sell = 1 if current_candle_price >= df_copy['Upper_Band'].iloc[i] else 0
         cond_rsi_sell = 1 if df_copy['RSI'].iloc[i] >= rsi_sell_limit else 0
         sum_sell = cond_atr_sell + cond_rsi_sell
-        if not holding and sum_sell >= num_cond:
+        if holding and sum_sell >= num_cond:
             # procedo alla vendita
             print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} "
                                             f"and price {current_candle_price}")

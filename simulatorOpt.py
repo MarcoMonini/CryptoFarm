@@ -1,9 +1,10 @@
 import streamlit as st
 from ta.volatility import AverageTrueRange
 from ta.trend import MACD, SMAIndicator, PSARIndicator
+from ta.momentum import RSIIndicator
 import pandas as pd
 from simulator import (get_market_data, interval_to_minutes, close_atr_buy_sell_simulation,
-                       simulate_trading_with_commisions)
+                       simulate_trading_with_commisions, buy_sell_limits_close_simulation)
 
 
 @st.cache_data
@@ -22,22 +23,22 @@ def add_technical_indicator_opt(df,
     df_copy = df.copy()
 
     # SAR
-    sar_indicator = PSARIndicator(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        step=step,
-        max_step=max_step
-    )
-    df_copy['PSAR'] = sar_indicator.psar()
+    # sar_indicator = PSARIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     step=step,
+    #     max_step=max_step
+    # )
+    # df_copy['PSAR'] = sar_indicator.psar()
     # df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
 
     # Calcolo dell'RSI
-    # rsi_indicator = RSIIndicator(
-    #     close=df_copy['Close'],
-    #     window=rsi_window
-    # )
-    # df_copy['RSI'] = rsi_indicator.rsi()
+    rsi_indicator = RSIIndicator(
+        close=df_copy['Close'],
+        window=rsi_window
+    )
+    df_copy['RSI'] = rsi_indicator.rsi()
     #
     # # Vortex Indicator
     # vi = VortexIndicator(
@@ -84,65 +85,6 @@ def add_technical_indicator_opt(df,
     df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
     df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
 
-    # TSI
-    # tsi_indicator = TSIIndicator(close=df_copy['Close'])
-    # df_copy['TSI'] = tsi_indicator.tsi()
-    # # Awesome Oscillator
-    # ao_indicator = AwesomeOscillatorIndicator(
-    #     high=df_copy['High'],
-    #     low=df_copy['Low']
-    # )
-    # ao = ao_indicator.awesome_oscillator()
-    # df_copy['AO'] = ao / df_copy['Close'] * 100
-    #
-    # # Stochastic RSI
-    # stoch_rsi_indicator = StochRSIIndicator(close=df_copy['Close'], window=rsi_window)
-    # df_copy['StochRSI'] = stoch_rsi_indicator.stochrsi()
-    #
-    # # Percentage Volume Oscillator
-    # pvo_indicator = PercentageVolumeOscillator(volume=df_copy['Volume'])
-    # df_copy['PVO'] = pvo_indicator.pvo()
-    #
-    # # Accumulation/Distribution Index
-    # adi_indicator = AccDistIndexIndicator(
-    #     high=df_copy['High'],
-    #     low=df_copy['Low'],
-    #     close=df_copy['Close'],
-    #     volume=df_copy['Volume']
-    # )
-    # df_copy['ADI'] = adi_indicator.acc_dist_index()
-    #
-    # # On-Balance Volume
-    # obv_indicator = OnBalanceVolumeIndicator(
-    #     close=df_copy['Close'],
-    #     volume=df_copy['Volume']
-    # )
-    # df_copy['OBV'] = obv_indicator.on_balance_volume()
-    #
-    # # Force Index
-    # fi_indicator = ForceIndexIndicator(
-    #     close=df_copy['Close'],
-    #     volume=df_copy['Volume']
-    # )
-    # df_copy['ForceIndex'] = fi_indicator.force_index()
-    #
-    # # Volume Price Trend
-    # vpt_indicator = VolumePriceTrendIndicator(
-    #     close=df_copy['Close'],
-    #     volume=df_copy['Volume']
-    # )
-    # df_copy['VPT'] = vpt_indicator.volume_price_trend()
-    #
-    # # Money Flow Index
-    # mfi_indicator = MFIIndicator(
-    #     high=df_copy['High'],
-    #     low=df_copy['Low'],
-    #     close=df_copy['Close'],
-    #     volume=df_copy['Volume'],
-    #     window=rsi_window
-    # )
-    # df_copy['MFI'] = mfi_indicator.money_flow_index()
-
     return df_copy
 
 
@@ -156,20 +98,20 @@ def trading_analysis_opt(
         max_step: float = 0.4,  # compreso tra 0.1 e 1
         atr_multiplier: float = 2.4,  # Moltiplicatore per le Rolling ATR Bands
         atr_window: int = 6,  # compreso tra 2 e 30
+        sma_window: int = 12,
         rsi_window: int = 12,  # compreso tra 2 e 50
         macd_short_window: int = 12,  # compreso tra 4 e 20
         macd_long_window: int = 26,  # compreso tra 20 e 50
         macd_signal_window: int = 9,  # short < signal < long
-        sma_window: int = 12,
         rsi_buy_limit: int = 40,
         rsi_sell_limit: int = 60,
-        macd_buy_limit: float = -0.4,
-        macd_sell_limit: float = 0.4,
+        macd_buy_limit: float = -2.5,
+        macd_sell_limit: float = 2.5,
         vi_buy_limit: float = -0.5,
         vi_sell_limit: float = 0.5,
         psarvp_buy_limit: float = -0.1,
         psarvp_sell_limit: float = 10.1,
-        num_cond: int = 3,
+        num_cond: int = 1,
         din_macd_div: float = 1.2,
         din_roc_div: float = 12.0,
         stop_loss: float = 3.0,
@@ -191,27 +133,28 @@ def trading_analysis_opt(
         df = market_data
         actual_hours = candlestick_minutes * len(df) / 60
 
-    dinamic_atr = False
     df = add_technical_indicator_opt(df,
-                                     step=step,
-                                     max_step=max_step,
-                                     rsi_window=rsi_window,
-                                     macd_long_window=macd_long_window,
-                                     macd_short_window=macd_short_window,
-                                     macd_signal_window=macd_signal_window,
                                      atr_window=atr_window,
                                      atr_multiplier=atr_multiplier,
                                      sma_window=sma_window,
-                                     dinamic_atr=dinamic_atr,
+                                     rsi_window=rsi_window,
+                                     step=step,
+                                     max_step=max_step,
+                                     macd_long_window=macd_long_window,
+                                     macd_short_window=macd_short_window,
+                                     macd_signal_window=macd_signal_window,
+                                     dinamic_atr=False,
                                      )
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
-    buy_signals, sell_signals = close_atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
+    # buy_signals, sell_signals = close_atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
+    buy_signals, sell_signals = buy_sell_limits_close_simulation(df=df, rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
+                                                                 num_cond=num_cond, stop_loss_percent=stop_loss)
 
     # ======================================
     # Simulazione di trading con commissioni
-    operations = simulate_trading_with_commisions(buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent)
+    operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent)
 
     # ======================================
     # Creazione del DataFrame finale con le operazioni
@@ -238,7 +181,6 @@ def trading_analysis_opt(
             'Quantity', 'Profit', 'Wallet_After'
         ])
 
-    print(f"{wallet} su {asset}, profitto totale={round(trades_df['Profit'].sum())},"
-          f"atr_window={atr_window}, atr_multiplier={atr_multiplier}, stop_loss={stop_loss}")
+    print(f"{wallet} su {asset}, profitto totale={round(trades_df['Profit'].sum())}")
 
     return trades_df, actual_hours

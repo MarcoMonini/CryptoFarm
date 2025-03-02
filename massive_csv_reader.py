@@ -4,14 +4,15 @@ import plotly.express as px
 import streamlit as st
 
 # Carica il file CSV
-file_path = 'C:/Users/marco/Documents/2025-02-08T14-13_export_Dinamic_ATR_big.csv'  # Sostituisci con il percorso corretto del file
+file_path = 'C:/Users/marco/Documents/2025-02-08T14-13_export_close_buy_sell_rsi_atr.csv'  # Sostituisci con il percorso corretto del file
 data = pd.read_csv(file_path)
 target_column = 'Profitto Totale'
-parameters = ['Intervallo',
-              'Moltiplicatore ATR',
+parameters = ['Moltiplicatore ATR',
               'Finestra ATR',
-              'MACD Dividend',
-              'ROC Dividend']
+              'Finestra SMA',
+              'Finestra RSI',
+              'RSI Buy Limit',
+              'RSI Sell Limit']
 
 # Filtra il dataset per l'intervallo di 15 minuti
 # filtered_data = data[data['Asset'] != "AMPUSDT"]
