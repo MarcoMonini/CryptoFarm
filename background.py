@@ -161,9 +161,10 @@ def get_asset_balance(balance, asset):
 
 
 def add_technical_indicator(df,
-                            atr_window: int = 4,
+                            atr_window: int = 5,
                             atr_multiplier: float = 2.4,
-                            rsi_window: int = 12
+                            rsi_window: int = 12,
+                            sma_window: int = 5
                             ):
     df_copy = df.copy()
 
@@ -184,7 +185,7 @@ def add_technical_indicator(df,
     df_copy['ATR'] = atr_indicator.average_true_range()
 
     # SMA
-    sma_indicator = SMAIndicator(close=df_copy['Close'], window=atr_window)
+    sma_indicator = SMAIndicator(close=df_copy['Close'], window=sma_window)
     df_copy['SMA'] = sma_indicator.sma_indicator()
 
     # Rolling ATR Bands
@@ -324,6 +325,7 @@ currency = os.getenv("CURRENCY", "USDT")
 symbol = asset + currency
 interval = os.getenv("CANDLES_TIME", "15m")
 
+sma_window = int(os.getenv("SMA_WINDOW", 5))
 atr_window = int(os.getenv("ATR_WINDOW", 5))
 atr_multiplier = float(os.getenv("ATR_MULTIPLIER", 1.6))
 rsi_window = int(os.getenv("RSI_WINDOW", 12))
@@ -437,7 +439,8 @@ while True:
     df_copy = add_technical_indicator(df,
                                       atr_window=atr_window,
                                       atr_multiplier=atr_multiplier,
-                                      rsi_window=rsi_window)
+                                      rsi_window=rsi_window,
+                                      sma_window=sma_window)
 
     if len(df_copy) > 1:
         i = len(df_copy) - 1
