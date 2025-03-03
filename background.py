@@ -216,8 +216,8 @@ def adjust_quantity(quantity, min_qty, max_qty, step_size):
         quantity = max_qty  # Limita alla quantità massima
 
     # Tolgo una piccola percentuale per assicurare di avere i fondi sufficienti
-    quantity = quantity * 0.99
-    # Arrotolamento alla precisione del stepSize
+    quantity = float(float(quantity) * 0.99)
+    # Arrotondamento alla precisione del stepSize
     precision = len(str(step_size).split(".")[1])  # Numero di cifre decimali di step_size
     adjusted_quantity = (quantity // step_size) * step_size  # Allinea al multiplo inferiore
     return round(adjusted_quantity, precision)

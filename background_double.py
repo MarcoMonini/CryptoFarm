@@ -70,7 +70,7 @@ def fetch_initial_candles(client: Client, symbol: str, interval: str) -> pd.Data
 
 
 # Funzione per inizializzare e avviare il WebSocket
-def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str, API_KEY:str, API_SECRET:str):
+def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str, API_KEY: str, API_SECRET: str):
     """
     Avvia il WebSocket e gestisce la riconnessione automatica in caso di errore o chiusura.
     Se non vengono ricevuti messaggi "kline" per 5 minuti, il WebSocket viene chiuso e riavviato.
@@ -216,7 +216,7 @@ def adjust_quantity(quantity, min_qty, max_qty, step_size):
         quantity = max_qty  # Limita alla quantità massima
 
     # Tolgo una piccola percentuale per assicurare di avere i fondi sufficienti
-    quantity = quantity * 0.99
+    quantity = float(quantity) * 0.99
     # Arrotolamento alla precisione del stepSize
     precision = len(str(step_size).split(".")[1])  # Numero di cifre decimali di step_size
     adjusted_quantity = (quantity // step_size) * step_size  # Allinea al multiplo inferiore
@@ -270,7 +270,7 @@ def place_order(client: Client, symbol: str, side: str, order_type: str, quantit
         return False
 
 
-def proceed_buy(client, asset,  currency, symbol, current_candle_price) -> bool:
+def proceed_buy(client, asset, currency, symbol, current_candle_price) -> bool:
     balance = print_user_and_wallet_info(client=client)
     currency_balance = get_asset_balance(balance=balance, asset=currency)
     quantity = currency_balance / current_candle_price
@@ -294,7 +294,8 @@ def proceed_buy(client, asset,  currency, symbol, current_candle_price) -> bool:
     else:
         return False
 
-def proceed_sell(client, asset,  currency, symbol, current_candle_price) -> bool:
+
+def proceed_sell(client, asset, currency, symbol, current_candle_price) -> bool:
     balance = print_user_and_wallet_info(client=client)
     asset_balance = get_asset_balance(balance=balance, asset=asset)
     adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
@@ -416,7 +417,6 @@ if asset_price_balance2 > currency_balance2:
 else:
     holding2 = False
 
-
 print(Style.BRIGHT + Fore.YELLOW + "Il Job sta per iniziare.")
 print(Style.BRIGHT + "Riepilogo parametri")
 print(f" Simbolo: {symbol}, Intervallo: {interval}")
@@ -523,4 +523,3 @@ while True:
                     print(Style.BRIGHT + f"SELL Order Completed, holding: {holding2} (Client 2)")
 
     time.sleep(1)
-
