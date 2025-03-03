@@ -892,8 +892,9 @@ def trading_analysis(
     candle_height = 2 * nominal_height
     row_heights = [candle_height] + [nominal_height] * (rows - 1)
     fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0.02, row_heights=row_heights,
-                        subplot_titles=("Candlestick", "Moving Average Convergence Divergence (MACD)",
+                        subplot_titles=("Candlestick",
                                         "Relative Strength Index (RSI)",
+                                        "Moving Average Convergence Divergence (MACD)",
                                         # "True Strength Index (TSI)",
                                         # "Stochastic RSI", "Vortex Indicator (VI)", "PSAR versus Price (PSARVP)",
                                         # "Rate of Change (ROC)", "Percentage Volume Oscillator (PVO)",
@@ -1004,35 +1005,6 @@ def trading_analysis(
                 row=index, col=1
             )
 
-        # MACD
-        index += 1
-        fig.add_trace(go.Bar(
-            x=df.index,
-            y=df['MACD'],
-            name='MACD',
-            marker=dict(color='yellow')
-        ),
-            row=index, col=1
-        )
-        fig.add_trace(go.Scatter(
-            x=[df.index.min(), df.index.max()],
-            y=[macd_buy_limit, macd_buy_limit],
-            mode='lines',
-            line=dict(color='green', width=1, dash='dash'),
-            name='Buy Limit'
-        ),
-            row=index, col=1
-        )
-        fig.add_trace(go.Scatter(
-            x=[df.index.min(), df.index.max()],
-            y=[macd_sell_limit, macd_sell_limit],
-            mode='lines',
-            line=dict(color='red', width=1, dash='dash'),
-            name='Sell Limit'
-        ),
-            row=index, col=1
-        )
-
         # RSI
         index += 1
         fig.add_trace(go.Scatter(
@@ -1062,6 +1034,36 @@ def trading_analysis(
         ),
             row=index, col=1
         )
+
+        # MACD
+        index += 1
+        fig.add_trace(go.Bar(
+            x=df.index,
+            y=df['MACD'],
+            name='MACD',
+            marker=dict(color='yellow')
+        ),
+            row=index, col=1
+        )
+        fig.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[macd_buy_limit, macd_buy_limit],
+            mode='lines',
+            line=dict(color='green', width=1, dash='dash'),
+            name='Buy Limit'
+        ),
+            row=index, col=1
+        )
+        fig.add_trace(go.Scatter(
+            x=[df.index.min(), df.index.max()],
+            y=[macd_sell_limit, macd_sell_limit],
+            mode='lines',
+            line=dict(color='red', width=1, dash='dash'),
+            name='Sell Limit'
+        ),
+            row=index, col=1
+        )
+        
         # TSI
         # index += 1
         # fig.add_trace(go.Scatter(
