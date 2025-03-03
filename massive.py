@@ -105,15 +105,6 @@ def run_simulation(wallet: float,
                                             'Asset': asset,
                                             'Intervallo': interval,
                                             'Tempo': time_string,
-                                            'Moltiplicatore ATR': atr_multiplier,
-                                            'Finestra ATR': atr_window,
-                                            'Finestra SMA':sma_window,
-                                            'Finestra RSI':rsi_window,
-                                            # 'Step': step,
-                                            'RSI Buy Limit': rsi_buy_limit,
-                                            'RSI Sell Limit': rsi_sell_limit,
-                                            # 'Stop Loss': stop_loss_percent,
-                                            # 'Numero condizioni': num_cond,
                                             'Profitto Totale': 0,
                                             'Profitto Medio': 0,
                                             'Operazioni Chiuse': 0,
@@ -197,7 +188,6 @@ def run_simulation(wallet: float,
                                         'Asset': asset,
                                         'Intervallo': interval,
                                         'Tempo': time_string,
-                                        # 'Step': step,
                                         'Moltiplicatore ATR': atr_multiplier,
                                         'Finestra ATR': atr_window,
                                         'Finestra SMA': sma_window,
@@ -265,11 +255,14 @@ if __name__ == "__main__":
     # steps = [0.01]
     # stop_loss_percents = [99]
 
-    assets = ["AMPUSDT", "HBARUSDT","LINKUSDC", "XRPUSDT"]
-    atr_windows = [20,30,40]
+    # CHAIN = ["ADAUSDC", "BNBUSDC", "BTCUSDC", "ETHUSDC", "SOLUSDC", "XRPUSDT"]
+    # CHAIN SECONDARIE = ["DOTUSDC", "TRXUSDC", "LTCUSDC", "XLMUSDC", "ALGOUSDC", "ATOMUSDC"]
+
+    assets = ["AMPUSDT", "HBARUSDT", "LINKUSDC", "XRPUSDT"]
+    atr_windows = [20, 30, 40]
     atr_multipliers = [0.9, 1.1, 1.3, 1.5, 1.6]
-    sma_windows = [2,3,4,5]
-    rsi_windows = [6,10,12,18,26]
+    sma_windows = [2, 3, 4, 5]
+    rsi_windows = [6, 10, 12, 18, 26]
     rsi_buy_limits = [20, 23, 25, 29]
     rsi_sell_limits = [71, 75, 77, 80]
 
