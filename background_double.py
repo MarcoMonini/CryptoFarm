@@ -396,8 +396,8 @@ socket_thread.start()
 
 running = True
 last_update = None
-last_signal_candle_time1 = None
-last_signal_candle_time2 = None
+# last_signal_candle_time1 = None
+# last_signal_candle_time2 = None
 holding1 = False
 holding2 = False
 # got_stop_loss = False
@@ -405,13 +405,12 @@ holding2 = False
 current_asset_price = df["Close"].iloc[len(df) - 1]
 
 asset_price_balance1 = asset_balance1 * current_asset_price
-asset_price_balance2 = asset_balance2 * current_asset_price
-
 if asset_price_balance1 > currency_balance1:
     holding1 = True
 else:
     holding1 = False
 
+asset_price_balance2 = asset_balance2 * current_asset_price
 if asset_price_balance2 > currency_balance2:
     holding2 = True
 else:
@@ -481,7 +480,7 @@ while True:
                 response = proceed_buy(client=client1, asset=asset, symbol=symbol, currency=currency,
                                        current_candle_price=current_candle_price)
                 if response:
-                    last_signal_candle_time1 = current_candle_time
+                    # last_signal_candle_time1 = current_candle_time
                     holding1 = True
                     print(Style.BRIGHT + f"BUY Order Completed, holding: {holding1} (Client 1)")
 
@@ -492,7 +491,7 @@ while True:
                 response = proceed_buy(client=client2, asset=asset, symbol=symbol, currency=currency,
                                        current_candle_price=current_candle_price)
                 if response:
-                    last_signal_candle_time2 = current_candle_time
+                    # last_signal_candle_time2 = current_candle_time
                     holding2 = True
                     print(Style.BRIGHT + f"BUY Order Completed, holding: {holding2} (Client 2)")
 
@@ -507,7 +506,7 @@ while True:
                 response = proceed_sell(client=client1, asset=asset, symbol=symbol, currency=currency,
                                         current_candle_price=current_candle_price)
                 if response:
-                    last_signal_candle_time1 = current_candle_time
+                    # last_signal_candle_time1 = current_candle_time
                     holding1 = False
                     print(Style.BRIGHT + f"SELL Order Completed, holding: {holding1} (Client 1)")
 
@@ -518,7 +517,7 @@ while True:
                 response = proceed_sell(client=client2, asset=asset, symbol=symbol, currency=currency,
                                         current_candle_price=current_candle_price)
                 if response:
-                    last_signal_candle_time2 = current_candle_time
+                    # last_signal_candle_time2 = current_candle_time
                     holding2 = False
                     print(Style.BRIGHT + f"SELL Order Completed, holding: {holding2} (Client 2)")
 

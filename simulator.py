@@ -1063,7 +1063,7 @@ def trading_analysis(
         ),
             row=index, col=1
         )
-        
+
         # TSI
         # index += 1
         # fig.add_trace(go.Scatter(
