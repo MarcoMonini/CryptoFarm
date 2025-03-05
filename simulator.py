@@ -199,7 +199,7 @@ def download_market_data(assets: list, intervals: list, hours: int):
 
 @st.cache_data
 def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, macd_short_window, macd_signal_window,
-                            sma_window,atr_window, atr_multiplier, dinamic_atr: bool = False,
+                            sma_window, atr_window, atr_multiplier, dinamic_atr: bool = False,
                             din_macd_div: float = 1.2):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
@@ -237,9 +237,9 @@ def add_technical_indicator(df, step, max_step, rsi_window, macd_long_window, ma
         window_fast=macd_short_window,
         window_sign=macd_signal_window
     )
-    macd = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+    df_copy['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
     # Calcolo del MACD normalizzato come percentuale del prezzo
-    df_copy['MACD'] = macd / df_copy['Close'] * 100  # normalizzato
+    df_copy['MACD'] = df_copy['MACD'] / df_copy['Close'] * 100  # normalizzato
 
     # ATR
     atr_indicator = AverageTrueRange(
@@ -508,8 +508,8 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
         # cond_buy_pvo = 1 if df['PVO'].iloc[i] <= pvo_buy_limit else 0
         # cond_buy_mfi = 1 if df['MFI'].iloc[i] <= mfi_buy_limit else 0
         sum_buy = cond_buy_macd + cond_buy_rsi
-                # + cond_buy_vi + cond_buy_psarvp + cond_buy_atr + cond_buy_srsi +
-                # cond_buy_tsi + cond_buy_roc + cond_buy_pvo + cond_buy_mfi)
+        # + cond_buy_vi + cond_buy_psarvp + cond_buy_atr + cond_buy_srsi +
+        # cond_buy_tsi + cond_buy_roc + cond_buy_pvo + cond_buy_mfi)
         if not holding and sum_buy >= num_cond:
             if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
                 buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
@@ -530,8 +530,8 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
         # cond_sell_pvo = 1 if df['PVO'].iloc[i] >= pvo_sell_limit else 0
         # cond_sell_mfi = 1 if df['MFI'].iloc[i] >= mfi_sell_limit else 0
         sum_sell = cond_sell_macd + cond_sell_rsi
-                # + cond_sell_vi + cond_sell_psavp + cond_sell_atr +
-                # cond_sell_srsi + cond_sell_tsi + cond_sell_roc + cond_sell_pvo + cond_sell_mfi)
+        # + cond_sell_vi + cond_sell_psavp + cond_sell_atr +
+        # cond_sell_srsi + cond_sell_tsi + cond_sell_roc + cond_sell_pvo + cond_sell_mfi)
         if holding and sum_sell >= num_cond:
             if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
                 sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
@@ -541,9 +541,10 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
 
     return buy_signals, sell_signals
 
-def buy_sell_limits_close_simulation(df,rsi_buy_limit:int = 25, rsi_sell_limit:int = 75,
-                                     macd_buy_limit:float = -2.5, macd_sell_limit:float = 2.5,
-                                     num_cond:int = 1, stop_loss_percent:float = 99.0):
+
+def buy_sell_limits_close_simulation(df, rsi_buy_limit: int = 25, rsi_sell_limit: int = 75,
+                                     macd_buy_limit: float = -2.5, macd_sell_limit: float = 2.5,
+                                     num_cond: int = 1, stop_loss_percent: float = 99.0):
     buy_signals = []
     sell_signals = []
     holding = False
@@ -587,6 +588,7 @@ def buy_sell_limits_close_simulation(df,rsi_buy_limit:int = 25, rsi_sell_limit:i
             last_signal_candle_index = i
 
     return buy_signals, sell_signals
+
 
 def atr_buy_sell_simulation(df, stop_loss_percent):
     # Identificazione dei segnali di acquisto e vendita
@@ -659,7 +661,34 @@ def close_atr_buy_sell_simulation(df, stop_loss_percent):
 
     return buy_signals, sell_signals
 
-def simulate_trading_with_commisions(buy_signals:list, sell_signals:list, wallet:float = 100,  fee_percent: float = 0.1):
+
+def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_limit: float = 0.8):
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    lower_break = False
+    upper_break = False
+    for i in range(1, len(df)):
+        # if not holding:
+        if not lower_break and df['MACD'].iloc[i] <= macd_buy_limit:
+            lower_break = True
+        if lower_break and df['MACD'].iloc[i] > macd_buy_limit:
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+            lower_break = False
+        if holding:
+            if not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
+                upper_break = True
+            if upper_break and df['MACD'].iloc[i] < macd_sell_limit:
+                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = False
+                upper_break = False
+
+    return buy_signals, sell_signals
+
+
+def simulate_trading_with_commisions(buy_signals: list, sell_signals: list, wallet: float = 100,
+                                     fee_percent: float = 0.1):
     operations = []
     holding = False  # Flag che indica se stiamo detenendo l'asset
     quantity = 0.0  # Quantità dell'asset comprata
@@ -708,6 +737,136 @@ def simulate_trading_with_commisions(buy_signals:list, sell_signals:list, wallet
             holding = False
             quantity = 0.0
     return operations
+
+
+def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signals: list, wallet: float = 100,
+                                                     fee_percent: float = 0.1):
+    operations = []
+    holding = False  # Flag che indica se stiamo detenendo l'asset
+    quantity = 0.0  # Quantità dell'asset comprata
+    total_buy = 0
+    working_wallet = wallet  # Capitale di partenza (USDT/USDC)
+    # Converto fee_percent in forma decimale (es. 1% -> 0.01)
+    fee_decimal = fee_percent / 100.0
+    # Per semplicità, assumiamo che numero di buy_signals e sell_signals
+    # siano (in media) abbinati, usando lo stesso indice i in parallelo.
+
+    for i in range(len(buy_signals)):
+        if i < len(buy_signals):
+            buy_time, buy_price = buy_signals[i]
+            if working_wallet > 0:
+                # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
+                # utilizzo metà del working wallet
+                total_buy = (working_wallet / 2)
+                net_invested = (working_wallet / 2) * (1 - fee_decimal)
+                # quantità di crypto ottenuta
+                quantity = net_invested / buy_price
+                working_wallet = working_wallet / 2
+                holding = True
+                j = i + 1
+                while j < len(buy_signals):
+                    if i < len(sell_signals):
+                        buy_time, buy_price = buy_signals[j]
+                        sell_time, sell_price = sell_signals[i]
+                        if buy_time < sell_time:
+                            # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
+                            # utilizzo metà del working wallet
+                            total_buy += (working_wallet / 2)
+                            net_invested = (working_wallet / 2) * (1 - fee_decimal)
+                            # quantità di crypto ottenuta
+                            quantity += net_invested / buy_price
+                            working_wallet = working_wallet / 2
+                        else:
+                            break
+                    else:
+                        break
+                    j += 1
+
+        if holding and i < len(sell_signals):
+            sell_time, sell_price = sell_signals[i]
+            # mean_cost = total_buy / quantity
+            # Ricaviamo USDT vendendo la quantity di crypto
+            gross_proceed = quantity * sell_price
+            # Applichiamo la commissione di vendita
+            # commissions = gross_proceed * fee_decimal
+            net_proceed = gross_proceed * (1 - fee_decimal)
+            # Calcoliamo il profit: differenza fra l'importo netto incassato e l'importo speso in fase di BUY
+            # cost_in_usd = (quantity * buy_price) * (1 + fee_decimal)  # spesa inziale
+            # profit = net_proceed - cost_in_usd
+            profit = net_proceed - total_buy
+            # Aggiorniamo working_wallet
+            working_wallet = net_proceed
+            # Registriamo il trade in un'unica riga
+            operations.append({
+                'Buy_Time': buy_time,
+                'Buy_Price': buy_price,
+                'Sell_Time': sell_time,
+                'Sell_Price': sell_price,
+                'Quantity': quantity,
+                'Profit': profit,
+                'Wallet_After': working_wallet
+            })
+            # Resettiamo lo stato
+            holding = False
+            quantity = 0.0
+
+
+        if holding and i < len(sell_signals) and i + 1 < len(buy_signals):
+            sell_time, sell_price = sell_signals[i]
+            buy_time, buy_price = buy_signals[i + 1]
+            if buy_time < sell_time:
+                if working_wallet > 0:
+                    # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
+                    # utilizzo metà del working wallet
+                    net_invested = (working_wallet / 2) * (1 - fee_decimal)
+                    # quantità di crypto ottenuta
+                    quantity = net_invested / buy_price
+                    # Ora working_wallet = 0 (tutto investito)
+                    working_wallet = working_wallet / 2
+                    holding = True
+                pass
+
+    for i in range(len(buy_signals)):
+        # Se NON stiamo detenendo nulla e c'è un segnale di BUY, compriamo
+        if not holding and i < len(buy_signals):
+            buy_time, buy_price = buy_signals[i]
+            if working_wallet > 0:
+                # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
+                # dopo la fee rimane working_wallet*(1 - fee_decimal) per comprare
+                net_invested = working_wallet * (1 - fee_decimal)
+                # quantità di crypto ottenuta
+                quantity = net_invested / buy_price
+                # Ora working_wallet = 0 (tutto investito)
+                working_wallet = 0.0
+                holding = True
+        # Se ABBIAMO una posizione aperta e c'è un segnale di SELL, vendiamo
+        if holding and i < len(sell_signals):
+            sell_time, sell_price = sell_signals[i]
+            # Ricaviamo USDT vendendo la quantity di crypto
+            gross_proceed = quantity * sell_price
+            # Applichiamo la commissione di vendita
+            # commissions = gross_proceed * fee_decimal
+            net_proceed = gross_proceed * (1 - fee_decimal)
+            # Calcoliamo il profit: differenza fra l'importo netto incassato e l'importo speso in fase di BUY e le commissioni
+            cost_in_usd = (quantity * buy_price) * (1 + fee_decimal)  # spesa inziale
+            profit = net_proceed - cost_in_usd
+            # Aggiorniamo working_wallet
+            working_wallet = net_proceed
+            # Registriamo il trade in un'unica riga
+            operations.append({
+                'Buy_Time': buy_time,
+                'Buy_Price': buy_price,
+                'Sell_Time': sell_time,
+                'Sell_Price': sell_price,
+                'Quantity': quantity,
+                'Profit': profit,
+                'Wallet_After': working_wallet
+            })
+            # Resettiamo lo stato
+            holding = False
+            quantity = 0.0
+    return operations
+
 
 def trading_analysis(
         asset: str,
@@ -833,20 +992,24 @@ def trading_analysis(
     if strategia == "Close Buy/Sell Limits":
         buy_signals, sell_signals = (
             buy_sell_limits_close_simulation(df=df,
-                                       macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
-                                       rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
-                                       # vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit,
-                                       # psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit,
-                                       # srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit,
-                                       # tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit,
-                                       # roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit,
-                                       # pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit,
-                                       # mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
-                                       num_cond=num_cond, stop_loss_percent=stop_loss))
+                                             macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
+                                             rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
+                                             # vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit,
+                                             # psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit,
+                                             # srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit,
+                                             # tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit,
+                                             # roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit,
+                                             # pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit,
+                                             # mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
+                                             num_cond=num_cond, stop_loss_percent=stop_loss))
 
     if strategia == "ATR Live Trade":
         buy_signals, sell_signals = simulate_candles(raw_df=df, atr_window=atr_window, atr_multiplier=atr_multiplier,
                                                      step=step, max_step=max_step, stop_loss_percent=stop_loss)
+
+    if strategia == "Close MACD Retest":
+        buy_signals, sell_signals = close_macd_retest_simulation(df=df, macd_buy_limit=macd_buy_limit,
+                                                                 macd_sell_limit=macd_sell_limit)
 
     # valori_ottimi = []  # Lista per salvare i risultati
     # for item in rel_min:
@@ -880,7 +1043,10 @@ def trading_analysis(
 
     # ======================================
     # Simulazione di trading con commissioni
-    operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent)
+    # operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals,
+    #                                               fee_percent=fee_percent)
+    operations = simulate_trading_with_commisions_multiple_buy(wallet=wallet, buy_signals=buy_signals,
+                                                               sell_signals=sell_signals, fee_percent=fee_percent)
 
     # ======================================
     # 4. Creazione del grafico
@@ -1413,7 +1579,7 @@ if __name__ == "__main__":
     strategia = st.sidebar.selectbox(label="Strategia",
                                      options=["Buy/Sell Limits", "Close Buy/Sell Limits", "ATR Bands",
                                               "Close ATR", "Dinamic ATR Bands", "Dinamic Close ATR",
-                                              "ATR Live Trade"],
+                                              "Close MACD Retest", "ATR Live Trade"],
                                      index=0)
     if st.sidebar.button("SIMULATE"):
         st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
@@ -1434,14 +1600,15 @@ if __name__ == "__main__":
 
     col1, col2 = st.sidebar.columns(2)
 
-
     rsi_buy_limit = col1.number_input(label="RSI Buy limit", min_value=0, max_value=100, value=25, step=1)
     rsi_sell_limit = col2.number_input(label="RSI Sell limit", min_value=0, max_value=100, value=75, step=1)
 
-    macd_buy_limit = col1.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-2.5, # value=-0.66,
-                                      step=0.01)
-    macd_sell_limit = col2.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=2.5, # value=0.66,
-                                      step=0.01)
+    macd_buy_limit = col1.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-2.5,
+                                       # value=-0.66,
+                                       step=0.01)
+    macd_sell_limit = col2.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=2.5,
+                                        # value=0.66,
+                                        step=0.01)
     din_macd_div = col1.number_input(label="ATR Dividend", min_value=-10.0, max_value=10.0, value=1.2,
                                      step=0.1)
     # vi_buy_limit = col1.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, step=0.01,
@@ -1499,8 +1666,8 @@ if __name__ == "__main__":
             window_pivot=window_pivot, rsi_window=rsi_window, sma_window=sma_window,
             macd_short_window=macd_short_window, macd_long_window=macd_long_window,
             macd_signal_window=macd_signal_window,
-            rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit, # OK
-            macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit, # NO, DA TOGLIERE
+            rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,  # OK
+            macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,  # NO, DA TOGLIERE
             # vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit, # NO, DA TOGLIERE
             # psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit, # NO, DA TOGLIERE
             # srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit, # NO, DA TOGLIERE
