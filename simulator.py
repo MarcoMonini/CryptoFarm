@@ -662,7 +662,8 @@ def close_atr_buy_sell_simulation(df, stop_loss_percent):
     return buy_signals, sell_signals
 
 
-def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_limit: float = 0.8):
+def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_limit: float = 0.8,
+                                 rsi_sell_limit:int = 75):
     buy_signals = []
     sell_signals = []
     holding = False
@@ -676,13 +677,13 @@ def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_lim
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
             lower_break = False
-        if holding:
-            if not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
-                upper_break = True
-            if upper_break and df['MACD'].iloc[i] < macd_sell_limit:
-                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                holding = False
-                upper_break = False
+        if holding and df['RSI'].iloc[i] >= rsi_sell_limit:
+            # if not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
+            #     upper_break = True
+            # if upper_break and df['MACD'].iloc[i] < macd_sell_limit:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
+            upper_break = False
 
     return buy_signals, sell_signals
 
@@ -1009,7 +1010,8 @@ def trading_analysis(
 
     if strategia == "Close MACD Retest":
         buy_signals, sell_signals = close_macd_retest_simulation(df=df, macd_buy_limit=macd_buy_limit,
-                                                                 macd_sell_limit=macd_sell_limit)
+                                                                 macd_sell_limit=macd_sell_limit,
+                                                                 rsi_sell_limit=rsi_sell_limit)
 
     # valori_ottimi = []  # Lista per salvare i risultati
     # for item in rel_min:
