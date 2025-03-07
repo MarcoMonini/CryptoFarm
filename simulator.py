@@ -663,7 +663,7 @@ def close_atr_buy_sell_simulation(df, stop_loss_percent):
 
 
 def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_limit: float = 0.8,
-                                 rsi_sell_limit:int = 75):
+                                 rsi_sell_limit: int = 75):
     buy_signals = []
     sell_signals = []
     holding = False
@@ -693,10 +693,11 @@ def close_psar_atr_simulation(df):
     sell_signals = []
     holding = False
     for i in range(1, len(df)):
-        if not holding and df['PSAR'].iloc[i] < df['Close'].iloc[i] and df['PSAR'].iloc[i-1] > df['Close'].iloc[i-1]:
+        if not holding and df['PSAR'].iloc[i] < df['Close'].iloc[i] and df['PSAR'].iloc[i - 1] > df['Close'].iloc[
+            i - 1]:
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
-        if holding and df['PSAR'].iloc[i] > df['Close'].iloc[i] and df['PSAR'].iloc[i-1] < df['Close'].iloc[i-1]:
+        if holding and df['PSAR'].iloc[i] > df['Close'].iloc[i] and df['PSAR'].iloc[i - 1] < df['Close'].iloc[i - 1]:
             sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
         if holding and df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]:
@@ -704,6 +705,7 @@ def close_psar_atr_simulation(df):
             holding = False
 
     return buy_signals, sell_signals
+
 
 def simulate_trading_with_commisions(buy_signals: list, sell_signals: list, wallet: float = 100,
                                      fee_percent: float = 0.1):
@@ -758,7 +760,7 @@ def simulate_trading_with_commisions(buy_signals: list, sell_signals: list, wall
 
 
 def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signals: list, wallet: float = 100,
-                                                     fee_percent: float = 0.1):
+                                                  fee_percent: float = 0.1):
     operations = []
     holding = False  # Flag che indica se stiamo detenendo l'asset
     quantity = 0.0  # Quantità dell'asset comprata
@@ -771,7 +773,7 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
     s = 0
     b = 0
     while b < len(buy_signals):
-    # for b in range(len(buy_signals)):
+        # for b in range(len(buy_signals)):
         # if i < len(buy_signals):
         buy_time, buy_price = buy_signals[b]
         # if working_wallet > 0:
@@ -781,10 +783,7 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
         net_invested = (working_wallet / 2) * (1 - fee_decimal)
         # quantità di crypto ottenuta
         quantity = net_invested / buy_price
-        print(f"working_wallet: {working_wallet}, total_buy: {total_buy}, net_invested: {net_invested},"
-              f" buy_price:{buy_price}, quantity: {quantity}")
         working_wallet = working_wallet / 2
-        print(f"NEW working_wallet: {working_wallet}")
         holding = True
         next = b + 1
         while next < len(buy_signals):
@@ -798,10 +797,7 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
                     net_invested = (working_wallet / 2) * (1 - fee_decimal)
                     # quantità di crypto ottenuta
                     quantity += net_invested / buy_price
-                    print(f"working_wallet: {working_wallet}, total_buy: {total_buy}, "
-                          f"net_invested: {net_invested}, buy_price: {buy_price}, quantity: {quantity}")
                     working_wallet = working_wallet / 2
-                    print(f"NEW working_wallet: {working_wallet}")
                     b = next
                 else:
                     break
@@ -824,7 +820,6 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
             profit = net_proceed - total_buy
             # Aggiorniamo working_wallet
             working_wallet += net_proceed
-            print(f"sell_price: {sell_price}, quantity: {quantity}, net_proceed: {net_proceed}, profit: {profit}")
             # Registriamo il trade in un'unica riga
             operations.append({
                 'Buy_Time': buy_time,
@@ -839,61 +834,6 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
             holding = False
             quantity = 0.0
             s += 1
-
-        # if holding and i < len(sell_signals) and i + 1 < len(buy_signals):
-        #     sell_time, sell_price = sell_signals[i]
-        #     buy_time, buy_price = buy_signals[i + 1]
-        #     if buy_time < sell_time:
-        #         if working_wallet > 0:
-        #             # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
-        #             # utilizzo metà del working wallet
-        #             net_invested = (working_wallet / 2) * (1 - fee_decimal)
-        #             # quantità di crypto ottenuta
-        #             quantity = net_invested / buy_price
-        #             # Ora working_wallet = 0 (tutto investito)
-        #             working_wallet = working_wallet / 2
-        #             holding = True
-        #         pass
-
-    # for i in range(len(buy_signals)):
-    #     # Se NON stiamo detenendo nulla e c'è un segnale di BUY, compriamo
-    #     if not holding and i < len(buy_signals):
-    #         buy_time, buy_price = buy_signals[i]
-    #         if working_wallet > 0:
-    #             # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
-    #             # dopo la fee rimane working_wallet*(1 - fee_decimal) per comprare
-    #             net_invested = working_wallet * (1 - fee_decimal)
-    #             # quantità di crypto ottenuta
-    #             quantity = net_invested / buy_price
-    #             # Ora working_wallet = 0 (tutto investito)
-    #             working_wallet = 0.0
-    #             holding = True
-    #     # Se ABBIAMO una posizione aperta e c'è un segnale di SELL, vendiamo
-    #     if holding and i < len(sell_signals):
-    #         sell_time, sell_price = sell_signals[i]
-    #         # Ricaviamo USDT vendendo la quantity di crypto
-    #         gross_proceed = quantity * sell_price
-    #         # Applichiamo la commissione di vendita
-    #         # commissions = gross_proceed * fee_decimal
-    #         net_proceed = gross_proceed * (1 - fee_decimal)
-    #         # Calcoliamo il profit: differenza fra l'importo netto incassato e l'importo speso in fase di BUY e le commissioni
-    #         cost_in_usd = (quantity * buy_price) * (1 + fee_decimal)  # spesa inziale
-    #         profit = net_proceed - cost_in_usd
-    #         # Aggiorniamo working_wallet
-    #         working_wallet = net_proceed
-    #         # Registriamo il trade in un'unica riga
-    #         operations.append({
-    #             'Buy_Time': buy_time,
-    #             'Buy_Price': buy_price,
-    #             'Sell_Time': sell_time,
-    #             'Sell_Price': sell_price,
-    #             'Quantity': quantity,
-    #             'Profit': profit,
-    #             'Wallet_After': working_wallet
-    #         })
-    #         # Resettiamo lo stato
-    #         holding = False
-    #         quantity = 0.0
 
     return operations
 
@@ -1044,6 +984,8 @@ def trading_analysis(
 
     if strategia == "Close PSAR/ATR":
         buy_signals, sell_signals = close_psar_atr_simulation(df=df)
+
+    opt_value = calc_opt_limit(df)
 
     # valori_ottimi = []  # Lista per salvare i risultati
     # for item in rel_min:
@@ -1579,6 +1521,16 @@ def trading_analysis(
           f"profitto totale={round(trades_df['Profit'].sum())} USD")
 
     return fig, trades_df, actual_hours
+
+
+def calc_opt_limit(df):
+    value = np.mean(df[df['MACD'] < 0]['MACD'])
+    # print(f"MEDIA: {np.mean(df[df['MACD'] < 0]['MACD'])}")
+    # print(f"MEDIANA: {np.median(df[df['MACD'] < 0]['MACD'])}")
+    # print(f"AVARAGE: {np.average(df[df['MACD'] < 0]['MACD'])}")
+    # print(f"DEV STD: {np.std(df[df['MACD'] < 0]['MACD'])}")
+    # print(f"PTP: {np.ptp(df[df['MACD'] < 0]['MACD'])}")
+    return value
 
 
 if __name__ == "__main__":
