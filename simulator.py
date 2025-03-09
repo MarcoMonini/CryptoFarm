@@ -677,6 +677,12 @@ def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_lim
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
             lower_break = False
+        if holding and not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
+            upper_break = True
+        if holding and upper_break and df['MACD'].iloc[i] < macd_sell_limit:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
+            upper_break = False
         if holding and df['RSI'].iloc[i] >= rsi_sell_limit:
             # if not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
             #     upper_break = True
@@ -768,6 +774,7 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
     working_wallet = wallet  # Capitale di partenza (USDT/USDC)
     # Converto fee_percent in forma decimale (es. 1% -> 0.01)
     fee_decimal = fee_percent / 100.0
+    buy_percentage = 0.6
     # Per semplicità, assumiamo che numero di buy_signals e sell_signals
     # siano (in media) abbinati, usando lo stesso indice i in parallelo.
     s = 0
@@ -779,11 +786,11 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
         # if working_wallet > 0:
         # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
         # utilizzo metà del working wallet
-        total_buy = (working_wallet / 2)
-        net_invested = (working_wallet / 2) * (1 - fee_decimal)
+        total_buy = working_wallet * buy_percentage
+        net_invested = (working_wallet * buy_percentage) * (1 - fee_decimal)
         # quantità di crypto ottenuta
         quantity = net_invested / buy_price
-        working_wallet = working_wallet / 2
+        working_wallet -= (working_wallet * buy_percentage)
         holding = True
         next = b + 1
         while next < len(buy_signals):
@@ -793,11 +800,11 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
                 if buy_time < sell_time:
                     # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
                     # utilizzo metà del working wallet
-                    total_buy += (working_wallet / 2)
-                    net_invested = (working_wallet / 2) * (1 - fee_decimal)
+                    total_buy += (working_wallet * buy_percentage)
+                    net_invested = (working_wallet * buy_percentage) * (1 - fee_decimal)
                     # quantità di crypto ottenuta
                     quantity += net_invested / buy_price
-                    working_wallet = working_wallet / 2
+                    working_wallet -= (working_wallet * buy_percentage)
                     b = next
                 else:
                     break
