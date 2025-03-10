@@ -677,12 +677,12 @@ def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_lim
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
             lower_break = False
-        if holding and not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
-            upper_break = True
-        if holding and upper_break and df['MACD'].iloc[i] < macd_sell_limit:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = False
-            upper_break = False
+        # if holding and not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
+        #     upper_break = True
+        # if holding and upper_break and df['MACD'].iloc[i] < macd_sell_limit:
+        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = False
+        #     upper_break = False
         if holding and df['RSI'].iloc[i] >= rsi_sell_limit:
             # if not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
             #     upper_break = True
@@ -699,8 +699,7 @@ def close_psar_atr_simulation(df):
     sell_signals = []
     holding = False
     for i in range(1, len(df)):
-        if not holding and df['PSAR'].iloc[i] < df['Close'].iloc[i] and df['PSAR'].iloc[i - 1] > df['Close'].iloc[
-            i - 1]:
+        if not holding and df['PSAR'].iloc[i] < df['Close'].iloc[i] and df['PSAR'].iloc[i - 1] > df['Close'].iloc[i - 1]:
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
         if holding and df['PSAR'].iloc[i] > df['Close'].iloc[i] and df['PSAR'].iloc[i - 1] < df['Close'].iloc[i - 1]:
