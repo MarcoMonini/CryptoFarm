@@ -3,7 +3,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from ta.volatility import AverageTrueRange
 from ta.momentum import RSIIndicator
-from ta.trend import MACD, SMAIndicator, PSARIndicator, ADXIndicator
+from ta.trend import MACD, PSARIndicator, ADXIndicator, EMAIndicator
 from binance import Client
 import streamlit as st
 import numpy as np
@@ -200,7 +200,7 @@ def download_market_data(assets: list, intervals: list, hours: int):
 @st.cache_data
 def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_window3,
                             macd_long_window, macd_short_window, macd_signal_window,
-                            sma_window, sma_window2, sma_window3,
+                            ema_window, ema_window2, ema_window3,
                             atr_window, atr_multiplier, dinamic_atr: bool = False,
                             din_macd_div: float = 1.2):
     df_copy = df.copy()
@@ -230,8 +230,12 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
         window_fast=macd_short_window,
         window_sign=macd_signal_window
     )
+    df_copy['MACD_L'] = macd_indicator.macd()
+    df_copy['MACD_S'] = macd_indicator.macd_signal()
     df_copy['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
     # Calcolo del MACD normalizzato come percentuale del prezzo
+    df_copy['MACD_S'] = df_copy['MACD_S'] / df_copy['Close'] * 100  # normalizzato
+    df_copy['MACD_L'] = df_copy['MACD_L'] / df_copy['Close'] * 100  # normalizzato
     df_copy['MACD'] = df_copy['MACD'] / df_copy['Close'] * 100  # normalizzato
 
     # ATR
@@ -243,21 +247,21 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     )
     df_copy['ATR'] = atr_indicator.average_true_range()
 
-    # SMA (Media Mobile per le Rolling ATR Bands)
-    sma_indicator = SMAIndicator(close=df_copy['Close'], window=sma_window)
-    df_copy['SMA'] = sma_indicator.sma_indicator()
-    sma_indicator = SMAIndicator(close=df_copy['Close'], window=sma_window2)
-    df_copy['SMA2'] = sma_indicator.sma_indicator()
-    sma_indicator = SMAIndicator(close=df_copy['Close'], window=sma_window3)
-    df_copy['SMA3'] = sma_indicator.sma_indicator()
+    # EMA (Media Mobile per le Rolling ATR Bands)
+    ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window)
+    df_copy['EMA'] = ema_indicator.ema_indicator()
+    ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window2)
+    df_copy['EMA2'] = ema_indicator.ema_indicator()
+    ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window3)
+    df_copy['EMA3'] = ema_indicator.ema_indicator()
 
     # Rolling ATR Bands
     if dinamic_atr:
         # dipende dal macd
         atr_multiplier = (0.5 + df_copy['MACD'].abs()) / din_macd_div
 
-    df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
-    df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+    df_copy['Upper_Band'] = df_copy['EMA'] + atr_multiplier * df_copy['ATR']
+    df_copy['Lower_Band'] = df_copy['EMA'] - atr_multiplier * df_copy['ATR']
     df_copy['Upper_Band'][:atr_window] = None
     df_copy['Lower_Band'][:atr_window] = None
 
@@ -266,7 +270,7 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
         high=df_copy['High'],
         low=df_copy['Low'],
         close=df_copy['Close'],
-        window=rsi_window
+        window=14
     )
     df_copy['ADX'] = adx_indicator.adx()
 
@@ -328,7 +332,7 @@ def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, 
     if len(temp_df) < atr_window:
         df_copy = df.copy()
         df_copy['ATR'] = None
-        df_copy['SMA'] = None
+        df_copy['EMA'] = None
         df_copy['Upper_Band'] = None
         df_copy['Lower_Band'] = None
         df_copy['PSAR'] = None
@@ -343,11 +347,11 @@ def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, 
     )
     atr = atr_indicator.average_true_range()
 
-    # SMA (Media Mobile per le Rolling ATR Bands)
-    sma_indicator = SMAIndicator(close=temp_df['Close'], window=atr_window)
-    sma = sma_indicator.sma_indicator()
-    temp_df['Upper_Band'] = sma + atr_multiplier * atr
-    temp_df['Lower_Band'] = sma - atr_multiplier * atr
+    # EMA (Media Mobile per le Rolling ATR Bands)
+    ema_indicator = EMAIndicator(close=temp_df['Close'], window=atr_window)
+    ema = ema_indicator.ema_indicator()
+    temp_df['Upper_Band'] = ema + atr_multiplier * atr
+    temp_df['Lower_Band'] = ema - atr_multiplier * atr
 
     sar_indicator = PSARIndicator(
         high=temp_df['High'],
@@ -722,6 +726,29 @@ def close_psar_atr_simulation(df):
     return buy_signals, sell_signals
 
 
+def the_simulation(df):
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    for i in range(1, len(df)):
+        # CLOSE > EMA200 and EMA50 > EMA200 --> trend rialzista
+        # ADX > 40 --> trend forte
+        # EMA200 funge da supporto -> se tocco la EMA200 buy
+
+        # CLOSE < EMA200 and EMA50 < EMA200 --> trend ribassista
+        # ADX > 40 --> trend forte --> NO BUY
+        # EMA200 funge da resistenza -> se tocco la EMA200 sell
+
+        # Mercato laterale ...
+
+        # FOMO Buy ...
+
+        # PANIC Sell ...
+
+        pass
+
+    return buy_signals, sell_signals
+
 def simulate_trading_with_commisions(buy_signals: list, sell_signals: list, wallet: float = 100,
                                      fee_percent: float = 0.1):
     operations = []
@@ -865,7 +892,7 @@ def trading_analysis(
         atr_multiplier: float = 1.5, atr_window: int = 12,
         window_pivot: int = 10,
         rsi_window: int = 10, rsi_window2: int = 20, rsi_window3: int = 30,
-        sma_window: int = 12, sma_window2: int = 24, sma_window3: int = 36,
+        ema_window: int = 12, ema_window2: int = 24, ema_window3: int = 36,
         macd_short_window: int = 12, macd_long_window: int = 26, macd_signal_window: int = 9,
         rsi_buy_limit: int = 40, rsi_sell_limit: int = 60,
         macd_buy_limit: float = -0.4, macd_sell_limit: float = 0.4,
@@ -950,7 +977,7 @@ def trading_analysis(
 
     df = add_technical_indicator(df, step=step, max_step=max_step,
                                  rsi_window=rsi_window, rsi_window2=rsi_window2, rsi_window3=rsi_window3,
-                                 sma_window=sma_window, sma_window2=sma_window2, sma_window3=sma_window3,
+                                 ema_window=ema_window, ema_window2=ema_window2, ema_window3=ema_window3,
                                  macd_long_window=macd_long_window, macd_short_window=macd_short_window,
                                  macd_signal_window=macd_signal_window,
                                  atr_window=atr_window, atr_multiplier=atr_multiplier, dinamic_atr=dinamic_atr,
@@ -1004,7 +1031,7 @@ def trading_analysis(
     if strategia == "Close PSAR/ATR":
         buy_signals, sell_signals = close_psar_atr_simulation(df=df)
 
-    opt_value = calc_opt_limit(df)
+    # opt_value = calc_opt_limit(df)
 
     # valori_ottimi = []  # Lista per salvare i risultati
     # for item in rel_min:
@@ -1014,7 +1041,7 @@ def trading_analysis(
     #                               'Prezzo': df.loc[index, 'Low'],
     #                               'RSI': df.loc[index, 'RSI'],
     #                               'PSAR': df.loc[index, 'PSAR'],
-    #                               'SMA': df.loc[index, 'SMA'],
+    #                               'EMA': df.loc[index, 'EMA'],
     #                               'ATR': df.loc[index, 'ATR'],
     #                               'MACD': df.loc[index, 'MACD'],
     #                               'VI': df.loc[index, 'VI'],
@@ -1028,7 +1055,7 @@ def trading_analysis(
     #                               'Prezzo': df.loc[index, 'Low'],
     #                               'RSI': df.loc[index, 'RSI'],
     #                               'PSAR': df.loc[index, 'PSAR'],
-    #                               'SMA': df.loc[index, 'SMA'],
+    #                               'EMA': df.loc[index, 'EMA'],
     #                               'ATR': df.loc[index, 'ATR'],
     #                               'MACD': df.loc[index, 'MACD'],
     #                               'VI': df.loc[index, 'VI'],
@@ -1107,28 +1134,28 @@ def trading_analysis(
 
         fig.add_trace(go.Scatter(
             x=df.index,
-            y=df['SMA'],
+            y=df['EMA'],
             mode='lines',
             line=dict(color='blue', width=1, dash='dash'),
-            name='SMA'
+            name='EMA SHORT'
         ),
             row=index, col=1
         )
         fig.add_trace(go.Scatter(
             x=df.index,
-            y=df['SMA2'],
+            y=df['EMA2'],
             mode='lines',
             line=dict(color='purple', width=1, dash='dash'),
-            name='SMA'
+            name='EMA MED'
         ),
             row=index, col=1
         )
         fig.add_trace(go.Scatter(
             x=df.index,
-            y=df['SMA3'],
+            y=df['EMA3'],
             mode='lines',
             line=dict(color='orange', width=1, dash='dash'),
-            name='SMA'
+            name='EMA LONG'
         ),
             row=index, col=1
         )
@@ -1248,7 +1275,25 @@ def trading_analysis(
             x=df.index,
             y=df['MACD'],
             name='MACD',
-            marker=dict(color='yellow')
+            marker=dict(color='orange')
+        ),
+            row=index, col=1
+        )
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['MACD_L'],
+            mode='lines',
+            line=dict(color='yellow', width=1, dash='dot'),
+            name='MACD Line'
+        ),
+            row=index, col=1
+        )
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['MACD_S'],
+            mode='lines',
+            line=dict(color='blue', width=1, dash='dot'),
+            name='MACD Signal'
         ),
             row=index, col=1
         )
@@ -1647,13 +1692,13 @@ if __name__ == "__main__":
     rsi_window2 = col2.number_input(label="Medium", min_value=2, max_value=500, value=24, step=1)
     rsi_window3 = col3.number_input(label="Long", min_value=2, max_value=500, value=36, step=1)
 
-    sma_window = col1.number_input(label="SMA Short", min_value=1, max_value=500, value=12, step=1)
-    sma_window2 = col2.number_input(label="Medium", min_value=1, max_value=500, value=24, step=1)
-    sma_window3 = col3.number_input(label="Long", min_value=1, max_value=500, value=36, step=1)
+    ema_window = col1.number_input(label="EMA Short", min_value=1, max_value=500, value=10, step=1)
+    ema_window2 = col2.number_input(label="Medium", min_value=1, max_value=500, value=50, step=1)
+    ema_window3 = col3.number_input(label="Long", min_value=1, max_value=500, value=200, step=1)
 
-    macd_short_window = col1.number_input(label="MACD Short", min_value=0, max_value=100, value=12, step=1)
-    macd_long_window = col2.number_input(label="Long", min_value=0, max_value=100, value=26, step=1)
-    macd_signal_window = col3.number_input(label="Signal", min_value=0, max_value=100, value=9, step=1)
+    macd_short_window = col1.number_input(label="MACD Short", min_value=0, max_value=500, value=12, step=1)
+    macd_long_window = col2.number_input(label="Long", min_value=0, max_value=500, value=26, step=1)
+    macd_signal_window = col3.number_input(label="Signal", min_value=0, max_value=500, value=9, step=1)
 
     col1, col2 = st.sidebar.columns(2)
 
@@ -1722,7 +1767,7 @@ if __name__ == "__main__":
             atr_multiplier=atr_multiplier, atr_window=atr_window,
             window_pivot=window_pivot,
             rsi_window=rsi_window, rsi_window2=rsi_window2, rsi_window3=rsi_window3,
-            sma_window=sma_window, sma_window2=sma_window2, sma_window3=sma_window3,
+            ema_window=ema_window, ema_window2=ema_window2, ema_window3=ema_window3,
             macd_short_window=macd_short_window, macd_long_window=macd_long_window, macd_signal_window=macd_signal_window,
             rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,  # OK
             macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,  # NO, DA TOGLIERE
