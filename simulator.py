@@ -266,13 +266,13 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     df_copy['Lower_Band'][:atr_window] = None
 
     # ATR
-    adx_indicator = ADXIndicator(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        window=14
-    )
-    df_copy['ADX'] = adx_indicator.adx()
+    # adx_indicator = ADXIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     window=14
+    # )
+    # df_copy['ADX'] = adx_indicator.adx()
 
     # Vortex Indicator
     # vi = VortexIndicator(
@@ -708,20 +708,32 @@ def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_lim
     return buy_signals, sell_signals
 
 
-def close_psar_atr_simulation(df):
+def close_ema_crossover_simulation(df, rsi_buy_limit:int = 25, rsi_sell_limit: int = 75):
     buy_signals = []
     sell_signals = []
     holding = False
+    first_break = False
+    second_break = False
+    third_break = False
     for i in range(1, len(df)):
-        if not holding and df['PSAR'].iloc[i] < df['Close'].iloc[i] and df['PSAR'].iloc[i - 1] > df['Close'].iloc[i - 1]:
+        # if not holding:
+        if df["EMA"].iloc[i - 1] >= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA2"].iloc[i]:
+            first_break = True
+        if first_break and df["EMA"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA3"].iloc[i]:
+            second_break = True
+        if second_break and df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i]:
+            first_break = False
+            second_break = False
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = True
-        if holding and df['PSAR'].iloc[i] > df['Close'].iloc[i] and df['PSAR'].iloc[i - 1] < df['Close'].iloc[i - 1]:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = False
-        if holding and df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-            holding = False
+        # if third_break and df['RSI'].iloc[i] <= rsi_buy_limit:
+                # buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                # holding = True
+                # first_break = False
+                # second_break = False
+                # third_break = False
+        # if holding and df['RSI'].iloc[i] >= rsi_sell_limit:
+        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        #     holding = False
 
     return buy_signals, sell_signals
 
@@ -1028,8 +1040,9 @@ def trading_analysis(
                                                                  macd_sell_limit=macd_sell_limit,
                                                                  rsi_sell_limit=rsi_sell_limit)
 
-    if strategia == "Close PSAR/ATR":
-        buy_signals, sell_signals = close_psar_atr_simulation(df=df)
+    if strategia == "Close EMA Crossover":
+        buy_signals, sell_signals = close_ema_crossover_simulation(df=df, rsi_buy_limit=rsi_buy_limit,
+                                                                   rsi_sell_limit=rsi_sell_limit)
 
     # opt_value = calc_opt_limit(df)
 
@@ -1065,10 +1078,13 @@ def trading_analysis(
 
     # ======================================
     # Simulazione di trading con commissioni
-    # operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals,
-    #                                               fee_percent=fee_percent)
-    operations = simulate_trading_with_commisions_multiple_buy(wallet=wallet, buy_signals=buy_signals,
-                                                               sell_signals=sell_signals, fee_percent=fee_percent)
+    if strategia == "Close MACD Retest":
+        operations = simulate_trading_with_commisions_multiple_buy(wallet=wallet, buy_signals=buy_signals,
+                                                                   sell_signals=sell_signals, fee_percent=fee_percent)
+    else:
+        operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals,
+                                                        fee_percent=fee_percent)
+
 
     # ======================================
     # 4. Creazione del grafico
@@ -1259,15 +1275,15 @@ def trading_analysis(
             row=index, col=1
         )
         # ADX
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['ADX'],
-            mode='lines',
-            line=dict(color='yellow', width=1,dash='dot' ),
-            name='ADX'
-        ),
-            row=index, col=1
-        )
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['ADX'],
+        #     mode='lines',
+        #     line=dict(color='yellow', width=1,dash='dot' ),
+        #     name='ADX'
+        # ),
+        #     row=index, col=1
+        # )
 
         # MACD
         index += 1
@@ -1675,7 +1691,8 @@ if __name__ == "__main__":
     strategia = st.sidebar.selectbox(label="Strategia",
                                      options=["Buy/Sell Limits", "Close Buy/Sell Limits", "ATR Bands",
                                               "Close ATR", "Dinamic ATR Bands", "Dinamic Close ATR",
-                                              "Close MACD Retest", "Close PSAR/ATR", "ATR Live Trade"],
+                                              "Close MACD Retest", "Close PSAR/ATR","Close EMA Crossover",
+                                              "ATR Live Trade"],
                                      index=0)
     if st.sidebar.button("SIMULATE"):
         st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
