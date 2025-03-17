@@ -217,11 +217,13 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
 
     # Calcolo dell'RSI
     rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window)
-    df_copy['RSI'] = rsi_indicator.rsi()
+    df_copy['RSI1'] = rsi_indicator.rsi()
     rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window2)
     df_copy['RSI2'] = rsi_indicator.rsi()
     rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window3)
     df_copy['RSI3'] = rsi_indicator.rsi()
+    # SMA dell'RSI
+    df_copy['RSI'] = df_copy['RSI1'].rolling(window=ema_window).mean()
 
     # Calcolo del MACD
     macd_indicator = MACD(
@@ -265,7 +267,17 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     df_copy['Upper_Band'][:atr_window] = None
     df_copy['Lower_Band'][:atr_window] = None
 
-    # ATR
+    df_copy['Upper_Band2'] = df_copy['EMA2'] + atr_multiplier * df_copy['ATR']
+    df_copy['Lower_Band2'] = df_copy['EMA2'] - atr_multiplier * df_copy['ATR']
+    df_copy['Upper_Band2'][:atr_window] = None
+    df_copy['Lower_Band2'][:atr_window] = None
+
+    df_copy['Upper_Band3'] = df_copy['EMA3'] + atr_multiplier * df_copy['ATR']
+    df_copy['Lower_Band3'] = df_copy['EMA3'] - atr_multiplier * df_copy['ATR']
+    df_copy['Upper_Band3'][:atr_window] = None
+    df_copy['Lower_Band3'][:atr_window] = None
+
+    # ADX
     # adx_indicator = ADXIndicator(
     #     high=df_copy['High'],
     #     low=df_copy['Low'],
@@ -273,6 +285,8 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     #     window=14
     # )
     # df_copy['ADX'] = adx_indicator.adx()
+    # # SMA dell'ADX
+    # df_copy['ADX'] = df_copy['ADX'].rolling(window=ema_window).mean()
 
     # Vortex Indicator
     # vi = VortexIndicator(
@@ -738,6 +752,33 @@ def close_ema_crossover_simulation(df, rsi_buy_limit:int = 25, rsi_sell_limit: i
     return buy_signals, sell_signals
 
 
+def close_bullish_ema_simulation(df, rsi_buy_limit: int = 50, rsi_sell_limit: int = 70):
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    n = 30
+    for i in range(1, len(df)):
+        cond_1 = df['EMA'][i - n:i] > df['EMA2'][i - n:i]
+        cond_2 = df['EMA2'][i - n:i] > df['EMA3'][i - n:i]
+        cond_ema = (cond_1 & cond_2).all()
+        if (not holding and cond_ema and (df['EMA'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i]) # trend rialzista nel breve termine
+            and df['ADX'].iloc[i] > 30 # conferma della forza del trend
+            and df['EMA2'].iloc[i] < df['Upper_Band3'].iloc[i] # il prezzo oscilla attorno alla media lunga
+            and df['Close'].iloc[i] > df['EMA3'].iloc[i] # il prezzo sta sopra alla media lunga
+            and rsi_buy_limit <= df['RSI'].iloc[i] < rsi_sell_limit # RSI compreso in una fascia che conferma il trend
+            # controlli sulle candele precedenti
+            and ((df['Low'].iloc[i - 1] < df['EMA2'].iloc[i - 1] < df['Close'].iloc[i - 1]) or
+                   (df['Low'].iloc[i - 1] < df['EMA3'].iloc[i - 1] < df['Close'].iloc[i - 1]))
+            and ((df['EMA2'].iloc[i - 2] < df['Low'].iloc[i - 2] < df['Close'].iloc[i - 2]) or
+                   (df['EMA3'].iloc[i - 2] < df['Low'].iloc[i - 2] < df['Close'].iloc[i - 2]))):
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+        if holding and df['RSI'].iloc[i] > rsi_sell_limit:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
+
+    return buy_signals, sell_signals
+
 def the_simulation(df):
     buy_signals = []
     sell_signals = []
@@ -752,6 +793,9 @@ def the_simulation(df):
         # EMA200 funge da resistenza -> se tocco la EMA200 sell
 
         # Mercato laterale ...
+        # ADX < 40 --> qualsiasi trend è debole
+        # se PREZZO < EMA200, EMA200 funge da resistenza
+        # se PREZZO > EMA200, EMA200 funge da supporto
 
         # FOMO Buy ...
 
@@ -1044,7 +1088,10 @@ def trading_analysis(
         buy_signals, sell_signals = close_ema_crossover_simulation(df=df, rsi_buy_limit=rsi_buy_limit,
                                                                    rsi_sell_limit=rsi_sell_limit)
 
-    # opt_value = calc_opt_limit(df)
+    if strategia == "Close Bullish EMA":
+        buy_signals, sell_signals = close_bullish_ema_simulation(df=df, rsi_buy_limit=rsi_buy_limit,
+                                                                 rsi_sell_limit=rsi_sell_limit)
+    opt_value = calc_opt_limit(df)
 
     # valori_ottimi = []  # Lista per salvare i risultati
     # for item in rel_min:
@@ -1128,12 +1175,23 @@ def trading_analysis(
         ),
             row=index, col=1
         )
+
+        #EMA SHORT
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['EMA'],
+            mode='lines',
+            line=dict(color='blue', width=1),
+            name='EMA SHORT'
+        ),
+            row=index, col=1
+        )
         # Rolling ATR Bands
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df['Upper_Band'],
             mode='lines',
-            line=dict(color='red', width=1),
+            line=dict(color='blue', width=1, dash='dash'),
             name='Upper ATR'
         ),
             row=index, col=1
@@ -1142,7 +1200,7 @@ def trading_analysis(
             x=df.index,
             y=df['Lower_Band'],
             mode='lines',
-            line=dict(color='green', width=1),
+            line=dict(color='blue', width=1, dash='dash'),
             name='Lower ATR'
         ),
             row=index, col=1
@@ -1150,18 +1208,9 @@ def trading_analysis(
 
         fig.add_trace(go.Scatter(
             x=df.index,
-            y=df['EMA'],
-            mode='lines',
-            line=dict(color='blue', width=1, dash='dash'),
-            name='EMA SHORT'
-        ),
-            row=index, col=1
-        )
-        fig.add_trace(go.Scatter(
-            x=df.index,
             y=df['EMA2'],
             mode='lines',
-            line=dict(color='purple', width=1, dash='dash'),
+            line=dict(color='purple', width=1),
             name='EMA MED'
         ),
             row=index, col=1
@@ -1170,8 +1219,27 @@ def trading_analysis(
             x=df.index,
             y=df['EMA3'],
             mode='lines',
-            line=dict(color='orange', width=1, dash='dash'),
+            line=dict(color='orange', width=1),
             name='EMA LONG'
+        ),
+            row=index, col=1
+        )
+        # Rolling ATR Bands
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['Upper_Band3'],
+            mode='lines',
+            line=dict(color='orange', width=1, dash='dash'),
+            name='Upper ATR'
+        ),
+            row=index, col=1
+        )
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['Lower_Band3'],
+            mode='lines',
+            line=dict(color='orange', width=1, dash='dash'),
+            name='Lower ATR'
         ),
             row=index, col=1
         )
@@ -1651,11 +1719,11 @@ def trading_analysis(
 
 def calc_opt_limit(df):
     value = np.mean(df[df['MACD'] < 0]['MACD'])
-    # print(f"MEDIA: {np.mean(df[df['MACD'] < 0]['MACD'])}")
-    # print(f"MEDIANA: {np.median(df[df['MACD'] < 0]['MACD'])}")
-    # print(f"AVARAGE: {np.average(df[df['MACD'] < 0]['MACD'])}")
-    # print(f"DEV STD: {np.std(df[df['MACD'] < 0]['MACD'])}")
-    # print(f"PTP: {np.ptp(df[df['MACD'] < 0]['MACD'])}")
+    print(f"MEDIA: {np.mean(df[df['MACD'] < 0]['MACD'])}")
+    print(f"MEDIANA: {np.median(df[df['MACD'] < 0]['MACD'])}")
+    print(f"DEV STD: {np.std(df[df['MACD'] < 0]['MACD'])}")
+    value = np.median(df[df['MACD'] < 0]['MACD']) / np.sqrt(2) / np.std(df[df['MACD'] < 0]['MACD'])
+    print(f"VALUE: {value}")
     return value
 
 
@@ -1689,10 +1757,18 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=["Buy/Sell Limits", "Close Buy/Sell Limits", "ATR Bands",
-                                              "Close ATR", "Dinamic ATR Bands", "Dinamic Close ATR",
-                                              "Close MACD Retest", "Close PSAR/ATR","Close EMA Crossover",
-                                              "ATR Live Trade"],
+                                     options=[# "Buy/Sell Limits",
+                                              "Close Buy/Sell Limits",
+                                              # "ATR Bands",
+                                              "Close ATR",
+                                              # "Dinamic ATR Bands",
+                                              # "Dinamic Close ATR",
+                                              "Close MACD Retest",
+                                              "Close Bullish EMA",
+                                              "Close EMA Crossover",
+                                              # "Close PSAR/ATR",
+                                              # "ATR Live Trade"
+                                              ],
                                      index=0)
     if st.sidebar.button("SIMULATE"):
         st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
