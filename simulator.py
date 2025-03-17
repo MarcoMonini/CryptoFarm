@@ -728,26 +728,48 @@ def close_ema_crossover_simulation(df, rsi_buy_limit:int = 25, rsi_sell_limit: i
     holding = False
     first_break = False
     second_break = False
-    third_break = False
     for i in range(1, len(df)):
-        # if not holding:
-        if df["EMA"].iloc[i - 1] >= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA2"].iloc[i]:
-            first_break = True
-        if first_break and df["EMA"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA3"].iloc[i]:
-            second_break = True
-        if second_break and df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i]:
-            first_break = False
-            second_break = False
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        # if third_break and df['RSI'].iloc[i] <= rsi_buy_limit:
-                # buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
-                # holding = True
-                # first_break = False
-                # second_break = False
-                # third_break = False
-        # if holding and df['RSI'].iloc[i] >= rsi_sell_limit:
-        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = False
+        ema50ema100up = (df["EMA"].iloc[i - 1] <= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] > df["EMA2"].iloc[i])
+        ema50ema200up = (df["EMA"].iloc[i - 1] <= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] > df["EMA3"].iloc[i])
+        ema100ema200up = (df["EMA2"].iloc[i - 1] <= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] > df["EMA3"].iloc[i])
+
+        ema50ema100down = (df["EMA"].iloc[i - 1] >= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA2"].iloc[i])
+        ema50ema200down = (df["EMA"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA3"].iloc[i])
+        ema100ema200down = (df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i])
+
+        if not holding:
+            # non si verifica le sequenza esatta
+            if first_break and (ema100ema200up or ema50ema100down or ema50ema200down or ema100ema200down):
+                first_break = False
+            if second_break and (ema50ema100up or ema50ema100down or ema50ema200down or ema100ema200down):
+                second_break = False
+            # controllo la sequenza esatta
+            if ema50ema100up:
+                first_break = True
+            if first_break and ema50ema200up:
+                second_break = True
+            if second_break and ema100ema200up:
+                first_break = False
+                second_break = False
+                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = True
+
+        if holding:
+            # non si verifica le sequenza esatta
+            if first_break and (ema100ema200down or ema50ema100up or ema50ema200up or ema100ema200up):
+                first_break = False
+            if second_break and (ema50ema100down or ema50ema100up or ema50ema200up or ema100ema200up):
+                second_break = False
+            # controllo la sequenza esatta
+            if ema50ema100down:
+                first_break = True
+            if first_break and ema50ema200down:
+                second_break = True
+            if second_break and ema100ema200down:
+                first_break = False
+                second_break = False
+                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                holding = False
 
     return buy_signals, sell_signals
 
@@ -1046,33 +1068,22 @@ def trading_analysis(
 
     if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
         buy_signals, sell_signals = atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
+
     if strategia == "Close ATR" or strategia == "Dinamic Close ATR":
         buy_signals, sell_signals = close_atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
+
     if strategia == "Buy/Sell Limits":
         buy_signals, sell_signals = (
             buy_sell_limits_simulation(df=df,
                                        macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
                                        rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
-                                       # vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit,
-                                       # psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit,
-                                       # srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit,
-                                       # tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit,
-                                       # roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit,
-                                       # pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit,
-                                       # mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
                                        num_cond=num_cond))
+
     if strategia == "Close Buy/Sell Limits":
         buy_signals, sell_signals = (
             buy_sell_limits_close_simulation(df=df,
                                              macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
                                              rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
-                                             # vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit,
-                                             # psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit,
-                                             # srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit,
-                                             # tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit,
-                                             # roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit,
-                                             # pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit,
-                                             # mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit,
                                              num_cond=num_cond, stop_loss_percent=stop_loss))
 
     if strategia == "ATR Live Trade":
@@ -1131,7 +1142,6 @@ def trading_analysis(
     else:
         operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals,
                                                         fee_percent=fee_percent)
-
 
     # ======================================
     # 4. Creazione del grafico
