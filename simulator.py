@@ -223,7 +223,8 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window3)
     df_copy['RSI3'] = rsi_indicator.rsi()
     # SMA dell'RSI
-    df_copy['RSI'] = df_copy['RSI1'].rolling(window=ema_window).mean()
+    df_copy['RSI'] = df_copy['RSI1'].rolling(window=rsi_window).mean()
+    df_copy['RSI2'] = df_copy['RSI2'].rolling(window=rsi_window2).mean()
 
     # Calcolo del MACD
     macd_indicator = MACD(
@@ -512,10 +513,6 @@ def simulate_candles(raw_df, atr_window: int = 6, atr_multiplier: float = 2, ste
 
 
 def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limit, rsi_sell_limit,
-                               # vi_buy_limit, vi_sell_limit, psarvp_buy_limit, psarvp_sell_limit,
-                               # srsi_buy_limit, srsi_sell_limit, tsi_buy_limit, tsi_sell_limit,
-                               # roc_buy_limit, roc_sell_limit, pvo_buy_limit, pvo_sell_limit,
-                               # mfi_buy_limit, mfi_sell_limit,
                                num_cond):
     buy_signals = []
     sell_signals = []
@@ -585,14 +582,6 @@ def buy_sell_limits_close_simulation(df, rsi_buy_limit: int = 25, rsi_sell_limit
         # CONDIZIONI DI BUY
         cond_buy_atr = 1 if df['Close'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
         cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
-        # cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
-        # cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
-        # cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
-        # cond_buy_srsi = 1 if df['StochRSI'].iloc[i] <= srsi_buy_limit else 0
-        # cond_buy_tsi = 1 if df['TSI'].iloc[i] <= tsi_buy_limit else 0
-        # cond_buy_roc = 1 if df['ROC'].iloc[i] <= roc_buy_limit else 0
-        # cond_buy_pvo = 1 if df['PVO'].iloc[i] <= pvo_buy_limit else 0
-        # cond_buy_mfi = 1 if df['MFI'].iloc[i] <= mfi_buy_limit else 0
         sum_buy = cond_buy_rsi + cond_buy_atr
         if not holding and last_signal_candle_index != i and sum_buy >= num_cond:
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
@@ -601,16 +590,39 @@ def buy_sell_limits_close_simulation(df, rsi_buy_limit: int = 25, rsi_sell_limit
         # CONDIZIONI DI SELL
         cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
         cond_sell_atr = 1 if df['Close'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
-        # cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
-        # cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
-        # cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
-        # cond_sell_srsi = 1 if df['StochRSI'].iloc[i] >= srsi_sell_limit else 0
-        # cond_sell_tsi = 1 if df['TSI'].iloc[i] >= tsi_sell_limit else 0
-        # cond_sell_roc = 1 if df['ROC'].iloc[i] >= roc_sell_limit else 0
-        # cond_sell_pvo = 1 if df['PVO'].iloc[i] >= pvo_sell_limit else 0
-        # cond_sell_mfi = 1 if df['MFI'].iloc[i] >= mfi_sell_limit else 0
         sum_sell = cond_sell_rsi + cond_sell_atr
         if holding and last_signal_candle_index != i and sum_sell >= num_cond:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
+            last_signal_candle_index = i
+
+    return buy_signals, sell_signals
+
+
+def close_rsi_buy_sell_limits_simulation(df):
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    last_signal_candle_index = -1
+
+    for i in range(1, len(df)):
+        # CONDIZIONI DI BUY
+        # if (not holding and last_signal_candle_index != i and
+        #         df['RSI'].iloc[i - 1] > df['RSI2'].iloc[i - 1] and
+        #         df['RSI'].iloc[i] < df['RSI2'].iloc[i]):
+        if (not holding and last_signal_candle_index != i and
+                df['RSI'].iloc[i - 1] < df['RSI2'].iloc[i - 1] and
+                df['RSI'].iloc[i] > df['RSI2'].iloc[i]):
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+            last_signal_candle_index = i
+        # CONDIZIONI DI SELL
+        # if (holding and last_signal_candle_index != i and
+        #         df['RSI'].iloc[i - 1] < df['RSI2'].iloc[i - 1] and
+        #         df['RSI'].iloc[i] > df['RSI2'].iloc[i]):
+        if (holding and last_signal_candle_index != i and
+                df['RSI'].iloc[i - 1] > df['RSI2'].iloc[i - 1] and
+                df['RSI'].iloc[i] < df['RSI2'].iloc[i]):
             sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
             last_signal_candle_index = i
@@ -722,7 +734,7 @@ def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_lim
     return buy_signals, sell_signals
 
 
-def close_ema_crossover_simulation(df, rsi_buy_limit:int = 25, rsi_sell_limit: int = 75):
+def close_ema_crossover_simulation(df, rsi_buy_limit: int = 25, rsi_sell_limit: int = 75):
     buy_signals = []
     sell_signals = []
     holding = False
@@ -735,7 +747,8 @@ def close_ema_crossover_simulation(df, rsi_buy_limit:int = 25, rsi_sell_limit: i
 
         ema50ema100down = (df["EMA"].iloc[i - 1] >= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA2"].iloc[i])
         ema50ema200down = (df["EMA"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA3"].iloc[i])
-        ema100ema200down = (df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i])
+        ema100ema200down = (
+                    df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i])
 
         if not holding:
             # non si verifica le sequenza esatta
@@ -783,16 +796,18 @@ def close_bullish_ema_simulation(df, rsi_buy_limit: int = 50, rsi_sell_limit: in
         cond_1 = df['EMA'][i - n:i] > df['EMA2'][i - n:i]
         cond_2 = df['EMA2'][i - n:i] > df['EMA3'][i - n:i]
         cond_ema = (cond_1 & cond_2).all()
-        if (not holding and cond_ema and (df['EMA'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i]) # trend rialzista nel breve termine
-            and df['ADX'].iloc[i] > 30 # conferma della forza del trend
-            and df['EMA2'].iloc[i] < df['Upper_Band3'].iloc[i] # il prezzo oscilla attorno alla media lunga
-            and df['Close'].iloc[i] > df['EMA3'].iloc[i] # il prezzo sta sopra alla media lunga
-            and rsi_buy_limit <= df['RSI'].iloc[i] < rsi_sell_limit # RSI compreso in una fascia che conferma il trend
-            # controlli sulle candele precedenti
-            and ((df['Low'].iloc[i - 1] < df['EMA2'].iloc[i - 1] < df['Close'].iloc[i - 1]) or
-                   (df['Low'].iloc[i - 1] < df['EMA3'].iloc[i - 1] < df['Close'].iloc[i - 1]))
-            and ((df['EMA2'].iloc[i - 2] < df['Low'].iloc[i - 2] < df['Close'].iloc[i - 2]) or
-                   (df['EMA3'].iloc[i - 2] < df['Low'].iloc[i - 2] < df['Close'].iloc[i - 2]))):
+        if (not holding and cond_ema and (
+                df['EMA'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i])  # trend rialzista nel breve termine
+                and df['ADX'].iloc[i] > 30  # conferma della forza del trend
+                and df['EMA2'].iloc[i] < df['Upper_Band3'].iloc[i]  # il prezzo oscilla attorno alla media lunga
+                and df['Close'].iloc[i] > df['EMA3'].iloc[i]  # il prezzo sta sopra alla media lunga
+                and rsi_buy_limit <= df['RSI'].iloc[
+                    i] < rsi_sell_limit  # RSI compreso in una fascia che conferma il trend
+                # controlli sulle candele precedenti
+                and ((df['Low'].iloc[i - 1] < df['EMA2'].iloc[i - 1] < df['Close'].iloc[i - 1]) or
+                     (df['Low'].iloc[i - 1] < df['EMA3'].iloc[i - 1] < df['Close'].iloc[i - 1]))
+                and ((df['EMA2'].iloc[i - 2] < df['Low'].iloc[i - 2] < df['Close'].iloc[i - 2]) or
+                     (df['EMA3'].iloc[i - 2] < df['Low'].iloc[i - 2] < df['Close'].iloc[i - 2]))):
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
         if holding and df['RSI'].iloc[i] > rsi_sell_limit:
@@ -801,31 +816,34 @@ def close_bullish_ema_simulation(df, rsi_buy_limit: int = 50, rsi_sell_limit: in
 
     return buy_signals, sell_signals
 
-def the_simulation(df):
+
+def inside_bar_simulation(df):
     buy_signals = []
     sell_signals = []
     holding = False
+    mother_max = -1
+    mother_min = -1
+    mother_color = 0  # 1 red, 2 green
     for i in range(1, len(df)):
-        # CLOSE > EMA200 and EMA50 > EMA200 --> trend rialzista
-        # ADX > 40 --> trend forte
-        # EMA200 funge da supporto -> se tocco la EMA200 buy
-
-        # CLOSE < EMA200 and EMA50 < EMA200 --> trend ribassista
-        # ADX > 40 --> trend forte --> NO BUY
-        # EMA200 funge da resistenza -> se tocco la EMA200 sell
-
-        # Mercato laterale ...
-        # ADX < 40 --> qualsiasi trend è debole
-        # se PREZZO < EMA200, EMA200 funge da resistenza
-        # se PREZZO > EMA200, EMA200 funge da supporto
-
-        # FOMO Buy ...
-
-        # PANIC Sell ...
-
-        pass
+        if df['Low'].iloc[i] > df['Low'].iloc[i - 1] and df['High'].iloc[i] < df['High'].iloc[i - 1]:
+            # inside bar
+            mother_max = df['High'].iloc[i - 1]
+            mother_min = df['Low'].iloc[i - 1]
+            if df['Close'].iloc[i - 1] > df['Open'].iloc[i - 1]:
+                mother_color = 2
+            else:
+                mother_color = 1
+        if not holding and 0 < mother_max < df['High'].iloc[i] and mother_color == 2:
+            buy_signals.append((df.index[i], mother_max))
+            holding = True
+            mother_max = -1
+        if holding and mother_min > 0 and df['Low'].iloc[i] < mother_min and mother_color == 1:
+            sell_signals.append((df.index[i], mother_min))
+            holding = False
+            mother_min = -1
 
     return buy_signals, sell_signals
+
 
 def simulate_trading_with_commisions(buy_signals: list, sell_signals: list, wallet: float = 100,
                                      fee_percent: float = 0.1):
@@ -1102,6 +1120,12 @@ def trading_analysis(
     if strategia == "Close Bullish EMA":
         buy_signals, sell_signals = close_bullish_ema_simulation(df=df, rsi_buy_limit=rsi_buy_limit,
                                                                  rsi_sell_limit=rsi_sell_limit)
+
+    if strategia == "Inside Bar":
+        buy_signals, sell_signals = inside_bar_simulation(df=df)
+
+    if strategia == "Close RSI Reverse":
+        buy_signals, sell_signals = close_rsi_buy_sell_limits_simulation(df=df)
     opt_value = calc_opt_limit(df)
 
     # valori_ottimi = []  # Lista per salvare i risultati
@@ -1141,7 +1165,7 @@ def trading_analysis(
                                                                    sell_signals=sell_signals, fee_percent=fee_percent)
     else:
         operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals,
-                                                        fee_percent=fee_percent)
+                                                      fee_percent=fee_percent)
 
     # ======================================
     # 4. Creazione del grafico
@@ -1767,18 +1791,20 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=[# "Buy/Sell Limits",
-                                              "Close Buy/Sell Limits",
-                                              # "ATR Bands",
-                                              "Close ATR",
-                                              # "Dinamic ATR Bands",
-                                              # "Dinamic Close ATR",
-                                              "Close MACD Retest",
-                                              "Close Bullish EMA",
-                                              "Close EMA Crossover",
-                                              # "Close PSAR/ATR",
-                                              # "ATR Live Trade"
-                                              ],
+                                     options=[  # "Buy/Sell Limits",
+                                         "Close Buy/Sell Limits",
+                                         # "ATR Bands",
+                                         "Close ATR",
+                                         # "Dinamic ATR Bands",
+                                         # "Dinamic Close ATR",
+                                         "Close MACD Retest",
+                                         "Close Bullish EMA",
+                                         "Close EMA Crossover",
+                                         "Inside Bar",
+                                         "Close RSI Reverse"
+                                         # "Close PSAR/ATR",
+                                         # "ATR Live Trade"
+                                     ],
                                      index=0)
     if st.sidebar.button("SIMULATE"):
         st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
@@ -1787,7 +1813,7 @@ if __name__ == "__main__":
 
     step = col1.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.01, step=0.001, format="%.3f")
     max_step = col2.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
-    atr_multiplier = col1.number_input(label="ATR Multiplier", min_value=0.1, max_value=5.0, value=1.6, step=0.1)
+    atr_multiplier = col1.number_input(label="ATR Multiplier", min_value=0.1, max_value=50.0, value=1.6, step=0.1)
     atr_window = col2.number_input(label="ATR Window", min_value=1, max_value=100, value=5, step=1)
 
     col1, col2, col3 = st.sidebar.columns(3)
@@ -1871,7 +1897,8 @@ if __name__ == "__main__":
             window_pivot=window_pivot,
             rsi_window=rsi_window, rsi_window2=rsi_window2, rsi_window3=rsi_window3,
             ema_window=ema_window, ema_window2=ema_window2, ema_window3=ema_window3,
-            macd_short_window=macd_short_window, macd_long_window=macd_long_window, macd_signal_window=macd_signal_window,
+            macd_short_window=macd_short_window, macd_long_window=macd_long_window,
+            macd_signal_window=macd_signal_window,
             rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,  # OK
             macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,  # NO, DA TOGLIERE
             # vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit, # NO, DA TOGLIERE
