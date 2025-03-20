@@ -2,7 +2,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from ta.volatility import AverageTrueRange
-from ta.momentum import RSIIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.trend import MACD, PSARIndicator, ADXIndicator, EMAIndicator
 from binance import Client
 import streamlit as st
@@ -164,6 +164,119 @@ def get_market_data(asset: str, interval: str, time_hours: int) -> tuple:
     return df, actual_hours
 
 
+@st.cache_data
+def get_marcket_data(asset: str, interval: str, start_date: str, end_date: str) -> tuple:
+    """
+       Scarica i dati di mercato di 'asset' per l'intervallo temporale specificato,
+       basandosi sull'intervallo 'interval' (es. '1m', '5m', '1h').
+
+       Se il numero di candele necessarie supera 1000 (limite Binance),
+       fa più richieste e unisce i dati in un unico DataFrame ordinato.
+
+       Parameters
+       ----------
+       asset : str
+           Il simbolo dell'asset da scaricare (es. "BTCUSDC").
+       interval : str
+           L'intervallo tra le candele (es. "1m", "3m", "5m", "1h").
+       start_date : str
+           Data di inizio (es. "2023-01-01 00:00:00").
+       end_date : str
+           Data di fine (es. "2023-01-02 00:00:00").
+
+       Returns
+       -------
+       pd.DataFrame
+           DataFrame con colonne ['Open', 'High', 'Low', 'Close', 'Volume']
+           e indice temporale (Open time), ordinato dalla candela più vecchia a quella più recente.
+       """
+    print(f"Scarico dati per {asset}, intervallo={interval}, da {start_date} a {end_date}")
+
+    # Converte le date in timestamp in millisecondi
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+    start_ms = int(start_dt.timestamp() * 1000)
+    end_ms = int(end_dt.timestamp() * 1000)
+
+    # Inizializza il client (personalizza se hai già un'istanza altrove)
+    client = Client(api_key="<api_key>", api_secret="<api_secret>")
+
+    # 1. Converte l'intervallo (es. "5m") in minuti.
+    candlestick_minutes = interval_to_minutes(interval)
+    if candlestick_minutes <= 0:
+        raise ValueError(f"Intervallo '{interval}' non supportato o non valido.")
+
+    # 2. Calcola quante candele totali sono necessarie per coprire l'intervallo specificato.
+    total_minutes = (end_ms - start_ms) / 60000  # totale minuti
+    needed_candles = math.ceil(total_minutes / candlestick_minutes)
+    print(f"Servono ~{needed_candles} candele totali.")
+
+    # 3. Scarica i dati in chunk da 1000 candele (limite Binance)
+    all_klines = []
+    fetch_start = start_ms
+    candles_left = needed_candles
+
+    while candles_left > 0:
+        # Quante candele proviamo a prendere in questa fetch
+        chunk_size = min(1000, candles_left)
+
+        # Esegui la fetch, limitando i dati a quelli disponibili fino a end_ms
+        chunk_klines = client.get_klines(
+            symbol=asset,
+            interval=interval,
+            limit=chunk_size,  # max 1000
+            startTime=fetch_start,  # in ms
+            endTime=end_ms  # in ms
+        )
+
+        if not chunk_klines:
+            # Se è vuoto, non ci sono più dati disponibili
+            break
+
+        # Aggiungi i dati scaricati alla lista generale
+        all_klines.extend(chunk_klines)
+        real_fetched = len(chunk_klines)
+        candles_left -= real_fetched
+
+        # Calcola l'open time dell'ultima candela per impostare il prossimo fetch
+        last_open_time = chunk_klines[-1][0]
+        next_open_time = last_open_time + (candlestick_minutes * 60_000)
+
+        # Se il numero di candele recuperato è inferiore a quello richiesto, esci dal loop
+        if real_fetched < chunk_size:
+            break
+
+        fetch_start = next_open_time
+        if fetch_start >= end_ms:
+            break
+
+    if not all_klines:
+        print(f"Nessun dato trovato per {asset} nell'intervallo specificato.")
+        return pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Volume']), 0
+
+    # 4. Costruisci il DataFrame dai dati scaricati
+    columns = [
+        'Open time', 'Open', 'High', 'Low', 'Close', 'Volume', 'Close time',
+        'Quote asset volume', 'Number of trades', 'Taker buy base asset volume',
+        'Taker buy quote asset volume', 'Ignore'
+    ]
+    raw_df = pd.DataFrame(all_klines, columns=columns)
+
+    # 5. Converte i timestamp e imposta l'indice
+    raw_df['Open time'] = pd.to_datetime(raw_df['Open time'], unit='ms')
+    raw_df.set_index('Open time', inplace=True)
+    df = raw_df[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+
+    # 6. Ordina per data e rimuove eventuali duplicati
+    df.sort_index(inplace=True)
+    df = df[~df.index.duplicated(keep='first')]
+
+    # Calcola le ore effettive di dati disponibili
+    actual_hours = len(df) * candlestick_minutes / 60 if not df.empty else 0
+    print(f"Scaricate {len(df)} candele ({actual_hours} ore) per {asset}.")
+
+    return df, actual_hours
+
 def download_market_data(assets: list, intervals: list, hours: int):
     """
     Scarica i dati di mercato per tutti gli asset e intervalli specificati.
@@ -277,6 +390,25 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     df_copy['Lower_Band3'] = df_copy['EMA3'] - atr_multiplier * df_copy['ATR']
     df_copy['Upper_Band3'][:atr_window] = None
     df_copy['Lower_Band3'][:atr_window] = None
+
+    # STOCASTICO
+    stoch_indicator = StochasticOscillator(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        window=rsi_window,
+        smooth_window=3
+    )
+    df_copy["STOCH"] = stoch_indicator.stoch()
+    df_copy["STOCH_S"] = stoch_indicator.stoch_signal()
+
+    # UO
+    # uo_indicator = UltimateOscillator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close']
+    # )
+    # df_copy['UO'] = uo_indicator.ultimate_oscillator()
 
     # ADX
     # adx_indicator = ADXIndicator(
@@ -1253,7 +1385,7 @@ def trading_analysis(
             x=df.index,
             y=df['EMA3'],
             mode='lines',
-            line=dict(color='orange', width=1),
+            line=dict(color='coral', width=1),
             name='EMA LONG'
         ),
             row=index, col=1
@@ -1263,7 +1395,7 @@ def trading_analysis(
             x=df.index,
             y=df['Upper_Band3'],
             mode='lines',
-            line=dict(color='orange', width=1, dash='dash'),
+            line=dict(color='coral', width=1, dash='dash'),
             name='Upper ATR'
         ),
             row=index, col=1
@@ -1272,7 +1404,7 @@ def trading_analysis(
             x=df.index,
             y=df['Lower_Band3'],
             mode='lines',
-            line=dict(color='orange', width=1, dash='dash'),
+            line=dict(color='coral', width=1, dash='dash'),
             name='Lower ATR'
         ),
             row=index, col=1
@@ -1329,13 +1461,33 @@ def trading_analysis(
                 row=index, col=1
             )
 
-        # RSI
+        #STOCASTICO
         index += 1
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['STOCH'],
+            mode='lines',
+            line=dict(color='darkblue', width=1),
+            name='STOCH'
+        ),
+            row=index, col=1
+        )
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['STOCH_S'],
+            mode='lines',
+            line=dict(color='darkcyan', width=1),
+            name='STOCH S'
+        ),
+            row=index, col=1
+        )
+
+        # RSI
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df['RSI'],
             mode='lines',
-            line=dict(color='blue', width=1),
+            line=dict(color='salmon', width=1),
             name='RSI'
         ),
             row=index, col=1
@@ -1344,7 +1496,7 @@ def trading_analysis(
             x=df.index,
             y=df['RSI2'],
             mode='lines',
-            line=dict(color='purple', width=1),
+            line=dict(color='pink', width=1),
             name='RSI'
         ),
             row=index, col=1
@@ -1353,7 +1505,7 @@ def trading_analysis(
             x=df.index,
             y=df['RSI3'],
             mode='lines',
-            line=dict(color='orange', width=1),
+            line=dict(color='purple', width=1),
             name='RSI'
         ),
             row=index, col=1
@@ -1376,32 +1528,15 @@ def trading_analysis(
         ),
             row=index, col=1
         )
-        # ADX
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['ADX'],
-        #     mode='lines',
-        #     line=dict(color='yellow', width=1,dash='dot' ),
-        #     name='ADX'
-        # ),
-        #     row=index, col=1
-        # )
 
         # MACD
         index += 1
-        fig.add_trace(go.Bar(
-            x=df.index,
-            y=df['MACD'],
-            name='MACD',
-            marker=dict(color='orange')
-        ),
-            row=index, col=1
-        )
+
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df['MACD_L'],
             mode='lines',
-            line=dict(color='yellow', width=1, dash='dot'),
+            line=dict(color='fuchsia', width=1, dash='dot'),
             name='MACD Line'
         ),
             row=index, col=1
@@ -1415,6 +1550,15 @@ def trading_analysis(
         ),
             row=index, col=1
         )
+        fig.add_trace(go.Bar(
+            x=df.index,
+            y=df['MACD'],
+            name='MACD',
+            marker=dict(color='lightyellow')
+        ),
+            row=index, col=1
+        )
+
         fig.add_trace(go.Scatter(
             x=[df.index.min(), df.index.max()],
             y=[macd_buy_limit, macd_buy_limit],
@@ -1434,6 +1578,16 @@ def trading_analysis(
             row=index, col=1
         )
 
+        # ADX
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['ADX'],
+        #     mode='lines',
+        #     line=dict(color='yellow', width=1,dash='dot' ),
+        #     name='ADX'
+        # ),
+        #     row=index, col=1
+        # )
         # TSI
         # index += 1
         # fig.add_trace(go.Scatter(
