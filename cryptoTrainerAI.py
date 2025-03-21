@@ -18,7 +18,7 @@ WINDOW_SIZE = 10
 MACD_SHORT_WINDOW = 12
 MACD_LONG_WINDOW = 26
 MACD_SIGNAL_WINDOW = 9
-ATR_MULTIPLIER = 2
+ATR_MULTIPLIER = 1.5
 STEP = 0.02
 MAX_STEP = 0.2
 
@@ -72,16 +72,6 @@ def calculate_relative_extrema(data, window_pivot=EXT_WINDOW_SIZE):
 
 # Calcolo degli indicatori tecnici
 def add_technical_indicators(data):
-    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
-    sar_indicator = PSARIndicator(
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
-        step=STEP,
-        max_step=MAX_STEP
-    )
-    data['SAR'] = sar_indicator.psar()
-
     # ATR
     atr_indicator = AverageTrueRange(
         high=data['High'],
@@ -91,20 +81,18 @@ def add_technical_indicators(data):
     )
     data['ATR'] = atr_indicator.average_true_range()
 
-    # SMA (Media Mobile per le Rolling ATR Bands)
+    # SMA
     sma_indicator = SMAIndicator(close=data['Close'], window=WINDOW_SIZE)
     data['SMA'] = sma_indicator.sma_indicator()
 
-    # Calcolo dell'RSI
-    # Impostazione classica RSI(14). Se vuoi segnali più veloci, puoi provare RSI(7) o RSI(9).
+    # RSI
     rsi_indicator = RSIIndicator(
         close=data['Close'],
         window=WINDOW_SIZE
     )
     data['RSI'] = rsi_indicator.rsi()
 
-    # Calcolo delle linee MACD
-    # Calcolo del MACD
+    # MACD
     macd_indicator = MACD(
         close=data['Close'],
         window_slow=MACD_LONG_WINDOW,
@@ -113,15 +101,6 @@ def add_technical_indicators(data):
     )
     data['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
 
-    # Vortex Indicator
-    vi = VortexIndicator(
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
-        window=WINDOW_SIZE)
-    vip = vi.vortex_indicator_pos()
-    vim = vi.vortex_indicator_neg()
-    data['VI'] = vip - vim
 
     final_data = data.dropna()
 

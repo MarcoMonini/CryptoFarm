@@ -9,9 +9,9 @@ import streamlit as st
 import numpy as np
 import math
 import time
-from scipy.signal import argrelextrema
 import warnings
 
+# from scipy.signal import argrelextrema
 # from tensorflow.keras.models import load_model
 # from cryptoTrainerAI import calculate_percentage_changes, add_technical_indicators
 
@@ -315,8 +315,10 @@ def download_market_data(assets: list, intervals: list, hours: int):
 def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_window3,
                             macd_long_window, macd_short_window, macd_signal_window,
                             ema_window, ema_window2, ema_window3,
-                            atr_window, atr_multiplier, dinamic_atr: bool = False,
-                            din_macd_div: float = 1.2):
+                            atr_window, atr_multiplier,
+                            # dinamic_atr: bool = False,
+                            # din_macd_div: float = 1.2
+                            ):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     sar_indicator = PSARIndicator(
@@ -379,9 +381,9 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     df_copy['KAMA'] = kama_indicator.kama()
 
     # Rolling ATR Bands
-    if dinamic_atr:
+    # if dinamic_atr:
         # dipende dal macd
-        atr_multiplier = (0.5 + df_copy['MACD'].abs()) / din_macd_div
+    #    atr_multiplier = (0.5 + df_copy['MACD'].abs()) / din_macd_div
 
     # df_copy['Upper_Band'] = df_copy['EMA'] + atr_multiplier * df_copy['ATR']
     # df_copy['Lower_Band'] = df_copy['EMA'] - atr_multiplier * df_copy['ATR']
@@ -405,8 +407,7 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     return df_copy
 
 
-def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, atr_multiplier: float = 2.4,
-                                step: float = 0.01, max_step: float = 0.4):
+def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, atr_multiplier: float = 2.4):
     """
     Calcola SOLO l'ultimo valore di RSI e MACD sulla candela 'i'
     del DataFrame 'df', ritagliando una finestra minima attorno a 'i'.
@@ -453,15 +454,6 @@ def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, 
 
     temp_df['Upper_Band'] = ema + atr_multiplier * atr
     temp_df['Lower_Band'] = ema - atr_multiplier * atr
-
-    # sar_indicator = PSARIndicator(
-    #     high=temp_df['High'],
-    #     low=temp_df['Low'],
-    #     close=temp_df['Close'],
-    #     step=step,
-    #     max_step=max_step
-    # )
-    # temp_df['PSAR'] = sar_indicator.psar()
 
     return temp_df
 
@@ -565,8 +557,7 @@ def simulate_candles(raw_df, atr_window: int = 6, atr_multiplier: float = 2, ste
             temp_df.at[temp_df.index[i], 'Close'] = step_close
 
             df_utile = calculate_latest_indicators(i=i, df=temp_df, atr_window=atr_window,
-                                                   atr_multiplier=atr_multiplier,
-                                                   step=step, max_step=max_step)
+                                                   atr_multiplier=atr_multiplier)
 
             row = df_utile.iloc[-1]
             # Condizione di BUY
@@ -788,39 +779,27 @@ def close_atr_buy_sell_simulation(df, stop_loss_percent):
     return buy_signals, sell_signals
 
 
-def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8, macd_sell_limit: float = 0.8,
+def close_macd_retest_simulation(df, macd_buy_limit: float = -0.8,
                                  rsi_sell_limit: int = 75):
     buy_signals = []
     sell_signals = []
     holding = False
     lower_break = False
-    upper_break = False
     for i in range(1, len(df)):
-        # if not holding:
         if not lower_break and df['MACD'].iloc[i] <= macd_buy_limit:
             lower_break = True
         if lower_break and df['MACD'].iloc[i] > macd_buy_limit:
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
             lower_break = False
-        # if holding and not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
-        #     upper_break = True
-        # if holding and upper_break and df['MACD'].iloc[i] < macd_sell_limit:
-        #     sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
-        #     holding = False
-        #     upper_break = False
         if holding and df['RSI'].iloc[i] >= rsi_sell_limit:
-            # if not upper_break and df['MACD'].iloc[i] >= macd_sell_limit:
-            #     upper_break = True
-            # if upper_break and df['MACD'].iloc[i] < macd_sell_limit:
             sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
-            upper_break = False
 
     return buy_signals, sell_signals
 
 
-def close_ema_crossover_simulation(df, rsi_buy_limit: int = 25, rsi_sell_limit: int = 75):
+def close_ema_crossover_simulation(df):
     buy_signals = []
     sell_signals = []
     holding = False
@@ -1064,33 +1043,19 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
 
 
 def trading_analysis(
-        asset: str,
-        interval: str,
-        wallet: float,
-        time_hours: int = 24,
+        asset: str, interval: str, wallet: float, time_hours: int = 24,
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
         show: bool = True,
         step: float = 0.01, max_step: float = 0.4,
-        atr_multiplier: float = 1.5, atr_window: int = 12,
-        window_pivot: int = 10,
+        atr_multiplier: float = 1.5, atr_window: int = 12, window_pivot: int = 10,
         rsi_window: int = 10, rsi_window2: int = 20, rsi_window3: int = 30,
         ema_window: int = 12, ema_window2: int = 24, ema_window3: int = 36,
         macd_short_window: int = 12, macd_long_window: int = 26, macd_signal_window: int = 9,
         rsi_buy_limit: int = 40, rsi_sell_limit: int = 60,
         macd_buy_limit: float = -0.4, macd_sell_limit: float = 0.4,
-        # vi_buy_limit: float = -0.5, vi_sell_limit: float = 0.5,
-        # psarvp_buy_limit: float = -0.1, psarvp_sell_limit: float = 10.1,
-        # srsi_buy_limit: float = 0.01, srsi_sell_limit: float = 0.99,
-        # tsi_buy_limit: int = -50, tsi_sell_limit: int = 50,
-        # roc_buy_limit: float = -5.0, roc_sell_limit: float = 5.0,
-        # pvo_buy_limit: int = -50, pvo_sell_limit: int = 50,
-        # mfi_buy_limit: int = 30, mfi_sell_limit: int = 70,
-        num_cond: int = 1,
-        stop_loss: int = 99,
-        strategia: str = "",
-        din_macd_div: float = 1.2,
-        market_data: dict = None,
-        # modello = None
+        num_cond: int = 1, stop_loss: int = 99,
+        strategia: str = "", market_data: dict = None,
+        # din_macd_div: float = 1.2, modello = None
 ):
     """
     Scarica le candele di 'asset' con intervallo 'interval' (tramite una funzione
@@ -1137,33 +1102,35 @@ def trading_analysis(
         actual_hours = time_hours
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
-    # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
-    price_high = df['High']
-    price_low = df['Low']
-    # Trova gli indici dei massimi e minimi relativi
-    order = int(window_pivot / 2)
-    max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
-    min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
-    # Inizializza gli array per massimi e minimi
-    rel_max = []
-    rel_min = []
-    # Popola gli array con tuple (indice, prezzo)
-    for i in min_idx:
-        rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
-    for i in max_idx:
-        rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
+    # # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
+    # price_high = df['High']
+    # price_low = df['Low']
+    # # Trova gli indici dei massimi e minimi relativi
+    # order = int(window_pivot / 2)
+    # max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
+    # min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
+    # # Inizializza gli array per massimi e minimi
+    # rel_max = []
+    # rel_min = []
+    # # Popola gli array con tuple (indice, prezzo)
+    # for i in min_idx:
+    #     rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
+    # for i in max_idx:
+    #     rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
 
-    dinamic_atr = False
-    if strategia == "Dinamic ATR Bands" or strategia == "Dinamic Close ATR":
-        dinamic_atr = True
+    # dinamic_atr = False
+    # if strategia == "Dinamic ATR Bands" or strategia == "Dinamic Close ATR":
+    #     dinamic_atr = True
 
     df = add_technical_indicator(df, step=step, max_step=max_step,
                                  rsi_window=rsi_window, rsi_window2=rsi_window2, rsi_window3=rsi_window3,
                                  ema_window=ema_window, ema_window2=ema_window2, ema_window3=ema_window3,
                                  macd_long_window=macd_long_window, macd_short_window=macd_short_window,
                                  macd_signal_window=macd_signal_window,
-                                 atr_window=atr_window, atr_multiplier=atr_multiplier, dinamic_atr=dinamic_atr,
-                                 din_macd_div=din_macd_div)
+                                 atr_window=atr_window, atr_multiplier=atr_multiplier,
+                                 # dinamic_atr=dinamic_atr,
+                                 # din_macd_div=din_macd_div
+                                 )
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita in base alla strategia
@@ -1196,12 +1163,10 @@ def trading_analysis(
 
     if strategia == "Close MACD Retest":
         buy_signals, sell_signals = close_macd_retest_simulation(df=df, macd_buy_limit=macd_buy_limit,
-                                                                 macd_sell_limit=macd_sell_limit,
                                                                  rsi_sell_limit=rsi_sell_limit)
 
     if strategia == "Close EMA Crossover":
-        buy_signals, sell_signals = close_ema_crossover_simulation(df=df, rsi_buy_limit=rsi_buy_limit,
-                                                                   rsi_sell_limit=rsi_sell_limit)
+        buy_signals, sell_signals = close_ema_crossover_simulation(df=df)
 
     if strategia == "Close Bullish EMA":
         buy_signals, sell_signals = close_bullish_ema_simulation(df=df, rsi_buy_limit=rsi_buy_limit,
@@ -1443,16 +1408,6 @@ def trading_analysis(
     return fig, trades_df, actual_hours
 
 
-def calc_opt_limit(df):
-    value = np.mean(df[df['MACD'] < 0]['MACD'])
-    print(f"MEDIA: {np.mean(df[df['MACD'] < 0]['MACD'])}")
-    print(f"MEDIANA: {np.median(df[df['MACD'] < 0]['MACD'])}")
-    print(f"DEV STD: {np.std(df[df['MACD'] < 0]['MACD'])}")
-    value = np.median(df[df['MACD'] < 0]['MACD']) / np.sqrt(2) / np.std(df[df['MACD'] < 0]['MACD'])
-    print(f"VALUE: {value}")
-    return value
-
-
 if __name__ == "__main__":
     # ------------------------------
     # Configura il titolo della pagina e il logo
@@ -1485,18 +1440,14 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=[  # "Buy/Sell Limits",
+                                     options=[
                                          "Close Buy/Sell Limits",
-                                         # "ATR Bands",
                                          "Close ATR",
-                                         # "Dinamic ATR Bands",
-                                         # "Dinamic Close ATR",
                                          "Close MACD Retest",
                                          "Close Bullish EMA",
                                          "Close EMA Crossover",
                                          "Inside Bar",
                                          "Close RSI Reverse",
-                                         # "Close PSAR/ATR",
                                          "ATR Live Trade"
                                      ],
                                      index=0)
@@ -1534,8 +1485,8 @@ if __name__ == "__main__":
     macd_sell_limit = col2.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=2.5,
                                         # value=0.66,
                                         step=0.01)
-    din_macd_div = col1.number_input(label="ATR Dividend", min_value=-10.0, max_value=10.0, value=1.2,
-                                     step=0.1)
+    # din_macd_div = col1.number_input(label="ATR Dividend", min_value=-10.0, max_value=10.0, value=1.2,
+    #                                  step=0.1)
 
     stop_loss = col2.number_input(label="Stop Loss %", min_value=0.1, max_value=100.0, value=99.0, step=1.0)
 
@@ -1572,17 +1523,10 @@ if __name__ == "__main__":
             macd_signal_window=macd_signal_window,
             rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,  # OK
             macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,  # NO, DA TOGLIERE
-            # vi_buy_limit=vi_buy_limit, vi_sell_limit=vi_sell_limit, # NO, DA TOGLIERE
-            # psarvp_buy_limit=psarvp_buy_limit, psarvp_sell_limit=psarvp_sell_limit, # NO, DA TOGLIERE
-            # srsi_buy_limit=srsi_buy_limit, srsi_sell_limit=srsi_sell_limit, # NO, DA TOGLIERE
-            # tsi_buy_limit=tsi_buy_limit, tsi_sell_limit=tsi_sell_limit, # NO, DA TOGLIERE
-            # roc_buy_limit=roc_buy_limit, roc_sell_limit=roc_sell_limit, # NO, DA TOGLIERE
-            # pvo_buy_limit=pvo_buy_limit, pvo_sell_limit=pvo_sell_limit, # NO, DA TOGLIERE
-            # mfi_buy_limit=mfi_buy_limit, mfi_sell_limit=mfi_sell_limit, # NO, DA TOGLIERE
             num_cond=num_cond,
             stop_loss=stop_loss,
             strategia=strategia,
-            din_macd_div=din_macd_div,
+            # din_macd_div=din_macd_div,
             market_data=st.session_state['df'],
         )
         text_placeholder.subheader("Operations Report")
