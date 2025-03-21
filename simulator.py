@@ -316,6 +316,7 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
                             macd_long_window, macd_short_window, macd_signal_window,
                             ema_window, ema_window2, ema_window3,
                             atr_window, atr_multiplier,
+                            kama_pow1, kama_pow2
                             # dinamic_atr: bool = False,
                             # din_macd_div: float = 1.2
                             ):
@@ -376,13 +377,13 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
 
     kama_indicator = KAMAIndicator(close=df_copy['Close'],
                                    window=ema_window,
-                                   pow1=2,
-                                   pow2=30)
+                                   pow1=kama_pow1,
+                                   pow2=kama_pow2)
     df_copy['KAMA'] = kama_indicator.kama()
 
     # Rolling ATR Bands
     # if dinamic_atr:
-        # dipende dal macd
+    # dipende dal macd
     #    atr_multiplier = (0.5 + df_copy['MACD'].abs()) / din_macd_div
 
     # df_copy['Upper_Band'] = df_copy['EMA'] + atr_multiplier * df_copy['ATR']
@@ -402,7 +403,6 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     )
     df_copy['STOCH'] = stoch_indicator.stoch()
     df_copy['STOCH_S'] = stoch_indicator.stoch_signal()
-
 
     return df_copy
 
@@ -813,7 +813,7 @@ def close_ema_crossover_simulation(df):
         ema50ema100down = (df["EMA"].iloc[i - 1] >= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA2"].iloc[i])
         ema50ema200down = (df["EMA"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA3"].iloc[i])
         ema100ema200down = (
-                    df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i])
+                df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i])
 
         if not holding:
             # non si verifica le sequenza esatta
@@ -1043,7 +1043,7 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
 
 
 def identify_trend_zones(
-    df: pd.DataFrame
+        df: pd.DataFrame
 ) -> list:
     """
     Identifica intervalli di trend rialzista e ribassista basandosi su parametri di input,
@@ -1053,16 +1053,6 @@ def identify_trend_zones(
     ---------
     df : pd.DataFrame
         Il DataFrame con le colonne richieste (RSI, EMA, etc.)
-    rsi_col : str
-        Nome della colonna RSI sul DataFrame.
-    short_ema_col : str
-        Nome della colonna EMA veloce.
-    long_ema_col : str
-        Nome della colonna EMA lenta.
-    rsi_bullish_threshold : float
-        Valore di soglia sopra il quale (assieme alla condizione EMA>EMA2) identifichiamo un trend bullish.
-    rsi_bearish_threshold : float
-        Valore di soglia sotto il quale (assieme alla condizione EMA<EMA2) identifichiamo un trend bearish.
 
     Ritorna
     -------
@@ -1110,12 +1100,12 @@ def identify_trend_zones(
                         yref="paper",
                         x0=x0,
                         x1=x1,
-                        y0=0,    # intera altezza del grafico
+                        y0=0,  # intera altezza del grafico
                         y1=1,
                         fillcolor=fillcolor,
                         opacity=opacity_val,
-                        layer="below",     # la zona resta sotto le candele
-                        line_width=0       # niente contorno
+                        layer="below",  # la zona resta sotto le candele
+                        line_width=0  # niente contorno
                     )
                 )
 
@@ -1166,6 +1156,7 @@ def trading_analysis(
         rsi_window: int = 10, rsi_window2: int = 20, rsi_window3: int = 30,
         ema_window: int = 12, ema_window2: int = 24, ema_window3: int = 36,
         macd_short_window: int = 12, macd_long_window: int = 26, macd_signal_window: int = 9,
+        kama_pow1:int = 2, kama_pow2:int = 30,
         rsi_buy_limit: int = 40, rsi_sell_limit: int = 60,
         macd_buy_limit: float = -0.4, macd_sell_limit: float = 0.4,
         num_cond: int = 1, stop_loss: int = 99,
@@ -1243,6 +1234,7 @@ def trading_analysis(
                                  macd_long_window=macd_long_window, macd_short_window=macd_short_window,
                                  macd_signal_window=macd_signal_window,
                                  atr_window=atr_window, atr_multiplier=atr_multiplier,
+                                 kama_pow1=kama_pow1, kama_pow2=kama_pow2
                                  # dinamic_atr=dinamic_atr,
                                  # din_macd_div=din_macd_div
                                  )
@@ -1351,7 +1343,7 @@ def trading_analysis(
             name='EMA MED'
         ), row=index, col=1)
         fig.add_trace(go.Scatter(
-            x=df.index, y=df['EMA3'],mode='lines',
+            x=df.index, y=df['EMA3'], mode='lines',
             line=dict(color='coral', width=1),
             name='EMA LONG'
         ), row=index, col=1)
@@ -1558,16 +1550,16 @@ if __name__ == "__main__":
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=[
-                                         "Close Buy/Sell Limits",
-                                         "Close ATR",
-                                         "Close MACD Retest",
-                                         "Close Bullish EMA",
-                                         "Close EMA Crossover",
-                                         "Inside Bar",
-                                         "Close RSI Reverse",
-                                         "ATR Live Trade"
-                                     ],
+                                     options=["-",
+                                              "Close Buy/Sell Limits",
+                                              "Close ATR",
+                                              "Close MACD Retest",
+                                              "Close Bullish EMA",
+                                              "Close EMA Crossover",
+                                              "Inside Bar",
+                                              "Close RSI Reverse",
+                                              "ATR Live Trade"
+                                              ],
                                      index=0)
     if st.sidebar.button("SIMULATE"):
         st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
@@ -1593,7 +1585,8 @@ if __name__ == "__main__":
     macd_signal_window = col3.number_input(label="Signal", min_value=0, max_value=500, value=9, step=1)
 
     col1, col2 = st.sidebar.columns(2)
-
+    kama_pow1 = col1.number_input(label="KAMA Pow 1", min_value=1, max_value=1000, value=2, step=1)
+    kama_pow2 = col2.number_input(label="Pow 2", min_value=1, max_value=1000, value=30, step=1)
     rsi_buy_limit = col1.number_input(label="RSI Buy limit", min_value=0, max_value=100, value=25, step=1)
     rsi_sell_limit = col2.number_input(label="RSI Sell limit", min_value=0, max_value=100, value=75, step=1)
 
@@ -1639,6 +1632,7 @@ if __name__ == "__main__":
             ema_window=ema_window, ema_window2=ema_window2, ema_window3=ema_window3,
             macd_short_window=macd_short_window, macd_long_window=macd_long_window,
             macd_signal_window=macd_signal_window,
+            kama_pow1=kama_pow1, kama_pow2=kama_pow2,
             rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,  # OK
             macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,  # NO, DA TOGLIERE
             num_cond=num_cond,
@@ -1671,4 +1665,3 @@ if __name__ == "__main__":
                                    start_date=start_date,
                                    end_date=end_date)
             st.write(data)
-
