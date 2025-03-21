@@ -1042,6 +1042,121 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
     return operations
 
 
+def identify_trend_zones(
+    df: pd.DataFrame
+) -> list:
+    """
+    Identifica intervalli di trend rialzista e ribassista basandosi su parametri di input,
+    e restituisce una lista di dizionari "shapes" Plotly.
+
+    Parametri
+    ---------
+    df : pd.DataFrame
+        Il DataFrame con le colonne richieste (RSI, EMA, etc.)
+    rsi_col : str
+        Nome della colonna RSI sul DataFrame.
+    short_ema_col : str
+        Nome della colonna EMA veloce.
+    long_ema_col : str
+        Nome della colonna EMA lenta.
+    rsi_bullish_threshold : float
+        Valore di soglia sopra il quale (assieme alla condizione EMA>EMA2) identifichiamo un trend bullish.
+    rsi_bearish_threshold : float
+        Valore di soglia sotto il quale (assieme alla condizione EMA<EMA2) identifichiamo un trend bearish.
+
+    Ritorna
+    -------
+    list
+        Lista di shapes (rettangoli) da passare successivamente a fig.update_layout(shapes=...).
+        Ogni shape è un dict con parametri per disegnare la zona colorata su Plotly.
+    """
+
+    shapes = []
+    current_trend = None  # Possibili valori: 'bullish', 'bearish', oppure None
+    zone_start_index = None
+
+    for i in range(len(df)):
+        # Valuta le condizioni per bullish e bearish
+        cond_bullish = (df['EMA'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i])
+        cond_bearish = (df['EMA'].iloc[i] < df['EMA2'].iloc[i] < df['EMA3'].iloc[i])
+
+        if cond_bullish:
+            new_trend = "bullish"
+        elif cond_bearish:
+            new_trend = "bearish"
+        else:
+            new_trend = None
+
+        if new_trend != current_trend:
+            # Se stiamo cambiando "trend" rispetto al bar/candela precedente,
+            # chiudiamo eventuale zona precedente e ne apriamo un'altra se necessario.
+            if current_trend is not None and zone_start_index is not None:
+                # Costruisci shape per la zona precedente [zone_start_index ... i-1]
+                x0 = df.index[zone_start_index]
+                # i potrebbe essersi spostato di 1 troppo in avanti, usiamo df.index[i-1] se i>0
+                x1 = df.index[i - 1] if i > 0 else x0
+
+                if current_trend == "bullish":
+                    fillcolor = "green"
+                    opacity_val = 0.15
+                else:
+                    fillcolor = "red"
+                    opacity_val = 0.15
+
+                shapes.append(
+                    dict(
+                        type="rect",
+                        xref="x",
+                        yref="paper",
+                        x0=x0,
+                        x1=x1,
+                        y0=0,    # intera altezza del grafico
+                        y1=1,
+                        fillcolor=fillcolor,
+                        opacity=opacity_val,
+                        layer="below",     # la zona resta sotto le candele
+                        line_width=0       # niente contorno
+                    )
+                )
+
+            # Apertura della nuova zona, se c'è un nuovo trend
+            if new_trend is not None:
+                zone_start_index = i
+            else:
+                zone_start_index = None
+
+            current_trend = new_trend
+
+    # Chiudi eventuale ultima zona rimasta aperta
+    if current_trend is not None and zone_start_index is not None:
+        x0 = df.index[zone_start_index]
+        x1 = df.index[-1]  # fino alla fine
+        if current_trend == "bullish":
+            fillcolor = "green"
+            opacity_val = 0.15
+        else:
+            fillcolor = "red"
+            opacity_val = 0.15
+
+        shapes.append(
+            dict(
+                type="rect",
+                xref="x",
+                yref="paper",
+                x0=x0,
+                x1=x1,
+                y0=0,
+                y1=1,
+                fillcolor=fillcolor,
+                opacity=opacity_val,
+                layer="below",
+                line_width=0
+            )
+        )
+
+    return shapes
+
+
 def trading_analysis(
         asset: str, interval: str, wallet: float, time_hours: int = 24,
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
@@ -1186,6 +1301,8 @@ def trading_analysis(
     else:
         operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals,
                                                       fee_percent=fee_percent)
+
+    trend_shapes = identify_trend_zones(df=df)
 
     # ======================================
     # 4. Creazione del grafico
@@ -1374,7 +1491,8 @@ def trading_analysis(
         fig.update_layout(
             template="plotly_dark",
             xaxis_rangeslider_visible=False,
-            height=total_height
+            height=total_height,
+            shapes=trend_shapes
         )
 
     # ======================================
