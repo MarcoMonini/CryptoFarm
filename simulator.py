@@ -2,7 +2,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from ta.volatility import AverageTrueRange
-from ta.momentum import RSIIndicator, StochasticOscillator
+from ta.momentum import RSIIndicator, StochasticOscillator, KAMAIndicator
 from ta.trend import MACD, PSARIndicator, ADXIndicator, EMAIndicator
 from binance import Client
 import streamlit as st
@@ -165,7 +165,7 @@ def get_market_data(asset: str, interval: str, time_hours: int) -> tuple:
 
 
 @st.cache_data
-def get_marcket_data(asset: str, interval: str, start_date: str, end_date: str) -> tuple:
+def get_market_data(asset: str, interval: str, start_date: str, end_date: str) -> tuple:
     """
        Scarica i dati di mercato di 'asset' per l'intervallo temporale specificato,
        basandosi sull'intervallo 'interval' (es. '1m', '5m', '1h').
@@ -277,6 +277,7 @@ def get_marcket_data(asset: str, interval: str, start_date: str, end_date: str) 
 
     return df, actual_hours
 
+
 def download_market_data(assets: list, intervals: list, hours: int):
     """
     Scarica i dati di mercato per tutti gli asset e intervalli specificati.
@@ -371,25 +372,34 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window3)
     df_copy['EMA3'] = ema_indicator.ema_indicator()
 
+    kama_indicator = KAMAIndicator(close=df_copy['Close'],
+                                   window=ema_window,
+                                   pow1=2,
+                                   pow2=30)
+    df_copy['KAMA'] = kama_indicator.kama()
+
     # Rolling ATR Bands
     if dinamic_atr:
         # dipende dal macd
         atr_multiplier = (0.5 + df_copy['MACD'].abs()) / din_macd_div
 
-    df_copy['Upper_Band'] = df_copy['EMA'] + atr_multiplier * df_copy['ATR']
-    df_copy['Lower_Band'] = df_copy['EMA'] - atr_multiplier * df_copy['ATR']
+    # df_copy['Upper_Band'] = df_copy['EMA'] + atr_multiplier * df_copy['ATR']
+    # df_copy['Lower_Band'] = df_copy['EMA'] - atr_multiplier * df_copy['ATR']
+
+    df_copy['Upper_Band'] = df_copy['KAMA'] + atr_multiplier * df_copy['ATR']
+    df_copy['Lower_Band'] = df_copy['KAMA'] - atr_multiplier * df_copy['ATR']
     df_copy['Upper_Band'][:atr_window] = None
     df_copy['Lower_Band'][:atr_window] = None
 
-    df_copy['Upper_Band2'] = df_copy['EMA2'] + atr_multiplier * df_copy['ATR']
-    df_copy['Lower_Band2'] = df_copy['EMA2'] - atr_multiplier * df_copy['ATR']
-    df_copy['Upper_Band2'][:atr_window] = None
-    df_copy['Lower_Band2'][:atr_window] = None
-
-    df_copy['Upper_Band3'] = df_copy['EMA3'] + atr_multiplier * df_copy['ATR']
-    df_copy['Lower_Band3'] = df_copy['EMA3'] - atr_multiplier * df_copy['ATR']
-    df_copy['Upper_Band3'][:atr_window] = None
-    df_copy['Lower_Band3'][:atr_window] = None
+    # df_copy['Upper_Band2'] = df_copy['EMA2'] + atr_multiplier * df_copy['ATR']
+    # df_copy['Lower_Band2'] = df_copy['EMA2'] - atr_multiplier * df_copy['ATR']
+    # df_copy['Upper_Band2'][:atr_window] = None
+    # df_copy['Lower_Band2'][:atr_window] = None
+    #
+    # df_copy['Upper_Band3'] = df_copy['EMA3'] + atr_multiplier * df_copy['ATR']
+    # df_copy['Lower_Band3'] = df_copy['EMA3'] - atr_multiplier * df_copy['ATR']
+    # df_copy['Upper_Band3'][:atr_window] = None
+    # df_copy['Lower_Band3'][:atr_window] = None
 
     # STOCASTICO
     stoch_indicator = StochasticOscillator(
@@ -931,7 +941,7 @@ def close_bullish_ema_simulation(df, rsi_buy_limit: int = 50, rsi_sell_limit: in
         if (not holding and cond_ema and (
                 df['EMA'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i])  # trend rialzista nel breve termine
                 and df['ADX'].iloc[i] > 30  # conferma della forza del trend
-                and df['EMA2'].iloc[i] < df['Upper_Band3'].iloc[i]  # il prezzo oscilla attorno alla media lunga
+                # and df['EMA2'].iloc[i] < df['Upper_Band3'].iloc[i]  # il prezzo oscilla attorno alla media lunga
                 and df['Close'].iloc[i] > df['EMA3'].iloc[i]  # il prezzo sta sopra alla media lunga
                 and rsi_buy_limit <= df['RSI'].iloc[
                     i] < rsi_sell_limit  # RSI compreso in una fascia che conferma il trend
@@ -1332,15 +1342,15 @@ def trading_analysis(
             row=index, col=1
         )
         # Punti SAR (marker rossi)
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['PSAR'],
-            mode='markers',
-            marker=dict(size=2, color='yellow', symbol='circle'),
-            name='PSAR'
-        ),
-            row=index, col=1
-        )
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['PSAR'],
+        #     mode='markers',
+        #     marker=dict(size=2, color='yellow', symbol='circle'),
+        #     name='PSAR'
+        # ),
+        #     row=index, col=1
+        # )
 
         #EMA SHORT
         fig.add_trace(go.Scatter(
@@ -1349,25 +1359,6 @@ def trading_analysis(
             mode='lines',
             line=dict(color='blue', width=1),
             name='EMA SHORT'
-        ),
-            row=index, col=1
-        )
-        # Rolling ATR Bands
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['Upper_Band'],
-            mode='lines',
-            line=dict(color='blue', width=1, dash='dash'),
-            name='Upper ATR'
-        ),
-            row=index, col=1
-        )
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['Lower_Band'],
-            mode='lines',
-            line=dict(color='blue', width=1, dash='dash'),
-            name='Lower ATR'
         ),
             row=index, col=1
         )
@@ -1391,25 +1382,53 @@ def trading_analysis(
             row=index, col=1
         )
         # Rolling ATR Bands
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['Upper_Band3'],
+        #     mode='lines',
+        #     line=dict(color='coral', width=1, dash='dash'),
+        #     name='Upper ATR'
+        # ),
+        #     row=index, col=1
+        # )
+        # fig.add_trace(go.Scatter(
+        #     x=df.index,
+        #     y=df['Lower_Band3'],
+        #     mode='lines',
+        #     line=dict(color='coral', width=1, dash='dash'),
+        #     name='Lower ATR'
+        # ),
+        #     row=index, col=1
+        # )
+        #KAMA
         fig.add_trace(go.Scatter(
             x=df.index,
-            y=df['Upper_Band3'],
+            y=df['KAMA'],
             mode='lines',
-            line=dict(color='coral', width=1, dash='dash'),
+            line=dict(color='yellow', width=1),
+            name='KAMA'
+        ),
+            row=index, col=1
+        )
+        # Rolling ATR Bands
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['Upper_Band'],
+            mode='lines',
+            line=dict(color='yellow', width=1, dash='dash'),
             name='Upper ATR'
         ),
             row=index, col=1
         )
         fig.add_trace(go.Scatter(
             x=df.index,
-            y=df['Lower_Band3'],
+            y=df['Lower_Band'],
             mode='lines',
-            line=dict(color='coral', width=1, dash='dash'),
+            line=dict(color='yellow', width=1, dash='dash'),
             name='Lower ATR'
         ),
             row=index, col=1
         )
-
         # # Massimi relativi
         # if rel_max:
         #     max_times, max_prices = zip(*rel_max)
@@ -1936,11 +1955,13 @@ if __name__ == "__main__":
     with col1:
         asset = st.text_input(label="Asset", placeholder="es. BTC, ETH, XRP...", max_chars=8)
         time_hours = st.number_input(label="Time Hours", min_value=0, value=24, step=24)
+
     with col2:
         currency = st.text_input(label="Currency", placeholder="es. USDC, USDT, EUR...", max_chars=8, value="USDT")
         interval = st.selectbox(label="Candle Interval",
                                 options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"],
                                 index=3)
+
     symbol = asset + currency
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
@@ -1996,30 +2017,7 @@ if __name__ == "__main__":
                                         step=0.01)
     din_macd_div = col1.number_input(label="ATR Dividend", min_value=-10.0, max_value=10.0, value=1.2,
                                      step=0.1)
-    # vi_buy_limit = col1.number_input(label="VI Buy Limit", min_value=-10.0, max_value=10.0, step=0.01,
-    #                                value=-2.0)  # value=-0.82
-    # vi_sell_limit = col2.number_input(label="VI Sell Limit", min_value=-10.0, max_value=10.0, step=0.01,
-    #                                 value=2.0)  # value=0.82
-    #
-    # psarvp_buy_limit = col1.number_input(label="PSARVP Buy Limit", min_value=-10.0, max_value=10.0, value=2.0, # value=1.08
-    #                                    step=0.01)
-    # psarvp_sell_limit = col2.number_input(label="PSARVP Sell Limit", min_value=-10.0, max_value=10.0, value=0.0, # value=0.92,
-    #                                     step=0.01)
-    #
-    # srsi_buy_limit = col1.number_input(label="StochasticRSI Buy Limit", min_value=-1.00, max_value=1.00, value=-0.01,
-    #                                  step=0.01)
-    # srsi_sell_limit = col2.number_input(label="StochasticRSI Sell Limit", min_value=-1.00, max_value=2.00, value=1.01,
-    #                                   step=0.01)
-    # tsi_buy_limit = col1.number_input(label="TSI Buy Limit", min_value=-100, max_value=100, value=-100, step=1)
-    # tsi_sell_limit = col2.number_input(label="TSI Sell Limit", min_value=-100, max_value=100, value=100, step=1)
-    # roc_buy_limit = col1.number_input(label="ROC Buy Limit", min_value=-100, max_value=100, value=-80, step=1)
-    # roc_sell_limit = col2.number_input(label="ROC Sell Limit", min_value=-100, max_value=100, value=80, step=1)
-    # pvo_buy_limit = col1.number_input(label="PVO Buy Limit", min_value=-110, max_value=110, value=-110, step=1)
-    # pvo_sell_limit = col2.number_input(label="PVO Sell Limit", min_value=-110, max_value=110, value=110, step=1)
-    # mfi_buy_limit = col1.number_input(label="MFI Buy Limit", min_value=-100, max_value=200, value=-10, step=1)
-    # mfi_sell_limit = col2.number_input(label="MFI Sell Limit", min_value=-100, max_value=200, value=110, step=1)
-    # din_roc_div = col2.number_input(label="Dinamic ROC Dividend", min_value=-100.0, max_value=1000.0, value=12.0,
-    #                               step=1.0)
+
     stop_loss = col2.number_input(label="Stop Loss %", min_value=0.1, max_value=100.0, value=99.0, step=1.0)
 
     num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=1, step=1)
@@ -2082,3 +2080,14 @@ if __name__ == "__main__":
             text_placeholder.write("No operation performed.")
         if show_graph:
             fig_placeholder.plotly_chart(fig, use_container_width=True)
+
+        col1, col2 = st.sidebar.columns(2)
+        start_date = col1.date_input(label="Start Date")
+        end_date = col2.date_input(label="End Date")
+        if st.sidebar.button("Get Data from Dates"):
+            data = get_market_data(asset=symbol,
+                                   interval=interval,
+                                   start_date=start_date,
+                                   end_date=end_date)
+            st.write(data)
+
