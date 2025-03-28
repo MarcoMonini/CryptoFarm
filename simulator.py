@@ -334,14 +334,15 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
 
     # Calcolo dell'RSI
     rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window)
-    df_copy['RSI1'] = rsi_indicator.rsi()
+    df_copy['RSI'] = rsi_indicator.rsi()
     rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window2)
     df_copy['RSI2'] = rsi_indicator.rsi()
     rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window3)
     df_copy['RSI3'] = rsi_indicator.rsi()
     # SMA dell'RSI
-    df_copy['RSI'] = df_copy['RSI1'].rolling(window=rsi_window).mean()
-    df_copy['RSI2'] = df_copy['RSI2'].rolling(window=rsi_window2).mean()
+    # df_copy['RSI_S'] = df_copy['RSI'].rolling(window=3).mean()
+    # df_copy['RSI2_S'] = df_copy['RSI2'].rolling(window=3).mean()
+    # df_copy['RSI3_S'] = df_copy['RSI3'].rolling(window=3).mean()
 
     # Calcolo del MACD
     macd_indicator = MACD(
@@ -1067,8 +1068,15 @@ def identify_trend_zones(
 
     for i in range(len(df)):
         # Valuta le condizioni per bullish e bearish
-        cond_bullish = (df['EMA'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i])
-        cond_bearish = (df['EMA'].iloc[i] < df['EMA2'].iloc[i] < df['EMA3'].iloc[i])
+        cond_bullish = (df['EMA'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i] and
+                        df['RSI'].iloc[i] > df['RSI2'].iloc[i] > df['RSI3'].iloc[i] and
+                        df['STOCH'].iloc[i] > df['STOCH_S'].iloc[i])
+        cond_bearish = (df['EMA'].iloc[i] < df['EMA2'].iloc[i] < df['EMA3'].iloc[i] and
+                        df['RSI'].iloc[i] < df['RSI2'].iloc[i] < df['RSI3'].iloc[i] and
+                        df['STOCH'].iloc[i] < df['STOCH_S'].iloc[i])
+
+        # cond_bullish = (df['EMA'].iloc[i] > df['EMA2'].iloc[i])
+        # cond_bearish = (df['EMA'].iloc[i] < df['EMA2'].iloc[i])
 
         if cond_bullish:
             new_trend = "bullish"
@@ -1424,20 +1432,25 @@ def trading_analysis(
         ), row=index, col=1)
 
         # RSI
+        # fig.add_trace(go.Scatter(
+        #     x=df.index, y=df['RSI_S'], mode='lines',
+        #     line=dict(color='orange', width=1),
+        #     name='RSI SMOOTH'
+        # ), row=index, col=1)
         fig.add_trace(go.Scatter(
             x=df.index, y=df['RSI'], mode='lines',
             line=dict(color='salmon', width=1),
-            name='RSI'
+            name='RSI SHORT'
         ), row=index, col=1)
         fig.add_trace(go.Scatter(
             x=df.index, y=df['RSI2'], mode='lines',
             line=dict(color='pink', width=1),
-            name='RSI'
+            name='RSI MED'
         ), row=index, col=1)
         fig.add_trace(go.Scatter(
             x=df.index, y=df['RSI3'], mode='lines',
             line=dict(color='purple', width=1),
-            name='RSI'
+            name='RSI LONG'
         ), row=index, col=1)
         fig.add_trace(go.Scatter(
             x=[df.index.min(), df.index.max()], y=[rsi_sell_limit, rsi_sell_limit], mode='lines',
