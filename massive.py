@@ -258,13 +258,13 @@ if __name__ == "__main__":
     # CHAIN = ["ADAUSDC", "BNBUSDC", "BTCUSDC", "ETHUSDC", "SOLUSDC", "XRPUSDT"]
     # CHAIN SECONDARIE = ["DOTUSDC", "TRXUSDC", "LTCUSDC", "XLMUSDC", "ALGOUSDC", "ATOMUSDC"]
 
-    assets = ["AMPUSDT", "HBARUSDT", "LINKUSDC", "XRPUSDT"]
-    atr_windows = [20, 30, 40]
-    atr_multipliers = [0.9, 1.1, 1.3, 1.5, 1.6]
-    sma_windows = [2, 3, 4, 5]
-    rsi_windows = [6, 10, 12, 18, 26]
-    rsi_buy_limits = [20, 23, 25, 29]
-    rsi_sell_limits = [71, 75, 77, 80]
+    assets = ["AMPUSDT", "HBARUSDT", "LINKUSDC", "XRPUSDT","ADAUSDT"]
+    atr_windows = [26, 28, 30, 32, 34]
+    atr_multipliers = [1.45, 1.5, 1.55, 1.6, 1.65]
+    sma_windows = [2]
+    rsi_windows = [10,12,14,16,18]
+    rsi_buy_limits = [20,21,22,23]
+    rsi_sell_limits = [77,78,79,80]
 
     dati = download_market_data(assets, intervals, hours)
     simulazioni = run_simulation(wallet=wallet,

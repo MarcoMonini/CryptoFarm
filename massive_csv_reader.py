@@ -4,7 +4,7 @@ import plotly.express as px
 import streamlit as st
 
 # Carica il file CSV
-file_path = 'C:/Users/marco/Documents/2025-02-08T14-13_export_close_buy_sell_rsi_atr.csv'  # Sostituisci con il percorso corretto del file
+file_path = 'C:/Users/marco/Documents/2025-02-08T14-13_export_close_buy_sell_rsi_atr2.csv'  # Sostituisci con il percorso corretto del file
 data = pd.read_csv(file_path)
 target_column = 'Profitto Totale'
 parameters = ['Moltiplicatore ATR',
@@ -15,10 +15,10 @@ parameters = ['Moltiplicatore ATR',
               'RSI Sell Limit']
 
 # Filtra il dataset per l'intervallo di 15 minuti
-# filtered_data = data[data['Asset'] != "AMPUSDT"]
+filtered_data = data[data['Asset'] != "AMPUSDT"]
 # filtered_data = filtered_data[filtered_data['Moltiplicatore ATR'] == 3.2]
 # filtered_data = filtered_data[filtered_data['Step'] == 0.04]
-# data = filtered_data
+data = filtered_data
 
 # Titolo dell'app Streamlit
 st.title("Analisi delle Performance: Ottimizzazione Parametri")
