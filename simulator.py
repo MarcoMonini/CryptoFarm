@@ -373,6 +373,8 @@ def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_win
     df_copy['EMA2'] = ema_indicator.ema_indicator()
     ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window3)
     df_copy['EMA3'] = ema_indicator.ema_indicator()
+    emao_indicator = EMAIndicator(close=df_copy['Open'], window=ema_window)
+    df_copy['EMAO'] = emao_indicator.ema_indicator()
 
     kama_indicator = KAMAIndicator(close=df_copy['Close'],
                                    window=ema_window,
@@ -1392,7 +1394,7 @@ def trading_analysis(
                                                       fee_percent=fee_percent)
 
 
-    trend_shapes = identify_trend_zones(df=df)
+
 
     # ======================================
     # 4. Creazione del grafico
@@ -1408,6 +1410,7 @@ def trading_analysis(
                                         "True and Relative Strength Index and Stochastic (TSI / RSI / STOCH)",)
                         )
     if show:
+        trend_shapes = identify_trend_zones(df=df)
         index = 1
         # Candele (candlestick)
         fig.add_trace(go.Candlestick(
@@ -1444,12 +1447,19 @@ def trading_analysis(
             name='EMA LONG'
         ), row=index, col=1)
 
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df['EMAO'], mode='lines',
+            line=dict(color='brown', width=1),
+            name='EMA OPEN'
+        ), row=index, col=1)
+
         #KAMA
         fig.add_trace(go.Scatter(
             x=df.index, y=df['KAMA'], mode='lines',
             line=dict(color='yellow', width=1),
             name='KAMA'
         ), row=index, col=1)
+
         # Rolling ATR Bands
         fig.add_trace(go.Scatter(
             x=df.index, y=df['Upper_Band'], mode='lines',
