@@ -1057,7 +1057,8 @@ def bullish_condition(df,i) -> bool:
     #                 df['RSI'].iloc[i] > df['RSI2'].iloc[i] > df['RSI3'].iloc[i] and
     #                 df['STOCH'].iloc[i] > df['STOCH_S'].iloc[i])
 
-    cond_bullish = df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]
+    # cond_bullish = df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]
+    cond_bullish = df['EMA'].iloc[i] >= df['EMAO'].iloc[i]
 
     return cond_bullish
 
@@ -1067,7 +1068,8 @@ def bearish_condition (df, i) -> bool:
     #                 df['RSI'].iloc[i] < df['RSI2'].iloc[i] < df['RSI3'].iloc[i] and
     #                 df['STOCH'].iloc[i] < df['STOCH_S'].iloc[i])
     #
-    cond_bearish = df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
+    # cond_bearish = df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
+    cond_bearish = df['EMA'].iloc[i] < df['EMAO'].iloc[i]
 
     return cond_bearish
 
@@ -1185,7 +1187,7 @@ def identify_trend_zones(df: pd.DataFrame) -> list:
     return shapes
 
 
-def trend_zone_simulation(df):
+def supertrend_simulation(df):
     buy_signals = []
     sell_signals = []
     holding = False
@@ -1195,12 +1197,11 @@ def trend_zone_simulation(df):
     take_profit_price = None
     stop_loss_price = None
 
-
-
-
     for i in range(1, len(df)):
-        cond_bullish = bullish_condition(df, i)
-        cond_bearish = bearish_condition(df, i)
+        # cond_bullish = bullish_condition(df, i)
+        cond_bullish = df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]
+        # cond_bearish = bearish_condition(df, i)
+        cond_bearish = df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
         if cond_bullish:
             new_trend = "bullish"
         elif cond_bearish:
@@ -1245,6 +1246,20 @@ def trend_zone_simulation(df):
 
     return buy_signals, sell_signals
 
+def trend_zone_simulation(df):
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    for i in range(1, len(df)):
+        if not holding and df['EMA'].iloc[i] > df['EMAO'].iloc[i]:
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+
+        if holding and df['EMA'].iloc[i] <= df['EMAO'].iloc[i]:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
+
+    return buy_signals, sell_signals
 
 def trading_analysis(
         asset: str, interval: str, wallet: float, time_hours: int = 24,
@@ -1376,6 +1391,9 @@ def trading_analysis(
         buy_signals, sell_signals = close_rsi_buy_sell_limits_simulation(df=df)
 
     if strategia == "Supertrend":
+        buy_signals, sell_signals = supertrend_simulation(df=df)
+
+    if strategia == "Trend Zones":
         buy_signals, sell_signals = trend_zone_simulation(df=df)
 
     if strategia == "TP/SL with ATR":
@@ -1433,7 +1451,7 @@ def trading_analysis(
         #EMA SHORT
         fig.add_trace(go.Scatter(
             x=df.index, y=df['EMA'], mode='lines',
-            line=dict(color='blue', width=1),
+            line=dict(color='Green', width=1),
             name='EMA SHORT'
         ), row=index, col=1)
         fig.add_trace(go.Scatter(
@@ -1449,7 +1467,7 @@ def trading_analysis(
 
         fig.add_trace(go.Scatter(
             x=df.index, y=df['EMAO'], mode='lines',
-            line=dict(color='brown', width=1),
+            line=dict(color='Red', width=1),
             name='EMA OPEN'
         ), row=index, col=1)
 
@@ -1673,7 +1691,8 @@ if __name__ == "__main__":
                                               "Close ATR",
                                               "Close Bullish EMA",
                                               "Close EMA Crossover",
-                                              "Supertrend",
+                                              "Supetrend",
+                                              "Trend Zones",
                                               "TP/SL with ATR",
                                               "Green Candles",
                                               "ATR Live Trade"
