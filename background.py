@@ -102,7 +102,7 @@ def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str
                 "closed": kline["x"],
             }
             if kline["x"]:
-                print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
+                # print(f"@KlineMessage: {datetime.now().strftime("%H:%M:%S")}, {msg['s']}, {data['close']}$")
                 # aggiungo alla coda solo se la candela si è chiusa
                 data_queue.put(data)
 

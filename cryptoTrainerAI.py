@@ -1,30 +1,70 @@
 import numpy as np
 import pandas as pd
-from ta.trend import PSARIndicator, SMAIndicator, MACD, VortexIndicator
+from pyarrow import nulls
 from ta.volatility import AverageTrueRange
-from ta.momentum import RSIIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator, TSIIndicator
 from scipy.signal import argrelextrema
 
 # import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
+from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization, Input, Bidirectional
+from tensorflow.keras.callbacks import EarlyStopping
+
+FEATURES = ['Open', 'High', 'Low', 'Close', 'RSI', 'STOCH', 'STOCH_S','ATR','TSI']
 
 # Configurazioni principali
-EXT_WINDOW_SIZE = 80  # Dimensione della finestra temporale per min max
+EXT_WINDOW_SIZE = 50  # Dimensione della finestra temporale per min max
 
-WINDOW_SIZE = 10
-# ATR_WINDOW = 14   # Periodo dell'ATR
-# RSI_WINDOW = 14   # Periodo dell'RSI
-MACD_SHORT_WINDOW = 12
-MACD_LONG_WINDOW = 26
-MACD_SIGNAL_WINDOW = 9
-ATR_MULTIPLIER = 1.5
-STEP = 0.02
-MAX_STEP = 0.2
+WINDOW_SIZE = 20 # Dimensione della finestra temporale per le sequenze
 
-file = 'C:/Users/marco/Documents/BTC_1ANNO_15m.csv'
+ATR_WINDOW = 6   # Periodo dell'ATR
+RSI_WINDOW = 12   # Periodo dell'RSI
+# MACD_SHORT_WINDOW = 12
+# MACD_LONG_WINDOW = 26
+# MACD_SIGNAL_WINDOW = 9
 
+# file = '/Users/marcomonini/Documents/BTC_1anno_15m.csv'
+file = '/Users/marcomonini/Documents/BTC_12kh.csv'
 
+def add_technical_indicator(df,  rsi_window=12, atr_window=6):
+    df_copy = df.copy()
+
+    # Calcolo dell'RSI
+    rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window)
+    df_copy['RSI'] = rsi_indicator.rsi()
+
+    # ATR
+    atr_indicator = AverageTrueRange(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        window=atr_window
+    )
+    df_copy['ATR'] = atr_indicator.average_true_range()
+
+    # STOCASTICO
+    stoch_indicator = StochasticOscillator(
+        high=df_copy['High'],
+        low=df_copy['Low'],
+        close=df_copy['Close'],
+        window=rsi_window,
+        smooth_window=3
+    )
+    df_copy['STOCH'] = stoch_indicator.stoch()
+    df_copy['STOCH_S'] = stoch_indicator.stoch_signal()
+
+    tsi_indicator = TSIIndicator(
+        close=df_copy['Close'],
+        window_slow=25,
+        window_fast=13,
+    )
+    df_copy['TSI'] = tsi_indicator.tsi()
+
+    df_copy.fillna(0, inplace=True)
+
+    return df_copy
+
+# trasforma il dataframe in ingresso in variazioni percentuali rispetto alla chiusura precedente
 def calculate_percentage_changes(df):
     # Copia del DataFrame per non sovrascrivere i dati originali
     df_transformed = df.copy()
@@ -33,22 +73,27 @@ def calculate_percentage_changes(df):
     df_transformed['High_Perc'] = (df['High'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
     df_transformed['Low_Perc'] = (df['Low'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
     df_transformed['Close_Perc'] = (df['Close'] - df['Close'].shift(1)) / df['Close'].shift(1) * 100
+    # df_transformed['Volume_Perc'] = (df['Volume'] - df['Volume'].shift(1)) / df['Volume'].shift(1) * 100
     # Rimuove i valori NaN (la prima riga avrà NaN dopo la trasformazione)
     df_transformed = df_transformed.dropna()
     # Aggiustamento per garantire la continuità
     prev_close = 0  # Punto iniziale di riferimento
+    prev_vol_close = 0  # Punto iniziale di riferimento per il volume
     for i in range(len(df_transformed)):
         df_transformed.iloc[i, df_transformed.columns.get_loc('Open_Perc')] += prev_close
         df_transformed.iloc[i, df_transformed.columns.get_loc('High_Perc')] += prev_close
         df_transformed.iloc[i, df_transformed.columns.get_loc('Low_Perc')] += prev_close
         df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')] += prev_close
+        # df_transformed.iloc[i, df_transformed.columns.get_loc('Volume_Perc')] += prev_vol_close
         # Aggiorna il valore di chiusura precedente
         prev_close = df_transformed.iloc[i, df_transformed.columns.get_loc('Close_Perc')]
+        # prev_vol_close = df_transformed.iloc[i, df_transformed.columns.get_loc('Volume_Perc')]
     df_transformed['Open'] = df_transformed['Open_Perc']
     df_transformed['High'] = df_transformed['High_Perc']
     df_transformed['Low'] = df_transformed['Low_Perc']
     df_transformed['Close'] = df_transformed['Close_Perc']
-    df_final = df_transformed[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+    # df_transformed['Volume'] = df_transformed['Volume_Perc']
+    df_final = df_transformed[['Open', 'High', 'Low', 'Close']].astype(float)
 
     return df_final
 
@@ -64,64 +109,37 @@ def calculate_relative_extrema(data, window_pivot=EXT_WINDOW_SIZE):
     # Inizializza colonna etichette
     data['Label'] = 0
     for i in max_idx:
+        # data.loc[data.index[i-1], 'Label'] = 2  # Massimo relativo
         data.loc[data.index[i], 'Label'] = 2  # Massimo relativo
+        # data.loc[data.index[i+1], 'Label'] = 2  # Massimo relativo
     for i in min_idx:
+        # data.loc[data.index[i-1], 'Label'] = 1  # Minimo relativo
         data.loc[data.index[i], 'Label'] = 1  # Minimo relativo
+        # data.loc[data.index[i+1], 'Label'] = 1  # Minimo relativo
     return data
 
 
-# Calcolo degli indicatori tecnici
-def add_technical_indicators(data):
-    # ATR
-    atr_indicator = AverageTrueRange(
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
-        window=WINDOW_SIZE
-    )
-    data['ATR'] = atr_indicator.average_true_range()
+# Ora bilancia solo il TRAIN SET
+def balance_data(X, y):
+    idx0 = np.where(y == 0)[0]
+    idx1 = np.where(y == 1)[0]
+    idx2 = np.where(y == 2)[0]
+    min_len = min(len(idx0), len(idx1), len(idx2))
 
-    # SMA
-    sma_indicator = SMAIndicator(close=data['Close'], window=WINDOW_SIZE)
-    data['SMA'] = sma_indicator.sma_indicator()
+    idx0 = np.random.choice(idx0, min_len*3, replace=False)
+    idx1 = np.random.choice(idx1, min_len, replace=False)
+    idx2 = np.random.choice(idx2, min_len, replace=False)
 
-    # RSI
-    rsi_indicator = RSIIndicator(
-        close=data['Close'],
-        window=WINDOW_SIZE
-    )
-    data['RSI'] = rsi_indicator.rsi()
+    idx_total = np.concatenate([idx0, idx1, idx2])
+    np.random.shuffle(idx_total)
 
-    # MACD
-    macd_indicator = MACD(
-        close=data['Close'],
-        window_slow=MACD_LONG_WINDOW,
-        window_fast=MACD_SHORT_WINDOW,
-        window_sign=MACD_SIGNAL_WINDOW
-    )
-    data['MACD'] = macd_indicator.macd_diff()  # Istogramma (differenza tra MACD e Signal Line)
+    return X[idx_total], y[idx_total]
 
 
-    final_data = data.dropna()
-
-    return final_data
-
-
-# Creazione delle sequenze temporali
-def create_sequences_with_target(data, features, window_size):
-    X, y = [], []
-    for i in range(len(data) - window_size - 1):
-        # Include la finestra temporale precedente e il punto corrente
-        window = data[features].iloc[i:i+window_size+1].values
-        X.append(window)
-        y.append(data['Label'].iloc[i+window_size])  # Etichetta del punto corrente
-    return np.array(X), np.array(y)
-
-
-def create_balanced_sequences_with_target(data, features, window_size):
+def create_sequences(data, features, window_size):
     """
     Crea sequenze temporali bilanciate con target equamente distribuiti tra le classi 0, 1, 2.
-
+    Sottrae a ogni sequenza il valore di apertura della prima riga della finestra.
     Parameters
     ----------
     data : pandas.DataFrame
@@ -141,40 +159,65 @@ def create_balanced_sequences_with_target(data, features, window_size):
     X, y = [], []
 
     # Creazione delle sequenze e delle etichette
-    for i in range(len(data) - window_size - 1):
-        # Include la finestra temporale precedente
+    for i in range(len(data) - window_size):
+        open = data['Open'].iloc[i]
         window = data[features].iloc[i:i + window_size].values
+
+        for j, feature in enumerate(features):
+            if feature in ['Open', 'High', 'Low', 'Close']:
+                    window[:, j] = window[:, j] - open
+
+        # window = data[features].iloc[i:i + window_size].values - open
         X.append(window)
-        y.append(data['Label'].iloc[i + window_size])  # Etichetta del punto corrente
+        if 'Label' in data.columns:
+            # Aggiungi l'etichetta corrispondente alla sequenza
+            y.append(data['Label'].iloc[i + window_size])  # Etichetta del punto corrente
 
     # Converti in numpy array
     X = np.array(X)
     y = np.array(y)
 
-    # Trova gli indici per ogni classe
-    indices_0 = np.where(y == 0)[0]
-    indices_1 = np.where(y == 1)[0]
-    indices_2 = np.where(y == 2)[0]
+    return X, y
 
-    # Trova il numero minimo di campioni tra le classi
-    min_samples = min(len(indices_0), len(indices_1), len(indices_2))
+def get_model_predictions(df, model):
 
-    # Sottocampiona per bilanciare le classi
-    balanced_indices_0 = np.random.choice(indices_0, min_samples, replace=False)
-    balanced_indices_1 = np.random.choice(indices_1, min_samples, replace=False)
-    balanced_indices_2 = np.random.choice(indices_2, min_samples, replace=False)
+    # data = calculate_percentage_changes(df)
+    #data = add_technical_indicators(data)
+    # data['Label'] = 0
 
-    # Combina gli indici bilanciati
-    balanced_indices = np.concatenate([balanced_indices_0, balanced_indices_1, balanced_indices_2])
+    # data = df[features].values
+    # X = []
+    # y = []
 
-    # Mescola gli indici per evitare che le classi siano ordinate
-    np.random.shuffle(balanced_indices)
+    data = df.copy()
+    data = data[FEATURES]
+    X, y = create_sequences(data, FEATURES, WINDOW_SIZE)
 
-    # Seleziona le sequenze bilanciate e le etichette
-    X_balanced = X[balanced_indices]
-    y_balanced = y[balanced_indices]
 
-    return X_balanced, y_balanced
+    # X = np.array(X)
+    y = model.predict(X, verbose=0)
+    # preds_class = np.argmax(preds, axis=1)  # Se output one-hot, es: [0, 1, 0]
+    y = np.nan_to_num(y, nan=0.0)
+    # Verifica che la lunghezza coincida
+    if len(df) - WINDOW_SIZE != y.shape[0]:
+        raise ValueError("Dimension mismatch: df vs model predictions")
+
+    # Allinea con l'indice originale del DataFrame
+    df_preds = df.iloc[WINDOW_SIZE:].copy()
+
+    preds = np.zeros(y.shape[0], dtype=int)
+    # Troviamo l'indice della classe con probabilità massima
+    max_probs = np.max(y, axis=1)
+    # max_probs[not max_probs] = 0  # Imposta a 0 le probabilità sotto la soglia
+    max_classes = np.argmax(y, axis=1)
+
+    preds = np.where(max_probs > 0.8, max_classes, 0)
+
+    df_preds['Prediction'] = preds
+
+    # df_preds['Prediction'] = np.argmax(y, axis=1)  # Converte le probabilità in classi
+
+    return df_preds
 
 
 if __name__ == "__main__":
@@ -185,53 +228,62 @@ if __name__ == "__main__":
     # Mantieni solo le colonne essenziali, converti a float
     df = raw_df[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
 
+    print("add_technical_indicators")
+    df = add_technical_indicator(df=df, rsi_window=RSI_WINDOW, atr_window=ATR_WINDOW)
+
+    print("calculate_relative_extrema")
+    df = calculate_relative_extrema(df)
+
     print("calculate_percentage_changes")
     df_transformed = calculate_percentage_changes(df)
-    print("calculate_relative_extrema")
-    df = calculate_relative_extrema(df_transformed)
-    print("add_technical_indicators")
-    df = add_technical_indicators(df)
 
-    # print(df)
     # Selezione delle feature
-    features = ['Open', 'High', 'Low', 'Close', 'RSI', 'ATR', 'SAR', 'SMA', 'MACD', 'VI']
-
-    X, y = create_balanced_sequences_with_target(df, features, WINDOW_SIZE)
+    print("Create_sequences")
+    X, y = create_sequences(df, FEATURES, WINDOW_SIZE)
 
     # Dividi i dati in train e test
-    train_size = int(0.7 * len(X))
+    train_size = int(0.8 * len(X))
     X_train, X_test = X[:train_size], X[train_size:]
     y_train, y_test = y[:train_size], y[train_size:]
 
-    # Creazione del modello LSTM
-    # model = keras.Sequential([
-    #     LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
-    #     Dropout(0.2),
-    #     LSTM(50),
-    #     Dropout(0.2),
-    #     Dense(3, activation='softmax')  # Output (0, 1, 2) (MIN, none, MAX)
-    # ])
-    # Creazione del modello LSTM
+    # print("balance_data")
+    X_train, y_train = balance_data(X_train, y_train)
+
     model = keras.Sequential([
-        Input(shape=(X.shape[1], X.shape[2])),  # Definizione dell'input
-        LSTM(50, return_sequences=True),
-        Dropout(0.2),
-        LSTM(50),
-        Dropout(0.2),
-        Dense(3, activation='softmax')  # Output (0, 1, 2) (MIN, none, MAX)
+        Input(shape=(X.shape[1], X.shape[2])),
+
+        Bidirectional(LSTM(256, return_sequences=True)),
+        Dropout(0.1),
+        BatchNormalization(),
+
+        LSTM(128, return_sequences=True),
+        Dropout(0.1),
+        BatchNormalization(),
+
+        LSTM(64, return_sequences=False),
+        Dropout(0.1),
+        BatchNormalization(),
+
+        Dense(3, activation='relu'),
+
+        Dense(3, activation='softmax')
     ])
 
     model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
     # Addestramento del modello
-    model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=10, batch_size=32)
+    model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=50, batch_size=32, callbacks=[early_stopping])
 
     # Valutazione del modello
     loss, accuracy = model.evaluate(X_test, y_test)
     print(f"Test Loss: {loss}, Test Accuracy: {accuracy}")
 
     # Previsione su nuovi dati
-    predictions = model.predict(X_test)
+    # predictions = get_model_predictions(df, model, FEATURES, WINDOW_SIZE)
+    predictions = model.predict(X_train, verbose=1)
+
+    # predictions = model.predict(X)
     print(predictions[:10])
 
     # Salva il modello in un file HDF5

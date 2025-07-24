@@ -10,18 +10,21 @@ import numpy as np
 import math
 import time
 import warnings
-
-# from scipy.signal import argrelextrema
-# from tensorflow.keras.models import load_model
-# from cryptoTrainerAI import calculate_percentage_changes, add_technical_indicators
+import asyncio
+from scipy.signal import argrelextrema
+from tensorflow.keras.models import load_model
+from cryptoTrainerAI import get_model_predictions, calculate_relative_extrema
 
 # Disattiva i FutureWarning
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
+MODEL_PATH = "trained_model.keras"
 
 def interval_to_minutes(interval: str) -> int:
     """
-    Converte l'intervallo di Binance (es. "1m", "15m", "1h") in minuti.
+    @brief Converte l'intervallo di Binance (es. "1m", "15m", "1h") in minuti.
+    @param interval Stringa che rappresenta l'intervallo (es. "1m", "15m", "1h").
+    @return Numero di minuti corrispondenti all'intervallo specificato.
     """
     if interval.endswith('m'):
         # Intervalli tipo "1m", "3m", "15m", "30m", ecc.
@@ -38,28 +41,19 @@ def interval_to_minutes(interval: str) -> int:
 @st.cache_data
 def get_market_data(asset: str, interval: str, time_hours: int) -> tuple:
     """
-    Scarica i dati di mercato di 'asset' per le ultime 'time_hours' ore,
-    basandosi sull'intervallo 'interval' (es. '1m', '5m', '1h').
-
-    Se il numero di candele necessarie supera 1000 (limite Binance),
-    fa più richieste e unisce i dati in un unico DataFrame ordinato.
-
-    Parameters
-    ----------
-    asset : str
-        Il simbolo dell'asset da scaricare (es. "BTCUSDC").
-    interval : str
-        L'intervallo tra le candele (es. "1m", "3m", "5m", "1h").
-    time_hours : int
-        Numero di ore di dati da scaricare.
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame con colonne ['Open', 'High', 'Low', 'Close', 'Volume']
-        e indice temporale (Open time). Ordinato dalla candela più vecchia
-        a quella più recente, senza duplicati.
+    @brief Scarica i dati di mercato per un asset specifico per un determinato intervallo e periodo.
+    @param asset Simbolo dell'asset da scaricare (es. "BTCUSDC").
+    @param interval Intervallo tra le candele (es. "1m", "5m", "1h").
+    @param time_hours Numero di ore di dati da scaricare.
+    @return Una tupla contenente un DataFrame con i dati di mercato e altre informazioni utili.
     """
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     print(f"Scarico ~{time_hours} ore di dati per {asset}, intervallo={interval}")
 
     # Inizializza il client (personalizza se hai già un'istanza altrove)
@@ -167,29 +161,14 @@ def get_market_data(asset: str, interval: str, time_hours: int) -> tuple:
 @st.cache_data
 def get_market_data_between_dates(asset: str, interval: str, start_date: str, end_date: str) -> tuple:
     """
-       Scarica i dati di mercato di 'asset' per l'intervallo temporale specificato,
-       basandosi sull'intervallo 'interval' (es. '1m', '5m', '1h').
+    @brief Scarica i dati di mercato di un asset per un intervallo temporale specificato.
+    @param asset Simbolo dell'asset da scaricare (es. "BTCUSDC").
+    @param interval Intervallo tra le candele (es. "1m", "5m", "1h").
+    @param start_date Data di inizio (es. "2023-01-01 00:00:00").
+    @param end_date Data di fine (es. "2023-01-02 00:00:00").
+    @return Una tupla contenente un DataFrame con i dati di mercato e le ore effettive disponibili.
+    """
 
-       Se il numero di candele necessarie supera 1000 (limite Binance),
-       fa più richieste e unisce i dati in un unico DataFrame ordinato.
-
-       Parameters
-       ----------
-       asset : str
-           Il simbolo dell'asset da scaricare (es. "BTCUSDC").
-       interval : str
-           L'intervallo tra le candele (es. "1m", "3m", "5m", "1h").
-       start_date : str
-           Data di inizio (es. "2023-01-01 00:00:00").
-       end_date : str
-           Data di fine (es. "2023-01-02 00:00:00").
-
-       Returns
-       -------
-       pd.DataFrame
-           DataFrame con colonne ['Open', 'High', 'Low', 'Close', 'Volume']
-           e indice temporale (Open time), ordinato dalla candela più vecchia a quella più recente.
-       """
     print(f"Scarico dati per {asset}, intervallo={interval}, da {start_date} a {end_date}")
 
     # Converte le date in timestamp in millisecondi
@@ -312,23 +291,23 @@ def download_market_data(assets: list, intervals: list, hours: int):
 
 
 @st.cache_data
-def add_technical_indicator(df, step, max_step, rsi_window, rsi_window2, rsi_window3,
-                            macd_long_window, macd_short_window, macd_signal_window,
-                            ema_window, ema_window2, ema_window3,
-                            atr_window, atr_multiplier,
-                            kama_pow1, kama_pow2
+def add_technical_indicator(df, step=0.02, max_step=0.4, rsi_window=12, rsi_window2=24, rsi_window3=36,
+                            macd_long_window=26, macd_short_window=12, macd_signal_window=9,
+                            ema_window=10, ema_window2=50, ema_window3=200,
+                            atr_window=6, atr_multiplier=1.6,
+                            kama_pow1=2, kama_pow2=30
                             ):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
-    sar_indicator = PSARIndicator(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        step=step,
-        max_step=max_step
-    )
-    df_copy['PSAR'] = sar_indicator.psar()
-    df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
+    # sar_indicator = PSARIndicator(
+    #     high=df_copy['High'],
+    #     low=df_copy['Low'],
+    #     close=df_copy['Close'],
+    #     step=step,
+    #     max_step=max_step
+    # )
+    # df_copy['PSAR'] = sar_indicator.psar()
+    # df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
 
     # Calcolo dell'RSI
     rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window)
@@ -1261,12 +1240,47 @@ def trend_zone_simulation(df):
 
     return buy_signals, sell_signals
 
+def get_green_red_percentage(df: pd.DataFrame):
+    # calcola la percentuale di candele verdi dopo una candela verde e dopo una candela rossa
+    green = 0
+    green_after_green = 0
+    for i in range(1, len(df)):
+        if df['Close'].iloc[i] > df['Open'].iloc[i]:
+            # candela verde
+            green += 1
+            if df['Close'].iloc[i - 1] > df['Open'].iloc[i - 1]:
+                # candela verde precedente
+                green_after_green += 1
+
+    return green_after_green / green
+
+def ai_model_simulation(df, model):
+    # FEATURES = ['Open', 'High', 'Low', 'Close', 'RSI', 'STOCH', 'STOCH_S', 'ATR', 'TSI']
+    # WINDOW_SIZE = 20
+
+    df_preds = get_model_predictions(df, model) #, FEATURES, WINDOW_SIZE)
+    df = df.merge(df_preds[['Prediction']], left_index=True, right_index=True, how='left')
+    df['Prediction'].fillna(0, inplace=True)  # Default to hold
+    # Buy = 1, Sell = 2, Hold = 0
+    buy_signals = []
+    sell_signals = []
+    holding = False
+    for i in range(1, len(df)):
+        if df['Prediction'].iloc[i] == 1 and not holding:
+            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = True
+        if df['Prediction'].iloc[i] == 2 and holding:
+            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            holding = False
+
+    return buy_signals, sell_signals
+
 def trading_analysis(
         asset: str, interval: str, wallet: float, time_hours: int = 24,
         fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
         show: bool = True,
         step: float = 0.01, max_step: float = 0.4,
-        atr_multiplier: float = 1.5, atr_window: int = 12, window_pivot: int = 10,
+        atr_multiplier: float = 1.5, atr_window: int = 12, window_pivot: int = 80,
         rsi_window: int = 10, rsi_window2: int = 20, rsi_window3: int = 30,
         ema_window: int = 12, ema_window2: int = 24, ema_window3: int = 36,
         macd_short_window: int = 12, macd_long_window: int = 26, macd_signal_window: int = 9,
@@ -1323,24 +1337,25 @@ def trading_analysis(
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
     # # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
-    # price_high = df['High']
-    # price_low = df['Low']
-    # # Trova gli indici dei massimi e minimi relativi
-    # order = int(window_pivot / 2)
-    # max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
-    # min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
-    # # Inizializza gli array per massimi e minimi
-    # rel_max = []
-    # rel_min = []
-    # # Popola gli array con tuple (indice, prezzo)
-    # for i in min_idx:
-    #     rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
-    # for i in max_idx:
-    #     rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
+    price_high = df['High']
+    price_low = df['Low']
+    # Trova gli indici dei massimi e minimi relativi
+    order = int(window_pivot / 2)
+    max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
+    min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
+    # Inizializza gli array per massimi e minimi
+    rel_max = []
+    rel_min = []
+    # Popola gli array con tuple (indice, prezzo)
+    for i in min_idx:
+        rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
+    for i in max_idx:
+        rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
 
     # dinamic_atr = False
     # if strategia == "Dinamic ATR Bands" or strategia == "Dinamic Close ATR":
     #     dinamic_atr = True
+    # df = calculate_relative_extrema(df)
 
     df = add_technical_indicator(df, step=step, max_step=max_step,
                                  rsi_window=rsi_window, rsi_window2=rsi_window2, rsi_window3=rsi_window3,
@@ -1401,6 +1416,13 @@ def trading_analysis(
 
     if strategia == "Green Candles":
         buy_signals, sell_signals = green_candles_simulation(df=df)
+
+    if strategia == "AI Model":
+        buy_signals, sell_signals = ai_model_simulation(df=df, model = st.session_state['model'])
+
+        # buy_signals.append((df[df['Prediction'] == 1].index, df[df['Prediction'] == 1]['Close']))
+        # sell_signals.append((df[df['Prediction'] == 2].index, df[df['Prediction'] == 2]['Close']))
+
 
     # ======================================
     # Simulazione di trading con commissioni
@@ -1492,29 +1514,29 @@ def trading_analysis(
         ), row=index, col=1)
 
         # Massimi relativi
-        # if rel_max:
-        #     max_times, max_prices = zip(*rel_max)
-        #     fig.add_trace(go.Scatter(
-        #         x=max_times,
-        #         y=max_prices,
-        #         mode='markers',
-        #         marker=dict(size=10, color='red', symbol='square-open'),
-        #         name='Local Max'
-        #     ),
-        #         row=index, col=1
-        #     )
+        if rel_max:
+            max_times, max_prices = zip(*rel_max)
+            fig.add_trace(go.Scatter(
+                x=max_times,
+                y=max_prices,
+                mode='markers',
+                marker=dict(size=10, color='red', symbol='square-open'),
+                name='Local Max'
+            ),
+                row=index, col=1
+            )
         # Minimi relativi
-        # if rel_min:
-        #     min_times, min_prices = zip(*rel_min)
-        #     fig.add_trace(go.Scatter(
-        #         x=min_times,
-        #         y=min_prices,
-        #         mode='markers',
-        #         marker=dict(size=10, color='green', symbol='square-open'),
-        #         name='Local Min'
-        #     ),
-        #         row=index, col=1
-        #     )
+        if rel_min:
+            min_times, min_prices = zip(*rel_min)
+            fig.add_trace(go.Scatter(
+                x=min_times,
+                y=min_prices,
+                mode='markers',
+                marker=dict(size=10, color='green', symbol='square-open'),
+                name='Local Min'
+            ),
+                row=index, col=1
+            )
 
         # Segnali di acquisto
         if buy_signals:
@@ -1665,19 +1687,19 @@ if __name__ == "__main__":
     )
     if 'df' not in st.session_state:
         st.session_state['df'] = None
-    # if 'model' not in st.session_state:
-    #     st.session_state['model'] = load_model('trained_model.keras')
+    if 'model' not in st.session_state:
+        st.session_state['model'] = load_model('trained_model.keras')
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
     st.sidebar.title("Market parameters")
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        asset = st.text_input(label="Asset", placeholder="es. BTC, ETH, XRP...", max_chars=8)
-        time_hours = st.number_input(label="Time Hours", min_value=0, value=24, step=24)
+        asset = st.text_input(label="Asset", placeholder="es. BTC, ETH, XRP...", max_chars=8, value="BTC")
+        time_hours = st.number_input(label="Time Hours", min_value=0, value=240, step=24)
 
     with col2:
-        currency = st.text_input(label="Currency", placeholder="es. USDC, USDT, EUR...", max_chars=8, value="USDT")
+        currency = st.text_input(label="Currency", placeholder="es. USDC, USDT, EUR...", max_chars=8, value="USDC")
         interval = st.selectbox(label="Candle Interval",
                                 options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"],
                                 index=3)
@@ -1695,7 +1717,8 @@ if __name__ == "__main__":
                                               "Trend Zones",
                                               "TP/SL with ATR",
                                               "Green Candles",
-                                              "ATR Live Trade"
+                                              "ATR Live Trade",
+                                              "AI Model",
                                               ],
                                      index=0)
     if st.sidebar.button("SIMULATE"):
@@ -1779,6 +1802,7 @@ if __name__ == "__main__":
             market_data=st.session_state['df'],
         )
         text_placeholder.subheader("Operations Report")
+
         if not trades_df.empty:
             # text_placeholder.write(trades_df)
             total_profit = trades_df['Profit'].sum()
