@@ -1,9 +1,11 @@
-streamlit
-python-binance
+numpy
 pandas
-plotly
-ta
 scipy
-keyboard
-colorama
+ta
+streamlit
+plotly
+python-binance
 tensorflow
+scikit-learn
+keras_tuner
+colorama

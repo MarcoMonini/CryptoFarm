@@ -347,13 +347,13 @@ def add_technical_indicator(df, step=0.02, max_step=0.4, rsi_window=12, rsi_wind
 
     # EMA (Media Mobile per le Rolling ATR Bands)
     ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window)
-    df_copy['EMA'] = ema_indicator.ema_indicator()
+    df_copy['EMA20'] = ema_indicator.ema_indicator()
     ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window2)
-    df_copy['EMA2'] = ema_indicator.ema_indicator()
+    df_copy['EMA50'] = ema_indicator.ema_indicator()
     ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window3)
-    df_copy['EMA3'] = ema_indicator.ema_indicator()
+    df_copy['EMA100'] = ema_indicator.ema_indicator()
     emao_indicator = EMAIndicator(close=df_copy['Open'], window=ema_window)
-    df_copy['EMAO'] = emao_indicator.ema_indicator()
+    df_copy['EMA200'] = emao_indicator.ema_indicator()
 
     kama_indicator = KAMAIndicator(close=df_copy['Close'],
                                    window=ema_window,
@@ -362,8 +362,8 @@ def add_technical_indicator(df, step=0.02, max_step=0.4, rsi_window=12, rsi_wind
     df_copy['KAMA'] = kama_indicator.kama()
 
     # Rolling ATR Bands
-    # df_copy['Upper_Band'] = df_copy['EMA'] + atr_multiplier * df_copy['ATR']
-    # df_copy['Lower_Band'] = df_copy['EMA'] - atr_multiplier * df_copy['ATR']
+    # df_copy['Upper_Band'] = df_copy['EMA20'] + atr_multiplier * df_copy['ATR']
+    # df_copy['Lower_Band'] = df_copy['EMA20'] - atr_multiplier * df_copy['ATR']
     df_copy['Upper_Band'] = df_copy['KAMA'] + atr_multiplier * df_copy['ATR']
     df_copy['Lower_Band'] = df_copy['KAMA'] - atr_multiplier * df_copy['ATR']
     df_copy['Upper_Band'][:atr_window] = None
@@ -407,7 +407,7 @@ def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, 
     if len(temp_df) < atr_window:
         df_copy = df.copy()
         df_copy['ATR'] = None
-        df_copy['EMA'] = None
+        df_copy['EMA20'] = None
         df_copy['Upper_Band'] = None
         df_copy['Lower_Band'] = None
         df_copy['PSAR'] = None
@@ -821,11 +821,11 @@ def close_bullish_ema_simulation(df, rsi_buy_limit: int = 50, rsi_sell_limit: in
     holding = False
     n = 30
     for i in range(1, len(df)):
-        cond_1 = df['EMA'][i - n:i] > df['EMA2'][i - n:i]
+        cond_1 = df['EMA20'][i - n:i] > df['EMA2'][i - n:i]
         cond_2 = df['EMA2'][i - n:i] > df['EMA3'][i - n:i]
         cond_ema = (cond_1 & cond_2).all()
         if (not holding and cond_ema and (
-                df['EMA'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i])  # trend rialzista nel breve termine
+                df['EMA20'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i])  # trend rialzista nel breve termine
                 # and df['ADX'].iloc[i] > 30  # conferma della forza del trend
                 # and df['EMA2'].iloc[i] < df['Upper_Band3'].iloc[i]  # il prezzo oscilla attorno alla media lunga
                 and df['Close'].iloc[i] > df['EMA3'].iloc[i]  # il prezzo sta sopra alla media lunga
@@ -1032,23 +1032,23 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
 
 
 def bullish_condition(df,i) -> bool:
-    # cond_bullish = (df['EMA'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i] and
+    # cond_bullish = (df['EMA20'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i] and
     #                 df['RSI'].iloc[i] > df['RSI2'].iloc[i] > df['RSI3'].iloc[i] and
     #                 df['STOCH'].iloc[i] > df['STOCH_S'].iloc[i])
 
     # cond_bullish = df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]
-    cond_bullish = df['EMA'].iloc[i] >= df['EMAO'].iloc[i]
+    cond_bullish = df['EMA20'].iloc[i] >= df['EMA200'].iloc[i]
 
     return cond_bullish
 
 
 def bearish_condition (df, i) -> bool:
-    # cond_bearish = (df['EMA'].iloc[i] < df['EMA2'].iloc[i] < df['EMA3'].iloc[i] and
+    # cond_bearish = (df['EMA20'].iloc[i] < df['EMA2'].iloc[i] < df['EMA3'].iloc[i] and
     #                 df['RSI'].iloc[i] < df['RSI2'].iloc[i] < df['RSI3'].iloc[i] and
     #                 df['STOCH'].iloc[i] < df['STOCH_S'].iloc[i])
     #
     # cond_bearish = df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
-    cond_bearish = df['EMA'].iloc[i] < df['EMAO'].iloc[i]
+    cond_bearish = df['EMA20'].iloc[i] < df['EMA200'].iloc[i]
 
     return cond_bearish
 
@@ -1230,11 +1230,11 @@ def trend_zone_simulation(df):
     sell_signals = []
     holding = False
     for i in range(1, len(df)):
-        if not holding and df['EMA'].iloc[i] > df['EMAO'].iloc[i]:
+        if not holding and df['EMA20'].iloc[i] > df['EMA200'].iloc[i]:
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
 
-        if holding and df['EMA'].iloc[i] <= df['EMAO'].iloc[i]:
+        if holding and df['EMA20'].iloc[i] <= df['EMA200'].iloc[i]:
             sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
 
@@ -1266,10 +1266,10 @@ def ai_model_simulation(df, model):
     sell_signals = []
     holding = False
     for i in range(1, len(df)):
-        if df['Prediction'].iloc[i] == 1 and not holding:
+        if df['Prediction'].iloc[i] == 1:# and not holding:
             buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = True
-        if df['Prediction'].iloc[i] == 2 and holding:
+        if df['Prediction'].iloc[i] == 2:# and holding:
             sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
             holding = False
 
@@ -1472,23 +1472,23 @@ def trading_analysis(
 
         #EMA SHORT
         fig.add_trace(go.Scatter(
-            x=df.index, y=df['EMA'], mode='lines',
+            x=df.index, y=df['EMA20'], mode='lines',
             line=dict(color='Green', width=1),
             name='EMA SHORT'
         ), row=index, col=1)
         fig.add_trace(go.Scatter(
-            x=df.index, y=df['EMA2'], mode='lines',
+            x=df.index, y=df['EMA50'], mode='lines',
             line=dict(color='purple', width=1),
             name='EMA MED'
         ), row=index, col=1)
         fig.add_trace(go.Scatter(
-            x=df.index, y=df['EMA3'], mode='lines',
+            x=df.index, y=df['EMA100'], mode='lines',
             line=dict(color='coral', width=1),
             name='EMA LONG'
         ), row=index, col=1)
 
         fig.add_trace(go.Scatter(
-            x=df.index, y=df['EMAO'], mode='lines',
+            x=df.index, y=df['EMA200'], mode='lines',
             line=dict(color='Red', width=1),
             name='EMA OPEN'
         ), row=index, col=1)
@@ -1688,7 +1688,7 @@ if __name__ == "__main__":
     if 'df' not in st.session_state:
         st.session_state['df'] = None
     if 'model' not in st.session_state:
-        st.session_state['model'] = load_model('trained_model.keras')
+        st.session_state['model'] = load_model('optimized_model.keras')
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
