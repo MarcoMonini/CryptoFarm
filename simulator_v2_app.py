@@ -2,7 +2,7 @@
 
 Layout (matrix):
 - Global settings in alto (market, range, strategy).
-- Tab per timeframe con controlli a sinistra e grafico a destra.
+- Selettore timeframe con controlli a sinistra e grafico a destra.
 - Pulsante "Run simulation" per eseguire fetch e calcoli manualmente.
 
 Flusso dati:
@@ -25,6 +25,10 @@ from simulator_v2_backend import (
     compute_indicators,
     fetch_market_data_dates,
     fetch_market_data_hours,
+    load_ai_metadata,
+    load_ai_model,
+    load_ai_scaler,
+    mtf_ai_model_signals,
     mtf_close_buy_sell_limits,
     simulate_trades,
     summarize_trades,
@@ -116,6 +120,86 @@ TIMEFRAME_PARAM_DEFAULTS = {
     "macd_sell_limit": 2.5,
 }
 
+INDICATOR_PARAM_MAP = {
+    "atr_bands": ["atr_window", "atr_multiplier"],
+    "rsi_short": ["rsi_short_window", "rsi_short_buy_limit", "rsi_short_sell_limit"],
+    "rsi_medium": ["rsi_medium_window", "rsi_medium_buy_limit", "rsi_medium_sell_limit"],
+    "rsi_long": ["rsi_long_window", "rsi_long_buy_limit", "rsi_long_sell_limit"],
+    "ema_short": ["ema_short_window"],
+    "ema_medium": ["ema_medium_window"],
+    "ema_long": ["ema_long_window"],
+    "kama": ["kama_window", "kama_pow1", "kama_pow2"],
+    "macd": ["macd_short_window", "macd_long_window", "macd_signal_window", "macd_buy_limit", "macd_sell_limit"],
+}
+
+GLOBAL_STRATEGY_PARAM_KEYS = {
+    "stop_loss_percent",
+    "conditions_required",
+    "ai_buy_threshold",
+    "ai_sell_threshold",
+}
+
+AI_DEFAULTS = {
+    "ai_model_path": "ai_models/mtf_ai_model_v1.keras",
+    "ai_scaler_path": "ai_models/mtf_ai_model_v1_scaler.pkl",
+    "ai_metadata_path": "ai_models/mtf_ai_model_v1_meta.json",
+    "ai_buy_threshold": 0.6,
+    "ai_sell_threshold": 0.6,
+}
+
+
+def get_timeframe_param_default(strategy_name: str, param_key: str) -> float:
+    """Restituisce il default per un parametro timeframe, considerando la strategia."""
+    strategy = STRATEGIES.get(strategy_name)
+    if strategy and param_key in strategy.default_params and param_key in TIMEFRAME_PARAM_KEYS:
+        return strategy.default_params[param_key]
+    return TIMEFRAME_PARAM_DEFAULTS[param_key]
+
+
+def apply_timeframe_defaults(tf_index: int, strategy_name: str) -> None:
+    """Applica i default di strategia per un singolo timeframe."""
+    strategy = STRATEGIES.get(strategy_name)
+    if not strategy:
+        return
+
+    if strategy_name == "Custom":
+        for indicator, default_value in INDICATOR_TOGGLE_DEFAULTS.items():
+            state_key = indicator_state_key(tf_index, indicator)
+            st.session_state[state_key] = default_value
+    else:
+        for indicator in INDICATOR_STATE_KEYS:
+            state_key = indicator_state_key(tf_index, indicator)
+            st.session_state[state_key] = indicator in strategy.default_indicators
+
+    for param_key in TIMEFRAME_PARAM_KEYS:
+        full_key = indicator_param_key(tf_index, param_key)
+        st.session_state[full_key] = get_timeframe_param_default(strategy_name, param_key)
+
+
+def apply_indicator_defaults(tf_index: int, indicator: str, strategy_name: str) -> None:
+    """Imposta i parametri di default quando si abilita un indicatore."""
+    param_keys = INDICATOR_PARAM_MAP.get(indicator, [])
+    for param_key in param_keys:
+        full_key = indicator_param_key(tf_index, param_key)
+        st.session_state[full_key] = get_timeframe_param_default(strategy_name, param_key)
+
+
+def on_timeframe_toggle(tf_index: int) -> None:
+    """Quando si abilita un TF, applica i default di strategia."""
+    if not st.session_state.get(f"tf{tf_index}_enabled"):
+        return
+    strategy_name = st.session_state.get("strategy", "Custom")
+    apply_timeframe_defaults(tf_index, strategy_name)
+
+
+def on_indicator_toggle(tf_index: int, indicator: str) -> None:
+    """Quando si abilita un indicatore, applica i default specifici."""
+    state_key = indicator_state_key(tf_index, indicator)
+    if not st.session_state.get(state_key):
+        return
+    strategy_name = st.session_state.get("strategy", "Custom")
+    apply_indicator_defaults(tf_index, indicator, strategy_name)
+
 
 def indicator_state_key(tf_index: int, indicator: str) -> str:
     """Costruisce la chiave session_state per il toggle indicatore.
@@ -178,6 +262,11 @@ def init_session_state() -> None:
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+    for key, value in AI_DEFAULTS.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+    if "active_tf_tab" not in st.session_state:
+        st.session_state["active_tf_tab"] = 1
     if st.session_state.get("strategy") == "Close Buy/Sell Limits":
         st.session_state["strategy"] = "Buy/Sell Limits"
     if st.session_state.get("strategy") not in STRATEGIES:
@@ -219,34 +308,16 @@ def apply_strategy_defaults() -> None:
 
     if strategy_name == "Custom":
         for tf_index in TF_INDEXES:
-            for indicator, default_value in INDICATOR_TOGGLE_DEFAULTS.items():
-                state_key = indicator_state_key(tf_index, indicator)
-                st.session_state[state_key] = default_value
-
-            for param_key, param_value in TIMEFRAME_PARAM_DEFAULTS.items():
-                full_key = indicator_param_key(tf_index, param_key)
-                st.session_state[full_key] = param_value
+            apply_timeframe_defaults(tf_index, strategy_name)
         st.session_state["conditions_required"] = 1
         return
 
-    if "stop_loss_percent" in strategy.default_params:
-        st.session_state["stop_loss_percent"] = strategy.default_params["stop_loss_percent"]
-    if "conditions_required" in strategy.default_params:
-        st.session_state["conditions_required"] = strategy.default_params["conditions_required"]
+    for param_key, param_value in strategy.default_params.items():
+        if param_key in GLOBAL_STRATEGY_PARAM_KEYS:
+            st.session_state[param_key] = param_value
 
     for tf_index in TF_INDEXES:
-        for indicator in INDICATOR_STATE_KEYS:
-            state_key = indicator_state_key(tf_index, indicator)
-            st.session_state[state_key] = indicator in strategy.default_indicators
-
-        for param_key, param_value in TIMEFRAME_PARAM_DEFAULTS.items():
-            full_key = indicator_param_key(tf_index, param_key)
-            st.session_state[full_key] = param_value
-
-        for param_key, param_value in strategy.default_params.items():
-            if param_key in TIMEFRAME_PARAM_KEYS:
-                full_key = indicator_param_key(tf_index, param_key)
-                st.session_state[full_key] = param_value
+        apply_timeframe_defaults(tf_index, strategy_name)
 
 
 def collect_timeframe_configs() -> List[Dict[str, object]]:
@@ -332,6 +403,11 @@ def build_config() -> Dict[str, object]:
         "fee_percent": float(st.session_state["fee_percent"]),
         "stop_loss_percent": float(st.session_state["stop_loss_percent"]),
         "conditions_required": int(st.session_state["conditions_required"]),
+        "ai_model_path": str(st.session_state["ai_model_path"]),
+        "ai_scaler_path": str(st.session_state["ai_scaler_path"]),
+        "ai_metadata_path": str(st.session_state["ai_metadata_path"]),
+        "ai_buy_threshold": float(st.session_state["ai_buy_threshold"]),
+        "ai_sell_threshold": float(st.session_state["ai_sell_threshold"]),
     }
 
 
@@ -360,6 +436,11 @@ def config_signature(config: Dict[str, object]) -> tuple:
         float(config["fee_percent"]),
         float(config["stop_loss_percent"]),
         int(config["conditions_required"]),
+        str(config.get("ai_model_path", "")),
+        str(config.get("ai_scaler_path", "")),
+        str(config.get("ai_metadata_path", "")),
+        float(config.get("ai_buy_threshold", 0.0)),
+        float(config.get("ai_sell_threshold", 0.0)),
     )
 
 
@@ -426,12 +507,59 @@ def validate_config(config: Dict[str, object]) -> List[str]:
                     f"TF{tf_data['index']} MACD Buy Limit must be lower than MACD Sell Limit."
                 )
 
+    if config["strategy"] == "AI Model":
+        model_path = str(config.get("ai_model_path", "")).strip()
+        scaler_path = str(config.get("ai_scaler_path", "")).strip()
+        metadata_path = str(config.get("ai_metadata_path", "")).strip()
+        if not model_path:
+            errors.append("AI model path is required.")
+        elif not os.path.isfile(model_path):
+            errors.append("AI model file not found.")
+        if not scaler_path:
+            errors.append("AI scaler path is required.")
+        elif not os.path.isfile(scaler_path):
+            errors.append("AI scaler file not found.")
+        if not metadata_path:
+            errors.append("AI metadata path is required.")
+        elif not os.path.isfile(metadata_path):
+            errors.append("AI metadata file not found.")
+
+        buy_threshold = float(config.get("ai_buy_threshold", 0.0))
+        sell_threshold = float(config.get("ai_sell_threshold", 0.0))
+        if not (0.0 <= buy_threshold <= 1.0):
+            errors.append("AI Buy Threshold must be between 0 and 1.")
+        if not (0.0 <= sell_threshold <= 1.0):
+            errors.append("AI Sell Threshold must be between 0 and 1.")
+
+        if not errors and os.path.isfile(metadata_path):
+            try:
+                metadata = load_ai_metadata(metadata_path)
+            except Exception as exc:
+                errors.append(f"AI metadata load failed: {exc}")
+            else:
+                expected_tfs = metadata.get("timeframes")
+                base_tf = metadata.get("base_timeframe")
+                enabled_values = [tf["value"] for tf in enabled_timeframes]
+                if not expected_tfs:
+                    errors.append("AI metadata missing timeframes.")
+                elif set(enabled_values) != set(expected_tfs):
+                    errors.append(
+                        "Selected timeframes must match AI metadata timeframes: "
+                        + ", ".join(expected_tfs)
+                    )
+                if base_tf and expected_tfs and base_tf not in expected_tfs:
+                    errors.append("AI metadata base_timeframe not in timeframes list.")
+                if base_tf and enabled_values and base_tf not in enabled_values:
+                    errors.append("Base timeframe must be enabled for AI strategy.")
+
     return errors
 
 
 def collect_warnings(config: Dict[str, object]) -> List[str]:
     """Raccoglie warning non bloccanti dalla config."""
     warnings = []
+    if config.get("strategy") == "AI Model":
+        return warnings
     enabled_timeframes = [tf for tf in config["timeframes"] if tf["enabled"]]
     for tf_data in enabled_timeframes:
         flags = tf_data["indicator_flags"]
@@ -697,6 +825,42 @@ def render_global_settings() -> None:
             if total_conditions == 0:
                 st.caption("Enable RSI/ATR/MACD or EMA pairs to activate conditions.")
 
+        if selected_strategy.name == "AI Model":
+            with st.expander("AI Model Settings", expanded=True):
+                st.text_input("Model Path (.keras)", key="ai_model_path")
+                st.text_input("Scaler Path (.pkl)", key="ai_scaler_path")
+                st.text_input("Metadata Path (.json)", key="ai_metadata_path")
+                st.number_input(
+                    "AI Buy Threshold",
+                    min_value=0.0,
+                    max_value=1.0,
+                    step=0.01,
+                    key="ai_buy_threshold",
+                )
+                st.number_input(
+                    "AI Sell Threshold",
+                    min_value=0.0,
+                    max_value=1.0,
+                    step=0.01,
+                    key="ai_sell_threshold",
+                )
+                metadata_path = str(st.session_state.get("ai_metadata_path", ""))
+                if metadata_path and os.path.isfile(metadata_path):
+                    try:
+                        metadata = load_ai_metadata(metadata_path)
+                        tf_list = metadata.get("timeframes", [])
+                        base_tf = metadata.get("base_timeframe", "")
+                        seq_len = metadata.get("sequence_length", "")
+                        model_name = metadata.get("model_name", "")
+                        if tf_list:
+                            st.caption(
+                                f"Metadata: {model_name} | TFs: {', '.join(tf_list)} | "
+                                f"Base: {base_tf} | Seq: {seq_len}"
+                            )
+                    except Exception as exc:
+                        st.caption(f"Metadata preview failed: {exc}")
+            st.caption("AI strategy uses metadata indicator flags and parameters; UI indicator settings are ignored.")
+
         st.number_input("Wallet", min_value=0.0, step=10.0, key="wallet")
         st.number_input("Fee %", min_value=0.0, max_value=5.0, step=0.01, key="fee_percent")
 
@@ -787,6 +951,8 @@ def render_indicator_controls(tf_index: int) -> None:
         "ATR Bands",
         key=indicator_state_key(tf_index, "atr_bands"),
         disabled=not tf_enabled,
+        on_change=on_indicator_toggle,
+        args=(tf_index, "atr_bands"),
     )
     atr_cols = st.columns(2)
     atr_cols[0].number_input(
@@ -812,6 +978,8 @@ def render_indicator_controls(tf_index: int) -> None:
         "RSI Short",
         key=indicator_state_key(tf_index, "rsi_short"),
         disabled=not tf_enabled,
+        on_change=on_indicator_toggle,
+        args=(tf_index, "rsi_short"),
     )
     st.number_input(
         "RSI Short Window",
@@ -825,6 +993,8 @@ def render_indicator_controls(tf_index: int) -> None:
         "RSI Medium",
         key=indicator_state_key(tf_index, "rsi_medium"),
         disabled=not tf_enabled,
+        on_change=on_indicator_toggle,
+        args=(tf_index, "rsi_medium"),
     )
     st.number_input(
         "RSI Medium Window",
@@ -838,6 +1008,8 @@ def render_indicator_controls(tf_index: int) -> None:
         "RSI Long",
         key=indicator_state_key(tf_index, "rsi_long"),
         disabled=not tf_enabled,
+        on_change=on_indicator_toggle,
+        args=(tf_index, "rsi_long"),
     )
     st.number_input(
         "RSI Long Window",
@@ -905,6 +1077,8 @@ def render_indicator_controls(tf_index: int) -> None:
         "EMA Short",
         key=indicator_state_key(tf_index, "ema_short"),
         disabled=not tf_enabled,
+        on_change=on_indicator_toggle,
+        args=(tf_index, "ema_short"),
     )
     st.number_input(
         "EMA Short Window",
@@ -918,6 +1092,8 @@ def render_indicator_controls(tf_index: int) -> None:
         "EMA Medium",
         key=indicator_state_key(tf_index, "ema_medium"),
         disabled=not tf_enabled,
+        on_change=on_indicator_toggle,
+        args=(tf_index, "ema_medium"),
     )
     st.number_input(
         "EMA Medium Window",
@@ -931,6 +1107,8 @@ def render_indicator_controls(tf_index: int) -> None:
         "EMA Long",
         key=indicator_state_key(tf_index, "ema_long"),
         disabled=not tf_enabled,
+        on_change=on_indicator_toggle,
+        args=(tf_index, "ema_long"),
     )
     st.number_input(
         "EMA Long Window",
@@ -947,6 +1125,8 @@ def render_indicator_controls(tf_index: int) -> None:
         "KAMA",
         key=indicator_state_key(tf_index, "kama"),
         disabled=not tf_enabled,
+        on_change=on_indicator_toggle,
+        args=(tf_index, "kama"),
     )
     kama_cols = st.columns(3)
     kama_cols[0].number_input(
@@ -980,6 +1160,8 @@ def render_indicator_controls(tf_index: int) -> None:
         "MACD",
         key=indicator_state_key(tf_index, "macd"),
         disabled=not tf_enabled,
+        on_change=on_indicator_toggle,
+        args=(tf_index, "macd"),
     )
     macd_cols = st.columns(3)
     macd_cols[0].number_input(
@@ -1031,7 +1213,12 @@ def render_timeframe_matrix_controls(tf_index: int) -> None:
     """Renderizza i controlli del timeframe in layout matrix."""
     tf_enabled = bool(st.session_state.get(f"tf{tf_index}_enabled"))
     st.markdown(f"**TF{tf_index} Settings**")
-    st.checkbox("Enabled", key=f"tf{tf_index}_enabled")
+    st.checkbox(
+        "Enabled",
+        key=f"tf{tf_index}_enabled",
+        on_change=on_timeframe_toggle,
+        args=(tf_index,),
+    )
     st.selectbox(
         "Interval",
         options=list(TIMEFRAME_MINUTES.keys()),
@@ -1039,6 +1226,8 @@ def render_timeframe_matrix_controls(tf_index: int) -> None:
         disabled=not tf_enabled,
     )
     st.caption("Disabled timeframes are ignored in fetch, indicators and strategy.")
+    if st.session_state.get("strategy") == "AI Model":
+        st.caption("AI strategy uses model metadata for signals and indicators; these controls are ignored.")
 
     st.divider()
     with st.expander("Indicators & Parameters", expanded=True):
@@ -1127,6 +1316,7 @@ def compute_single_timeframe_payload(
 def compute_mtf_payload(
     config: Dict[str, object],
     enabled_timeframes: List[Dict[str, object]],
+    strategy,
 ) -> Dict[str, object]:
     """Calcola dati e segnali per la strategia multi-timeframe."""
     timeframe_data = []
@@ -1219,11 +1409,18 @@ def compute_mtf_payload(
         sell_signals = []
     else:
         try:
-            buy_signals, sell_signals = mtf_close_buy_sell_limits(
-                frames=frames,
-                base_timeframe=base_config["value"],
-                conditions_required=config["conditions_required"],
-            )
+            if strategy.signal_func:
+                buy_signals, sell_signals = strategy.signal_func(
+                    frames=frames,
+                    base_timeframe=base_config["value"],
+                    conditions_required=config["conditions_required"],
+                )
+            else:
+                buy_signals, sell_signals = mtf_close_buy_sell_limits(
+                    frames=frames,
+                    base_timeframe=base_config["value"],
+                    conditions_required=config["conditions_required"],
+                )
         except Exception as exc:
             return {"error": f"Strategy computation failed: {exc}"}
 
@@ -1245,6 +1442,106 @@ def compute_mtf_payload(
         execution_note = f"Signals computed on base timeframe: {base_config['value']}."
     if conditions_note:
         execution_note = f"{execution_note} {conditions_note}"
+
+    return {
+        "error": None,
+        "mode": "mtf",
+        "timeframe_data": timeframe_data,
+        "timeframe_map": {tf["index"]: tf for tf in timeframe_data},
+        "buy_signals": buy_signals,
+        "sell_signals": sell_signals,
+        "trades_df": trades_df,
+        "summary": summary,
+        "execution_note": execution_note,
+    }
+
+
+def compute_ai_payload(
+    config: Dict[str, object],
+    enabled_timeframes: List[Dict[str, object]],
+) -> Dict[str, object]:
+    """Calcola dati e segnali per la strategia AI Model."""
+    try:
+        metadata = load_ai_metadata(config["ai_metadata_path"])
+    except Exception as exc:
+        return {"error": f"AI metadata load failed: {exc}"}
+
+    timeframes = metadata.get("timeframes")
+    base_timeframe = metadata.get("base_timeframe")
+    indicator_flags = metadata.get("indicator_flags", {})
+    timeframe_params_map = metadata.get("timeframe_params", {})
+    sequence_length = int(metadata.get("sequence_length", 0))
+
+    if not timeframes or not isinstance(timeframes, list):
+        return {"error": "AI metadata missing timeframes list."}
+    if not base_timeframe:
+        return {"error": "AI metadata missing base_timeframe."}
+    if base_timeframe not in timeframes:
+        return {"error": "AI metadata base_timeframe is not in timeframes."}
+    if not isinstance(timeframe_params_map, dict):
+        return {"error": "AI metadata timeframe_params is missing or invalid."}
+    if sequence_length <= 0:
+        return {"error": "AI metadata sequence_length must be > 0."}
+
+    slot_map = {tf["value"]: tf for tf in enabled_timeframes}
+    missing_slots = [tf for tf in timeframes if tf not in slot_map]
+    if missing_slots:
+        return {"error": f"Selected timeframes missing: {', '.join(missing_slots)}"}
+
+    timeframe_data = []
+    frames = []
+    for tf in timeframes:
+        tf_params = timeframe_params_map.get(tf)
+        if not isinstance(tf_params, dict):
+            return {"error": f"AI metadata missing params for timeframe {tf}."}
+        data = prepare_timeframe_data(
+            timeframe=tf,
+            config=config,
+            indicator_flags=indicator_flags,
+            timeframe_params=tf_params,
+        )
+        if data["error"]:
+            return {"error": f"TF {tf}: {data['error']}"}
+
+        slot = slot_map[tf]
+        timeframe_data.append(
+            {
+                **slot,
+                "value": tf,
+                "df": data["df"],
+                "actual_hours": data["actual_hours"],
+                "indicator_flags": indicator_flags,
+                "timeframe_params": tf_params,
+            }
+        )
+        frames.append({"timeframe": tf, "df": data["df"]})
+
+    try:
+        model = load_ai_model(config["ai_model_path"])
+        scaler = load_ai_scaler(config["ai_scaler_path"])
+        buy_signals, sell_signals = mtf_ai_model_signals(
+            frames=frames,
+            metadata=metadata,
+            model=model,
+            scaler=scaler,
+            buy_threshold=config["ai_buy_threshold"],
+            sell_threshold=config["ai_sell_threshold"],
+        )
+    except Exception as exc:
+        return {"error": f"AI strategy computation failed: {exc}"}
+
+    trades_df = simulate_trades(
+        buy_signals,
+        sell_signals,
+        initial_wallet=config["wallet"],
+        fee_percent=config["fee_percent"],
+    )
+    summary = summarize_trades(trades_df, initial_wallet=config["wallet"])
+    model_name = metadata.get("model_name", "AI Model")
+    execution_note = (
+        f"{model_name} signals on base timeframe {base_timeframe} "
+        f"(sequence length {sequence_length})."
+    )
 
     return {
         "error": None,
@@ -1437,8 +1734,10 @@ def main() -> None:
     }
 
     if run_clicked and not errors:
-        if strategy.multi_timeframe:
-            payload = compute_mtf_payload(config, enabled_timeframes)
+        if strategy.name == "AI Model":
+            payload = compute_ai_payload(config, enabled_timeframes)
+        elif strategy.multi_timeframe:
+            payload = compute_mtf_payload(config, enabled_timeframes, strategy)
         else:
             payload = compute_single_timeframe_payload(
                 config=config,
@@ -1465,147 +1764,149 @@ def main() -> None:
 
     st.divider()
     st.subheader("Timeframes Matrix")
-    tab_labels = []
+    tf_labels = {}
     for tf_index in TF_INDEXES:
         tf_value = st.session_state.get(f"tf{tf_index}_value")
         tf_status = "ON" if st.session_state.get(f"tf{tf_index}_enabled") else "OFF"
-        tab_labels.append(f"TF{tf_index} {tf_status} ({tf_value})")
+        tf_labels[tf_index] = f"TF{tf_index} {tf_status} ({tf_value})"
 
-    tabs = st.tabs(tab_labels)
-    for tf_index, tab in zip(TF_INDEXES, tabs):
-        with tab:
-            left, right = st.columns([0.35, 0.65], gap="large")
-            with left:
-                render_timeframe_matrix_controls(tf_index)
-            with right:
-                if errors:
-                    st.info("Fix configuration errors before running the simulation.")
-                    continue
+    st.radio(
+        "Active timeframe",
+        options=list(TF_INDEXES),
+        key="active_tf_tab",
+        format_func=lambda idx: tf_labels.get(idx, f"TF{idx}"),
+        horizontal=True,
+    )
+    tf_index = int(st.session_state.get("active_tf_tab", 1))
 
-                tf_enabled = bool(st.session_state.get(f"tf{tf_index}_enabled"))
-                if not tf_enabled:
-                    st.info("Timeframe disabled. Enable it to load data and charts.")
-                    continue
-
-                if not payload:
-                    st.info("Press Run simulation to load data and charts.")
-                    continue
-
+    left, right = st.columns([0.35, 0.65], gap="large")
+    with left:
+        render_timeframe_matrix_controls(tf_index)
+    with right:
+        if errors:
+            st.info("Fix configuration errors before running the simulation.")
+        else:
+            tf_enabled = bool(st.session_state.get(f"tf{tf_index}_enabled"))
+            if not tf_enabled:
+                st.info("Timeframe disabled. Enable it to load data and charts.")
+            elif not payload:
+                st.info("Press Run simulation to load data and charts.")
+            else:
                 if payload_strategy_multi:
                     tf_data = payload["timeframe_map"].get(tf_index)
                     if not tf_data:
                         st.info("Timeframe data not available.")
-                        continue
-                    plot_buy = align_signals_to_timeframe(payload["buy_signals"], tf_data["df"])
-                    plot_sell = align_signals_to_timeframe(payload["sell_signals"], tf_data["df"])
-                    show_limits = (
-                        payload_strategy_name == "Buy/Sell Limits"
-                        and (
-                            tf_data["indicator_flags"].get("rsi_short")
-                            or tf_data["indicator_flags"].get("rsi_medium")
-                            or tf_data["indicator_flags"].get("rsi_long")
+                    else:
+                        plot_buy = align_signals_to_timeframe(payload["buy_signals"], tf_data["df"])
+                        plot_sell = align_signals_to_timeframe(payload["sell_signals"], tf_data["df"])
+                        show_limits = (
+                            payload_strategy_name == "Buy/Sell Limits"
+                            and (
+                                tf_data["indicator_flags"].get("rsi_short")
+                                or tf_data["indicator_flags"].get("rsi_medium")
+                                or tf_data["indicator_flags"].get("rsi_long")
+                            )
                         )
-                    )
-                    rsi_limits = None
-                    if show_limits:
-                        rsi_limits = {}
-                        if tf_data["indicator_flags"].get("rsi_short"):
-                            rsi_limits["rsi_short"] = (
-                                tf_data["timeframe_params"]["rsi_short_buy_limit"],
-                                tf_data["timeframe_params"]["rsi_short_sell_limit"],
-                            )
-                        if tf_data["indicator_flags"].get("rsi_medium"):
-                            rsi_limits["rsi_medium"] = (
-                                tf_data["timeframe_params"]["rsi_medium_buy_limit"],
-                                tf_data["timeframe_params"]["rsi_medium_sell_limit"],
-                            )
-                        if tf_data["indicator_flags"].get("rsi_long"):
-                            rsi_limits["rsi_long"] = (
-                                tf_data["timeframe_params"]["rsi_long_buy_limit"],
-                                tf_data["timeframe_params"]["rsi_long_sell_limit"],
-                            )
-                    show_macd_limits = (
-                        payload_strategy_name == "Buy/Sell Limits"
-                        and tf_data["indicator_flags"].get("macd")
-                    )
-                    macd_buy_limit = (
-                        tf_data["timeframe_params"]["macd_buy_limit"] if show_macd_limits else None
-                    )
-                    macd_sell_limit = (
-                        tf_data["timeframe_params"]["macd_sell_limit"] if show_macd_limits else None
-                    )
-                    render_timeframe_panel(
-                        df_indicators=tf_data["df"],
-                        actual_hours=tf_data["actual_hours"],
-                        asset=config["asset"],
-                        timeframe=tf_data["value"],
-                        indicator_flags=tf_data["indicator_flags"],
-                        buy_signals=plot_buy,
-                        sell_signals=plot_sell,
-                        rsi_limits=rsi_limits,
-                        macd_buy_limit=macd_buy_limit,
-                        macd_sell_limit=macd_sell_limit,
-                        trades_df=payload["trades_df"],
-                        summary=payload["summary"],
-                        execution_note=payload["execution_note"],
-                    )
+                        rsi_limits = None
+                        if show_limits:
+                            rsi_limits = {}
+                            if tf_data["indicator_flags"].get("rsi_short"):
+                                rsi_limits["rsi_short"] = (
+                                    tf_data["timeframe_params"]["rsi_short_buy_limit"],
+                                    tf_data["timeframe_params"]["rsi_short_sell_limit"],
+                                )
+                            if tf_data["indicator_flags"].get("rsi_medium"):
+                                rsi_limits["rsi_medium"] = (
+                                    tf_data["timeframe_params"]["rsi_medium_buy_limit"],
+                                    tf_data["timeframe_params"]["rsi_medium_sell_limit"],
+                                )
+                            if tf_data["indicator_flags"].get("rsi_long"):
+                                rsi_limits["rsi_long"] = (
+                                    tf_data["timeframe_params"]["rsi_long_buy_limit"],
+                                    tf_data["timeframe_params"]["rsi_long_sell_limit"],
+                                )
+                        show_macd_limits = (
+                            payload_strategy_name == "Buy/Sell Limits"
+                            and tf_data["indicator_flags"].get("macd")
+                        )
+                        macd_buy_limit = (
+                            tf_data["timeframe_params"]["macd_buy_limit"] if show_macd_limits else None
+                        )
+                        macd_sell_limit = (
+                            tf_data["timeframe_params"]["macd_sell_limit"] if show_macd_limits else None
+                        )
+                        render_timeframe_panel(
+                            df_indicators=tf_data["df"],
+                            actual_hours=tf_data["actual_hours"],
+                            asset=config["asset"],
+                            timeframe=tf_data["value"],
+                            indicator_flags=tf_data["indicator_flags"],
+                            buy_signals=plot_buy,
+                            sell_signals=plot_sell,
+                            rsi_limits=rsi_limits,
+                            macd_buy_limit=macd_buy_limit,
+                            macd_sell_limit=macd_sell_limit,
+                            trades_df=payload["trades_df"],
+                            summary=payload["summary"],
+                            execution_note=payload["execution_note"],
+                        )
                 else:
                     tf_data = payload["timeframe_map"].get(tf_index)
                     if not tf_data:
                         st.info("Timeframe data not available.")
-                        continue
-                    if tf_data.get("warning"):
-                        st.warning(tf_data["warning"])
-                    show_limits = (
-                        payload_strategy_name == "Buy/Sell Limits"
-                        and (
-                            tf_data["indicator_flags"].get("rsi_short")
-                            or tf_data["indicator_flags"].get("rsi_medium")
-                            or tf_data["indicator_flags"].get("rsi_long")
+                    else:
+                        if tf_data.get("warning"):
+                            st.warning(tf_data["warning"])
+                        show_limits = (
+                            payload_strategy_name == "Buy/Sell Limits"
+                            and (
+                                tf_data["indicator_flags"].get("rsi_short")
+                                or tf_data["indicator_flags"].get("rsi_medium")
+                                or tf_data["indicator_flags"].get("rsi_long")
+                            )
                         )
-                    )
-                    rsi_limits = None
-                    if show_limits:
-                        rsi_limits = {}
-                        if tf_data["indicator_flags"].get("rsi_short"):
-                            rsi_limits["rsi_short"] = (
-                                tf_data["timeframe_params"]["rsi_short_buy_limit"],
-                                tf_data["timeframe_params"]["rsi_short_sell_limit"],
-                            )
-                        if tf_data["indicator_flags"].get("rsi_medium"):
-                            rsi_limits["rsi_medium"] = (
-                                tf_data["timeframe_params"]["rsi_medium_buy_limit"],
-                                tf_data["timeframe_params"]["rsi_medium_sell_limit"],
-                            )
-                        if tf_data["indicator_flags"].get("rsi_long"):
-                            rsi_limits["rsi_long"] = (
-                                tf_data["timeframe_params"]["rsi_long_buy_limit"],
-                                tf_data["timeframe_params"]["rsi_long_sell_limit"],
-                            )
-                    show_macd_limits = (
-                        payload_strategy_name == "Buy/Sell Limits"
-                        and tf_data["indicator_flags"].get("macd")
-                    )
-                    macd_buy_limit = (
-                        tf_data["timeframe_params"]["macd_buy_limit"] if show_macd_limits else None
-                    )
-                    macd_sell_limit = (
-                        tf_data["timeframe_params"]["macd_sell_limit"] if show_macd_limits else None
-                    )
-                    render_timeframe_panel(
-                        df_indicators=tf_data["df"],
-                        actual_hours=tf_data["actual_hours"],
-                        asset=config["asset"],
-                        timeframe=tf_data["value"],
-                        indicator_flags=tf_data["indicator_flags"],
-                        buy_signals=tf_data["buy_signals"],
-                        sell_signals=tf_data["sell_signals"],
-                        rsi_limits=rsi_limits,
-                        macd_buy_limit=macd_buy_limit,
-                        macd_sell_limit=macd_sell_limit,
-                        trades_df=tf_data["trades_df"],
-                        summary=tf_data["summary"],
-                    )
+                        rsi_limits = None
+                        if show_limits:
+                            rsi_limits = {}
+                            if tf_data["indicator_flags"].get("rsi_short"):
+                                rsi_limits["rsi_short"] = (
+                                    tf_data["timeframe_params"]["rsi_short_buy_limit"],
+                                    tf_data["timeframe_params"]["rsi_short_sell_limit"],
+                                )
+                            if tf_data["indicator_flags"].get("rsi_medium"):
+                                rsi_limits["rsi_medium"] = (
+                                    tf_data["timeframe_params"]["rsi_medium_buy_limit"],
+                                    tf_data["timeframe_params"]["rsi_medium_sell_limit"],
+                                )
+                            if tf_data["indicator_flags"].get("rsi_long"):
+                                rsi_limits["rsi_long"] = (
+                                    tf_data["timeframe_params"]["rsi_long_buy_limit"],
+                                    tf_data["timeframe_params"]["rsi_long_sell_limit"],
+                                )
+                        show_macd_limits = (
+                            payload_strategy_name == "Buy/Sell Limits"
+                            and tf_data["indicator_flags"].get("macd")
+                        )
+                        macd_buy_limit = (
+                            tf_data["timeframe_params"]["macd_buy_limit"] if show_macd_limits else None
+                        )
+                        macd_sell_limit = (
+                            tf_data["timeframe_params"]["macd_sell_limit"] if show_macd_limits else None
+                        )
+                        render_timeframe_panel(
+                            df_indicators=tf_data["df"],
+                            actual_hours=tf_data["actual_hours"],
+                            asset=config["asset"],
+                            timeframe=tf_data["value"],
+                            indicator_flags=tf_data["indicator_flags"],
+                            buy_signals=tf_data["buy_signals"],
+                            sell_signals=tf_data["sell_signals"],
+                            rsi_limits=rsi_limits,
+                            macd_buy_limit=macd_buy_limit,
+                            macd_sell_limit=macd_sell_limit,
+                            trades_df=tf_data["trades_df"],
+                            summary=tf_data["summary"],
+                        )
 
 
 if __name__ == "__main__":

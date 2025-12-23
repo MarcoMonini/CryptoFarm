@@ -12,6 +12,8 @@ fetch e calcoli; modifiche ai parametri non ricalcolano automaticamente.
 ## Struttura dei file
 - `simulator_v2_app.py`: frontend Streamlit (UI, session_state, orchestrazione).
 - `simulator_v2_backend.py`: backend (fetch Binance, indicatori, strategie, plot).
+- `simulator_v2_ai_trainer.py`: trainer AI senza UI (multi-timeframe).
+- `simulator_v2_massive.py`: ricerca massiva parametri (grid/random).
 
 ## Flusso dati (alto livello)
 1. `init_session_state()` imposta i default UI.
@@ -32,7 +34,9 @@ fetch e calcoli; modifiche ai parametri non ricalcolano automaticamente.
   - `tf{n}_{param}` (es. `tf2_atr_window`, `tf3_rsi_short_buy_limit`).
 - Globali:
   - `asset_base`, `asset_quote`, `range_mode`, `range_hours`, date/time,
-    `wallet`, `fee_percent`, `strategy`, `conditions_required`.
+    `wallet`, `fee_percent`, `strategy`, `conditions_required`,
+    `ai_model_path`, `ai_scaler_path`, `ai_metadata_path`,
+    `ai_buy_threshold`, `ai_sell_threshold`.
 
 ## Indicatori
 Il backend calcola solo gli indicatori attivi (flag in `indicator_flags`) per
@@ -68,6 +72,40 @@ Condizioni possibili per ogni TF abilitato:
 Il parametro `conditions_required` indica quante condizioni devono essere vere
 per generare buy/sell. Il totale disponibile cambia in base agli indicatori
 abilitati per TF. La timeline dei segnali usa il timeframe piu piccolo.
+
+### AI Model (multi-timeframe)
+Usa un modello AI addestrato per produrre segnali buy/sell:
+- I feature derivano da indicatori multi-timeframe (come nel trainer).
+- I parametri e indicatori usati sono definiti nei metadata del modello.
+- La UI richiede i path di model/scaler/metadata e le soglie di probabilita'.
+- I metadata includono anche regole di gap-handling (ffill e sequenze).
+
+La strategia AI ignora i toggle indicatori nella UI per i segnali (servono
+solo per la visualizzazione dei grafici).
+
+## AI Trainer (background)
+Eseguire:
+```bash
+python simulator_v2_ai_trainer.py
+```
+
+Output:
+- `ai_models/mtf_ai_model_v1.keras`
+- `ai_models/mtf_ai_model_v1_scaler.pkl`
+- `ai_models/mtf_ai_model_v1_meta.json`
+
+Nella UI selezionare `AI Model` e impostare i path ai file generati.
+I timeframe selezionati in UI devono coincidere con quelli nei metadata.
+
+### AI data quality knobs
+Nel trainer puoi controllare la qualita' dei dati pre-addestramento:
+- `LABEL_METHOD`, `LABEL_MIN_RETURN`, `LABEL_RETURN_HORIZON`, `LABEL_COOLDOWN`
+  per ridurre segnali rumorosi e bilanciare buy/sell vs hold.
+- `MAX_FFILL_GAP_MULTIPLIER` per evitare forward-fill troppo vecchi.
+- `GAP_TOLERANCE`, `SEQUENCE_STRIDE`, `EMBARGO_STEPS` per ridurre leakage.
+- `BALANCE_METHOD`, `HOLD_KEEP_RATIO`, `BALANCE_ASSETS` per gestire lo sbilanciamento.
+
+Questi parametri sono salvati nei metadata per riproducibilita'.
 
 ## Come aggiungere un indicatore
 1. Backend: aggiungi il calcolo in `compute_indicators()` e le colonne.

@@ -13,9 +13,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+import json
 import os
 import time
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 from binance import Client
@@ -49,7 +51,7 @@ class StrategySpec:
         name: nome della strategia in UI.
         required_indicators: indicatori richiesti per segnali.
         default_params: valori di default per parametri strategia.
-        signal_func: funzione (df, params) -> (buy, sell), o None.
+        signal_func: funzione -> (buy, sell), o None (single o multi-timeframe).
         description: descrizione breve per la UI.
         multi_timeframe: True se richiede piu timeframe.
         default_indicators: indicatori da attivare quando selezionata.
@@ -57,7 +59,7 @@ class StrategySpec:
     name: str
     required_indicators: frozenset[str]
     default_params: Dict[str, float]
-    signal_func: Optional[Callable[[pd.DataFrame, Dict[str, float]], Tuple[List[Signal], List[Signal]]]]
+    signal_func: Optional[Callable[..., Tuple[List[Signal], List[Signal]]]]
     description: str = ""
     multi_timeframe: bool = False
     default_indicators: frozenset[str] = frozenset()
@@ -492,8 +494,52 @@ def compute_indicators(
     return df_out
 
 
+def _condition_to_signals(condition: pd.Series, price_series: pd.Series) -> List[Signal]:
+    """Converte una serie booleana in lista di segnali (timestamp, prezzo)."""
+    if condition.empty:
+        return []
+    mask = condition.fillna(False)
+    idx = mask.index[mask]
+    if idx.empty:
+        return []
+    prices = price_series.reindex(idx)
+    return [(ts, float(price)) for ts, price in prices.items() if not pd.isna(price)]
+
+
+def _signals_to_condition_series(signals: Sequence[Signal], index: pd.Index) -> pd.Series:
+    """Converte una lista di segnali in serie booleana allineata all'index."""
+    cond = pd.Series(False, index=index)
+    if not signals:
+        return cond
+    timestamps = [ts for ts, _ in signals]
+    positions = index.get_indexer(timestamps)
+    valid = positions >= 0
+    if valid.any():
+        cond.iloc[positions[valid]] = True
+    return cond
+
+
 def close_atr_signals(df: pd.DataFrame, params: Dict[str, float]) -> Tuple[List[Signal], List[Signal]]:
-    """Strategia Close ATR.
+    """Segnali atomici per ATR bands (stateless).
+
+    Input:
+        df: DataFrame con Close, ATR_UPPER, ATR_LOWER.
+        params: non usati (compatibilita' firma).
+    Output:
+        Buy quando Close <= ATR_LOWER, sell quando Close >= ATR_UPPER.
+    """
+    if "ATR_LOWER" not in df or "ATR_UPPER" not in df:
+        raise ValueError("ATR bands indicators missing.")
+    close_series = df["Close"]
+    buy_cond = close_series <= df["ATR_LOWER"]
+    sell_cond = close_series >= df["ATR_UPPER"]
+    buy_signals = _condition_to_signals(buy_cond, close_series)
+    sell_signals = _condition_to_signals(sell_cond, close_series)
+    return buy_signals, sell_signals
+
+
+def close_atr_strategy_signals(df: pd.DataFrame, params: Dict[str, float]) -> Tuple[List[Signal], List[Signal]]:
+    """Strategia Close ATR con stop loss (stateful).
 
     Input:
         df: DataFrame con Close, ATR_UPPER, ATR_LOWER.
@@ -513,27 +559,25 @@ def close_atr_signals(df: pd.DataFrame, params: Dict[str, float]) -> Tuple[List[
     stop_loss_percent = float(params.get("stop_loss_percent", 99.0))
     stop_loss_decimal = stop_loss_percent / 100.0
 
+    # Atomic conditions from ATR bands (reused in Buy/Sell Limits).
+    raw_buy, raw_sell = close_atr_signals(df, params)
+    buy_cond = _signals_to_condition_series(raw_buy, df.index)
+    sell_cond = _signals_to_condition_series(raw_sell, df.index)
+
     # Use precomputed series to avoid repeated column lookups in the loop.
     close_series = df["Close"]
-    upper_series = df["ATR_UPPER"] if "ATR_UPPER" in df else pd.Series(index=df.index, dtype="float64")
-    lower_series = df["ATR_LOWER"] if "ATR_LOWER" in df else pd.Series(index=df.index, dtype="float64")
 
     for i in range(1, len(df)):
         close = close_series.iloc[i]
-        upper = upper_series.iloc[i]
-        lower = lower_series.iloc[i]
 
-        if pd.isna(upper) or pd.isna(lower):
-            continue
-
-        if not holding and close <= lower:
+        if not holding and buy_cond.iloc[i]:
             # Enter position when price touches lower band.
             buy_signals.append((df.index[i], float(close)))
             holding = True
             stop_loss_price = float(close) * (1.0 - stop_loss_decimal)
             continue
 
-        if holding and close >= upper:
+        if holding and sell_cond.iloc[i]:
             # Exit when price reaches upper band.
             sell_signals.append((df.index[i], float(close)))
             holding = False
@@ -547,6 +591,77 @@ def close_atr_signals(df: pd.DataFrame, params: Dict[str, float]) -> Tuple[List[
             stop_loss_price = None
 
     return buy_signals, sell_signals
+
+
+def rsi_limit_signals(
+    df: pd.DataFrame,
+    rsi_column: str,
+    buy_limit: float,
+    sell_limit: float,
+) -> Tuple[List[Signal], List[Signal]]:
+    """Segnali atomici RSI (stateless) per una singola serie RSI."""
+    if rsi_column not in df:
+        raise ValueError(f"{rsi_column} indicator missing.")
+    close_series = df["Close"]
+    buy_cond = df[rsi_column] <= float(buy_limit)
+    sell_cond = df[rsi_column] >= float(sell_limit)
+    return (
+        _condition_to_signals(buy_cond, close_series),
+        _condition_to_signals(sell_cond, close_series),
+    )
+
+
+def macd_limit_signals(
+    df: pd.DataFrame,
+    buy_limit: float,
+    sell_limit: float,
+) -> Tuple[List[Signal], List[Signal]]:
+    """Segnali atomici MACD (stateless) basati su MACD_HIST."""
+    if "MACD_HIST" not in df:
+        raise ValueError("MACD_HIST indicator missing.")
+    close_series = df["Close"]
+    buy_cond = df["MACD_HIST"] <= float(buy_limit)
+    sell_cond = df["MACD_HIST"] >= float(sell_limit)
+    return (
+        _condition_to_signals(buy_cond, close_series),
+        _condition_to_signals(sell_cond, close_series),
+    )
+
+
+def ema_cross_signals(
+    df: pd.DataFrame,
+    left_key: str,
+    right_key: str,
+    left_window: int,
+    right_window: int,
+) -> Tuple[List[Signal], List[Signal]]:
+    """Segnali atomici di incrocio EMA (eventi).
+
+    buy: EMA fast incrocia verso l'alto la slow.
+    sell: EMA fast incrocia verso il basso la slow.
+    """
+    if left_key not in df or right_key not in df:
+        raise ValueError("EMA indicators missing.")
+    if left_window == right_window:
+        return [], []
+    if left_window < right_window:
+        fast = df[left_key]
+        slow = df[right_key]
+    else:
+        fast = df[right_key]
+        slow = df[left_key]
+    buy_cross = (fast.shift(1) <= slow.shift(1)) & (fast > slow)
+    sell_cross = (fast.shift(1) >= slow.shift(1)) & (fast < slow)
+    close_series = df["Close"]
+    return (
+        _condition_to_signals(buy_cross, close_series),
+        _condition_to_signals(sell_cross, close_series),
+    )
+
+
+def no_signals(*_args, **_kwargs) -> Tuple[List[Signal], List[Signal]]:
+    """Strategia vuota: nessun segnale."""
+    return [], []
 
 
 def mtf_close_buy_sell_limits(
@@ -607,11 +722,9 @@ def mtf_close_buy_sell_limits(
         if use_rsi_short:
             rsi_buy_limit = float(frame["rsi_short_buy_limit"])
             rsi_sell_limit = float(frame["rsi_short_sell_limit"])
-            if "RSI_SHORT" not in df:
-                raise ValueError("RSI_SHORT indicator missing.")
-            # Build boolean condition on the native timeframe.
-            buy_cond = (df["RSI_SHORT"] <= rsi_buy_limit)
-            sell_cond = (df["RSI_SHORT"] >= rsi_sell_limit)
+            buy_sig, sell_sig = rsi_limit_signals(df, "RSI_SHORT", rsi_buy_limit, rsi_sell_limit)
+            buy_cond = _signals_to_condition_series(buy_sig, df.index)
+            sell_cond = _signals_to_condition_series(sell_sig, df.index)
             # Reindex aligns the condition to the base index (all base candles).
             # method="ffill" carries the last known value forward so slower TFs
             # keep their last condition until the next candle closes.
@@ -624,10 +737,9 @@ def mtf_close_buy_sell_limits(
         if use_rsi_medium:
             rsi_buy_limit = float(frame["rsi_medium_buy_limit"])
             rsi_sell_limit = float(frame["rsi_medium_sell_limit"])
-            if "RSI_MED" not in df:
-                raise ValueError("RSI_MED indicator missing.")
-            buy_cond = (df["RSI_MED"] <= rsi_buy_limit)
-            sell_cond = (df["RSI_MED"] >= rsi_sell_limit)
+            buy_sig, sell_sig = rsi_limit_signals(df, "RSI_MED", rsi_buy_limit, rsi_sell_limit)
+            buy_cond = _signals_to_condition_series(buy_sig, df.index)
+            sell_cond = _signals_to_condition_series(sell_sig, df.index)
             buy_cond = buy_cond.reindex(base_index, method="ffill").fillna(False)
             sell_cond = sell_cond.reindex(base_index, method="ffill").fillna(False)
             buy_conditions.append(buy_cond)
@@ -636,10 +748,9 @@ def mtf_close_buy_sell_limits(
         if use_rsi_long:
             rsi_buy_limit = float(frame["rsi_long_buy_limit"])
             rsi_sell_limit = float(frame["rsi_long_sell_limit"])
-            if "RSI_LONG" not in df:
-                raise ValueError("RSI_LONG indicator missing.")
-            buy_cond = (df["RSI_LONG"] <= rsi_buy_limit)
-            sell_cond = (df["RSI_LONG"] >= rsi_sell_limit)
+            buy_sig, sell_sig = rsi_limit_signals(df, "RSI_LONG", rsi_buy_limit, rsi_sell_limit)
+            buy_cond = _signals_to_condition_series(buy_sig, df.index)
+            sell_cond = _signals_to_condition_series(sell_sig, df.index)
             buy_cond = buy_cond.reindex(base_index, method="ffill").fillna(False)
             sell_cond = sell_cond.reindex(base_index, method="ffill").fillna(False)
             buy_conditions.append(buy_cond)
@@ -647,10 +758,9 @@ def mtf_close_buy_sell_limits(
 
         # Condizione ATR per timeframe
         if use_atr:
-            if "ATR_LOWER" not in df or "ATR_UPPER" not in df:
-                raise ValueError("ATR bands indicators missing.")
-            buy_cond = (df["Close"] <= df["ATR_LOWER"])
-            sell_cond = (df["Close"] >= df["ATR_UPPER"])
+            buy_sig, sell_sig = close_atr_signals(df, {})
+            buy_cond = _signals_to_condition_series(buy_sig, df.index)
+            sell_cond = _signals_to_condition_series(sell_sig, df.index)
             buy_cond = buy_cond.reindex(base_index, method="ffill").fillna(False)
             sell_cond = sell_cond.reindex(base_index, method="ffill").fillna(False)
             buy_conditions.append(buy_cond)
@@ -660,10 +770,9 @@ def mtf_close_buy_sell_limits(
         if use_macd:
             macd_buy_limit = float(frame["macd_buy_limit"])
             macd_sell_limit = float(frame["macd_sell_limit"])
-            if "MACD_HIST" not in df:
-                raise ValueError("MACD_HIST indicator missing.")
-            buy_cond = (df["MACD_HIST"] <= macd_buy_limit)
-            sell_cond = (df["MACD_HIST"] >= macd_sell_limit)
+            buy_sig, sell_sig = macd_limit_signals(df, macd_buy_limit, macd_sell_limit)
+            buy_cond = _signals_to_condition_series(buy_sig, df.index)
+            sell_cond = _signals_to_condition_series(sell_sig, df.index)
             buy_cond = buy_cond.reindex(base_index, method="ffill").fillna(False)
             sell_cond = sell_cond.reindex(base_index, method="ffill").fillna(False)
             buy_conditions.append(buy_cond)
@@ -684,25 +793,20 @@ def mtf_close_buy_sell_limits(
             ema_pairs.append(("EMA_SHORT", "EMA_LONG"))
 
         for left_key, right_key in ema_pairs:
-            if left_key not in df or right_key not in df:
-                raise ValueError("EMA indicators missing.")
             left_window = ema_windows[left_key]
             right_window = ema_windows[right_key]
-            if left_window == right_window:
-                # Same window means the lines overlap, no meaningful cross.
+            buy_sig, sell_sig = ema_cross_signals(
+                df,
+                left_key=left_key,
+                right_key=right_key,
+                left_window=left_window,
+                right_window=right_window,
+            )
+            if not buy_sig and not sell_sig:
                 continue
-            # Determine which EMA is "fast" by comparing window length.
-            if left_window < right_window:
-                fast = df[left_key]
-                slow = df[right_key]
-            else:
-                fast = df[right_key]
-                slow = df[left_key]
-            # EMA cross is an event at a specific candle.
-            # We align to base_index but do NOT forward fill; otherwise we would
-            # turn a single cross into a long-lasting condition.
-            buy_cross = (fast.shift(1) <= slow.shift(1)) & (fast > slow)
-            sell_cross = (fast.shift(1) >= slow.shift(1)) & (fast < slow)
+            buy_cross = _signals_to_condition_series(buy_sig, df.index)
+            sell_cross = _signals_to_condition_series(sell_sig, df.index)
+            # EMA cross is an event at a specific candle (no forward fill).
             buy_cross = buy_cross.reindex(base_index).fillna(False)
             sell_cross = sell_cross.reindex(base_index).fillna(False)
             buy_conditions.append(buy_cross)
@@ -1162,13 +1266,303 @@ def build_timeframe_figure(
     return fig
 
 
+@st.cache_data(show_spinner=False)
+def load_ai_metadata(metadata_path: str) -> Dict[str, object]:
+    """Carica metadata JSON del modello AI.
+
+    Input:
+        metadata_path: percorso file .json.
+    Output:
+        dict con chiavi (timeframes, feature_columns, indicator_flags, ecc).
+    """
+    with open(metadata_path, "r", encoding="utf-8") as f:
+        metadata = json.load(f)
+    if not isinstance(metadata, dict):
+        raise ValueError("AI metadata must be a JSON object.")
+    return metadata
+
+
+@st.cache_resource(show_spinner=False)
+def load_ai_model(model_path: str):
+    """Carica il modello Keras da file.
+
+    Input:
+        model_path: percorso file .keras.
+    Output:
+        modello Keras pronto per predict().
+    """
+    # Local import evita il costo di TensorFlow se non si usa la strategia AI.
+    from tensorflow.keras.models import load_model
+
+    return load_model(model_path)
+
+
+@st.cache_resource(show_spinner=False)
+def load_ai_scaler(scaler_path: str):
+    """Carica lo scaler usato in training (Standard/MinMax).
+
+    Input:
+        scaler_path: percorso file .pkl.
+    Output:
+        oggetto scaler con metodo transform().
+    """
+    # joblib e' usato in simulator_v2_ai_trainer.py per salvare lo scaler.
+    import joblib
+
+    return joblib.load(scaler_path)
+
+
+def required_feature_columns(indicator_flags: Dict[str, bool]) -> List[str]:
+    """Ritorna le colonne richieste per le feature AI.
+
+    Input:
+        indicator_flags: dict indicatore -> bool, come nel trainer.
+    Output:
+        lista colonne (senza prefisso timeframe).
+    """
+    columns = ["Open", "High", "Low", "Close", "Volume"]
+    if indicator_flags.get("atr_bands"):
+        columns.extend(["ATR", "ATR_MID", "ATR_UPPER", "ATR_LOWER"])
+    if indicator_flags.get("rsi_short"):
+        columns.append("RSI_SHORT")
+    if indicator_flags.get("rsi_medium"):
+        columns.append("RSI_MED")
+    if indicator_flags.get("rsi_long"):
+        columns.append("RSI_LONG")
+    if indicator_flags.get("ema_short"):
+        columns.append("EMA_SHORT")
+    if indicator_flags.get("ema_medium"):
+        columns.append("EMA_MED")
+    if indicator_flags.get("ema_long"):
+        columns.append("EMA_LONG")
+    if indicator_flags.get("kama"):
+        columns.append("KAMA")
+    if indicator_flags.get("macd"):
+        columns.extend(["MACD", "MACD_SIGNAL", "MACD_HIST"])
+    return columns
+
+
+def build_ai_feature_frame(
+    frames: Sequence[Dict[str, object]],
+    metadata: Dict[str, object],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Costruisce il DataFrame feature AI multi-timeframe.
+
+    Input:
+        frames: lista con dict {"timeframe": str, "df": DataFrame}.
+        metadata: metadata JSON con timeframes, indicator_flags, feature_columns.
+    Output:
+        (features_df, base_df_aligned) con index allineato al base timeframe.
+    Flow:
+        - Usa il base_timeframe dei metadata come index di riferimento.
+        - Per ogni TF, reindex + ffill al base index.
+        - Rinominazione colonne con prefisso tf_{timeframe}_*.
+        - Ordina le colonne secondo feature_columns del metadata.
+    """
+    timeframes = metadata.get("timeframes")
+    base_timeframe = metadata.get("base_timeframe")
+    feature_columns = metadata.get("feature_columns")
+    indicator_flags = metadata.get("indicator_flags", {})
+
+    if not timeframes or not isinstance(timeframes, list):
+        raise ValueError("AI metadata missing 'timeframes'.")
+    if not base_timeframe:
+        raise ValueError("AI metadata missing 'base_timeframe'.")
+    if not feature_columns or not isinstance(feature_columns, list):
+        raise ValueError("AI metadata missing 'feature_columns'.")
+
+    frame_map = {frame["timeframe"]: frame["df"] for frame in frames}
+    missing_frames = [tf for tf in timeframes if tf not in frame_map]
+    if missing_frames:
+        raise ValueError(f"Missing timeframe data for: {missing_frames}")
+
+    base_df = frame_map[base_timeframe]
+    base_index = base_df.index
+    features = pd.DataFrame(index=base_index)
+
+    required_cols = required_feature_columns(indicator_flags)
+    max_ffill_gap_multiplier = float(metadata.get("max_ffill_gap_multiplier", 0.0))
+    for tf in timeframes:
+        df = frame_map[tf]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing columns in {tf}: {missing_cols}")
+        tf_slice = df[required_cols].reindex(base_index, method="ffill")
+        # Drop stale forward-filled data if the TF candle is too old.
+        if max_ffill_gap_multiplier > 0:
+            last_ts = pd.Series(df.index, index=df.index).reindex(base_index, method="ffill")
+            age_minutes = base_index.to_series().sub(last_ts).dt.total_seconds() / 60.0
+            gap_limit = TIMEFRAME_MINUTES[tf] * max_ffill_gap_multiplier
+            stale_mask = age_minutes > gap_limit
+            if stale_mask.any():
+                tf_slice.loc[stale_mask, :] = np.nan
+        tf_slice.columns = [f"tf_{tf}_{col}" for col in required_cols]
+        features = features.join(tf_slice)
+
+    missing_features = [col for col in feature_columns if col not in features.columns]
+    if missing_features:
+        raise ValueError(f"Feature columns missing from dataset: {missing_features}")
+
+    # Align and drop rows with NaN (indicator warmup).
+    features = features[feature_columns].dropna()
+    base_aligned = base_df.loc[features.index]
+    return features, base_aligned
+
+
+def build_ai_sequences(
+    features: pd.DataFrame,
+    sequence_length: int,
+    expected_minutes: int,
+    gap_tolerance: float,
+) -> Tuple[np.ndarray, pd.Index]:
+    """Crea sequenze LSTM dai feature rows.
+
+    Input:
+        features: DataFrame feature (index temporale).
+        sequence_length: numero di step per sequenza.
+        expected_minutes: minuti attesi tra candle del base timeframe.
+        gap_tolerance: moltiplicatore per tollerare gap temporali.
+    Output:
+        X (num_seq, seq_len, num_features) e index dei target.
+    """
+    if sequence_length <= 0:
+        raise ValueError("sequence_length must be > 0.")
+    if len(features) < sequence_length:
+        return np.empty((0, 0, 0)), features.index[:0]
+
+    values = features.to_numpy()
+    sequences = []
+    target_index = []
+    valid_mask = build_sequence_valid_mask(
+        features.index, expected_minutes, sequence_length, gap_tolerance
+    )
+    for i in range(sequence_length - 1, len(values)):
+        if not valid_mask[i]:
+            continue
+        start = i - sequence_length + 1
+        sequences.append(values[start : i + 1])
+        target_index.append(features.index[i])
+    X = np.array(sequences)
+    target_index = pd.Index(target_index)
+    return X, target_index
+
+
+def scale_ai_sequences(X: np.ndarray, scaler: object) -> np.ndarray:
+    """Scala sequenze con lo scaler salvato in training.
+
+    Input:
+        X: sequenze (num_seq, seq_len, num_features).
+        scaler: oggetto con metodo transform().
+    Output:
+        X scalato con stesso shape.
+    """
+    if X.size == 0:
+        return X
+    flat = X.reshape(-1, X.shape[-1])
+    scaled = scaler.transform(flat)
+    return scaled.reshape(X.shape)
+
+
+def build_sequence_valid_mask(
+    index: pd.Index,
+    expected_minutes: int,
+    sequence_length: int,
+    gap_tolerance: float,
+) -> np.ndarray:
+    """Evita sequenze che attraversano gap temporali."""
+    if expected_minutes <= 0:
+        return np.ones(len(index), dtype=bool)
+    if sequence_length <= 1:
+        return np.ones(len(index), dtype=bool)
+    if len(index) == 0:
+        return np.zeros(0, dtype=bool)
+
+    expected_gap = expected_minutes * gap_tolerance
+    deltas = index.to_series().diff().dt.total_seconds() / 60.0
+    valid_step = (deltas <= expected_gap).fillna(False).to_numpy()
+    invalid_steps = (~valid_step).astype(int)
+    window = np.ones(sequence_length - 1, dtype=int)
+    invalid_count = np.convolve(invalid_steps, window, mode="full")[: len(invalid_steps)]
+    valid_seq_end = invalid_count == 0
+    valid_seq_end[: sequence_length - 1] = False
+    return valid_seq_end
+
+
+def mtf_ai_model_signals(
+    frames: Sequence[Dict[str, object]],
+    metadata: Dict[str, object],
+    model,
+    scaler,
+    buy_threshold: float,
+    sell_threshold: float,
+) -> Tuple[List[Signal], List[Signal]]:
+    """Genera segnali buy/sell usando un modello AI multi-timeframe.
+
+    Input:
+        frames: lista dict {"timeframe": str, "df": DataFrame}.
+        metadata: metadata JSON (feature_columns, timeframes, class_labels).
+        model: modello Keras gia' caricato.
+        scaler: scaler gia' caricato.
+        buy_threshold/sell_threshold: soglie di probabilita'.
+    Output:
+        buy_signals, sell_signals su base_timeframe.
+    """
+    buy_threshold = float(buy_threshold)
+    sell_threshold = float(sell_threshold)
+
+    sequence_length = int(metadata.get("sequence_length", 0))
+    class_labels = metadata.get("class_labels", {"buy": 1, "sell": 2, "hold": 0})
+    buy_label = int(class_labels.get("buy", 1))
+    sell_label = int(class_labels.get("sell", 2))
+    gap_tolerance = float(metadata.get("gap_tolerance", 1.5))
+    base_timeframe = metadata.get("base_timeframe")
+
+    # Build the feature dataset aligned to the base timeframe.
+    features, base_df = build_ai_feature_frame(frames, metadata)
+    if not base_timeframe:
+        raise ValueError("AI metadata missing base_timeframe.")
+    expected_minutes = TIMEFRAME_MINUTES.get(base_timeframe)
+    if not expected_minutes:
+        raise ValueError(f"Unsupported base_timeframe: {base_timeframe}")
+    X, target_index = build_ai_sequences(
+        features,
+        sequence_length,
+        expected_minutes=expected_minutes,
+        gap_tolerance=gap_tolerance,
+    )
+    if X.size == 0 or len(target_index) == 0:
+        return [], []
+
+    X_scaled = scale_ai_sequences(X, scaler)
+    # Predict probabilities for each class (hold/buy/sell).
+    preds = model.predict(X_scaled, verbose=0)
+
+    buy_signals: List[Signal] = []
+    sell_signals: List[Signal] = []
+    holding = False
+
+    for i, ts in enumerate(target_index):
+        prob_buy = float(preds[i][buy_label])
+        prob_sell = float(preds[i][sell_label])
+        price = float(base_df.loc[ts, "Close"])
+
+        if not holding and prob_buy >= buy_threshold and prob_buy >= prob_sell:
+            buy_signals.append((ts, price))
+            holding = True
+        elif holding and prob_sell >= sell_threshold and prob_sell > prob_buy:
+            sell_signals.append((ts, price))
+            holding = False
+
+    return buy_signals, sell_signals
+
+
 STRATEGIES: Dict[str, StrategySpec] = {
     # Custom: no signals, only indicator visualization.
     "Custom": StrategySpec(
         name="Custom",
         required_indicators=frozenset(),
         default_params={},
-        signal_func=None,
+        signal_func=no_signals,
         description="Manual indicators only. No signals are computed.",
         default_indicators=frozenset(),
     ),
@@ -1181,7 +1575,7 @@ STRATEGIES: Dict[str, StrategySpec] = {
             "atr_multiplier": 1.6,
             "stop_loss_percent": 99.0,
         },
-        signal_func=close_atr_signals,
+        signal_func=close_atr_strategy_signals,
         description="Buy when close is below lower ATR band, sell when close is above upper band.",
         default_indicators=frozenset({"atr_bands"}),
     ),
@@ -1203,7 +1597,7 @@ STRATEGIES: Dict[str, StrategySpec] = {
             "macd_sell_limit": 2.5,
             "conditions_required": 1,
         },
-        signal_func=None,
+        signal_func=mtf_close_buy_sell_limits,
         description=(
             "Multi-timeframe: buy/sell when at least N enabled conditions are met across TFs."
         ),
@@ -1217,6 +1611,31 @@ STRATEGIES: Dict[str, StrategySpec] = {
                 "ema_short",
                 "ema_medium",
                 "ema_long",
+                "macd",
+            }
+        ),
+    ),
+    # AI Model: signals from trained multi-timeframe model.
+    "AI Model": StrategySpec(
+        name="AI Model",
+        required_indicators=frozenset(),
+        default_params={
+            "ai_buy_threshold": 0.6,
+            "ai_sell_threshold": 0.6,
+        },
+        signal_func=no_signals,
+        description="Use a trained AI model (multi-timeframe) to generate buy/sell signals.",
+        multi_timeframe=True,
+        default_indicators=frozenset(
+            {
+                "atr_bands",
+                "rsi_short",
+                "rsi_medium",
+                "rsi_long",
+                "ema_short",
+                "ema_medium",
+                "ema_long",
+                "kama",
                 "macd",
             }
         ),
