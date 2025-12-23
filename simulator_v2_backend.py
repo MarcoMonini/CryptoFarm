@@ -25,8 +25,9 @@ from ta.volatility import AverageTrueRange
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-Signal = Tuple[pd.Timestamp, float]
+Signal = Tuple[pd.Timestamp, float]  # (timestamp, price) pair for buy/sell markers.
 
+# Map Binance interval strings to minutes, used for range math and ordering.
 TIMEFRAME_MINUTES = {
     "1m": 1,
     "3m": 3,
@@ -71,6 +72,7 @@ def _read_secret(key: str) -> str:
         stringa (vuota se non disponibile).
     """
     try:
+        # st.secrets is optional in local runs; return empty if missing.
         return st.secrets.get(key, "")
     except Exception:
         return ""
@@ -85,9 +87,11 @@ def _env_flag(name: str, default: bool = True) -> bool:
     Output:
         True/False in base al contenuto (0/false/no -> False).
     """
+    # Read env var as string; if missing fallback to default.
     raw = os.getenv(name)
     if raw is None:
         return default
+    # Normalize to lowercase and check for common "false" values.
     return raw.strip().lower() not in {"0", "false", "no"}
 
 
@@ -98,11 +102,14 @@ def _build_requests_params() -> Dict[str, object]:
     - verify SSL (BINANCE_SSL_VERIFY)
     - proxy HTTP/HTTPS (BINANCE_PROXY_* o HTTP(S)_PROXY)
     """
+    # SSL verification is controlled by BINANCE_SSL_VERIFY (1/0).
     verify_ssl = _env_flag("BINANCE_SSL_VERIFY", default=True)
+    # Proxy can be set via BINANCE_PROXY_* or standard HTTP(S)_PROXY.
     proxy_http = os.getenv("BINANCE_PROXY_HTTP") or os.getenv("HTTP_PROXY") or os.getenv("http_proxy")
     proxy_https = os.getenv("BINANCE_PROXY_HTTPS") or os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
     params: Dict[str, object] = {"verify": verify_ssl}
     proxies: Dict[str, str] = {}
+    # Only include proxy keys if values are provided.
     if proxy_http:
         proxies["http"] = proxy_http
     if proxy_https:
@@ -123,8 +130,10 @@ def get_binance_client() -> Client:
     Notes:
         Per attivare verify/proxy via requests_params, abilita _build_requests_params.
     """
+    # API key/secret are optional for public data endpoints.
     api_key = os.getenv("BINANCE_API_KEY", "") # or _read_secret("BINANCE_API_KEY")
     api_secret = os.getenv("BINANCE_API_SECRET", "") # or _read_secret("BINANCE_API_SECRET")
+    # requests_params is passed to the Binance client HTTP layer.
     requests_params = _build_requests_params()
     return Client(
         api_key=api_key,
@@ -143,6 +152,7 @@ def interval_to_minutes(interval: str) -> int:
     Raises:
         ValueError se l'intervallo non e' supportato.
     """
+    # Guard against unsupported intervals early to fail fast.
     if interval not in TIMEFRAME_MINUTES:
         raise ValueError(f"Unsupported interval: {interval}")
     return TIMEFRAME_MINUTES[interval]
@@ -157,8 +167,10 @@ def _align_ms(timestamp_ms: int, interval_ms: int) -> int:
     Output:
         timestamp allineato al boundary inferiore.
     """
+    # Avoid modulo by zero and keep original timestamp if interval is invalid.
     if interval_ms <= 0:
         return timestamp_ms
+    # Floor timestamp to the closest candle boundary.
     return timestamp_ms - (timestamp_ms % interval_ms)
 
 
@@ -179,16 +191,20 @@ def fetch_klines_range(asset: str, interval: str, start_ms: int, end_ms: int) ->
         La funzione e' cached per ridurre richieste ripetute.
     """
     if start_ms >= end_ms:
+        # Empty range -> return empty DataFrame with expected columns.
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
 
     client = get_binance_client()
     interval_minutes = interval_to_minutes(interval)
     interval_ms = interval_minutes * 60_000
 
+    # Accumulate all klines across multiple paged requests.
     all_klines: List[list] = []
+    # fetch_start moves forward as we download each chunk.
     fetch_start = start_ms
 
     while fetch_start < end_ms:
+        # Binance returns up to 1000 klines per request.
         chunk = client.get_klines(
             symbol=asset,
             interval=interval,
@@ -197,24 +213,31 @@ def fetch_klines_range(asset: str, interval: str, start_ms: int, end_ms: int) ->
             endTime=end_ms,
         )
         if not chunk:
+            # No more data available for this range.
             break
 
         all_klines.extend(chunk)
 
+        # Binance kline item: [open_time, open, high, low, close, volume, ...]
         last_open_time = chunk[-1][0]
         next_open_time = last_open_time + interval_ms
 
         if next_open_time <= fetch_start:
+            # Safety guard: avoid infinite loop if API returns same timestamp.
             break
 
+        # Move the window forward to the next candle boundary.
         fetch_start = next_open_time
 
         if len(chunk) < 1000:
+            # Less than the max means we've likely reached the end.
             break
 
     if not all_klines:
+        # No data retrieved, return empty DataFrame with expected columns.
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
 
+    # Build DataFrame with the full Binance kline schema.
     columns = [
         "Open time",
         "Open",
@@ -230,10 +253,13 @@ def fetch_klines_range(asset: str, interval: str, start_ms: int, end_ms: int) ->
         "Ignore",
     ]
     raw_df = pd.DataFrame(all_klines, columns=columns)
+    # Convert timestamp to datetime and set it as index for time series ops.
     raw_df["Open time"] = pd.to_datetime(raw_df["Open time"], unit="ms")
     raw_df.set_index("Open time", inplace=True)
 
+    # Keep only OHLCV numeric columns for indicator calculations.
     df = raw_df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
+    # Ensure chronological order and drop any duplicate timestamps.
     df.sort_index(inplace=True)
     df = df[~df.index.duplicated(keep="first")]
     return df
@@ -249,12 +275,14 @@ def fetch_market_data_hours(asset: str, interval: str, hours: int) -> Tuple[pd.D
     Notes:
         Allinea l'intervallo ai boundary del timeframe.
     """
+    # Convert hours to a timestamp range aligned to candle boundaries.
     interval_minutes = interval_to_minutes(interval)
     interval_ms = interval_minutes * 60_000
     end_ms = _align_ms(int(time.time() * 1000), interval_ms)
     start_ms = _align_ms(end_ms - hours * 60 * 60 * 1000, interval_ms)
 
     df = fetch_klines_range(asset=asset, interval=interval, start_ms=start_ms, end_ms=end_ms)
+    # Compute actual hours loaded based on number of candles.
     actual_hours = (len(df) * interval_minutes / 60.0) if not df.empty else 0.0
     return df, actual_hours
 
@@ -274,12 +302,14 @@ def fetch_market_data_dates(
     Notes:
         Allinea le date ai boundary del timeframe.
     """
+    # Convert date range to aligned epoch milliseconds.
     interval_minutes = interval_to_minutes(interval)
     interval_ms = interval_minutes * 60_000
     start_ms = _align_ms(int(start_dt.timestamp() * 1000), interval_ms)
     end_ms = _align_ms(int(end_dt.timestamp() * 1000), interval_ms)
 
     df = fetch_klines_range(asset=asset, interval=interval, start_ms=start_ms, end_ms=end_ms)
+    # Compute actual hours loaded based on number of candles.
     actual_hours = (len(df) * interval_minutes / 60.0) if not df.empty else 0.0
     return df, actual_hours
 
@@ -301,6 +331,8 @@ def compute_indicators(
         - Copia df per evitare side-effects.
         - Calcola indicatori solo se abilitati.
         - Se lunghezza insufficiente, inserisce NaN.
+        - ATR bands usa KAMA come centro (sempre).
+        - MACD e' normalizzato come percentuale del prezzo.
     Note:
         Se la serie e' troppo corta per una finestra, inserisce NaN per
         evitare errori e lascia il grafico consistente.
@@ -308,19 +340,43 @@ def compute_indicators(
     if df.empty:
         return df
     if not any(indicator_flags.values()):
+        # No indicator requested, return raw OHLCV.
         return df
 
+    # Copy to avoid mutating the original DataFrame passed by caller.
     df_out = df.copy()
     series_len = len(df_out)
 
     def _nan_series() -> pd.Series:
+        # Creates an all-NaN series aligned to df_out index.
         return pd.Series(index=df_out.index, dtype="float64")
 
     def _has_min_len(window: int) -> bool:
         # Some TA indicators need at least window + 1 values to avoid index errors.
         return series_len >= (int(window) + 1)
 
+    # ATR bands always need KAMA as midline; compute it even if KAMA is not plotted.
+    kama_for_bands = indicator_flags.get("atr_bands") or indicator_flags.get("kama")
+    kama_series = None
+    if kama_for_bands:
+        # Compute KAMA once and reuse it for ATR bands and/or plotting.
+        window = int(indicator_params["kama_window"])
+        pow1 = int(indicator_params["kama_pow1"])
+        pow2 = int(indicator_params["kama_pow2"])
+        if _has_min_len(window):
+            kama_series = KAMAIndicator(
+                close=df_out["Close"],
+                window=window,
+                pow1=pow1,
+                pow2=pow2,
+            ).kama()
+        else:
+            kama_series = _nan_series()
+        if indicator_flags.get("kama"):
+            df_out["KAMA"] = kama_series
+
     if indicator_flags.get("atr_bands"):
+        # ATR measures volatility; bands are KAMA +/- ATR * multiplier.
         atr_window = int(indicator_params["atr_window"])
         atr_multiplier = float(indicator_params["atr_multiplier"])
         if _has_min_len(atr_window):
@@ -331,19 +387,21 @@ def compute_indicators(
                 window=atr_window,
             )
             df_out["ATR"] = atr_indicator.average_true_range()
-
-            # Use an EMA midline for the bands to keep the band logic independent
-            ema_mid = EMAIndicator(close=df_out["Close"], window=atr_window).ema_indicator()
-            df_out["ATR_MID"] = ema_mid
-            df_out["ATR_UPPER"] = ema_mid + (atr_multiplier * df_out["ATR"])
-            df_out["ATR_LOWER"] = ema_mid - (atr_multiplier * df_out["ATR"])
         else:
             df_out["ATR"] = _nan_series()
+
+        # ATR_MID is always KAMA for consistency with simulator.py.
+        if kama_series is None:
             df_out["ATR_MID"] = _nan_series()
-            df_out["ATR_UPPER"] = _nan_series()
-            df_out["ATR_LOWER"] = _nan_series()
+        else:
+            df_out["ATR_MID"] = kama_series
+
+        # Upper/lower bands derived from midline and volatility.
+        df_out["ATR_UPPER"] = df_out["ATR_MID"] + (atr_multiplier * df_out["ATR"])
+        df_out["ATR_LOWER"] = df_out["ATR_MID"] - (atr_multiplier * df_out["ATR"])
 
     if indicator_flags.get("rsi_short"):
+        # RSI short: momentum over a short window.
         window = int(indicator_params["rsi_short_window"])
         if _has_min_len(window):
             df_out["RSI_SHORT"] = RSIIndicator(close=df_out["Close"], window=window).rsi()
@@ -351,6 +409,7 @@ def compute_indicators(
             df_out["RSI_SHORT"] = _nan_series()
 
     if indicator_flags.get("rsi_medium"):
+        # RSI medium: momentum over a medium window.
         window = int(indicator_params["rsi_medium_window"])
         if _has_min_len(window):
             df_out["RSI_MED"] = RSIIndicator(close=df_out["Close"], window=window).rsi()
@@ -358,6 +417,7 @@ def compute_indicators(
             df_out["RSI_MED"] = _nan_series()
 
     if indicator_flags.get("rsi_long"):
+        # RSI long: momentum over a long window.
         window = int(indicator_params["rsi_long_window"])
         if _has_min_len(window):
             df_out["RSI_LONG"] = RSIIndicator(close=df_out["Close"], window=window).rsi()
@@ -365,6 +425,7 @@ def compute_indicators(
             df_out["RSI_LONG"] = _nan_series()
 
     if indicator_flags.get("ema_short"):
+        # EMA short: fast moving average.
         window = int(indicator_params["ema_short_window"])
         if _has_min_len(window):
             df_out["EMA_SHORT"] = EMAIndicator(close=df_out["Close"], window=window).ema_indicator()
@@ -372,6 +433,7 @@ def compute_indicators(
             df_out["EMA_SHORT"] = _nan_series()
 
     if indicator_flags.get("ema_medium"):
+        # EMA medium: mid-speed moving average.
         window = int(indicator_params["ema_medium_window"])
         if _has_min_len(window):
             df_out["EMA_MED"] = EMAIndicator(close=df_out["Close"], window=window).ema_indicator()
@@ -379,13 +441,15 @@ def compute_indicators(
             df_out["EMA_MED"] = _nan_series()
 
     if indicator_flags.get("ema_long"):
+        # EMA long: slow moving average.
         window = int(indicator_params["ema_long_window"])
         if _has_min_len(window):
             df_out["EMA_LONG"] = EMAIndicator(close=df_out["Close"], window=window).ema_indicator()
         else:
             df_out["EMA_LONG"] = _nan_series()
 
-    if indicator_flags.get("kama"):
+    if indicator_flags.get("kama") and kama_series is None:
+        # If KAMA was not computed earlier, compute it here.
         window = int(indicator_params["kama_window"])
         pow1 = int(indicator_params["kama_pow1"])
         pow2 = int(indicator_params["kama_pow2"])
@@ -400,6 +464,7 @@ def compute_indicators(
             df_out["KAMA"] = _nan_series()
 
     if indicator_flags.get("macd"):
+        # MACD uses two EMAs and a signal line to highlight trend changes.
         short = int(indicator_params["macd_short_window"])
         long = int(indicator_params["macd_long_window"])
         signal = int(indicator_params["macd_signal_window"])
@@ -410,9 +475,15 @@ def compute_indicators(
                 window_fast=short,
                 window_sign=signal,
             )
-            df_out["MACD"] = macd_indicator.macd()
-            df_out["MACD_SIGNAL"] = macd_indicator.macd_signal()
-            df_out["MACD_HIST"] = macd_indicator.macd_diff()
+            macd_line = macd_indicator.macd()
+            macd_signal = macd_indicator.macd_signal()
+            macd_hist = macd_indicator.macd_diff()
+
+            # Normalize MACD values as percentage of close (simulator.py style)
+            close = df_out["Close"].replace(0, pd.NA)
+            df_out["MACD"] = (macd_line / close) * 100.0
+            df_out["MACD_SIGNAL"] = (macd_signal / close) * 100.0
+            df_out["MACD_HIST"] = (macd_hist / close) * 100.0
         else:
             df_out["MACD"] = _nan_series()
             df_out["MACD_SIGNAL"] = _nan_series()
@@ -435,12 +506,14 @@ def close_atr_signals(df: pd.DataFrame, params: Dict[str, float]) -> Tuple[List[
     """
     buy_signals: List[Signal] = []
     sell_signals: List[Signal] = []
-    holding = False
-    stop_loss_price: Optional[float] = None
+    holding = False  # True after a buy until a sell occurs.
+    stop_loss_price: Optional[float] = None  # Dynamic stop price after each buy.
 
+    # Convert percent to decimal (e.g. 99 -> 0.99).
     stop_loss_percent = float(params.get("stop_loss_percent", 99.0))
     stop_loss_decimal = stop_loss_percent / 100.0
 
+    # Use precomputed series to avoid repeated column lookups in the loop.
     close_series = df["Close"]
     upper_series = df["ATR_UPPER"] if "ATR_UPPER" in df else pd.Series(index=df.index, dtype="float64")
     lower_series = df["ATR_LOWER"] if "ATR_LOWER" in df else pd.Series(index=df.index, dtype="float64")
@@ -454,18 +527,21 @@ def close_atr_signals(df: pd.DataFrame, params: Dict[str, float]) -> Tuple[List[
             continue
 
         if not holding and close <= lower:
+            # Enter position when price touches lower band.
             buy_signals.append((df.index[i], float(close)))
             holding = True
             stop_loss_price = float(close) * (1.0 - stop_loss_decimal)
             continue
 
         if holding and close >= upper:
+            # Exit when price reaches upper band.
             sell_signals.append((df.index[i], float(close)))
             holding = False
             stop_loss_price = None
             continue
 
         if holding and stop_loss_price is not None and close <= stop_loss_price:
+            # Exit early on stop loss.
             sell_signals.append((df.index[i], float(close)))
             holding = False
             stop_loss_price = None
@@ -481,7 +557,7 @@ def mtf_close_buy_sell_limits(
     """Strategia Buy/Sell Limits multi-timeframe con soglia condizioni.
 
     Input:
-        frames: lista dict con df per TF + flag uso indicatori e limiti RSI.
+        frames: lista dict con df per TF + flag indicatori e limiti RSI/MACD.
         base_timeframe: timeframe usato come timeline dei segnali.
         conditions_required: numero minimo di condizioni vere.
     Output:
@@ -493,38 +569,77 @@ def mtf_close_buy_sell_limits(
     Notes:
         EMA cross e' un evento puntuale, quindi non viene ffill.
     Ogni indicatore attivo genera una condizione per TF:
-    - RSI Short: confronta con limiti buy/sell
+    - RSI Short/Medium/Long: confronta con limiti buy/sell
     - ATR Bands: close vs ATR_LOWER/ATR_UPPER
-    - EMA Cross: incrocio EMA_SHORT vs EMA_LONG
+    - MACD (hist): confronto con limiti buy/sell
+    - EMA Cross: incroci tra coppie EMA (S/M, M/L, S/L)
     La logica finale usa una soglia (conditions_required) sul totale attivo.
     """
     if not frames:
         return [], []
+    # The base timeframe defines the timeline where signals are evaluated.
     base_frame = next((frame for frame in frames if frame["timeframe"] == base_timeframe), None)
     if base_frame is None:
         raise ValueError(f"Base timeframe {base_timeframe} not found.")
 
     base_df = base_frame["df"]
+    # All conditions are aligned to this index so we can count them per candle.
     base_index = base_df.index
     base_close = base_df["Close"]
 
+    # Each condition is a boolean Series aligned to base_index.
     buy_conditions: List[pd.Series] = []
     sell_conditions: List[pd.Series] = []
 
     for frame in frames:
         df = frame["df"]
-        use_rsi = bool(frame.get("use_rsi"))
+        # The flags tell which indicators are enabled for this timeframe.
+        use_rsi_short = bool(frame.get("use_rsi_short"))
+        use_rsi_medium = bool(frame.get("use_rsi_medium"))
+        use_rsi_long = bool(frame.get("use_rsi_long"))
         use_atr = bool(frame.get("use_atr"))
-        use_ema = bool(frame.get("use_ema"))
+        use_macd = bool(frame.get("use_macd"))
+        ema_short_on = bool(frame.get("ema_short_on"))
+        ema_medium_on = bool(frame.get("ema_medium_on"))
+        ema_long_on = bool(frame.get("ema_long_on"))
 
-        # Condizione RSI per timeframe
-        if use_rsi:
-            rsi_buy_limit = float(frame["rsi_buy_limit"])
-            rsi_sell_limit = float(frame["rsi_sell_limit"])
+        # Condizioni RSI per timeframe
+        if use_rsi_short:
+            rsi_buy_limit = float(frame["rsi_short_buy_limit"])
+            rsi_sell_limit = float(frame["rsi_short_sell_limit"])
             if "RSI_SHORT" not in df:
                 raise ValueError("RSI_SHORT indicator missing.")
+            # Build boolean condition on the native timeframe.
             buy_cond = (df["RSI_SHORT"] <= rsi_buy_limit)
             sell_cond = (df["RSI_SHORT"] >= rsi_sell_limit)
+            # Reindex aligns the condition to the base index (all base candles).
+            # method="ffill" carries the last known value forward so slower TFs
+            # keep their last condition until the next candle closes.
+            # fillna(False) avoids accidental True before any value exists.
+            buy_cond = buy_cond.reindex(base_index, method="ffill").fillna(False)
+            sell_cond = sell_cond.reindex(base_index, method="ffill").fillna(False)
+            buy_conditions.append(buy_cond)
+            sell_conditions.append(sell_cond)
+
+        if use_rsi_medium:
+            rsi_buy_limit = float(frame["rsi_medium_buy_limit"])
+            rsi_sell_limit = float(frame["rsi_medium_sell_limit"])
+            if "RSI_MED" not in df:
+                raise ValueError("RSI_MED indicator missing.")
+            buy_cond = (df["RSI_MED"] <= rsi_buy_limit)
+            sell_cond = (df["RSI_MED"] >= rsi_sell_limit)
+            buy_cond = buy_cond.reindex(base_index, method="ffill").fillna(False)
+            sell_cond = sell_cond.reindex(base_index, method="ffill").fillna(False)
+            buy_conditions.append(buy_cond)
+            sell_conditions.append(sell_cond)
+
+        if use_rsi_long:
+            rsi_buy_limit = float(frame["rsi_long_buy_limit"])
+            rsi_sell_limit = float(frame["rsi_long_sell_limit"])
+            if "RSI_LONG" not in df:
+                raise ValueError("RSI_LONG indicator missing.")
+            buy_cond = (df["RSI_LONG"] <= rsi_buy_limit)
+            sell_cond = (df["RSI_LONG"] >= rsi_sell_limit)
             buy_cond = buy_cond.reindex(base_index, method="ffill").fillna(False)
             sell_cond = sell_cond.reindex(base_index, method="ffill").fillna(False)
             buy_conditions.append(buy_cond)
@@ -541,12 +656,51 @@ def mtf_close_buy_sell_limits(
             buy_conditions.append(buy_cond)
             sell_conditions.append(sell_cond)
 
-        # Condizione incrocio EMA (fast vs slow)
-        if use_ema:
-            if "EMA_SHORT" not in df or "EMA_LONG" not in df:
+        # Condizione MACD per timeframe (usa MACD_HIST normalizzato)
+        if use_macd:
+            macd_buy_limit = float(frame["macd_buy_limit"])
+            macd_sell_limit = float(frame["macd_sell_limit"])
+            if "MACD_HIST" not in df:
+                raise ValueError("MACD_HIST indicator missing.")
+            buy_cond = (df["MACD_HIST"] <= macd_buy_limit)
+            sell_cond = (df["MACD_HIST"] >= macd_sell_limit)
+            buy_cond = buy_cond.reindex(base_index, method="ffill").fillna(False)
+            sell_cond = sell_cond.reindex(base_index, method="ffill").fillna(False)
+            buy_conditions.append(buy_cond)
+            sell_conditions.append(sell_cond)
+
+        # Condizioni incrocio EMA tra tutte le coppie abilitate
+        ema_windows = {
+            "EMA_SHORT": int(frame["ema_short_window"]),
+            "EMA_MED": int(frame["ema_medium_window"]),
+            "EMA_LONG": int(frame["ema_long_window"]),
+        }
+        ema_pairs = []
+        if ema_short_on and ema_medium_on:
+            ema_pairs.append(("EMA_SHORT", "EMA_MED"))
+        if ema_medium_on and ema_long_on:
+            ema_pairs.append(("EMA_MED", "EMA_LONG"))
+        if ema_short_on and ema_long_on:
+            ema_pairs.append(("EMA_SHORT", "EMA_LONG"))
+
+        for left_key, right_key in ema_pairs:
+            if left_key not in df or right_key not in df:
                 raise ValueError("EMA indicators missing.")
-            fast = df["EMA_SHORT"]
-            slow = df["EMA_LONG"]
+            left_window = ema_windows[left_key]
+            right_window = ema_windows[right_key]
+            if left_window == right_window:
+                # Same window means the lines overlap, no meaningful cross.
+                continue
+            # Determine which EMA is "fast" by comparing window length.
+            if left_window < right_window:
+                fast = df[left_key]
+                slow = df[right_key]
+            else:
+                fast = df[right_key]
+                slow = df[left_key]
+            # EMA cross is an event at a specific candle.
+            # We align to base_index but do NOT forward fill; otherwise we would
+            # turn a single cross into a long-lasting condition.
             buy_cross = (fast.shift(1) <= slow.shift(1)) & (fast > slow)
             sell_cross = (fast.shift(1) >= slow.shift(1)) & (fast < slow)
             buy_cross = buy_cross.reindex(base_index).fillna(False)
@@ -554,6 +708,7 @@ def mtf_close_buy_sell_limits(
             buy_conditions.append(buy_cross)
             sell_conditions.append(sell_cross)
 
+    # Total number of enabled conditions across all timeframes.
     total_conditions = len(buy_conditions)
     if total_conditions == 0:
         return [], []
@@ -562,6 +717,7 @@ def mtf_close_buy_sell_limits(
     required = max(1, min(int(conditions_required), total_conditions))
 
     # Pre-aggregate conditions to speed up per-candle checks.
+    # concat + sum gives, for each candle, how many conditions are True.
     buy_counts = pd.concat(buy_conditions, axis=1).sum(axis=1).to_numpy()
     sell_counts = pd.concat(sell_conditions, axis=1).sum(axis=1).to_numpy()
     base_close_values = base_close.to_numpy()
@@ -570,6 +726,7 @@ def mtf_close_buy_sell_limits(
     sell_signals: List[Signal] = []
     holding = False
 
+    # Walk the base timeline and trigger signals when enough conditions match.
     for i, ts in enumerate(base_index):
         if not holding and buy_counts[i] >= required:
             buy_signals.append((ts, float(base_close_values[i])))
@@ -614,27 +771,33 @@ def simulate_trades(
             ]
         )
 
+    # Convert fee percent to decimal (e.g. 0.1 -> 0.001).
     fee_rate = fee_percent / 100.0
     wallet = float(initial_wallet)
-    sell_idx = 0
+    sell_idx = 0  # Pointer to the next available sell signal.
 
     for buy_time, buy_price in buy_signals:
+        # Skip sell signals that occur before this buy.
         while sell_idx < len(sell_signals) and sell_signals[sell_idx][0] <= buy_time:
             sell_idx += 1
 
         if sell_idx >= len(sell_signals):
+            # No sell left to close this buy, stop simulation.
             break
 
         sell_time, sell_price = sell_signals[sell_idx]
         sell_idx += 1
 
+        # Apply buy fee, convert wallet into quantity of asset.
         wallet_before = wallet
         invested = wallet_before * (1.0 - fee_rate)
         quantity = invested / buy_price
 
+        # Apply sell fee and update wallet.
         gross_proceed = quantity * sell_price
         wallet = gross_proceed * (1.0 - fee_rate)
 
+        # Profit is the delta between wallet before buy and after sell.
         profit = wallet - wallet_before
         trades.append(
             {
@@ -668,9 +831,12 @@ def summarize_trades(trades_df: pd.DataFrame, initial_wallet: float) -> Dict[str
             "final_wallet": initial_wallet,
         }
 
+    # Aggregate profit across all trades.
     total_profit = float(trades_df["profit"].sum())
     num_trades = int(len(trades_df))
+    # Win rate is % of trades with positive profit.
     win_rate = float((trades_df["profit"] > 0).mean() * 100.0)
+    # Final wallet from the last trade.
     final_wallet = float(trades_df["wallet_after"].iloc[-1])
 
     return {
@@ -688,8 +854,9 @@ def build_timeframe_figure(
     indicator_flags: Dict[str, bool],
     buy_signals: Sequence[Signal],
     sell_signals: Sequence[Signal],
-    rsi_buy_limit: Optional[float] = None,
-    rsi_sell_limit: Optional[float] = None,
+    rsi_limits: Optional[Dict[str, Tuple[float, float]]] = None,
+    macd_buy_limit: Optional[float] = None,
+    macd_sell_limit: Optional[float] = None,
 ) -> go.Figure:
     """Costruisce un grafico Plotly multi-panel con overlay e indicatori.
 
@@ -697,7 +864,8 @@ def build_timeframe_figure(
         df: OHLCV + indicatori calcolati.
         indicator_flags: abilitazioni indicatori.
         buy_signals/sell_signals: marker da disegnare.
-        rsi_buy_limit/rsi_sell_limit: linee orizzontali RSI opzionali.
+        rsi_limits: mappa rsi_short/medium/long -> (buy, sell).
+        macd_buy_limit/macd_sell_limit: linee orizzontali MACD opzionali.
     Output:
         Plotly Figure con layout multi-row.
     Flow:
@@ -708,7 +876,9 @@ def build_timeframe_figure(
     show_rsi = any(indicator_flags.get(key) for key in ("rsi_short", "rsi_medium", "rsi_long"))
     show_macd = indicator_flags.get("macd")
 
+    # Decide how many rows we need: main chart + optional RSI + optional MACD.
     rows = 1 + int(show_rsi) + int(show_macd)
+    # Give more height to the main chart, smaller to indicators.
     row_heights = [1.0] if rows == 1 else [0.6] + [0.2] * (rows - 1)
 
     fig = make_subplots(
@@ -719,6 +889,7 @@ def build_timeframe_figure(
         row_heights=row_heights,
     )
 
+    # Candlestick chart in the main panel.
     fig.add_trace(
         go.Candlestick(
             x=df.index,
@@ -733,6 +904,7 @@ def build_timeframe_figure(
     )
 
     if indicator_flags.get("ema_short"):
+        # Overlay EMA short on the main chart.
         fig.add_trace(
             go.Scatter(
                 x=df.index,
@@ -746,6 +918,7 @@ def build_timeframe_figure(
         )
 
     if indicator_flags.get("ema_medium"):
+        # Overlay EMA medium.
         fig.add_trace(
             go.Scatter(
                 x=df.index,
@@ -759,6 +932,7 @@ def build_timeframe_figure(
         )
 
     if indicator_flags.get("ema_long"):
+        # Overlay EMA long.
         fig.add_trace(
             go.Scatter(
                 x=df.index,
@@ -772,6 +946,7 @@ def build_timeframe_figure(
         )
 
     if indicator_flags.get("kama"):
+        # Overlay KAMA.
         fig.add_trace(
             go.Scatter(
                 x=df.index,
@@ -785,6 +960,7 @@ def build_timeframe_figure(
         )
 
     if indicator_flags.get("atr_bands"):
+        # Overlay ATR bands as dashed lines.
         fig.add_trace(
             go.Scatter(
                 x=df.index,
@@ -809,6 +985,7 @@ def build_timeframe_figure(
         )
 
     if buy_signals:
+        # Plot buy markers on the main chart.
         buy_times, buy_prices = zip(*buy_signals)
         fig.add_trace(
             go.Scatter(
@@ -823,6 +1000,7 @@ def build_timeframe_figure(
         )
 
     if sell_signals:
+        # Plot sell markers on the main chart.
         sell_times, sell_prices = zip(*sell_signals)
         fig.add_trace(
             go.Scatter(
@@ -838,6 +1016,7 @@ def build_timeframe_figure(
 
     next_row = 2
     if show_rsi:
+        # RSI panel (all enabled RSI lines in the same subplot).
         if indicator_flags.get("rsi_short"):
             fig.add_trace(
                 go.Scatter(
@@ -874,33 +1053,45 @@ def build_timeframe_figure(
                 row=next_row,
                 col=1,
             )
-        if indicator_flags.get("rsi_short") and rsi_buy_limit is not None:
-            fig.add_trace(
-                go.Scatter(
-                    x=[df.index.min(), df.index.max()],
-                    y=[rsi_buy_limit, rsi_buy_limit],
-                    mode="lines",
-                    line=dict(color="#2ca02c", width=1, dash="dash"),
-                    name="RSI Buy Limit",
-                ),
-                row=next_row,
-                col=1,
-            )
-        if indicator_flags.get("rsi_short") and rsi_sell_limit is not None:
-            fig.add_trace(
-                go.Scatter(
-                    x=[df.index.min(), df.index.max()],
-                    y=[rsi_sell_limit, rsi_sell_limit],
-                    mode="lines",
-                    line=dict(color="#d62728", width=1, dash="dash"),
-                    name="RSI Sell Limit",
-                ),
-                row=next_row,
-                col=1,
-            )
+        if show_rsi and rsi_limits:
+            # Draw horizontal RSI limits only for enabled RSI series.
+            rsi_meta = [
+                ("rsi_short", "RSI Short", "#17becf"),
+                ("rsi_medium", "RSI Medium", "#bcbd22"),
+                ("rsi_long", "RSI Long", "#7f7f7f"),
+            ]
+            for key, label, color in rsi_meta:
+                if not indicator_flags.get(key):
+                    continue
+                if key not in rsi_limits:
+                    continue
+                buy_limit, sell_limit = rsi_limits[key]
+                fig.add_trace(
+                    go.Scatter(
+                        x=[df.index.min(), df.index.max()],
+                        y=[buy_limit, buy_limit],
+                        mode="lines",
+                        line=dict(color=color, width=1, dash="dash"),
+                        name=f"{label} Buy Limit",
+                    ),
+                    row=next_row,
+                    col=1,
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=[df.index.min(), df.index.max()],
+                        y=[sell_limit, sell_limit],
+                        mode="lines",
+                        line=dict(color=color, width=1, dash="dot"),
+                        name=f"{label} Sell Limit",
+                    ),
+                    row=next_row,
+                    col=1,
+                )
         next_row += 1
 
     if show_macd:
+        # MACD panel: line, signal, and histogram.
         fig.add_trace(
             go.Scatter(
                 x=df.index,
@@ -933,7 +1124,34 @@ def build_timeframe_figure(
             row=next_row,
             col=1,
         )
+        if macd_buy_limit is not None:
+            # MACD buy limit line.
+            fig.add_trace(
+                go.Scatter(
+                    x=[df.index.min(), df.index.max()],
+                    y=[macd_buy_limit, macd_buy_limit],
+                    mode="lines",
+                    line=dict(color="#2ca02c", width=1, dash="dash"),
+                    name="MACD Buy Limit",
+                ),
+                row=next_row,
+                col=1,
+            )
+        if macd_sell_limit is not None:
+            # MACD sell limit line.
+            fig.add_trace(
+                go.Scatter(
+                    x=[df.index.min(), df.index.max()],
+                    y=[macd_sell_limit, macd_sell_limit],
+                    mode="lines",
+                    line=dict(color="#d62728", width=1, dash="dash"),
+                    name="MACD Sell Limit",
+                ),
+                row=next_row,
+                col=1,
+            )
 
+    # Layout tuning: disable rangeslider, set height, place legend on top.
     fig.update_layout(
         template="plotly_white",
         xaxis_rangeslider_visible=False,
@@ -945,6 +1163,7 @@ def build_timeframe_figure(
 
 
 STRATEGIES: Dict[str, StrategySpec] = {
+    # Custom: no signals, only indicator visualization.
     "Custom": StrategySpec(
         name="Custom",
         required_indicators=frozenset(),
@@ -953,6 +1172,7 @@ STRATEGIES: Dict[str, StrategySpec] = {
         description="Manual indicators only. No signals are computed.",
         default_indicators=frozenset(),
     ),
+    # Close ATR: uses ATR bands for signals.
     "Close ATR": StrategySpec(
         name="Close ATR",
         required_indicators=frozenset({"atr_bands"}),
@@ -965,6 +1185,7 @@ STRATEGIES: Dict[str, StrategySpec] = {
         description="Buy when close is below lower ATR band, sell when close is above upper band.",
         default_indicators=frozenset({"atr_bands"}),
     ),
+    # Buy/Sell Limits: multi-timeframe threshold strategy with multiple conditions.
     "Buy/Sell Limits": StrategySpec(
         name="Buy/Sell Limits",
         required_indicators=frozenset(),
@@ -972,8 +1193,14 @@ STRATEGIES: Dict[str, StrategySpec] = {
             "atr_window": 5,
             "atr_multiplier": 1.6,
             "rsi_short_window": 12,
-            "rsi_buy_limit": 25,
-            "rsi_sell_limit": 75,
+            "rsi_short_buy_limit": 25,
+            "rsi_short_sell_limit": 75,
+            "rsi_medium_buy_limit": 30,
+            "rsi_medium_sell_limit": 70,
+            "rsi_long_buy_limit": 35,
+            "rsi_long_sell_limit": 65,
+            "macd_buy_limit": -2.5,
+            "macd_sell_limit": 2.5,
             "conditions_required": 1,
         },
         signal_func=None,
@@ -981,7 +1208,18 @@ STRATEGIES: Dict[str, StrategySpec] = {
             "Multi-timeframe: buy/sell when at least N enabled conditions are met across TFs."
         ),
         multi_timeframe=True,
-        default_indicators=frozenset({"atr_bands", "rsi_short", "ema_short", "ema_long"}),
+        default_indicators=frozenset(
+            {
+                "atr_bands",
+                "rsi_short",
+                "rsi_medium",
+                "rsi_long",
+                "ema_short",
+                "ema_medium",
+                "ema_long",
+                "macd",
+            }
+        ),
     ),
 }
 

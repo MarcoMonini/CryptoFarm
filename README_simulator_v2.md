@@ -29,7 +29,7 @@ fetch e calcoli; modifiche ai parametri non ricalcolano automaticamente.
 - Toggle indicatori:
   - `tf{n}_ind_*` (es. `tf1_ind_rsi_short`).
 - Parametri indicatori e strategia:
-  - `tf{n}_{param}` (es. `tf2_atr_window`, `tf3_rsi_buy_limit`).
+  - `tf{n}_{param}` (es. `tf2_atr_window`, `tf3_rsi_short_buy_limit`).
 - Globali:
   - `asset_base`, `asset_quote`, `range_mode`, `range_hours`, date/time,
     `wallet`, `fee_percent`, `strategy`, `conditions_required`.
@@ -42,6 +42,13 @@ ridurre il costo. Le colonne aggiunte in `compute_indicators()` sono:
 - EMA: `EMA_SHORT`, `EMA_MED`, `EMA_LONG`.
 - KAMA: `KAMA`.
 - MACD: `MACD`, `MACD_SIGNAL`, `MACD_HIST`.
+  - Note: MACD e' normalizzato come percentuale del prezzo.
+
+Parametri strategia per timeframe (Buy/Sell Limits):
+- `rsi_short_buy_limit` / `rsi_short_sell_limit`
+- `rsi_medium_buy_limit` / `rsi_medium_sell_limit`
+- `rsi_long_buy_limit` / `rsi_long_sell_limit`
+- `macd_buy_limit` / `macd_sell_limit`
 
 ## Strategie
 Le strategie sono definite in `STRATEGIES` tramite `StrategySpec`.
@@ -53,9 +60,10 @@ Campi principali:
 
 ### Buy/Sell Limits (multi-timeframe)
 Condizioni possibili per ogni TF abilitato:
-- RSI Short vs `rsi_buy_limit` / `rsi_sell_limit`
+- RSI Short/Medium/Long vs limiti dedicati per RSI
 - ATR Bands: close vs `ATR_LOWER` / `ATR_UPPER`
-- EMA Cross: incrocio EMA_SHORT vs EMA_LONG
+- MACD (hist): `macd_buy_limit` / `macd_sell_limit`
+- EMA Cross: incroci S/M, M/L, S/L
 
 Il parametro `conditions_required` indica quante condizioni devono essere vere
 per generare buy/sell. Il totale disponibile cambia in base agli indicatori

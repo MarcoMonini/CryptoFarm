@@ -13,7 +13,7 @@ Flusso dati:
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import os
 import streamlit as st
@@ -61,8 +61,14 @@ INDICATOR_PARAM_KEYS = [
 ]
 
 STRATEGY_PARAM_KEYS = [
-    "rsi_buy_limit",
-    "rsi_sell_limit",
+    "rsi_short_buy_limit",
+    "rsi_short_sell_limit",
+    "rsi_medium_buy_limit",
+    "rsi_medium_sell_limit",
+    "rsi_long_buy_limit",
+    "rsi_long_sell_limit",
+    "macd_buy_limit",
+    "macd_sell_limit",
 ]
 
 TIMEFRAME_PARAM_KEYS = INDICATOR_PARAM_KEYS + STRATEGY_PARAM_KEYS
@@ -100,8 +106,14 @@ INDICATOR_PARAM_DEFAULTS = {
 
 TIMEFRAME_PARAM_DEFAULTS = {
     **INDICATOR_PARAM_DEFAULTS,
-    "rsi_buy_limit": 25,
-    "rsi_sell_limit": 75,
+    "rsi_short_buy_limit": 25,
+    "rsi_short_sell_limit": 75,
+    "rsi_medium_buy_limit": 30,
+    "rsi_medium_sell_limit": 70,
+    "rsi_long_buy_limit": 35,
+    "rsi_long_sell_limit": 65,
+    "macd_buy_limit": -2.5,
+    "macd_sell_limit": 2.5,
 }
 
 
@@ -384,13 +396,34 @@ def validate_config(config: Dict[str, object]) -> List[str]:
     if config["strategy"] == "Buy/Sell Limits":
         for tf_data in enabled_timeframes:
             flags = tf_data["indicator_flags"]
-            if not flags.get("rsi_short"):
+            if flags.get("rsi_short"):
+                buy_limit = float(tf_data["timeframe_params"]["rsi_short_buy_limit"])
+                sell_limit = float(tf_data["timeframe_params"]["rsi_short_sell_limit"])
+                if buy_limit >= sell_limit:
+                    errors.append(
+                        f"TF{tf_data['index']} RSI Short Buy Limit must be lower than RSI Short Sell Limit."
+                    )
+            if flags.get("rsi_medium"):
+                buy_limit = float(tf_data["timeframe_params"]["rsi_medium_buy_limit"])
+                sell_limit = float(tf_data["timeframe_params"]["rsi_medium_sell_limit"])
+                if buy_limit >= sell_limit:
+                    errors.append(
+                        f"TF{tf_data['index']} RSI Medium Buy Limit must be lower than RSI Medium Sell Limit."
+                    )
+            if flags.get("rsi_long"):
+                buy_limit = float(tf_data["timeframe_params"]["rsi_long_buy_limit"])
+                sell_limit = float(tf_data["timeframe_params"]["rsi_long_sell_limit"])
+                if buy_limit >= sell_limit:
+                    errors.append(
+                        f"TF{tf_data['index']} RSI Long Buy Limit must be lower than RSI Long Sell Limit."
+                    )
+            if not flags.get("macd"):
                 continue
-            buy_limit = float(tf_data["timeframe_params"]["rsi_buy_limit"])
-            sell_limit = float(tf_data["timeframe_params"]["rsi_sell_limit"])
-            if buy_limit >= sell_limit:
+            macd_buy = float(tf_data["timeframe_params"]["macd_buy_limit"])
+            macd_sell = float(tf_data["timeframe_params"]["macd_sell_limit"])
+            if macd_buy >= macd_sell:
                 errors.append(
-                    f"TF{tf_data['index']} RSI Buy Limit must be lower than RSI Sell Limit."
+                    f"TF{tf_data['index']} MACD Buy Limit must be lower than MACD Sell Limit."
                 )
 
     return errors
@@ -431,11 +464,25 @@ def count_active_conditions(timeframes: List[Dict[str, object]]) -> int:
         if not tf_data.get("enabled"):
             continue
         flags = tf_data["indicator_flags"]
+        params = tf_data["timeframe_params"]
         if flags.get("rsi_short"):
+            total += 1
+        if flags.get("rsi_medium"):
+            total += 1
+        if flags.get("rsi_long"):
             total += 1
         if flags.get("atr_bands"):
             total += 1
-        if flags.get("ema_short") and flags.get("ema_long"):
+        if flags.get("macd"):
+            total += 1
+        ema_short = flags.get("ema_short")
+        ema_medium = flags.get("ema_medium")
+        ema_long = flags.get("ema_long")
+        if ema_short and ema_medium and params["ema_short_window"] != params["ema_medium_window"]:
+            total += 1
+        if ema_medium and ema_long and params["ema_medium_window"] != params["ema_long_window"]:
+            total += 1
+        if ema_short and ema_long and params["ema_short_window"] != params["ema_long_window"]:
             total += 1
     return total
 
@@ -457,12 +504,22 @@ def build_conditions_summary_text(tf_index: int, strategy_name: str) -> str:
 
     flags = collect_indicator_flags(tf_index)
     params = collect_timeframe_params(tf_index)
-    ema_cross_enabled = bool(flags.get("ema_short")) and bool(flags.get("ema_long"))
+    ema_short = bool(flags.get("ema_short"))
+    ema_medium = bool(flags.get("ema_medium"))
+    ema_long = bool(flags.get("ema_long"))
+    ema_cross_sm = ema_short and ema_medium and params["ema_short_window"] != params["ema_medium_window"]
+    ema_cross_ml = ema_medium and ema_long and params["ema_medium_window"] != params["ema_long_window"]
+    ema_cross_sl = ema_short and ema_long and params["ema_short_window"] != params["ema_long_window"]
     active_conditions = sum(
         [
             bool(flags.get("rsi_short")),
+            bool(flags.get("rsi_medium")),
+            bool(flags.get("rsi_long")),
             bool(flags.get("atr_bands")),
-            ema_cross_enabled,
+            bool(flags.get("macd")),
+            ema_cross_sm,
+            ema_cross_ml,
+            ema_cross_sl,
         ]
     )
 
@@ -470,13 +527,33 @@ def build_conditions_summary_text(tf_index: int, strategy_name: str) -> str:
         "**Strategy Conditions Summary**",
         f"Active conditions in this timeframe: {active_conditions}",
         f"- RSI Short: {'On' if flags.get('rsi_short') else 'Off'}",
+        f"- RSI Medium: {'On' if flags.get('rsi_medium') else 'Off'}",
+        f"- RSI Long: {'On' if flags.get('rsi_long') else 'Off'}",
         f"- ATR Bands: {'On' if flags.get('atr_bands') else 'Off'}",
-        f"- EMA Cross (Short+Long): {'On' if ema_cross_enabled else 'Off'}",
+        f"- MACD: {'On' if flags.get('macd') else 'Off'}",
+        f"- EMA Cross S/M: {'On' if ema_cross_sm else 'Off'}",
+        f"- EMA Cross M/L: {'On' if ema_cross_ml else 'Off'}",
+        f"- EMA Cross S/L: {'On' if ema_cross_sl else 'Off'}",
         f"- Global required conditions: {st.session_state.get('conditions_required', 1)}",
     ]
     if flags.get("rsi_short"):
         lines.append(
-            f"- RSI Limits: buy {params['rsi_buy_limit']:.0f} / sell {params['rsi_sell_limit']:.0f}"
+            f"- RSI Short Limits: buy {params['rsi_short_buy_limit']:.0f} / "
+            f"sell {params['rsi_short_sell_limit']:.0f}"
+        )
+    if flags.get("rsi_medium"):
+        lines.append(
+            f"- RSI Medium Limits: buy {params['rsi_medium_buy_limit']:.0f} / "
+            f"sell {params['rsi_medium_sell_limit']:.0f}"
+        )
+    if flags.get("rsi_long"):
+        lines.append(
+            f"- RSI Long Limits: buy {params['rsi_long_buy_limit']:.0f} / "
+            f"sell {params['rsi_long_sell_limit']:.0f}"
+        )
+    if flags.get("macd"):
+        lines.append(
+            f"- MACD Limits: buy {params['macd_buy_limit']:.2f} / sell {params['macd_sell_limit']:.2f}"
         )
     return "\n".join(lines)
 
@@ -618,7 +695,7 @@ def render_global_settings() -> None:
             )
             st.caption(f"Active conditions: {total_conditions}")
             if total_conditions == 0:
-                st.caption("Enable RSI/ATR or EMA Short+Long to activate conditions.")
+                st.caption("Enable RSI/ATR/MACD or EMA pairs to activate conditions.")
 
         st.number_input("Wallet", min_value=0.0, step=10.0, key="wallet")
         st.number_input("Fee %", min_value=0.0, max_value=5.0, step=0.01, key="fee_percent")
@@ -645,8 +722,9 @@ def render_timeframe_panel(
     indicator_flags: Dict[str, bool],
     buy_signals: List[tuple],
     sell_signals: List[tuple],
-    rsi_buy_limit: Optional[float],
-    rsi_sell_limit: Optional[float],
+    rsi_limits: Optional[Dict[str, Tuple[float, float]]],
+    macd_buy_limit: Optional[float],
+    macd_sell_limit: Optional[float],
     trades_df,
     summary: Dict[str, float],
     execution_note: str = "",
@@ -658,7 +736,8 @@ def render_timeframe_panel(
         actual_hours: ore effettive caricate.
         indicator_flags: toggle indicatori per il grafico.
         buy_signals/sell_signals: marker buy/sell.
-        rsi_buy_limit/rsi_sell_limit: linee RSI opzionali.
+        rsi_limits: limiti RSI per short/medium/long.
+        macd_buy_limit/macd_sell_limit: linee MACD opzionali.
         trades_df/summary: output simulazione trade.
         execution_note: nota addizionale per il pannello.
     Output:
@@ -681,8 +760,9 @@ def render_timeframe_panel(
         indicator_flags=indicator_flags,
         buy_signals=buy_signals,
         sell_signals=sell_signals,
-        rsi_buy_limit=rsi_buy_limit,
-        rsi_sell_limit=rsi_sell_limit,
+        rsi_limits=rsi_limits,
+        macd_buy_limit=macd_buy_limit,
+        macd_sell_limit=macd_sell_limit,
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -769,22 +849,54 @@ def render_indicator_controls(tf_index: int) -> None:
     )
 
     strategy_name = st.session_state.get("strategy", "Custom")
-    show_rsi_limits = strategy_name == "Buy/Sell Limits" and tf_enabled and rsi_short
-    if show_rsi_limits:
+    show_rsi_limits = strategy_name == "Buy/Sell Limits" and tf_enabled
+    if show_rsi_limits and rsi_short:
         rsi_limit_cols = st.columns(2)
         rsi_limit_cols[0].number_input(
-            "RSI Buy Limit",
+            "RSI Short Buy Limit",
             min_value=0,
             max_value=100,
             step=1,
-            key=indicator_param_key(tf_index, "rsi_buy_limit"),
+            key=indicator_param_key(tf_index, "rsi_short_buy_limit"),
         )
         rsi_limit_cols[1].number_input(
-            "RSI Sell Limit",
+            "RSI Short Sell Limit",
             min_value=0,
             max_value=100,
             step=1,
-            key=indicator_param_key(tf_index, "rsi_sell_limit"),
+            key=indicator_param_key(tf_index, "rsi_short_sell_limit"),
+        )
+    if show_rsi_limits and rsi_medium:
+        rsi_limit_cols = st.columns(2)
+        rsi_limit_cols[0].number_input(
+            "RSI Medium Buy Limit",
+            min_value=0,
+            max_value=100,
+            step=1,
+            key=indicator_param_key(tf_index, "rsi_medium_buy_limit"),
+        )
+        rsi_limit_cols[1].number_input(
+            "RSI Medium Sell Limit",
+            min_value=0,
+            max_value=100,
+            step=1,
+            key=indicator_param_key(tf_index, "rsi_medium_sell_limit"),
+        )
+    if show_rsi_limits and rsi_long:
+        rsi_limit_cols = st.columns(2)
+        rsi_limit_cols[0].number_input(
+            "RSI Long Buy Limit",
+            min_value=0,
+            max_value=100,
+            step=1,
+            key=indicator_param_key(tf_index, "rsi_long_buy_limit"),
+        )
+        rsi_limit_cols[1].number_input(
+            "RSI Long Sell Limit",
+            min_value=0,
+            max_value=100,
+            step=1,
+            key=indicator_param_key(tf_index, "rsi_long_sell_limit"),
         )
 
     st.divider()
@@ -895,6 +1007,25 @@ def render_indicator_controls(tf_index: int) -> None:
         disabled=not tf_enabled or not macd_enabled,
     )
 
+    strategy_name = st.session_state.get("strategy", "Custom")
+    show_macd_limits = strategy_name == "Buy/Sell Limits" and tf_enabled and macd_enabled
+    if show_macd_limits:
+        macd_limit_cols = st.columns(2)
+        macd_limit_cols[0].number_input(
+            "MACD Buy Limit",
+            min_value=-50.0,
+            max_value=50.0,
+            step=0.1,
+            key=indicator_param_key(tf_index, "macd_buy_limit"),
+        )
+        macd_limit_cols[1].number_input(
+            "MACD Sell Limit",
+            min_value=-50.0,
+            max_value=50.0,
+            step=0.1,
+            key=indicator_param_key(tf_index, "macd_sell_limit"),
+        )
+
 
 def render_timeframe_matrix_controls(tf_index: int) -> None:
     """Renderizza i controlli del timeframe in layout matrix."""
@@ -1000,6 +1131,7 @@ def compute_mtf_payload(
     """Calcola dati e segnali per la strategia multi-timeframe."""
     timeframe_data = []
     for timeframe_config in enabled_timeframes:
+        # Fetch e indicatori per ogni timeframe abilitato.
         with st.spinner(f"Fetching {config['asset']} {timeframe_config['value']} data..."):
             data = prepare_timeframe_data(
                 timeframe_config["value"],
@@ -1018,6 +1150,7 @@ def compute_mtf_payload(
             }
         )
 
+    # Usa il timeframe piu piccolo come timeline base per i segnali.
     base_config = min(
         timeframe_data,
         key=lambda item: TIMEFRAME_MINUTES[item["value"]],
@@ -1027,12 +1160,24 @@ def compute_mtf_payload(
     any_active = False
     total_conditions = count_active_conditions(enabled_timeframes)
     for tf_data in timeframe_data:
-        use_rsi = bool(tf_data["indicator_flags"].get("rsi_short"))
+        # Flag e parametri per passare la logica alla strategia backend.
+        use_rsi_short = bool(tf_data["indicator_flags"].get("rsi_short"))
+        use_rsi_medium = bool(tf_data["indicator_flags"].get("rsi_medium"))
+        use_rsi_long = bool(tf_data["indicator_flags"].get("rsi_long"))
         use_atr = bool(tf_data["indicator_flags"].get("atr_bands"))
-        use_ema = bool(tf_data["indicator_flags"].get("ema_short")) and bool(
-            tf_data["indicator_flags"].get("ema_long")
+        use_macd = bool(tf_data["indicator_flags"].get("macd"))
+        ema_short_on = bool(tf_data["indicator_flags"].get("ema_short"))
+        ema_medium_on = bool(tf_data["indicator_flags"].get("ema_medium"))
+        ema_long_on = bool(tf_data["indicator_flags"].get("ema_long"))
+        ema_short_w = tf_data["timeframe_params"]["ema_short_window"]
+        ema_medium_w = tf_data["timeframe_params"]["ema_medium_window"]
+        ema_long_w = tf_data["timeframe_params"]["ema_long_window"]
+        has_ema_pair = (
+            (ema_short_on and ema_medium_on and ema_short_w != ema_medium_w)
+            or (ema_medium_on and ema_long_on and ema_medium_w != ema_long_w)
+            or (ema_short_on and ema_long_on and ema_short_w != ema_long_w)
         )
-        if not use_rsi and not use_atr and not use_ema:
+        if not (use_rsi_short or use_rsi_medium or use_rsi_long or use_atr or use_macd or has_ema_pair):
             inactive_frames.append(f"TF{tf_data['index']} {tf_data['value']}")
         else:
             any_active = True
@@ -1041,17 +1186,31 @@ def compute_mtf_payload(
             {
                 "timeframe": tf_data["value"],
                 "df": tf_data["df"],
-                "use_rsi": use_rsi,
+                "use_rsi_short": use_rsi_short,
+                "use_rsi_medium": use_rsi_medium,
+                "use_rsi_long": use_rsi_long,
                 "use_atr": use_atr,
-                "use_ema": use_ema,
-                "rsi_buy_limit": tf_data["timeframe_params"]["rsi_buy_limit"],
-                "rsi_sell_limit": tf_data["timeframe_params"]["rsi_sell_limit"],
+                "use_macd": use_macd,
+                "ema_short_on": ema_short_on,
+                "ema_medium_on": ema_medium_on,
+                "ema_long_on": ema_long_on,
+                "ema_short_window": ema_short_w,
+                "ema_medium_window": ema_medium_w,
+                "ema_long_window": ema_long_w,
+                "rsi_short_buy_limit": tf_data["timeframe_params"]["rsi_short_buy_limit"],
+                "rsi_short_sell_limit": tf_data["timeframe_params"]["rsi_short_sell_limit"],
+                "rsi_medium_buy_limit": tf_data["timeframe_params"]["rsi_medium_buy_limit"],
+                "rsi_medium_sell_limit": tf_data["timeframe_params"]["rsi_medium_sell_limit"],
+                "rsi_long_buy_limit": tf_data["timeframe_params"]["rsi_long_buy_limit"],
+                "rsi_long_sell_limit": tf_data["timeframe_params"]["rsi_long_sell_limit"],
+                "macd_buy_limit": tf_data["timeframe_params"]["macd_buy_limit"],
+                "macd_sell_limit": tf_data["timeframe_params"]["macd_sell_limit"],
             }
         )
 
     if inactive_frames:
         st.warning(
-            "Strategy ignores timeframes without ATR/RSI or EMA Short+Long enabled: "
+            "Strategy ignores timeframes without RSI/ATR/MACD or EMA pairs enabled: "
             + ", ".join(inactive_frames)
         )
 
@@ -1156,9 +1315,35 @@ def render_timeframe(
         fee_percent=config["fee_percent"],
     )
     summary = summarize_trades(trades_df, initial_wallet=config["wallet"])
-    show_limits = strategy.name == "Buy/Sell Limits" and indicator_flags.get("rsi_short")
-    rsi_buy_limit = timeframe_params["rsi_buy_limit"] if show_limits else None
-    rsi_sell_limit = timeframe_params["rsi_sell_limit"] if show_limits else None
+    show_limits = (
+        strategy.name == "Buy/Sell Limits"
+        and (
+            indicator_flags.get("rsi_short")
+            or indicator_flags.get("rsi_medium")
+            or indicator_flags.get("rsi_long")
+        )
+    )
+    rsi_limits = None
+    if show_limits:
+        rsi_limits = {}
+        if indicator_flags.get("rsi_short"):
+            rsi_limits["rsi_short"] = (
+                timeframe_params["rsi_short_buy_limit"],
+                timeframe_params["rsi_short_sell_limit"],
+            )
+        if indicator_flags.get("rsi_medium"):
+            rsi_limits["rsi_medium"] = (
+                timeframe_params["rsi_medium_buy_limit"],
+                timeframe_params["rsi_medium_sell_limit"],
+            )
+        if indicator_flags.get("rsi_long"):
+            rsi_limits["rsi_long"] = (
+                timeframe_params["rsi_long_buy_limit"],
+                timeframe_params["rsi_long_sell_limit"],
+            )
+    show_macd_limits = strategy.name == "Buy/Sell Limits" and indicator_flags.get("macd")
+    macd_buy_limit = timeframe_params["macd_buy_limit"] if show_macd_limits else None
+    macd_sell_limit = timeframe_params["macd_sell_limit"] if show_macd_limits else None
     render_timeframe_panel(
         df_indicators=df_indicators,
         actual_hours=actual_hours,
@@ -1167,8 +1352,9 @@ def render_timeframe(
         indicator_flags=indicator_flags,
         buy_signals=buy_signals,
         sell_signals=sell_signals,
-        rsi_buy_limit=rsi_buy_limit,
-        rsi_sell_limit=rsi_sell_limit,
+        rsi_limits=rsi_limits,
+        macd_buy_limit=macd_buy_limit,
+        macd_sell_limit=macd_sell_limit,
         trades_df=trades_df,
         summary=summary,
     )
@@ -1314,13 +1500,39 @@ def main() -> None:
                     plot_sell = align_signals_to_timeframe(payload["sell_signals"], tf_data["df"])
                     show_limits = (
                         payload_strategy_name == "Buy/Sell Limits"
-                        and tf_data["indicator_flags"].get("rsi_short")
+                        and (
+                            tf_data["indicator_flags"].get("rsi_short")
+                            or tf_data["indicator_flags"].get("rsi_medium")
+                            or tf_data["indicator_flags"].get("rsi_long")
+                        )
                     )
-                    rsi_buy_limit = (
-                        tf_data["timeframe_params"]["rsi_buy_limit"] if show_limits else None
+                    rsi_limits = None
+                    if show_limits:
+                        rsi_limits = {}
+                        if tf_data["indicator_flags"].get("rsi_short"):
+                            rsi_limits["rsi_short"] = (
+                                tf_data["timeframe_params"]["rsi_short_buy_limit"],
+                                tf_data["timeframe_params"]["rsi_short_sell_limit"],
+                            )
+                        if tf_data["indicator_flags"].get("rsi_medium"):
+                            rsi_limits["rsi_medium"] = (
+                                tf_data["timeframe_params"]["rsi_medium_buy_limit"],
+                                tf_data["timeframe_params"]["rsi_medium_sell_limit"],
+                            )
+                        if tf_data["indicator_flags"].get("rsi_long"):
+                            rsi_limits["rsi_long"] = (
+                                tf_data["timeframe_params"]["rsi_long_buy_limit"],
+                                tf_data["timeframe_params"]["rsi_long_sell_limit"],
+                            )
+                    show_macd_limits = (
+                        payload_strategy_name == "Buy/Sell Limits"
+                        and tf_data["indicator_flags"].get("macd")
                     )
-                    rsi_sell_limit = (
-                        tf_data["timeframe_params"]["rsi_sell_limit"] if show_limits else None
+                    macd_buy_limit = (
+                        tf_data["timeframe_params"]["macd_buy_limit"] if show_macd_limits else None
+                    )
+                    macd_sell_limit = (
+                        tf_data["timeframe_params"]["macd_sell_limit"] if show_macd_limits else None
                     )
                     render_timeframe_panel(
                         df_indicators=tf_data["df"],
@@ -1330,8 +1542,9 @@ def main() -> None:
                         indicator_flags=tf_data["indicator_flags"],
                         buy_signals=plot_buy,
                         sell_signals=plot_sell,
-                        rsi_buy_limit=rsi_buy_limit,
-                        rsi_sell_limit=rsi_sell_limit,
+                        rsi_limits=rsi_limits,
+                        macd_buy_limit=macd_buy_limit,
+                        macd_sell_limit=macd_sell_limit,
                         trades_df=payload["trades_df"],
                         summary=payload["summary"],
                         execution_note=payload["execution_note"],
@@ -1345,13 +1558,39 @@ def main() -> None:
                         st.warning(tf_data["warning"])
                     show_limits = (
                         payload_strategy_name == "Buy/Sell Limits"
-                        and tf_data["indicator_flags"].get("rsi_short")
+                        and (
+                            tf_data["indicator_flags"].get("rsi_short")
+                            or tf_data["indicator_flags"].get("rsi_medium")
+                            or tf_data["indicator_flags"].get("rsi_long")
+                        )
                     )
-                    rsi_buy_limit = (
-                        tf_data["timeframe_params"]["rsi_buy_limit"] if show_limits else None
+                    rsi_limits = None
+                    if show_limits:
+                        rsi_limits = {}
+                        if tf_data["indicator_flags"].get("rsi_short"):
+                            rsi_limits["rsi_short"] = (
+                                tf_data["timeframe_params"]["rsi_short_buy_limit"],
+                                tf_data["timeframe_params"]["rsi_short_sell_limit"],
+                            )
+                        if tf_data["indicator_flags"].get("rsi_medium"):
+                            rsi_limits["rsi_medium"] = (
+                                tf_data["timeframe_params"]["rsi_medium_buy_limit"],
+                                tf_data["timeframe_params"]["rsi_medium_sell_limit"],
+                            )
+                        if tf_data["indicator_flags"].get("rsi_long"):
+                            rsi_limits["rsi_long"] = (
+                                tf_data["timeframe_params"]["rsi_long_buy_limit"],
+                                tf_data["timeframe_params"]["rsi_long_sell_limit"],
+                            )
+                    show_macd_limits = (
+                        payload_strategy_name == "Buy/Sell Limits"
+                        and tf_data["indicator_flags"].get("macd")
                     )
-                    rsi_sell_limit = (
-                        tf_data["timeframe_params"]["rsi_sell_limit"] if show_limits else None
+                    macd_buy_limit = (
+                        tf_data["timeframe_params"]["macd_buy_limit"] if show_macd_limits else None
+                    )
+                    macd_sell_limit = (
+                        tf_data["timeframe_params"]["macd_sell_limit"] if show_macd_limits else None
                     )
                     render_timeframe_panel(
                         df_indicators=tf_data["df"],
@@ -1361,8 +1600,9 @@ def main() -> None:
                         indicator_flags=tf_data["indicator_flags"],
                         buy_signals=tf_data["buy_signals"],
                         sell_signals=tf_data["sell_signals"],
-                        rsi_buy_limit=rsi_buy_limit,
-                        rsi_sell_limit=rsi_sell_limit,
+                        rsi_limits=rsi_limits,
+                        macd_buy_limit=macd_buy_limit,
+                        macd_sell_limit=macd_sell_limit,
                         trades_df=tf_data["trades_df"],
                         summary=tf_data["summary"],
                     )
