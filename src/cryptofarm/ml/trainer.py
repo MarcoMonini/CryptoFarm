@@ -171,6 +171,9 @@ def train(
 
     print("\n" + evaluate.classification_summary(y_validation, predictions))
 
+    auc = evaluate.ranking_auc(y_validation, probabilities)
+    print(f"AUC di P(buy): {auc:.4f}  (0,50 = nessun segnale; sopra 0,55 = segnale sfruttabile)")
+
     take_profit = context["take_profit"].to_numpy()[validation_mask]
     stop_loss = context["stop_loss"].to_numpy()[validation_mask]
     sweep = evaluate.threshold_sweep(y_validation, probabilities, take_profit, stop_loss, ROUND_TRIP_FEE)
@@ -239,6 +242,7 @@ def train(
             "validation_rows": int(validation_mask.sum()),
         },
         "decision_threshold": threshold,
+        "auc": round(auc, 4),
         "fit_seconds": round(fit_seconds, 1),
         "sweep": sweep.to_dict(orient="records"),
     }

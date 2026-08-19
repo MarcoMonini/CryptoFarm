@@ -13,15 +13,13 @@ from scipy.signal import argrelextrema
 from ta.momentum import KAMAIndicator, RSIIndicator, StochasticOscillator, TSIIndicator
 from ta.trend import EMAIndicator
 from ta.volatility import AverageTrueRange
-from tensorflow.keras.models import load_model
-
-from cryptofarm.ml.trainer import get_model_predictions
+from cryptofarm.ml.trainer import get_model_predictions, load_signal_model
 from cryptofarm.paths import MODELS_DIR
 
 # Disattiva i FutureWarning
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-MODEL_PATH = str(MODELS_DIR / "trained_model.keras")
+MODEL_PATH = str(MODELS_DIR / "signal_model.joblib")
 
 
 def interval_to_minutes(interval: str) -> int:
@@ -1875,7 +1873,9 @@ if __name__ == "__main__":
     if "df" not in st.session_state:
         st.session_state["df"] = None
     if "model" not in st.session_state:
-        st.session_state["model"] = load_model(str(MODELS_DIR / "optimized_model.keras"))
+        # load_signal_model trova da solo il formato del modello addestrato (gradient boosting
+        # o rete), cosi' cambiare famiglia di modello non richiede di toccare la dashboard.
+        st.session_state["model"] = load_signal_model()
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()

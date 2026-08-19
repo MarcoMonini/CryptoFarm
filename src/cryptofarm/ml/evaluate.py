@@ -42,6 +42,23 @@ def trade_expectancy(precision: float, take_profit: float, stop_loss: float, rou
     return precision * (take_profit - round_trip_fee) - (1.0 - precision) * (stop_loss + round_trip_fee)
 
 
+def ranking_auc(y_true: np.ndarray, probabilities: np.ndarray) -> float:
+    """AUC di P(buy) contro l'esito reale: c'e' segnale, indipendentemente dalla soglia?
+
+    E' la domanda che va posta per prima. Precision e aspettativa dipendono da dove si mette la
+    soglia e da quanto sono larghe le barriere; l'AUC no -- misura solo se il modello sa
+    **ordinare** le candele meglio del caso. A 0,50 non c'e' nulla da estrarre e nessuna soglia
+    potra' renderlo redditizio; sopra 0,55 c'e' segnale, e resta da vedere se basta a coprire le
+    commissioni.
+    """
+    from sklearn.metrics import roc_auc_score
+
+    positives = (y_true == BUY).astype(int)
+    if positives.sum() == 0 or positives.sum() == len(positives):
+        return float("nan")
+    return float(roc_auc_score(positives, probabilities[:, BUY]))
+
+
 def classification_summary(y_true: np.ndarray, y_pred: np.ndarray) -> str:
     report = classification_report(
         y_true, y_pred, labels=[HOLD, BUY, SELL], target_names=["hold", "buy", "sell"], zero_division=0
@@ -107,10 +124,67 @@ def threshold_sweep(
     return pd.DataFrame(rows)
 
 
+# Quote di candele su cui si opera, dalla piu' selettiva alla piu' larga. Sono quantili del
+# punteggio e non probabilita' assolute: una soglia come 0,40 significa cose opposte quando il
+# base rate e' l'11% o il 37%, e su un modello poco calibrato puo' non essere raggiunta mai.
+# "Opero sul mio miglior mezzo percento di occasioni" invece e' confrontabile ovunque.
+DEFAULT_QUANTILES = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.10, 0.20)
+
+
+def quantile_sweep(
+    y_true: np.ndarray,
+    probabilities: np.ndarray,
+    take_profit: np.ndarray | float,
+    stop_loss: np.ndarray | float,
+    round_trip_fee: float,
+    quantiles: tuple[float, ...] = DEFAULT_QUANTILES,
+) -> pd.DataFrame:
+    """Per ogni quota di candele selezionate: win rate, break-even e aspettativa.
+
+    Seleziona la frazione richiesta di candele con P(buy) piu' alta. E' la forma giusta della
+    domanda operativa -- un bot non sceglie una probabilita', sceglie quanto essere selettivo --
+    ed e' invariante al base rate e alla calibrazione del modello.
+    """
+    probability_buy = probabilities[:, BUY]
+    take_profit = np.broadcast_to(np.asarray(take_profit, dtype=float), probability_buy.shape)
+    stop_loss = np.broadcast_to(np.asarray(stop_loss, dtype=float), probability_buy.shape)
+    order = np.argsort(-probability_buy)
+
+    rows = []
+    for quantile in quantiles:
+        count = int(len(probability_buy) * quantile)
+        if count < 1:
+            continue
+        selected = order[:count]
+        wins = y_true[selected] == BUY
+        outcome = np.where(wins, take_profit[selected] - round_trip_fee, -(stop_loss[selected] + round_trip_fee))
+        # Aspettativa lorda: lo stesso conto senza commissioni. Separare le due dice se il
+        # problema e' che il modello non prevede nulla o che l'edge c'e' ma non copre i costi --
+        # due diagnosi opposte, con rimedi opposti.
+        gross = np.where(wins, take_profit[selected], -stop_loss[selected])
+        rows.append(
+            {
+                "soglia": float(probability_buy[selected].min()),
+                "operazioni": count,
+                "quota": quantile,
+                "win_rate": float(wins.mean()),
+                "break_even": break_even_precision(
+                    float(take_profit[selected].mean()), float(stop_loss[selected].mean()), round_trip_fee
+                ),
+                "barriera": float(take_profit[selected].mean()),
+                "atteso_lordo": float(gross.mean()),
+                "atteso_per_trade": float(outcome.mean()),
+                "atteso_totale": float(outcome.sum()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def format_sweep(sweep: pd.DataFrame) -> str:
     """Rende leggibile lo sweep, con le percentuali gia' convertite."""
     display = sweep.copy()
-    for column in ("quota", "win_rate", "break_even", "atteso_per_trade"):
+    percent_columns = ("quota", "win_rate", "break_even", "barriera", "atteso_lordo", "atteso_per_trade")
+    for column in (name for name in percent_columns if name in display.columns):
         display[column] = display[column].map(lambda value: "-" if pd.isna(value) else f"{value:.2%}")
     display["atteso_totale"] = display["atteso_totale"].map(lambda value: "-" if pd.isna(value) else f"{value:+.1f}x")
     display["soglia"] = display["soglia"].map(lambda value: f"{value:.2f}")
@@ -151,12 +225,15 @@ def signal_summary(probabilities: np.ndarray, threshold: float) -> str:
 
 __all__ = [
     "BUY",
+    "ranking_auc",
     "HOLD",
     "SELL",
     "break_even_precision",
     "trade_expectancy",
     "classification_summary",
     "threshold_sweep",
+    "quantile_sweep",
+    "DEFAULT_QUANTILES",
     "format_sweep",
     "best_threshold",
     "lift_over_base_rate",
