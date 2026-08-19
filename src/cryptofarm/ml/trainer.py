@@ -245,17 +245,13 @@ def create_sequences(data, features, window_size):
 def get_model_predictions(df, model):
     data = df.copy()
     data.fillna(0, inplace=True)
-    data["Label"] = 0
     data = data[FEATURES]
     data["Label"] = 0
     df_transformed = calculate_percentage_changes(data)
     # df_transformed.dropna(inplace=True)
     # df_transformed, scaler = normalize_features(df_transformed)
 
-    featuress = FEATURES
-    featuress.append("Label")
-
-    X, y = create_sequences(df_transformed, featuress, WINDOW_SIZE)
+    X, y = create_sequences(df_transformed, FEATURES, WINDOW_SIZE)
 
     print("Model input:", model.input_shape)
     print("X shape:", X.shape)

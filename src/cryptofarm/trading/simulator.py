@@ -836,13 +836,23 @@ def close_ema_crossover_simulation(df):
     first_break = False
     second_break = False
     for i in range(1, len(df)):
-        ema50ema100up = df["EMA"].iloc[i - 1] <= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] > df["EMA2"].iloc[i]
-        ema50ema200up = df["EMA"].iloc[i - 1] <= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] > df["EMA3"].iloc[i]
-        ema100ema200up = df["EMA2"].iloc[i - 1] <= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] > df["EMA3"].iloc[i]
+        ema50ema100up = df["EMA20"].iloc[i - 1] <= df["EMA50"].iloc[i - 1] and df["EMA20"].iloc[i] > df["EMA50"].iloc[i]
+        ema50ema200up = (
+            df["EMA20"].iloc[i - 1] <= df["EMA100"].iloc[i - 1] and df["EMA20"].iloc[i] > df["EMA100"].iloc[i]
+        )
+        ema100ema200up = (
+            df["EMA50"].iloc[i - 1] <= df["EMA100"].iloc[i - 1] and df["EMA50"].iloc[i] > df["EMA100"].iloc[i]
+        )
 
-        ema50ema100down = df["EMA"].iloc[i - 1] >= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA2"].iloc[i]
-        ema50ema200down = df["EMA"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA3"].iloc[i]
-        ema100ema200down = df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i]
+        ema50ema100down = (
+            df["EMA20"].iloc[i - 1] >= df["EMA50"].iloc[i - 1] and df["EMA20"].iloc[i] < df["EMA50"].iloc[i]
+        )
+        ema50ema200down = (
+            df["EMA20"].iloc[i - 1] >= df["EMA100"].iloc[i - 1] and df["EMA20"].iloc[i] < df["EMA100"].iloc[i]
+        )
+        ema100ema200down = (
+            df["EMA50"].iloc[i - 1] >= df["EMA100"].iloc[i - 1] and df["EMA50"].iloc[i] < df["EMA100"].iloc[i]
+        )
 
         if not holding:
             # non si verifica le sequenza esatta
@@ -887,25 +897,25 @@ def close_bullish_ema_simulation(df, rsi_buy_limit: int = 50, rsi_sell_limit: in
     holding = False
     n = 30
     for i in range(1, len(df)):
-        cond_1 = df["EMA20"][i - n : i] > df["EMA2"][i - n : i]
-        cond_2 = df["EMA2"][i - n : i] > df["EMA3"][i - n : i]
+        cond_1 = df["EMA20"][i - n : i] > df["EMA50"][i - n : i]
+        cond_2 = df["EMA50"][i - n : i] > df["EMA100"][i - n : i]
         cond_ema = (cond_1 & cond_2).all()
         if (
             not holding
             and cond_ema
-            and (df["EMA20"].iloc[i] > df["EMA2"].iloc[i] > df["EMA3"].iloc[i])  # trend rialzista nel breve termine
+            and (df["EMA20"].iloc[i] > df["EMA50"].iloc[i] > df["EMA100"].iloc[i])  # trend rialzista nel breve termine
             # and df['ADX'].iloc[i] > 30  # conferma della forza del trend
-            # and df['EMA2'].iloc[i] < df['Upper_Band3'].iloc[i]  # il prezzo oscilla attorno alla media lunga
-            and df["Close"].iloc[i] > df["EMA3"].iloc[i]  # il prezzo sta sopra alla media lunga
+            # and df['EMA50'].iloc[i] < df['Upper_Band3'].iloc[i]  # il prezzo oscilla attorno alla media lunga
+            and df["Close"].iloc[i] > df["EMA100"].iloc[i]  # il prezzo sta sopra alla media lunga
             and rsi_buy_limit <= df["RSI"].iloc[i] < rsi_sell_limit  # RSI compreso in una fascia che conferma il trend
             # controlli sulle candele precedenti
             and (
-                (df["Low"].iloc[i - 1] < df["EMA2"].iloc[i - 1] < df["Close"].iloc[i - 1])
-                or (df["Low"].iloc[i - 1] < df["EMA3"].iloc[i - 1] < df["Close"].iloc[i - 1])
+                (df["Low"].iloc[i - 1] < df["EMA50"].iloc[i - 1] < df["Close"].iloc[i - 1])
+                or (df["Low"].iloc[i - 1] < df["EMA100"].iloc[i - 1] < df["Close"].iloc[i - 1])
             )
             and (
-                (df["EMA2"].iloc[i - 2] < df["Low"].iloc[i - 2] < df["Close"].iloc[i - 2])
-                or (df["EMA3"].iloc[i - 2] < df["Low"].iloc[i - 2] < df["Close"].iloc[i - 2])
+                (df["EMA50"].iloc[i - 2] < df["Low"].iloc[i - 2] < df["Close"].iloc[i - 2])
+                or (df["EMA100"].iloc[i - 2] < df["Low"].iloc[i - 2] < df["Close"].iloc[i - 2])
             )
         ):
             buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
