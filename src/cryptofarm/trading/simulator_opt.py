@@ -3,7 +3,7 @@ from ta.volatility import AverageTrueRange
 from ta.trend import MACD, SMAIndicator, PSARIndicator
 from ta.momentum import RSIIndicator
 import pandas as pd
-from simulator import (get_market_data, interval_to_minutes, close_atr_buy_sell_simulation,
+from cryptofarm.trading.simulator import (get_market_data, interval_to_minutes, close_atr_buy_sell_simulation,
                        simulate_trading_with_commisions, buy_sell_limits_close_simulation)
 
 

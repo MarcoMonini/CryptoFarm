@@ -1,11 +1,11 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-from simulator import download_market_data, interval_to_minutes
+from cryptofarm.trading.simulator import download_market_data, interval_to_minutes
 # import simulator
 # from background import atr_window
 # from background import atr_multiplier
-from simulatorOpt import trading_analysis_opt
+from cryptofarm.trading.simulator_opt import trading_analysis_opt
 
 
 def run_simulation(wallet: float,

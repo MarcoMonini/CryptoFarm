@@ -13,12 +13,12 @@ import warnings
 import asyncio
 from scipy.signal import argrelextrema
 from tensorflow.keras.models import load_model
-from cryptoTrainerAI import get_model_predictions, calculate_relative_extrema
+from cryptofarm.ml.trainer import get_model_predictions, calculate_relative_extrema
 
 # Disattiva i FutureWarning
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-MODEL_PATH = "trained_model.keras"
+MODEL_PATH = "models/trained_model.keras"
 
 def interval_to_minutes(interval: str) -> int:
     """
@@ -1688,7 +1688,7 @@ if __name__ == "__main__":
     if 'df' not in st.session_state:
         st.session_state['df'] = None
     if 'model' not in st.session_state:
-        st.session_state['model'] = load_model('optimized_model.keras')
+        st.session_state['model'] = load_model('models/optimized_model.keras')
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
