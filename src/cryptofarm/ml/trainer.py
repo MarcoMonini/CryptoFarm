@@ -544,13 +544,20 @@ def balance_signal_classes(X: np.ndarray, y: np.ndarray, rng: np.random.Generato
 def get_model_predictions(df, model, confidence_threshold: float = PREDICTION_CONFIDENCE_THRESHOLD):
     """Applica il modello a un DataFrame di mercato e restituisce le predizioni allineate all'indice.
 
-    Deve replicare esattamente il preprocessing del training: normalizzazione delle feature
-    dipendenti dalla scala, conversione in variazioni percentuali, sequenze scorrevoli.
+    Gli indicatori vengono ricalcolati qui dai soli OHLC, con le costanti di questo modulo,
+    invece di riusare le colonne che il chiamante ha gia' in tabella: `trading/simulator.py`
+    calcola le sue con i periodi scelti dagli slider della dashboard (l'ATR Window ha default 5
+    nella UI contro i 6 usati in addestramento), e un modello alimentato con feature calcolate
+    diversamente da come e' stato addestrato sbaglia in silenzio, senza nessun errore visibile.
+
+    Il resto del preprocessing e' identico al training perche' passa per le stesse funzioni:
+    riscalatura delle feature, variazioni percentuali, sequenze scorrevoli.
     """
-    data = df.copy()
+    data = df[["Open", "High", "Low", "Close"]].astype(float).copy()
     data.fillna(0, inplace=True)
-    data = data[FEATURES]
+    data = add_technical_indicator(data, rsi_window=RSI_WINDOW, atr_window=ATR_WINDOW)
     data = normalize_scale_dependent_features(data)
+    data = data[FEATURES]
     data["Label"] = 0
     df_transformed = calculate_percentage_changes(data)
 

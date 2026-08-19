@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from cryptofarm.ml.trainer import (
+    WINDOW_SIZE,
     add_technical_indicator,
     apply_label_cooldown,
     build_sequence_valid_mask,
@@ -10,6 +11,7 @@ from cryptofarm.ml.trainer import (
     calculate_relative_extrema,
     downsample_holds,
     filter_labels_by_future_return,
+    get_model_predictions,
     normalize_scale_dependent_features,
     split_train_val,
 )
@@ -199,3 +201,61 @@ def test_calculate_percentage_changes_is_cumulative_relative_to_previous_close()
     assert result["High"].tolist() == pytest.approx([5.0, 9.843137, 11.586057], abs=1e-4)
     assert result["Low"].tolist() == pytest.approx([-5.0, 0.039216, 4.178649], abs=1e-4)
     assert result["Close"].tolist() == pytest.approx([2.0, 7.882353, 6.030501], abs=1e-4)
+
+
+class _RecordingModel:
+    """Modello finto che memorizza il tensore ricevuto e predice sempre "hold"."""
+
+    def __init__(self):
+        self.seen = None
+
+    def predict(self, X, verbose=0):
+        self.seen = X
+        probabilities = np.zeros((len(X), 3))
+        probabilities[:, 0] = 1.0
+        return probabilities
+
+
+def _market_frame(atr_column):
+    n = WINDOW_SIZE + 10
+    rng = np.random.default_rng(7)
+    close = 100 + np.cumsum(rng.normal(0, 1, n))
+    return pd.DataFrame(
+        {
+            "Open": close + rng.normal(0, 0.2, n),
+            "High": close + rng.uniform(0.1, 1.0, n),
+            "Low": close - rng.uniform(0.1, 1.0, n),
+            "Close": close,
+            # Colonne indicatore fornite dal chiamante, deliberatamente incoerenti tra le due
+            # chiamate: la dashboard le calcola con i periodi scelti dagli slider.
+            "RSI": np.full(n, 30.0),
+            "STOCH": np.full(n, 30.0),
+            "STOCH_S": np.full(n, 30.0),
+            "ATR": np.full(n, atr_column),
+            "TSI": np.full(n, 30.0),
+        },
+        index=_index(n),
+    )
+
+
+def test_get_model_predictions_ignores_caller_supplied_indicator_columns():
+    # The model is only valid for features computed the way it was trained. Whatever indicator
+    # columns the caller already has in the frame must not reach it, or a dashboard slider
+    # silently changes the model's input and it degrades with no visible error.
+    first, second = _RecordingModel(), _RecordingModel()
+
+    get_model_predictions(_market_frame(atr_column=2.0), first)
+    get_model_predictions(_market_frame(atr_column=99.0), second)
+
+    assert np.array_equal(first.seen, second.seen)
+
+
+def test_get_model_predictions_aligns_predictions_with_the_original_index():
+    df = _market_frame(atr_column=2.0)
+
+    result = get_model_predictions(df, _RecordingModel())
+
+    assert len(result) == len(df) - WINDOW_SIZE
+    assert result.index[0] == df.index[WINDOW_SIZE]
+    # The stub is fully confident about "hold", so every prediction must be 0.
+    assert (result["Prediction"] == 0).all()
