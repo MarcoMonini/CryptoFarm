@@ -344,6 +344,14 @@ def calculate_relative_extrema(
     return data
 
 
+def build_balanced_sample_weights(y: np.ndarray) -> np.ndarray:
+    """Pesi per campione che danno a ogni classe presente la stessa massa totale."""
+    present = np.unique(y)
+    weights = compute_class_weight(class_weight="balanced", classes=present, y=y)
+    by_class = {int(k): float(v) for k, v in zip(present, weights)}
+    return np.array([by_class[int(label)] for label in y])
+
+
 def summarize_labels(y: np.ndarray, stage: str) -> None:
     """Stampa la distribuzione delle classi a uno stadio della pipeline."""
     names = {0: "hold", 1: "buy", 2: "sell"}
@@ -758,6 +766,16 @@ if __name__ == "__main__":
     class_weights = {int(k): float(v) for k, v in zip(present_classes, class_weights)}
     print("Class weights:", {k: round(v, 3) for k, v in class_weights.items()})
 
+    # Anche la validation va pesata, ma con pesi calcolati sulla *sua* distribuzione. La
+    # validation resta volutamente alla distribuzione reale di mercato (~1,5% di segnali): una
+    # val_loss non pesata e' quasi tutta il costo degli "hold" e premia il modello che non emette
+    # segnali -- esattamente il collasso che questo lavoro deve evitare -- e siccome
+    # EarlyStopping e ModelCheckpoint monitorano val_loss, sarebbe quel modello a essere salvato.
+    # Riusare i pesi del training non basta: lascerebbe comunque agli "hold" circa il 90% della
+    # massa. Pesati sulla distribuzione della validation, i tre classi contano un terzo ciascuna
+    # e val_loss diventa una cross-entropy macro-bilanciata.
+    val_sample_weights = build_balanced_sample_weights(y_val)
+
     model = build_lstm((X_train.shape[1], X_train.shape[2]))
     model.compile(optimizer=Adam(LEARNING_RATE), loss="sparse_categorical_crossentropy", metrics=["accuracy"])
 
@@ -771,7 +789,7 @@ if __name__ == "__main__":
     history = model.fit(
         X_train,
         y_train,
-        validation_data=(X_val, y_val),
+        validation_data=(X_val, y_val, val_sample_weights),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
         callbacks=[early_stopping, reduce_lr, checkpoint],
@@ -782,8 +800,8 @@ if __name__ == "__main__":
     # classificatore banale che predice sempre "hold" la ottiene gratis. Il classification report
     # per classe (precision/recall/F1) e la confusion matrix mostrano se il modello sta davvero
     # riconoscendo buy/sell o e' collassato su una predizione costante.
-    loss, accuracy = model.evaluate(X_val, y_val)
-    print(f"Validation Loss: {loss}, Validation Accuracy: {accuracy}")
+    loss, accuracy = model.evaluate(X_val, y_val, sample_weight=val_sample_weights)
+    print(f"Validation Loss (macro-bilanciata): {loss}, Validation Accuracy (macro-bilanciata): {accuracy}")
 
     val_probabilities = model.predict(X_val, verbose=0)
     val_predictions = np.argmax(val_probabilities, axis=1)
