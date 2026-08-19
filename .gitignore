@@ -164,3 +164,4 @@ cython_debug/
 # macOS
 .DS_Store
 .venv312/
+market_data/
