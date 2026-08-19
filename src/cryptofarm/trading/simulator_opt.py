@@ -1,25 +1,33 @@
-import streamlit as st
-from ta.volatility import AverageTrueRange
-from ta.trend import MACD, SMAIndicator, PSARIndicator
-from ta.momentum import RSIIndicator
 import pandas as pd
-from cryptofarm.trading.simulator import (get_market_data, interval_to_minutes, close_atr_buy_sell_simulation,
-                       simulate_trading_with_commisions, buy_sell_limits_close_simulation)
+import streamlit as st
+from ta.momentum import RSIIndicator
+from ta.trend import SMAIndicator
+from ta.volatility import AverageTrueRange
+
+from cryptofarm.trading.simulator import (
+    buy_sell_limits_close_simulation,
+    get_market_data,
+    interval_to_minutes,
+    simulate_trading_with_commisions,
+)
 
 
 @st.cache_data
-def add_technical_indicator_opt(df,
-                                step: float = 0.004,
-                                max_step: float = 0.4,
-                                rsi_window: int = 12,
-                                sma_window: int = 12,
-                                macd_long_window: int = 26,
-                                macd_short_window: int = 12,
-                                macd_signal_window: int = 9,
-                                atr_window: int = 4,
-                                atr_multiplier: float = 1.6,
-                                dinamic_atr: bool = False,
-                                din_macd_div: float = 2.0, din_roc_div: float = 12):
+def add_technical_indicator_opt(
+    df,
+    step: float = 0.004,
+    max_step: float = 0.4,
+    rsi_window: int = 12,
+    sma_window: int = 12,
+    macd_long_window: int = 26,
+    macd_short_window: int = 12,
+    macd_signal_window: int = 9,
+    atr_window: int = 4,
+    atr_multiplier: float = 1.6,
+    dinamic_atr: bool = False,
+    din_macd_div: float = 2.0,
+    din_roc_div: float = 12,
+):
     df_copy = df.copy()
 
     # SAR
@@ -34,11 +42,8 @@ def add_technical_indicator_opt(df,
     # df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
 
     # Calcolo dell'RSI
-    rsi_indicator = RSIIndicator(
-        close=df_copy['Close'],
-        window=rsi_window
-    )
-    df_copy['RSI'] = rsi_indicator.rsi()
+    rsi_indicator = RSIIndicator(close=df_copy["Close"], window=rsi_window)
+    df_copy["RSI"] = rsi_indicator.rsi()
     #
     # # Vortex Indicator
     # vi = VortexIndicator(
@@ -67,55 +72,52 @@ def add_technical_indicator_opt(df,
 
     # ATR
     atr_indicator = AverageTrueRange(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        window=atr_window
+        high=df_copy["High"], low=df_copy["Low"], close=df_copy["Close"], window=atr_window
     )
-    df_copy['ATR'] = atr_indicator.average_true_range()
+    df_copy["ATR"] = atr_indicator.average_true_range()
 
     # SMA (Media Mobile per le Rolling ATR Bands)
-    sma_indicator = SMAIndicator(close=df_copy['Close'], window=sma_window)
-    df_copy['SMA'] = sma_indicator.sma_indicator()
+    sma_indicator = SMAIndicator(close=df_copy["Close"], window=sma_window)
+    df_copy["SMA"] = sma_indicator.sma_indicator()
 
     # Rolling ATR Bands
     if dinamic_atr:
-        atr_multiplier = (1 + df_copy['MACD'].abs()) / din_macd_div
+        atr_multiplier = (1 + df_copy["MACD"].abs()) / din_macd_div
 
-    df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
-    df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+    df_copy["Upper_Band"] = df_copy["SMA"] + atr_multiplier * df_copy["ATR"]
+    df_copy["Lower_Band"] = df_copy["SMA"] - atr_multiplier * df_copy["ATR"]
 
     return df_copy
 
 
 def trading_analysis_opt(
-        asset: str,
-        interval: str,
-        wallet: float,
-        time_hours: int = 24,
-        fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
-        step: float = 0.01,  # compreso tra 0.001 e 0.1
-        max_step: float = 0.4,  # compreso tra 0.1 e 1
-        atr_multiplier: float = 2.4,  # Moltiplicatore per le Rolling ATR Bands
-        atr_window: int = 6,  # compreso tra 2 e 30
-        sma_window: int = 12,
-        rsi_window: int = 12,  # compreso tra 2 e 50
-        macd_short_window: int = 12,  # compreso tra 4 e 20
-        macd_long_window: int = 26,  # compreso tra 20 e 50
-        macd_signal_window: int = 9,  # short < signal < long
-        rsi_buy_limit: int = 40,
-        rsi_sell_limit: int = 60,
-        macd_buy_limit: float = -2.5,
-        macd_sell_limit: float = 2.5,
-        vi_buy_limit: float = -0.5,
-        vi_sell_limit: float = 0.5,
-        psarvp_buy_limit: float = -0.1,
-        psarvp_sell_limit: float = 10.1,
-        num_cond: int = 1,
-        din_macd_div: float = 1.2,
-        din_roc_div: float = 12.0,
-        stop_loss: float = 3.0,
-        market_data: dict = None,
+    asset: str,
+    interval: str,
+    wallet: float,
+    time_hours: int = 24,
+    fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
+    step: float = 0.01,  # compreso tra 0.001 e 0.1
+    max_step: float = 0.4,  # compreso tra 0.1 e 1
+    atr_multiplier: float = 2.4,  # Moltiplicatore per le Rolling ATR Bands
+    atr_window: int = 6,  # compreso tra 2 e 30
+    sma_window: int = 12,
+    rsi_window: int = 12,  # compreso tra 2 e 50
+    macd_short_window: int = 12,  # compreso tra 4 e 20
+    macd_long_window: int = 26,  # compreso tra 20 e 50
+    macd_signal_window: int = 9,  # short < signal < long
+    rsi_buy_limit: int = 40,
+    rsi_sell_limit: int = 60,
+    macd_buy_limit: float = -2.5,
+    macd_sell_limit: float = 2.5,
+    vi_buy_limit: float = -0.5,
+    vi_sell_limit: float = 0.5,
+    psarvp_buy_limit: float = -0.1,
+    psarvp_sell_limit: float = 10.1,
+    num_cond: int = 1,
+    din_macd_div: float = 1.2,
+    din_roc_div: float = 12.0,
+    stop_loss: float = 3.0,
+    market_data: dict = None,
 ):
     """
     Scarica le candele di 'asset' con intervallo 'interval' (tramite una funzione
@@ -133,53 +135,60 @@ def trading_analysis_opt(
         df = market_data
         actual_hours = candlestick_minutes * len(df) / 60
 
-    df = add_technical_indicator_opt(df,
-                                     atr_window=atr_window,
-                                     atr_multiplier=atr_multiplier,
-                                     sma_window=sma_window,
-                                     rsi_window=rsi_window,
-                                     step=step,
-                                     max_step=max_step,
-                                     macd_long_window=macd_long_window,
-                                     macd_short_window=macd_short_window,
-                                     macd_signal_window=macd_signal_window,
-                                     dinamic_atr=False,
-                                     )
+    df = add_technical_indicator_opt(
+        df,
+        atr_window=atr_window,
+        atr_multiplier=atr_multiplier,
+        sma_window=sma_window,
+        rsi_window=rsi_window,
+        step=step,
+        max_step=max_step,
+        macd_long_window=macd_long_window,
+        macd_short_window=macd_short_window,
+        macd_signal_window=macd_signal_window,
+        dinamic_atr=False,
+    )
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita
     # buy_signals, sell_signals = close_atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
-    buy_signals, sell_signals = buy_sell_limits_close_simulation(df=df, rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
-                                                                 num_cond=num_cond, stop_loss_percent=stop_loss)
+    buy_signals, sell_signals = buy_sell_limits_close_simulation(
+        df=df,
+        rsi_buy_limit=rsi_buy_limit,
+        rsi_sell_limit=rsi_sell_limit,
+        num_cond=num_cond,
+        stop_loss_percent=stop_loss,
+    )
 
     # ======================================
     # Simulazione di trading con commissioni
-    operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent)
+    operations = simulate_trading_with_commisions(
+        wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
+    )
 
     # ======================================
     # Creazione del DataFrame finale con le operazioni
     if operations:
         trades_df = pd.DataFrame(operations)
         # Aggiungiamo qualche metrica sul periodo analizzato
-        apertura = df['Open'].iloc[0]  # Prezzo di apertura (prima candela)
-        chiusura = df['Close'].iloc[-1]  # Prezzo di chiusura (ultima candela)
+        apertura = df["Open"].iloc[0]  # Prezzo di apertura (prima candela)
+        chiusura = df["Close"].iloc[-1]  # Prezzo di chiusura (ultima candela)
         # high_max = df['High'].max()
         # low_min = df['Low'].min()
         # Variazione percentuale (close finale su open iniziale)
         variazione = (chiusura - apertura) / apertura * 100
         # Volatilità: std dei rendimenti "Close-to-Close", in termini %
-        volatilita = df['Close'].pct_change().std() * 100
+        volatilita = df["Close"].pct_change().std() * 100
         # Inseriamo questi valori su ogni riga del DataFrame trades_df.
-        trades_df['apertura'] = apertura
-        trades_df['chiusura'] = chiusura
-        trades_df['variazione(%)'] = variazione
-        trades_df['volatilita(%)'] = volatilita
+        trades_df["apertura"] = apertura
+        trades_df["chiusura"] = chiusura
+        trades_df["variazione(%)"] = variazione
+        trades_df["volatilita(%)"] = volatilita
     else:
         # Nessun trade effettuato
-        trades_df = pd.DataFrame(columns=[
-            'Buy_Time', 'Buy_Price', 'Sell_Time', 'Sell_Price',
-            'Quantity', 'Profit', 'Wallet_After'
-        ])
+        trades_df = pd.DataFrame(
+            columns=["Buy_Time", "Buy_Price", "Sell_Time", "Sell_Price", "Quantity", "Profit", "Wallet_After"]
+        )
 
     print(f"{wallet} su {asset}, profitto totale={round(trades_df['Profit'].sum())}")
 

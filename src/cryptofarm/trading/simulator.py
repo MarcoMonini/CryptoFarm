@@ -1,24 +1,27 @@
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from ta.volatility import AverageTrueRange
-from ta.momentum import RSIIndicator, StochasticOscillator, KAMAIndicator, TSIIndicator
-from ta.trend import MACD, PSARIndicator, EMAIndicator
-from binance import Client
-import streamlit as st
-import numpy as np
+import asyncio
 import math
 import time
 import warnings
-import asyncio
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+from binance import Client
+from plotly.subplots import make_subplots
 from scipy.signal import argrelextrema
+from ta.momentum import KAMAIndicator, RSIIndicator, StochasticOscillator, TSIIndicator
+from ta.trend import EMAIndicator
+from ta.volatility import AverageTrueRange
 from tensorflow.keras.models import load_model
-from cryptofarm.ml.trainer import get_model_predictions, calculate_relative_extrema
+
+from cryptofarm.ml.trainer import get_model_predictions
 
 # Disattiva i FutureWarning
-warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.simplefilter(action="ignore", category=FutureWarning)
 
 MODEL_PATH = "models/trained_model.keras"
+
 
 def interval_to_minutes(interval: str) -> int:
     """
@@ -26,12 +29,12 @@ def interval_to_minutes(interval: str) -> int:
     @param interval Stringa che rappresenta l'intervallo (es. "1m", "15m", "1h").
     @return Numero di minuti corrispondenti all'intervallo specificato.
     """
-    if interval.endswith('m'):
+    if interval.endswith("m"):
         # Intervalli tipo "1m", "3m", "15m", "30m", ecc.
-        return int(interval.replace('m', ''))
-    elif interval.endswith('h'):
+        return int(interval.replace("m", ""))
+    elif interval.endswith("h"):
         # Intervalli tipo "1h", "2h", ecc.
-        hours = int(interval.replace('h', ''))
+        hours = int(interval.replace("h", ""))
         return hours * 60
     else:
         # Se non corrisponde a 'm' o 'h', gestisci come preferisci (o ritorna 0)
@@ -91,7 +94,7 @@ def get_market_data(asset: str, interval: str, time_hours: int) -> tuple:
             interval=interval,
             limit=chunk_size,  # max 1000
             startTime=fetch_start,  # in ms
-            endTime=now_ms  # in ms
+            endTime=now_ms,  # in ms
         )
 
         if not chunk_klines:
@@ -126,26 +129,35 @@ def get_market_data(asset: str, interval: str, time_hours: int) -> tuple:
     if not all_klines:
         # Nessun dato trovato
         print(f"Nessun dato trovato per {asset} su {interval} per le ultime {time_hours} ore.")
-        return pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Volume']), 0
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"]), 0
 
     # 5. Costruisci il DataFrame da all_klines
     columns = [
-        'Open time', 'Open', 'High', 'Low', 'Close', 'Volume', 'Close time',
-        'Quote asset volume', 'Number of trades', 'Taker buy base asset volume',
-        'Taker buy quote asset volume', 'Ignore'
+        "Open time",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
+        "Close time",
+        "Quote asset volume",
+        "Number of trades",
+        "Taker buy base asset volume",
+        "Taker buy quote asset volume",
+        "Ignore",
     ]
     raw_df = pd.DataFrame(all_klines, columns=columns)
 
     # 6. Converte i timestamp e imposta l'indice
-    raw_df['Open time'] = pd.to_datetime(raw_df['Open time'], unit='ms')
-    raw_df.set_index('Open time', inplace=True)
+    raw_df["Open time"] = pd.to_datetime(raw_df["Open time"], unit="ms")
+    raw_df.set_index("Open time", inplace=True)
 
     # Mantieni solo le colonne essenziali, converti a float
-    df = raw_df[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+    df = raw_df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
 
     # 7. Ordina per data (dalla più vecchia alla più recente) e rimuovi duplicati
     df.sort_index(inplace=True)
-    df = df[~df.index.duplicated(keep='first')]  # elimina eventuali duplicati su 'Open time'
+    df = df[~df.index.duplicated(keep="first")]  # elimina eventuali duplicati su 'Open time'
 
     # Calcolo delle ore effettive di dati disponibili
     if not df.empty:
@@ -205,7 +217,7 @@ def get_market_data_between_dates(asset: str, interval: str, start_date: str, en
             interval=interval,
             limit=chunk_size,  # max 1000
             startTime=fetch_start,  # in ms
-            endTime=end_ms  # in ms
+            endTime=end_ms,  # in ms
         )
 
         if not chunk_klines:
@@ -231,24 +243,33 @@ def get_market_data_between_dates(asset: str, interval: str, start_date: str, en
 
     if not all_klines:
         print(f"Nessun dato trovato per {asset} nell'intervallo specificato.")
-        return pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Volume']), 0
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"]), 0
 
     # 4. Costruisci il DataFrame dai dati scaricati
     columns = [
-        'Open time', 'Open', 'High', 'Low', 'Close', 'Volume', 'Close time',
-        'Quote asset volume', 'Number of trades', 'Taker buy base asset volume',
-        'Taker buy quote asset volume', 'Ignore'
+        "Open time",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
+        "Close time",
+        "Quote asset volume",
+        "Number of trades",
+        "Taker buy base asset volume",
+        "Taker buy quote asset volume",
+        "Ignore",
     ]
     raw_df = pd.DataFrame(all_klines, columns=columns)
 
     # 5. Converte i timestamp e imposta l'indice
-    raw_df['Open time'] = pd.to_datetime(raw_df['Open time'], unit='ms')
-    raw_df.set_index('Open time', inplace=True)
-    df = raw_df[['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+    raw_df["Open time"] = pd.to_datetime(raw_df["Open time"], unit="ms")
+    raw_df.set_index("Open time", inplace=True)
+    df = raw_df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
 
     # 6. Ordina per data e rimuove eventuali duplicati
     df.sort_index(inplace=True)
-    df = df[~df.index.duplicated(keep='first')]
+    df = df[~df.index.duplicated(keep="first")]
 
     # Calcola le ore effettive di dati disponibili
     actual_hours = len(df) * candlestick_minutes / 60 if not df.empty else 0
@@ -291,12 +312,24 @@ def download_market_data(assets: list, intervals: list, hours: int):
 
 
 @st.cache_data
-def add_technical_indicator(df, step=0.02, max_step=0.4, rsi_window=12, rsi_window2=24, rsi_window3=36,
-                            macd_long_window=26, macd_short_window=12, macd_signal_window=9,
-                            ema_window=10, ema_window2=50, ema_window3=200,
-                            atr_window=6, atr_multiplier=1.6,
-                            kama_pow1=2, kama_pow2=30
-                            ):
+def add_technical_indicator(
+    df,
+    step=0.02,
+    max_step=0.4,
+    rsi_window=12,
+    rsi_window2=24,
+    rsi_window3=36,
+    macd_long_window=26,
+    macd_short_window=12,
+    macd_signal_window=9,
+    ema_window=10,
+    ema_window2=50,
+    ema_window3=200,
+    atr_window=6,
+    atr_multiplier=1.6,
+    kama_pow1=2,
+    kama_pow2=30,
+):
     df_copy = df.copy()
     # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
     # sar_indicator = PSARIndicator(
@@ -310,12 +343,12 @@ def add_technical_indicator(df, step=0.02, max_step=0.4, rsi_window=12, rsi_wind
     # df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
 
     # Calcolo dell'RSI
-    rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window)
-    df_copy['RSI'] = rsi_indicator.rsi()
-    rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window2)
-    df_copy['RSI2'] = rsi_indicator.rsi()
-    rsi_indicator = RSIIndicator(close=df_copy['Close'], window=rsi_window3)
-    df_copy['RSI3'] = rsi_indicator.rsi()
+    rsi_indicator = RSIIndicator(close=df_copy["Close"], window=rsi_window)
+    df_copy["RSI"] = rsi_indicator.rsi()
+    rsi_indicator = RSIIndicator(close=df_copy["Close"], window=rsi_window2)
+    df_copy["RSI2"] = rsi_indicator.rsi()
+    rsi_indicator = RSIIndicator(close=df_copy["Close"], window=rsi_window3)
+    df_copy["RSI3"] = rsi_indicator.rsi()
     # SMA dell'RSI
     # df_copy['RSI_S'] = df_copy['RSI'].rolling(window=3).mean()
     # df_copy['RSI2_S'] = df_copy['RSI2'].rolling(window=3).mean()
@@ -338,54 +371,44 @@ def add_technical_indicator(df, step=0.02, max_step=0.4, rsi_window=12, rsi_wind
 
     # ATR
     atr_indicator = AverageTrueRange(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        window=atr_window
+        high=df_copy["High"], low=df_copy["Low"], close=df_copy["Close"], window=atr_window
     )
-    df_copy['ATR'] = atr_indicator.average_true_range()
+    df_copy["ATR"] = atr_indicator.average_true_range()
 
     # EMA (Media Mobile per le Rolling ATR Bands)
-    ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window)
-    df_copy['EMA20'] = ema_indicator.ema_indicator()
-    ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window2)
-    df_copy['EMA50'] = ema_indicator.ema_indicator()
-    ema_indicator = EMAIndicator(close=df_copy['Close'], window=ema_window3)
-    df_copy['EMA100'] = ema_indicator.ema_indicator()
-    emao_indicator = EMAIndicator(close=df_copy['Open'], window=ema_window)
-    df_copy['EMA200'] = emao_indicator.ema_indicator()
+    ema_indicator = EMAIndicator(close=df_copy["Close"], window=ema_window)
+    df_copy["EMA20"] = ema_indicator.ema_indicator()
+    ema_indicator = EMAIndicator(close=df_copy["Close"], window=ema_window2)
+    df_copy["EMA50"] = ema_indicator.ema_indicator()
+    ema_indicator = EMAIndicator(close=df_copy["Close"], window=ema_window3)
+    df_copy["EMA100"] = ema_indicator.ema_indicator()
+    emao_indicator = EMAIndicator(close=df_copy["Open"], window=ema_window)
+    df_copy["EMA200"] = emao_indicator.ema_indicator()
 
-    kama_indicator = KAMAIndicator(close=df_copy['Close'],
-                                   window=ema_window,
-                                   pow1=kama_pow1,
-                                   pow2=kama_pow2)
-    df_copy['KAMA'] = kama_indicator.kama()
+    kama_indicator = KAMAIndicator(close=df_copy["Close"], window=ema_window, pow1=kama_pow1, pow2=kama_pow2)
+    df_copy["KAMA"] = kama_indicator.kama()
 
     # Rolling ATR Bands
     # df_copy['Upper_Band'] = df_copy['EMA20'] + atr_multiplier * df_copy['ATR']
     # df_copy['Lower_Band'] = df_copy['EMA20'] - atr_multiplier * df_copy['ATR']
-    df_copy['Upper_Band'] = df_copy['KAMA'] + atr_multiplier * df_copy['ATR']
-    df_copy['Lower_Band'] = df_copy['KAMA'] - atr_multiplier * df_copy['ATR']
-    df_copy['Upper_Band'][:atr_window] = None
-    df_copy['Lower_Band'][:atr_window] = None
+    df_copy["Upper_Band"] = df_copy["KAMA"] + atr_multiplier * df_copy["ATR"]
+    df_copy["Lower_Band"] = df_copy["KAMA"] - atr_multiplier * df_copy["ATR"]
+    df_copy["Upper_Band"][:atr_window] = None
+    df_copy["Lower_Band"][:atr_window] = None
 
     # STOCASTICO
     stoch_indicator = StochasticOscillator(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        window=rsi_window,
-        smooth_window=3
+        high=df_copy["High"], low=df_copy["Low"], close=df_copy["Close"], window=rsi_window, smooth_window=3
     )
-    df_copy['STOCH'] = stoch_indicator.stoch()
-    df_copy['STOCH_S'] = stoch_indicator.stoch_signal()
+    df_copy["STOCH"] = stoch_indicator.stoch()
+    df_copy["STOCH_S"] = stoch_indicator.stoch_signal()
 
     tsi_indicator = TSIIndicator(
-        close=df_copy['Close'],
+        close=df_copy["Close"],
         window_slow=25,
         window_fast=13,
     )
-    df_copy['TSI'] = tsi_indicator.tsi()
+    df_copy["TSI"] = tsi_indicator.tsi()
 
     return df_copy
 
@@ -406,24 +429,21 @@ def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, 
     # Se la finestra è troppo corta, restituiamo df_copy con tutte None
     if len(temp_df) < atr_window:
         df_copy = df.copy()
-        df_copy['ATR'] = None
-        df_copy['EMA20'] = None
-        df_copy['Upper_Band'] = None
-        df_copy['Lower_Band'] = None
-        df_copy['PSAR'] = None
+        df_copy["ATR"] = None
+        df_copy["EMA20"] = None
+        df_copy["Upper_Band"] = None
+        df_copy["Lower_Band"] = None
+        df_copy["PSAR"] = None
         return df_copy
 
     # ATR
     atr_indicator = AverageTrueRange(
-        high=temp_df['High'],
-        low=temp_df['Low'],
-        close=temp_df['Close'],
-        window=atr_window
+        high=temp_df["High"], low=temp_df["Low"], close=temp_df["Close"], window=atr_window
     )
     atr = atr_indicator.average_true_range()
 
     # EMA (Media Mobile per le Rolling ATR Bands)
-    ema_indicator = EMAIndicator(close=temp_df['Close'], window=atr_window)
+    ema_indicator = EMAIndicator(close=temp_df["Close"], window=atr_window)
     ema = ema_indicator.ema_indicator()
 
     # kama_indicator = KAMAIndicator(close=temp_df['Close'],
@@ -435,15 +455,21 @@ def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, 
     # temp_df['Upper_Band'] = ema + atr_multiplier * atr
     # temp_df['Lower_Band'] = ema - atr_multiplier * atr
 
-    temp_df['Upper_Band'] = ema + atr_multiplier * atr
-    temp_df['Lower_Band'] = ema - atr_multiplier * atr
+    temp_df["Upper_Band"] = ema + atr_multiplier * atr
+    temp_df["Lower_Band"] = ema - atr_multiplier * atr
 
     return temp_df
 
 
 @st.cache_data
-def simulate_candles(raw_df, atr_window: int = 6, atr_multiplier: float = 2, step: float = 0.01, max_step: float = 0.4,
-                     stop_loss_percent: float = 99.0):
+def simulate_candles(
+    raw_df,
+    atr_window: int = 6,
+    atr_multiplier: float = 2,
+    step: float = 0.01,
+    max_step: float = 0.4,
+    stop_loss_percent: float = 99.0,
+):
     """
     raw_df: DataFrame con colonne ['Open', 'High', 'Low', 'Close', 'Volume']
     Altre parametri: come nel tuo add_technical_indicator.
@@ -470,13 +496,13 @@ def simulate_candles(raw_df, atr_window: int = 6, atr_multiplier: float = 2, ste
     # Loop sulle candele
     for i in range(len(df)):
 
-        o = df['Open'].iloc[i]
-        h = df['High'].iloc[i]
-        l = df['Low'].iloc[i]
-        c = df['Close'].iloc[i]
+        o = df["Open"].iloc[i]
+        h = df["High"].iloc[i]
+        l = df["Low"].iloc[i]
+        c = df["Close"].iloc[i]
 
         n_steps = 10
-        is_green = (c >= o)
+        is_green = c >= o
 
         # Verifichiamo se è candela verde o rossa
         # (puoi anche decidere con un'altra logica, es: "Close >= Open => verde" di default)
@@ -534,36 +560,49 @@ def simulate_candles(raw_df, atr_window: int = 6, atr_multiplier: float = 2, ste
 
             temp_df = df.copy()
             # Sovrascrivi sulla candela i-esima i valori dinamici
-            temp_df.at[temp_df.index[i], 'Open'] = step_open
-            temp_df.at[temp_df.index[i], 'High'] = step_high
-            temp_df.at[temp_df.index[i], 'Low'] = step_low
-            temp_df.at[temp_df.index[i], 'Close'] = step_close
+            temp_df.at[temp_df.index[i], "Open"] = step_open
+            temp_df.at[temp_df.index[i], "High"] = step_high
+            temp_df.at[temp_df.index[i], "Low"] = step_low
+            temp_df.at[temp_df.index[i], "Close"] = step_close
 
-            df_utile = calculate_latest_indicators(i=i, df=temp_df, atr_window=atr_window,
-                                                   atr_multiplier=atr_multiplier)
+            df_utile = calculate_latest_indicators(
+                i=i, df=temp_df, atr_window=atr_window, atr_multiplier=atr_multiplier
+            )
 
             row = df_utile.iloc[-1]
             # Condizione di BUY
-            if (not holding and last_signal_candle_index != i and
-                    row['Lower_Band'] is not None and row['Close'] <= row['Lower_Band'] and
-                    not (got_stop_loss and row['PSAR'] is not None and row['PSAR'] > row['Close'])):
-                buy_signals.append((df.index[i], float(row['Close'])))
+            if (
+                not holding
+                and last_signal_candle_index != i
+                and row["Lower_Band"] is not None
+                and row["Close"] <= row["Lower_Band"]
+                and not (got_stop_loss and row["PSAR"] is not None and row["PSAR"] > row["Close"])
+            ):
+                buy_signals.append((df.index[i], float(row["Close"])))
                 holding = True
                 last_signal_candle_index = i
                 got_stop_loss = False
-                stop_loss_price = float(row['Close']) * (1 - stop_loss_decimal)
+                stop_loss_price = float(row["Close"]) * (1 - stop_loss_decimal)
             # Condizione di SELL
-            if (holding and last_signal_candle_index != i and
-                    row['Upper_Band'] is not None and row['Close'] >= row['Upper_Band']):
-                sell_signals.append((df.index[i], float(row['Close'])))
+            if (
+                holding
+                and last_signal_candle_index != i
+                and row["Upper_Band"] is not None
+                and row["Close"] >= row["Upper_Band"]
+            ):
+                sell_signals.append((df.index[i], float(row["Close"])))
                 holding = False
                 last_signal_candle_index = i
                 stop_loss_price = None
                 got_stop_loss = False
             # Condizione STOP LOSS
-            if (holding and stop_loss_price is not None and row['Close'] < stop_loss_price and
-                    row['PSAR'] > row['Close']):
-                sell_signals.append((df.index[i], float(row['Close'])))
+            if (
+                holding
+                and stop_loss_price is not None
+                and row["Close"] < stop_loss_price
+                and row["PSAR"] > row["Close"]
+            ):
+                sell_signals.append((df.index[i], float(row["Close"])))
                 holding = False
                 last_signal_candle_index = i
                 got_stop_loss = True
@@ -572,18 +611,17 @@ def simulate_candles(raw_df, atr_window: int = 6, atr_multiplier: float = 2, ste
     return buy_signals, sell_signals
 
 
-def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limit, rsi_sell_limit,
-                               num_cond):
+def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limit, rsi_sell_limit, num_cond):
     buy_signals = []
     sell_signals = []
     holding = False
 
     for i in range(1, len(df)):
         # CONDIZIONI DI BUY
-        cond_buy_macd = 1 if df['MACD'].iloc[i] <= macd_buy_limit else 0
+        cond_buy_macd = 1 if df["MACD"].iloc[i] <= macd_buy_limit else 0
         # cond_buy_macd2 = 1 if df['MACD'].iloc[i] > df['MACD'].tail(
         #     10).min() else 0  # il MACD ha invertito direzione
-        cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
+        cond_buy_rsi = 1 if df["RSI"].iloc[i] <= rsi_buy_limit else 0
         # cond_buy_vi = 1 if df['VI'].iloc[i] <= vi_buy_limit else 0
         # cond_buy_psarvp = 1 if df['PSARVP'].iloc[i] >= psarvp_buy_limit else 0
         # cond_buy_atr = 1 if df['Low'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
@@ -596,16 +634,16 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
         # + cond_buy_vi + cond_buy_psarvp + cond_buy_atr + cond_buy_srsi +
         # cond_buy_tsi + cond_buy_roc + cond_buy_pvo + cond_buy_mfi)
         if not holding and sum_buy >= num_cond:
-            if df['Low'].iloc[i] < df['Lower_Band'].iloc[i]:
-                buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+            if df["Low"].iloc[i] < df["Lower_Band"].iloc[i]:
+                buy_signals.append((df.index[i], float(df["Lower_Band"].iloc[i])))
             else:
-                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = True
         # CONDIZIONI DI SELL
-        cond_sell_macd = 1 if df['MACD'].iloc[i] >= macd_sell_limit else 0
+        cond_sell_macd = 1 if df["MACD"].iloc[i] >= macd_sell_limit else 0
         # cond_sell_macd2 = 1 if df['MACD'].iloc[i] < df['MACD'].tail(
         #    10).max() else 0  # il MACD ha invertito direzione
-        cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
+        cond_sell_rsi = 1 if df["RSI"].iloc[i] >= rsi_sell_limit else 0
         # cond_sell_vi = 1 if df['VI'].iloc[i] >= vi_sell_limit else 0
         # cond_sell_psavp = 1 if df['PSARVP'].iloc[i] <= psarvp_sell_limit else 0
         # cond_sell_atr = 1 if df['High'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
@@ -618,18 +656,24 @@ def buy_sell_limits_simulation(df, macd_buy_limit, macd_sell_limit, rsi_buy_limi
         # + cond_sell_vi + cond_sell_psavp + cond_sell_atr +
         # cond_sell_srsi + cond_sell_tsi + cond_sell_roc + cond_sell_pvo + cond_sell_mfi)
         if holding and sum_sell >= num_cond:
-            if df['High'].iloc[i] > df['Upper_Band'].iloc[i]:
-                sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+            if df["High"].iloc[i] > df["Upper_Band"].iloc[i]:
+                sell_signals.append((df.index[i], float(df["Upper_Band"].iloc[i])))
             else:
-                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = False
 
     return buy_signals, sell_signals
 
 
-def buy_sell_limits_close_simulation(df, rsi_buy_limit: int = 25, rsi_sell_limit: int = 75,
-                                     macd_buy_limit: float = -2.5, macd_sell_limit: float = 2.5,
-                                     num_cond: int = 1, stop_loss_percent: float = 99.0):
+def buy_sell_limits_close_simulation(
+    df,
+    rsi_buy_limit: int = 25,
+    rsi_sell_limit: int = 75,
+    macd_buy_limit: float = -2.5,
+    macd_sell_limit: float = 2.5,
+    num_cond: int = 1,
+    stop_loss_percent: float = 99.0,
+):
     buy_signals = []
     sell_signals = []
     holding = False
@@ -640,19 +684,19 @@ def buy_sell_limits_close_simulation(df, rsi_buy_limit: int = 25, rsi_sell_limit
 
     for i in range(1, len(df)):
         # CONDIZIONI DI BUY
-        cond_buy_atr = 1 if df['Close'].iloc[i] <= df['Lower_Band'].iloc[i] else 0
-        cond_buy_rsi = 1 if df['RSI'].iloc[i] <= rsi_buy_limit else 0
+        cond_buy_atr = 1 if df["Close"].iloc[i] <= df["Lower_Band"].iloc[i] else 0
+        cond_buy_rsi = 1 if df["RSI"].iloc[i] <= rsi_buy_limit else 0
         sum_buy = cond_buy_rsi + cond_buy_atr
         if not holding and last_signal_candle_index != i and sum_buy >= num_cond:
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = True
             last_signal_candle_index = i
         # CONDIZIONI DI SELL
-        cond_sell_rsi = 1 if df['RSI'].iloc[i] >= rsi_sell_limit else 0
-        cond_sell_atr = 1 if df['Close'].iloc[i] >= df['Upper_Band'].iloc[i] else 0
+        cond_sell_rsi = 1 if df["RSI"].iloc[i] >= rsi_sell_limit else 0
+        cond_sell_atr = 1 if df["Close"].iloc[i] >= df["Upper_Band"].iloc[i] else 0
         sum_sell = cond_sell_rsi + cond_sell_atr
         if holding and last_signal_candle_index != i and sum_sell >= num_cond:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = False
             last_signal_candle_index = i
 
@@ -670,20 +714,26 @@ def close_rsi_buy_sell_limits_simulation(df):
         # if (not holding and last_signal_candle_index != i and
         #         df['RSI'].iloc[i - 1] > df['RSI2'].iloc[i - 1] and
         #         df['RSI'].iloc[i] < df['RSI2'].iloc[i]):
-        if (not holding and last_signal_candle_index != i and
-                df['RSI'].iloc[i - 1] < df['RSI2'].iloc[i - 1] and
-                df['RSI'].iloc[i] > df['RSI2'].iloc[i]):
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if (
+            not holding
+            and last_signal_candle_index != i
+            and df["RSI"].iloc[i - 1] < df["RSI2"].iloc[i - 1]
+            and df["RSI"].iloc[i] > df["RSI2"].iloc[i]
+        ):
+            buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = True
             last_signal_candle_index = i
         # CONDIZIONI DI SELL
         # if (holding and last_signal_candle_index != i and
         #         df['RSI'].iloc[i - 1] < df['RSI2'].iloc[i - 1] and
         #         df['RSI'].iloc[i] > df['RSI2'].iloc[i]):
-        if (holding and last_signal_candle_index != i and
-                df['RSI'].iloc[i - 1] > df['RSI2'].iloc[i - 1] and
-                df['RSI'].iloc[i] < df['RSI2'].iloc[i]):
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if (
+            holding
+            and last_signal_candle_index != i
+            and df["RSI"].iloc[i - 1] > df["RSI2"].iloc[i - 1]
+            and df["RSI"].iloc[i] < df["RSI2"].iloc[i]
+        ):
+            sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = False
             last_signal_candle_index = i
 
@@ -701,21 +751,29 @@ def atr_buy_sell_simulation(df, stop_loss_percent):
     stop_loss_decimal = stop_loss_percent / 100
 
     for i in range(1, len(df)):
-        if (not holding and last_signal_candle_index != i and df['Low'].iloc[i] <= df['Lower_Band'].iloc[i]
-                and not (got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i])):
-            buy_signals.append((df.index[i], float(df['Lower_Band'].iloc[i])))
+        if (
+            not holding
+            and last_signal_candle_index != i
+            and df["Low"].iloc[i] <= df["Lower_Band"].iloc[i]
+            and not (got_stop_loss and df["PSAR"].iloc[i] > df["Close"].iloc[i])
+        ):
+            buy_signals.append((df.index[i], float(df["Lower_Band"].iloc[i])))
             holding = True
             last_signal_candle_index = i
             got_stop_loss = False
-            stop_loss_price = df['Lower_Band'].iloc[i] * (1 - stop_loss_decimal)
-        if holding and last_signal_candle_index != i and df['High'].iloc[i] >= df['Upper_Band'].iloc[i]:
-            sell_signals.append((df.index[i], float(df['Upper_Band'].iloc[i])))
+            stop_loss_price = df["Lower_Band"].iloc[i] * (1 - stop_loss_decimal)
+        if holding and last_signal_candle_index != i and df["High"].iloc[i] >= df["Upper_Band"].iloc[i]:
+            sell_signals.append((df.index[i], float(df["Upper_Band"].iloc[i])))
             holding = False
             last_signal_candle_index = i
             stop_loss_price = None
             got_stop_loss = False
-        if (holding and stop_loss_price is not None and df['Low'].iloc[i] < stop_loss_price and
-                df['PSAR'].iloc[i] > df['Close'].iloc[i]):
+        if (
+            holding
+            and stop_loss_price is not None
+            and df["Low"].iloc[i] < stop_loss_price
+            and df["PSAR"].iloc[i] > df["Close"].iloc[i]
+        ):
             # devo vendere per STOP LOSS
             sell_signals.append((df.index[i], stop_loss_price))
             holding = False
@@ -737,23 +795,31 @@ def close_atr_buy_sell_simulation(df, stop_loss_percent):
     stop_loss_decimal = stop_loss_percent / 100
 
     for i in range(1, len(df)):
-        if (not holding and last_signal_candle_index != i and df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
-                and not (got_stop_loss and df['PSAR'].iloc[i] > df['Close'].iloc[i])):
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if (
+            not holding
+            and last_signal_candle_index != i
+            and df["Close"].iloc[i] <= df["Lower_Band"].iloc[i]
+            and not (got_stop_loss and df["PSAR"].iloc[i] > df["Close"].iloc[i])
+        ):
+            buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = True
             last_signal_candle_index = i
             got_stop_loss = False
-            stop_loss_price = float(df['Close'].iloc[i]) * (1 - stop_loss_decimal)
-        if holding and last_signal_candle_index != i and df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            stop_loss_price = float(df["Close"].iloc[i]) * (1 - stop_loss_decimal)
+        if holding and last_signal_candle_index != i and df["Close"].iloc[i] >= df["Upper_Band"].iloc[i]:
+            sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = False
             last_signal_candle_index = i
             stop_loss_price = None
             got_stop_loss = False
-        if (holding and stop_loss_price is not None and df['Close'].iloc[i] < stop_loss_price and
-                df['PSAR'].iloc[i] > df['Close'].iloc[i]):
+        if (
+            holding
+            and stop_loss_price is not None
+            and df["Close"].iloc[i] < stop_loss_price
+            and df["PSAR"].iloc[i] > df["Close"].iloc[i]
+        ):
             # devo vendere per STOP LOSS
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = False
             last_signal_candle_index = i
             got_stop_loss = True
@@ -769,14 +835,13 @@ def close_ema_crossover_simulation(df):
     first_break = False
     second_break = False
     for i in range(1, len(df)):
-        ema50ema100up = (df["EMA"].iloc[i - 1] <= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] > df["EMA2"].iloc[i])
-        ema50ema200up = (df["EMA"].iloc[i - 1] <= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] > df["EMA3"].iloc[i])
-        ema100ema200up = (df["EMA2"].iloc[i - 1] <= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] > df["EMA3"].iloc[i])
+        ema50ema100up = df["EMA"].iloc[i - 1] <= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] > df["EMA2"].iloc[i]
+        ema50ema200up = df["EMA"].iloc[i - 1] <= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] > df["EMA3"].iloc[i]
+        ema100ema200up = df["EMA2"].iloc[i - 1] <= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] > df["EMA3"].iloc[i]
 
-        ema50ema100down = (df["EMA"].iloc[i - 1] >= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA2"].iloc[i])
-        ema50ema200down = (df["EMA"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA3"].iloc[i])
-        ema100ema200down = (
-                df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i])
+        ema50ema100down = df["EMA"].iloc[i - 1] >= df["EMA2"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA2"].iloc[i]
+        ema50ema200down = df["EMA"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA"].iloc[i] < df["EMA3"].iloc[i]
+        ema100ema200down = df["EMA2"].iloc[i - 1] >= df["EMA3"].iloc[i - 1] and df["EMA2"].iloc[i] < df["EMA3"].iloc[i]
 
         if not holding:
             # non si verifica le sequenza esatta
@@ -792,7 +857,7 @@ def close_ema_crossover_simulation(df):
             if second_break and ema100ema200up:
                 first_break = False
                 second_break = False
-                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
                 holding = True
 
         if holding:
@@ -809,7 +874,7 @@ def close_ema_crossover_simulation(df):
             if second_break and ema100ema200down:
                 first_break = False
                 second_break = False
-                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+                sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
                 holding = False
 
     return buy_signals, sell_signals
@@ -821,25 +886,31 @@ def close_bullish_ema_simulation(df, rsi_buy_limit: int = 50, rsi_sell_limit: in
     holding = False
     n = 30
     for i in range(1, len(df)):
-        cond_1 = df['EMA20'][i - n:i] > df['EMA2'][i - n:i]
-        cond_2 = df['EMA2'][i - n:i] > df['EMA3'][i - n:i]
+        cond_1 = df["EMA20"][i - n : i] > df["EMA2"][i - n : i]
+        cond_2 = df["EMA2"][i - n : i] > df["EMA3"][i - n : i]
         cond_ema = (cond_1 & cond_2).all()
-        if (not holding and cond_ema and (
-                df['EMA20'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i])  # trend rialzista nel breve termine
-                # and df['ADX'].iloc[i] > 30  # conferma della forza del trend
-                # and df['EMA2'].iloc[i] < df['Upper_Band3'].iloc[i]  # il prezzo oscilla attorno alla media lunga
-                and df['Close'].iloc[i] > df['EMA3'].iloc[i]  # il prezzo sta sopra alla media lunga
-                and rsi_buy_limit <= df['RSI'].iloc[
-                    i] < rsi_sell_limit  # RSI compreso in una fascia che conferma il trend
-                # controlli sulle candele precedenti
-                and ((df['Low'].iloc[i - 1] < df['EMA2'].iloc[i - 1] < df['Close'].iloc[i - 1]) or
-                     (df['Low'].iloc[i - 1] < df['EMA3'].iloc[i - 1] < df['Close'].iloc[i - 1]))
-                and ((df['EMA2'].iloc[i - 2] < df['Low'].iloc[i - 2] < df['Close'].iloc[i - 2]) or
-                     (df['EMA3'].iloc[i - 2] < df['Low'].iloc[i - 2] < df['Close'].iloc[i - 2]))):
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if (
+            not holding
+            and cond_ema
+            and (df["EMA20"].iloc[i] > df["EMA2"].iloc[i] > df["EMA3"].iloc[i])  # trend rialzista nel breve termine
+            # and df['ADX'].iloc[i] > 30  # conferma della forza del trend
+            # and df['EMA2'].iloc[i] < df['Upper_Band3'].iloc[i]  # il prezzo oscilla attorno alla media lunga
+            and df["Close"].iloc[i] > df["EMA3"].iloc[i]  # il prezzo sta sopra alla media lunga
+            and rsi_buy_limit <= df["RSI"].iloc[i] < rsi_sell_limit  # RSI compreso in una fascia che conferma il trend
+            # controlli sulle candele precedenti
+            and (
+                (df["Low"].iloc[i - 1] < df["EMA2"].iloc[i - 1] < df["Close"].iloc[i - 1])
+                or (df["Low"].iloc[i - 1] < df["EMA3"].iloc[i - 1] < df["Close"].iloc[i - 1])
+            )
+            and (
+                (df["EMA2"].iloc[i - 2] < df["Low"].iloc[i - 2] < df["Close"].iloc[i - 2])
+                or (df["EMA3"].iloc[i - 2] < df["Low"].iloc[i - 2] < df["Close"].iloc[i - 2])
+            )
+        ):
+            buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = True
-        if holding and df['RSI'].iloc[i] > rsi_sell_limit:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if holding and df["RSI"].iloc[i] > rsi_sell_limit:
+            sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = False
 
     return buy_signals, sell_signals
@@ -855,23 +926,30 @@ def tp_sl_simulation(df):
     stop_loss_price = None
 
     for i in range(1, len(df)):
-        if (not holding and last_signal_candle_index != i and
-                df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]):
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if not holding and last_signal_candle_index != i and df["Close"].iloc[i] >= df["Upper_Band"].iloc[i]:
+            buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = True
             last_signal_candle_index = i
-            stop_loss_price = float(df['Lower_Band'].iloc[i])
-            take_profit_price =  df['Close'].iloc[i] + (df['Close'].iloc[i] - stop_loss_price)
-        if (holding and take_profit_price is not None and last_signal_candle_index != i and
-                df['High'].iloc[i] >= take_profit_price):
+            stop_loss_price = float(df["Lower_Band"].iloc[i])
+            take_profit_price = df["Close"].iloc[i] + (df["Close"].iloc[i] - stop_loss_price)
+        if (
+            holding
+            and take_profit_price is not None
+            and last_signal_candle_index != i
+            and df["High"].iloc[i] >= take_profit_price
+        ):
             # vengo per TAKE PROFIT
             sell_signals.append((df.index[i], take_profit_price))
             holding = False
             last_signal_candle_index = i
             stop_loss_price = None
             take_profit_price = None
-        if (holding and stop_loss_price is not None and last_signal_candle_index != i and
-                df['Low'].iloc[i] <= stop_loss_price):
+        if (
+            holding
+            and stop_loss_price is not None
+            and last_signal_candle_index != i
+            and df["Low"].iloc[i] <= stop_loss_price
+        ):
             # devo vendere per STOP LOSS
             sell_signals.append((df.index[i], stop_loss_price))
             holding = False
@@ -888,19 +966,23 @@ def green_candles_simulation(df):
     holding = False
 
     for i in range(1, len(df)):
-        if (not holding and df['Close'].iloc[i-1] < df['Open'].iloc[i-1] and
-                df['Close'].iloc[i] > df['High'].iloc[i-1]):
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if (
+            not holding
+            and df["Close"].iloc[i - 1] < df["Open"].iloc[i - 1]
+            and df["Close"].iloc[i] > df["High"].iloc[i - 1]
+        ):
+            buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = True
-        if (holding and df['Close'].iloc[i-1] > df['Open'].iloc[i-1] and
-                df['Close'].iloc[i] < df['Low'].iloc[i-1]):
-            sell_signals.append((df.index[i],  float(df['Close'].iloc[i])))
+        if holding and df["Close"].iloc[i - 1] > df["Open"].iloc[i - 1] and df["Close"].iloc[i] < df["Low"].iloc[i - 1]:
+            sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = False
 
     return buy_signals, sell_signals
 
-def simulate_trading_with_commisions(buy_signals: list, sell_signals: list, wallet: float = 100,
-                                     fee_percent: float = 0.1):
+
+def simulate_trading_with_commisions(
+    buy_signals: list, sell_signals: list, wallet: float = 100, fee_percent: float = 0.1
+):
     operations = []
     holding = False  # Flag che indica se stiamo detenendo l'asset
     quantity = 0.0  # Quantità dell'asset comprata
@@ -936,23 +1018,26 @@ def simulate_trading_with_commisions(buy_signals: list, sell_signals: list, wall
             # Aggiorniamo working_wallet
             working_wallet = net_proceed
             # Registriamo il trade in un'unica riga
-            operations.append({
-                'Buy_Time': buy_time,
-                'Buy_Price': buy_price,
-                'Sell_Time': sell_time,
-                'Sell_Price': sell_price,
-                'Quantity': quantity,
-                'Profit': profit,
-                'Wallet_After': working_wallet
-            })
+            operations.append(
+                {
+                    "Buy_Time": buy_time,
+                    "Buy_Price": buy_price,
+                    "Sell_Time": sell_time,
+                    "Sell_Price": sell_price,
+                    "Quantity": quantity,
+                    "Profit": profit,
+                    "Wallet_After": working_wallet,
+                }
+            )
             # Resettiamo lo stato
             holding = False
             quantity = 0.0
     return operations
 
 
-def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signals: list, wallet: float = 100,
-                                                  fee_percent: float = 0.1):
+def simulate_trading_with_commisions_multiple_buy(
+    buy_signals: list, sell_signals: list, wallet: float = 100, fee_percent: float = 0.1
+):
     operations = []
     holding = False  # Flag che indica se stiamo detenendo l'asset
     quantity = 0.0  # Quantità dell'asset comprata
@@ -976,7 +1061,7 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
         net_invested = (working_wallet * buy_percentage) * (1 - fee_decimal)
         # quantità di crypto ottenuta
         quantity = net_invested / buy_price
-        working_wallet -= (working_wallet * buy_percentage)
+        working_wallet -= working_wallet * buy_percentage
         holding = True
         next = b + 1
         while next < len(buy_signals):
@@ -986,11 +1071,11 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
                 if buy_time < sell_time:
                     # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
                     # utilizzo metà del working wallet
-                    total_buy += (working_wallet * buy_percentage)
+                    total_buy += working_wallet * buy_percentage
                     net_invested = (working_wallet * buy_percentage) * (1 - fee_decimal)
                     # quantità di crypto ottenuta
                     quantity += net_invested / buy_price
-                    working_wallet -= (working_wallet * buy_percentage)
+                    working_wallet -= working_wallet * buy_percentage
                     b = next
                 else:
                     break
@@ -1014,15 +1099,17 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
             # Aggiorniamo working_wallet
             working_wallet += net_proceed
             # Registriamo il trade in un'unica riga
-            operations.append({
-                'Buy_Time': buy_time,
-                'Buy_Price': buy_price,
-                'Sell_Time': sell_time,
-                'Sell_Price': sell_price,
-                'Quantity': quantity,
-                'Profit': profit,
-                'Wallet_After': working_wallet
-            })
+            operations.append(
+                {
+                    "Buy_Time": buy_time,
+                    "Buy_Price": buy_price,
+                    "Sell_Time": sell_time,
+                    "Sell_Price": sell_price,
+                    "Quantity": quantity,
+                    "Profit": profit,
+                    "Wallet_After": working_wallet,
+                }
+            )
             # Resettiamo lo stato
             holding = False
             quantity = 0.0
@@ -1031,24 +1118,24 @@ def simulate_trading_with_commisions_multiple_buy(buy_signals: list, sell_signal
     return operations
 
 
-def bullish_condition(df,i) -> bool:
+def bullish_condition(df, i) -> bool:
     # cond_bullish = (df['EMA20'].iloc[i] > df['EMA2'].iloc[i] > df['EMA3'].iloc[i] and
     #                 df['RSI'].iloc[i] > df['RSI2'].iloc[i] > df['RSI3'].iloc[i] and
     #                 df['STOCH'].iloc[i] > df['STOCH_S'].iloc[i])
 
     # cond_bullish = df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]
-    cond_bullish = df['EMA20'].iloc[i] >= df['EMA200'].iloc[i]
+    cond_bullish = df["EMA20"].iloc[i] >= df["EMA200"].iloc[i]
 
     return cond_bullish
 
 
-def bearish_condition (df, i) -> bool:
+def bearish_condition(df, i) -> bool:
     # cond_bearish = (df['EMA20'].iloc[i] < df['EMA2'].iloc[i] < df['EMA3'].iloc[i] and
     #                 df['RSI'].iloc[i] < df['RSI2'].iloc[i] < df['RSI3'].iloc[i] and
     #                 df['STOCH'].iloc[i] < df['STOCH_S'].iloc[i])
     #
     # cond_bearish = df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
-    cond_bearish = df['EMA20'].iloc[i] < df['EMA200'].iloc[i]
+    cond_bearish = df["EMA20"].iloc[i] < df["EMA200"].iloc[i]
 
     return cond_bearish
 
@@ -1079,8 +1166,8 @@ def identify_trend_zones(df: pd.DataFrame) -> list:
     for i in range(len(df)):
         # Valuta le condizioni per bullish e bearish
 
-        cond_bullish = bullish_condition(df,i)
-        cond_bearish = bearish_condition(df,i)
+        cond_bullish = bullish_condition(df, i)
+        cond_bearish = bearish_condition(df, i)
 
         # if current_trend != "bearish" and cond_bearish:
         #     new_trend = "bearish"
@@ -1124,7 +1211,7 @@ def identify_trend_zones(df: pd.DataFrame) -> list:
                         fillcolor=fillcolor,
                         opacity=opacity_val,
                         layer="below",  # la zona resta sotto le candele
-                        line_width=0  # niente contorno
+                        line_width=0,  # niente contorno
                     )
                 )
 
@@ -1159,7 +1246,7 @@ def identify_trend_zones(df: pd.DataFrame) -> list:
                 fillcolor=fillcolor,
                 opacity=opacity_val,
                 layer="below",
-                line_width=0
+                line_width=0,
             )
         )
 
@@ -1178,9 +1265,9 @@ def supertrend_simulation(df):
 
     for i in range(1, len(df)):
         # cond_bullish = bullish_condition(df, i)
-        cond_bullish = df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]
+        cond_bullish = df["Close"].iloc[i] >= df["Upper_Band"].iloc[i]
         # cond_bearish = bearish_condition(df, i)
-        cond_bearish = df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
+        cond_bearish = df["Close"].iloc[i] <= df["Lower_Band"].iloc[i]
         if cond_bullish:
             new_trend = "bullish"
         elif cond_bearish:
@@ -1189,24 +1276,24 @@ def supertrend_simulation(df):
             new_trend = None
 
         if new_trend is not None and new_trend != current_trend:
-            if not holding and new_trend == 'bullish':
-                buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            if not holding and new_trend == "bullish":
+                buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
                 holding = True
-                stop_loss_price = df['Lower_Band'].iloc[i]
-                take_profit_price = df['Close'].iloc[i] + (df['Close'].iloc[i] - stop_loss_price)*1.618
+                stop_loss_price = df["Lower_Band"].iloc[i]
+                take_profit_price = df["Close"].iloc[i] + (df["Close"].iloc[i] - stop_loss_price) * 1.618
 
-            if holding and new_trend == 'bearish':
-                sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+            if holding and new_trend == "bearish":
+                sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
                 holding = False
 
-        if holding and take_profit_price is not None and df['High'].iloc[i] >= take_profit_price:
+        if holding and take_profit_price is not None and df["High"].iloc[i] >= take_profit_price:
             # vengo per TAKE PROFIT
             sell_signals.append((df.index[i], take_profit_price))
             holding = False
             stop_loss_price = None
             take_profit_price = None
 
-        if holding and stop_loss_price is not None and df['Low'].iloc[i] <= stop_loss_price:
+        if holding and stop_loss_price is not None and df["Low"].iloc[i] <= stop_loss_price:
             # devo vendere per STOP LOSS
             sell_signals.append((df.index[i], stop_loss_price))
             holding = False
@@ -1225,71 +1312,92 @@ def supertrend_simulation(df):
 
     return buy_signals, sell_signals
 
+
 def trend_zone_simulation(df):
     buy_signals = []
     sell_signals = []
     holding = False
     for i in range(1, len(df)):
-        if not holding and df['EMA20'].iloc[i] > df['EMA200'].iloc[i]:
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if not holding and df["EMA20"].iloc[i] > df["EMA200"].iloc[i]:
+            buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = True
 
-        if holding and df['EMA20'].iloc[i] <= df['EMA200'].iloc[i]:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if holding and df["EMA20"].iloc[i] <= df["EMA200"].iloc[i]:
+            sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = False
 
     return buy_signals, sell_signals
+
 
 def get_green_red_percentage(df: pd.DataFrame):
     # calcola la percentuale di candele verdi dopo una candela verde e dopo una candela rossa
     green = 0
     green_after_green = 0
     for i in range(1, len(df)):
-        if df['Close'].iloc[i] > df['Open'].iloc[i]:
+        if df["Close"].iloc[i] > df["Open"].iloc[i]:
             # candela verde
             green += 1
-            if df['Close'].iloc[i - 1] > df['Open'].iloc[i - 1]:
+            if df["Close"].iloc[i - 1] > df["Open"].iloc[i - 1]:
                 # candela verde precedente
                 green_after_green += 1
 
     return green_after_green / green
 
+
 def ai_model_simulation(df, model):
     # FEATURES = ['Open', 'High', 'Low', 'Close', 'RSI', 'STOCH', 'STOCH_S', 'ATR', 'TSI']
     # WINDOW_SIZE = 20
 
-    df_preds = get_model_predictions(df, model) #, FEATURES, WINDOW_SIZE)
-    df = df.merge(df_preds[['Prediction']], left_index=True, right_index=True, how='left')
-    df['Prediction'].fillna(0, inplace=True)  # Default to hold
+    df_preds = get_model_predictions(df, model)  # , FEATURES, WINDOW_SIZE)
+    df = df.merge(df_preds[["Prediction"]], left_index=True, right_index=True, how="left")
+    df["Prediction"].fillna(0, inplace=True)  # Default to hold
     # Buy = 1, Sell = 2, Hold = 0
     buy_signals = []
     sell_signals = []
     holding = False
     for i in range(1, len(df)):
-        if df['Prediction'].iloc[i] == 1:# and not holding:
-            buy_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if df["Prediction"].iloc[i] == 1:  # and not holding:
+            buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = True
-        if df['Prediction'].iloc[i] == 2:# and holding:
-            sell_signals.append((df.index[i], float(df['Close'].iloc[i])))
+        if df["Prediction"].iloc[i] == 2:  # and holding:
+            sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
             holding = False
 
     return buy_signals, sell_signals
 
+
 def trading_analysis(
-        asset: str, interval: str, wallet: float, time_hours: int = 24,
-        fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
-        show: bool = True,
-        step: float = 0.01, max_step: float = 0.4,
-        atr_multiplier: float = 1.5, atr_window: int = 12, window_pivot: int = 80,
-        rsi_window: int = 10, rsi_window2: int = 20, rsi_window3: int = 30,
-        ema_window: int = 12, ema_window2: int = 24, ema_window3: int = 36,
-        macd_short_window: int = 12, macd_long_window: int = 26, macd_signal_window: int = 9,
-        kama_pow1:int = 2, kama_pow2:int = 30,
-        rsi_buy_limit: int = 40, rsi_sell_limit: int = 60,
-        macd_buy_limit: float = -0.4, macd_sell_limit: float = 0.4,
-        num_cond: int = 1, stop_loss: int = 99,
-        strategia: str = "", market_data: dict = None,
-        # din_macd_div: float = 1.2, modello = None
+    asset: str,
+    interval: str,
+    wallet: float,
+    time_hours: int = 24,
+    fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
+    show: bool = True,
+    step: float = 0.01,
+    max_step: float = 0.4,
+    atr_multiplier: float = 1.5,
+    atr_window: int = 12,
+    window_pivot: int = 80,
+    rsi_window: int = 10,
+    rsi_window2: int = 20,
+    rsi_window3: int = 30,
+    ema_window: int = 12,
+    ema_window2: int = 24,
+    ema_window3: int = 36,
+    macd_short_window: int = 12,
+    macd_long_window: int = 26,
+    macd_signal_window: int = 9,
+    kama_pow1: int = 2,
+    kama_pow2: int = 30,
+    rsi_buy_limit: int = 40,
+    rsi_sell_limit: int = 60,
+    macd_buy_limit: float = -0.4,
+    macd_sell_limit: float = 0.4,
+    num_cond: int = 1,
+    stop_loss: int = 99,
+    strategia: str = "",
+    market_data: dict = None,
+    # din_macd_div: float = 1.2, modello = None
 ):
     """
     Scarica le candele di 'asset' con intervallo 'interval' (tramite una funzione
@@ -1337,8 +1445,8 @@ def trading_analysis(
 
     # Aggiungiamo una colonna per i massimi e i minimi relativi
     # # Utilizziamo i prezzi massimi ('High') e minimi ('Low')
-    price_high = df['High']
-    price_low = df['Low']
+    price_high = df["High"]
+    price_low = df["Low"]
     # Trova gli indici dei massimi e minimi relativi
     order = int(window_pivot / 2)
     max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
@@ -1348,23 +1456,33 @@ def trading_analysis(
     rel_min = []
     # Popola gli array con tuple (indice, prezzo)
     for i in min_idx:
-        rel_min.append((df.index[i], df.loc[df.index[i], 'Low']))
+        rel_min.append((df.index[i], df.loc[df.index[i], "Low"]))
     for i in max_idx:
-        rel_max.append((df.index[i], df.loc[df.index[i], 'High']))
+        rel_max.append((df.index[i], df.loc[df.index[i], "High"]))
 
     # dinamic_atr = False
     # if strategia == "Dinamic ATR Bands" or strategia == "Dinamic Close ATR":
     #     dinamic_atr = True
     # df = calculate_relative_extrema(df)
 
-    df = add_technical_indicator(df, step=step, max_step=max_step,
-                                 rsi_window=rsi_window, rsi_window2=rsi_window2, rsi_window3=rsi_window3,
-                                 ema_window=ema_window, ema_window2=ema_window2, ema_window3=ema_window3,
-                                 macd_long_window=macd_long_window, macd_short_window=macd_short_window,
-                                 macd_signal_window=macd_signal_window,
-                                 atr_window=atr_window, atr_multiplier=atr_multiplier,
-                                 kama_pow1=kama_pow1, kama_pow2=kama_pow2
-                                 )
+    df = add_technical_indicator(
+        df,
+        step=step,
+        max_step=max_step,
+        rsi_window=rsi_window,
+        rsi_window2=rsi_window2,
+        rsi_window3=rsi_window3,
+        ema_window=ema_window,
+        ema_window2=ema_window2,
+        ema_window3=ema_window3,
+        macd_long_window=macd_long_window,
+        macd_short_window=macd_short_window,
+        macd_signal_window=macd_signal_window,
+        atr_window=atr_window,
+        atr_multiplier=atr_multiplier,
+        kama_pow1=kama_pow1,
+        kama_pow2=kama_pow2,
+    )
 
     # ======================================
     # Identificazione dei segnali di acquisto e vendita in base alla strategia
@@ -1378,29 +1496,43 @@ def trading_analysis(
         buy_signals, sell_signals = close_atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
 
     if strategia == "Buy/Sell Limits":
-        buy_signals, sell_signals = (
-            buy_sell_limits_simulation(df=df,
-                                       macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
-                                       rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
-                                       num_cond=num_cond))
+        buy_signals, sell_signals = buy_sell_limits_simulation(
+            df=df,
+            macd_buy_limit=macd_buy_limit,
+            macd_sell_limit=macd_sell_limit,
+            rsi_buy_limit=rsi_buy_limit,
+            rsi_sell_limit=rsi_sell_limit,
+            num_cond=num_cond,
+        )
 
     if strategia == "Close Buy/Sell Limits":
-        buy_signals, sell_signals = (
-            buy_sell_limits_close_simulation(df=df,
-                                             macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,
-                                             rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,
-                                             num_cond=num_cond, stop_loss_percent=stop_loss))
+        buy_signals, sell_signals = buy_sell_limits_close_simulation(
+            df=df,
+            macd_buy_limit=macd_buy_limit,
+            macd_sell_limit=macd_sell_limit,
+            rsi_buy_limit=rsi_buy_limit,
+            rsi_sell_limit=rsi_sell_limit,
+            num_cond=num_cond,
+            stop_loss_percent=stop_loss,
+        )
 
     if strategia == "ATR Live Trade":
-        buy_signals, sell_signals = simulate_candles(raw_df=df, atr_window=atr_window, atr_multiplier=atr_multiplier,
-                                                     step=step, max_step=max_step, stop_loss_percent=stop_loss)
+        buy_signals, sell_signals = simulate_candles(
+            raw_df=df,
+            atr_window=atr_window,
+            atr_multiplier=atr_multiplier,
+            step=step,
+            max_step=max_step,
+            stop_loss_percent=stop_loss,
+        )
 
     if strategia == "Close EMA Crossover":
         buy_signals, sell_signals = close_ema_crossover_simulation(df=df)
 
     if strategia == "Close Bullish EMA":
-        buy_signals, sell_signals = close_bullish_ema_simulation(df=df, rsi_buy_limit=rsi_buy_limit,
-                                                                 rsi_sell_limit=rsi_sell_limit)
+        buy_signals, sell_signals = close_bullish_ema_simulation(
+            df=df, rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit
+        )
 
     if strategia == "Close RSI Reverse":
         buy_signals, sell_signals = close_rsi_buy_sell_limits_simulation(df=df)
@@ -1418,23 +1550,21 @@ def trading_analysis(
         buy_signals, sell_signals = green_candles_simulation(df=df)
 
     if strategia == "AI Model":
-        buy_signals, sell_signals = ai_model_simulation(df=df, model = st.session_state['model'])
+        buy_signals, sell_signals = ai_model_simulation(df=df, model=st.session_state["model"])
 
         # buy_signals.append((df[df['Prediction'] == 1].index, df[df['Prediction'] == 1]['Close']))
         # sell_signals.append((df[df['Prediction'] == 2].index, df[df['Prediction'] == 2]['Close']))
 
-
     # ======================================
     # Simulazione di trading con commissioni
-    if strategia == "Close MACD Retest": #or  strategia == "Trend Zones"
-        operations = simulate_trading_with_commisions_multiple_buy(wallet=wallet, buy_signals=buy_signals,
-                                                                   sell_signals=sell_signals, fee_percent=fee_percent)
+    if strategia == "Close MACD Retest":  # or  strategia == "Trend Zones"
+        operations = simulate_trading_with_commisions_multiple_buy(
+            wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
+        )
     else:
-        operations = simulate_trading_with_commisions(wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals,
-                                                      fee_percent=fee_percent)
-
-
-
+        operations = simulate_trading_with_commisions(
+            wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
+        )
 
     # ======================================
     # 4. Creazione del grafico
@@ -1445,19 +1575,28 @@ def trading_analysis(
     nominal_height = 1 / (rows + 1)
     candle_height = 2 * nominal_height
     row_heights = [candle_height] + [nominal_height] * (rows - 1)
-    fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0.02, row_heights=row_heights,
-                        subplot_titles=("Candlestick",
-                                        "True and Relative Strength Index and Stochastic (TSI / RSI / STOCH)",)
-                        )
+    fig = make_subplots(
+        rows=rows,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.02,
+        row_heights=row_heights,
+        subplot_titles=(
+            "Candlestick",
+            "True and Relative Strength Index and Stochastic (TSI / RSI / STOCH)",
+        ),
+    )
     if show:
         trend_shapes = identify_trend_zones(df=df)
         index = 1
         # Candele (candlestick)
-        fig.add_trace(go.Candlestick(
-            x=df.index,
-            open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
-            name=f"{asset}"
-        ), row=index, col=1)
+        fig.add_trace(
+            go.Candlestick(
+                x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name=f"{asset}"
+            ),
+            row=index,
+            col=1,
+        )
 
         # Punti SAR (marker rossi)
         # fig.add_trace(go.Scatter(
@@ -1470,111 +1609,138 @@ def trading_analysis(
         #     row=index, col=1
         # )
 
-        #EMA SHORT
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['EMA20'], mode='lines',
-            line=dict(color='Green', width=1),
-            name='EMA SHORT'
-        ), row=index, col=1)
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['EMA50'], mode='lines',
-            line=dict(color='purple', width=1),
-            name='EMA MED'
-        ), row=index, col=1)
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['EMA100'], mode='lines',
-            line=dict(color='coral', width=1),
-            name='EMA LONG'
-        ), row=index, col=1)
+        # EMA SHORT
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["EMA20"], mode="lines", line=dict(color="Green", width=1), name="EMA SHORT"),
+            row=index,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["EMA50"], mode="lines", line=dict(color="purple", width=1), name="EMA MED"),
+            row=index,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["EMA100"], mode="lines", line=dict(color="coral", width=1), name="EMA LONG"),
+            row=index,
+            col=1,
+        )
 
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['EMA200'], mode='lines',
-            line=dict(color='Red', width=1),
-            name='EMA OPEN'
-        ), row=index, col=1)
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["EMA200"], mode="lines", line=dict(color="Red", width=1), name="EMA OPEN"),
+            row=index,
+            col=1,
+        )
 
-        #KAMA
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['KAMA'], mode='lines',
-            line=dict(color='yellow', width=1),
-            name='KAMA'
-        ), row=index, col=1)
+        # KAMA
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["KAMA"], mode="lines", line=dict(color="yellow", width=1), name="KAMA"),
+            row=index,
+            col=1,
+        )
 
         # Rolling ATR Bands
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['Upper_Band'], mode='lines',
-            line=dict(color='yellow', width=1, dash='dash'),
-            name='Upper ATR'
-        ), row=index, col=1
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df["Upper_Band"],
+                mode="lines",
+                line=dict(color="yellow", width=1, dash="dash"),
+                name="Upper ATR",
+            ),
+            row=index,
+            col=1,
         )
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['Lower_Band'], mode='lines',
-            line=dict(color='yellow', width=1, dash='dash'),
-            name='Lower ATR'
-        ), row=index, col=1)
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df["Lower_Band"],
+                mode="lines",
+                line=dict(color="yellow", width=1, dash="dash"),
+                name="Lower ATR",
+            ),
+            row=index,
+            col=1,
+        )
 
         # Massimi relativi
         if rel_max:
             max_times, max_prices = zip(*rel_max)
-            fig.add_trace(go.Scatter(
-                x=max_times,
-                y=max_prices,
-                mode='markers',
-                marker=dict(size=10, color='red', symbol='square-open'),
-                name='Local Max'
-            ),
-                row=index, col=1
+            fig.add_trace(
+                go.Scatter(
+                    x=max_times,
+                    y=max_prices,
+                    mode="markers",
+                    marker=dict(size=10, color="red", symbol="square-open"),
+                    name="Local Max",
+                ),
+                row=index,
+                col=1,
             )
         # Minimi relativi
         if rel_min:
             min_times, min_prices = zip(*rel_min)
-            fig.add_trace(go.Scatter(
-                x=min_times,
-                y=min_prices,
-                mode='markers',
-                marker=dict(size=10, color='green', symbol='square-open'),
-                name='Local Min'
-            ),
-                row=index, col=1
+            fig.add_trace(
+                go.Scatter(
+                    x=min_times,
+                    y=min_prices,
+                    mode="markers",
+                    marker=dict(size=10, color="green", symbol="square-open"),
+                    name="Local Min",
+                ),
+                row=index,
+                col=1,
             )
 
         # Segnali di acquisto
         if buy_signals:
             buy_times, buy_prices = zip(*buy_signals)
-            fig.add_trace(go.Scatter(
-                x=buy_times, y=buy_prices, mode='markers',
-                marker=dict(size=14, color='green', symbol='triangle-up'),
-                name='Buy Signal'
-            ), row=index, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=buy_times,
+                    y=buy_prices,
+                    mode="markers",
+                    marker=dict(size=14, color="green", symbol="triangle-up"),
+                    name="Buy Signal",
+                ),
+                row=index,
+                col=1,
+            )
 
         # Segnali di vendita
         if sell_signals:
             sell_times, sell_prices = zip(*sell_signals)
-            fig.add_trace(go.Scatter(
-                x=sell_times, y=sell_prices, mode='markers',
-                marker=dict(size=14, color='red', symbol='triangle-down'),
-                name='Sell Signal'
-            ), row=index, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=sell_times,
+                    y=sell_prices,
+                    mode="markers",
+                    marker=dict(size=14, color="red", symbol="triangle-down"),
+                    name="Sell Signal",
+                ),
+                row=index,
+                col=1,
+            )
 
-        #STOCASTICO
+        # STOCASTICO
         index += 1
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['STOCH'], mode='lines',
-            line=dict(color='darkblue', width=1),
-            name='STOCH'
-        ), row=index, col=1)
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['STOCH_S'], mode='lines',
-            line=dict(color='darkcyan', width=1),
-            name='STOCH S'
-        ), row=index, col=1)
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["STOCH"], mode="lines", line=dict(color="darkblue", width=1), name="STOCH"),
+            row=index,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["STOCH_S"], mode="lines", line=dict(color="darkcyan", width=1), name="STOCH S"),
+            row=index,
+            col=1,
+        )
 
-        #TSI
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['TSI'], mode='lines',
-            line=dict(color='yellow', width=1),
-            name='TSI'
-        ), row=index, col=1)
+        # TSI
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["TSI"], mode="lines", line=dict(color="yellow", width=1), name="TSI"),
+            row=index,
+            col=1,
+        )
 
         # RSI
         # fig.add_trace(go.Scatter(
@@ -1582,31 +1748,43 @@ def trading_analysis(
         #     line=dict(color='orange', width=1),
         #     name='RSI SMOOTH'
         # ), row=index, col=1)
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['RSI'], mode='lines',
-            line=dict(color='salmon', width=1),
-            name='RSI SHORT'
-        ), row=index, col=1)
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['RSI2'], mode='lines',
-            line=dict(color='pink', width=1),
-            name='RSI MED'
-        ), row=index, col=1)
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['RSI3'], mode='lines',
-            line=dict(color='purple', width=1),
-            name='RSI LONG'
-        ), row=index, col=1)
-        fig.add_trace(go.Scatter(
-            x=[df.index.min(), df.index.max()], y=[rsi_sell_limit, rsi_sell_limit], mode='lines',
-            line=dict(color='red', width=1, dash='dash'),
-            name='Sell Limit'
-        ), row=index, col=1)
-        fig.add_trace(go.Scatter(
-            x=[df.index.min(), df.index.max()], y=[rsi_buy_limit, rsi_buy_limit], mode='lines',
-            line=dict(color='green', width=1, dash='dash'),
-            name='Buy Limit'
-        ), row=index, col=1)
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["RSI"], mode="lines", line=dict(color="salmon", width=1), name="RSI SHORT"),
+            row=index,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["RSI2"], mode="lines", line=dict(color="pink", width=1), name="RSI MED"),
+            row=index,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(x=df.index, y=df["RSI3"], mode="lines", line=dict(color="purple", width=1), name="RSI LONG"),
+            row=index,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[df.index.min(), df.index.max()],
+                y=[rsi_sell_limit, rsi_sell_limit],
+                mode="lines",
+                line=dict(color="red", width=1, dash="dash"),
+                name="Sell Limit",
+            ),
+            row=index,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[df.index.min(), df.index.max()],
+                y=[rsi_buy_limit, rsi_buy_limit],
+                mode="lines",
+                line=dict(color="green", width=1, dash="dash"),
+                name="Buy Limit",
+            ),
+            row=index,
+            col=1,
+        )
 
         # MACD
         # index += 1
@@ -1639,10 +1817,7 @@ def trading_analysis(
         # ), row=index, col=1)
 
         fig.update_layout(
-            template="plotly_dark",
-            xaxis_rangeslider_visible=False,
-            height=total_height,
-            shapes=trend_shapes
+            template="plotly_dark", xaxis_rangeslider_visible=False, height=total_height, shapes=trend_shapes
         )
 
     # ======================================
@@ -1650,28 +1825,29 @@ def trading_analysis(
     if operations:
         trades_df = pd.DataFrame(operations)
         # Aggiungiamo qualche metrica sul periodo analizzato
-        apertura = df['Open'].iloc[0]  # Prezzo di apertura (prima candela)
-        chiusura = df['Close'].iloc[-1]  # Prezzo di chiusura (ultima candela)
-        high_max = df['High'].max()
-        low_min = df['Low'].min()
+        apertura = df["Open"].iloc[0]  # Prezzo di apertura (prima candela)
+        chiusura = df["Close"].iloc[-1]  # Prezzo di chiusura (ultima candela)
+        high_max = df["High"].max()
+        low_min = df["Low"].min()
         # Variazione percentuale (close finale su open iniziale)
         variazione = (chiusura - apertura) / apertura * 100
         # Volatilità: std dei rendimenti "Close-to-Close", in termini %
-        volatilita = df['Close'].pct_change().std() * 100
+        volatilita = df["Close"].pct_change().std() * 100
         # Inseriamo questi valori su ogni riga del DataFrame trades_df.
-        trades_df['massimo'] = high_max
-        trades_df['minimo'] = low_min
-        trades_df['variazione(%)'] = variazione
-        trades_df['volatilita(%)'] = volatilita
+        trades_df["massimo"] = high_max
+        trades_df["minimo"] = low_min
+        trades_df["variazione(%)"] = variazione
+        trades_df["volatilita(%)"] = volatilita
     else:
         # Nessun trade effettuato
-        trades_df = pd.DataFrame(columns=[
-            'Buy_Time', 'Buy_Price', 'Sell_Time', 'Sell_Price',
-            'Quantity', 'Profit', 'Wallet_After'
-        ])
+        trades_df = pd.DataFrame(
+            columns=["Buy_Time", "Buy_Price", "Sell_Time", "Sell_Price", "Quantity", "Profit", "Wallet_After"]
+        )
 
-    print(f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, strategia: {strategia}, "
-          f"profitto totale={round(trades_df['Profit'].sum())} USD")
+    print(
+        f"{wallet} USDC su {asset}, fee={fee_percent}%, {interval}, strategia: {strategia}, "
+        f"profitto totale={round(trades_df['Profit'].sum())} USD"
+    )
 
     return fig, trades_df, actual_hours
 
@@ -1683,12 +1859,12 @@ if __name__ == "__main__":
         page_title="CryptoFarm Simulator",  # Titolo della scheda del browser
         page_icon="📈",  # Icona (grafico che sale, simbolico per un mercato finanziario)
         layout="wide",  # Layout: "centered" o "wide"
-        initial_sidebar_state="expanded"  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
+        initial_sidebar_state="expanded",  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
     )
-    if 'df' not in st.session_state:
-        st.session_state['df'] = None
-    if 'model' not in st.session_state:
-        st.session_state['model'] = load_model('models/optimized_model.keras')
+    if "df" not in st.session_state:
+        st.session_state["df"] = None
+    if "model" not in st.session_state:
+        st.session_state["model"] = load_model("models/optimized_model.keras")
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
@@ -1700,29 +1876,32 @@ if __name__ == "__main__":
 
     with col2:
         currency = st.text_input(label="Currency", placeholder="es. USDC, USDT, EUR...", max_chars=8, value="USDC")
-        interval = st.selectbox(label="Candle Interval",
-                                options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"],
-                                index=3)
+        interval = st.selectbox(
+            label="Candle Interval", options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"], index=3
+        )
 
     symbol = asset + currency
     wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
     st.sidebar.title("Indicators parameters")
-    strategia = st.sidebar.selectbox(label="Strategia",
-                                     options=["-",
-                                              "Close Buy/Sell Limits",
-                                              "Close ATR",
-                                              "Close Bullish EMA",
-                                              "Close EMA Crossover",
-                                              "Supetrend",
-                                              "Trend Zones",
-                                              "TP/SL with ATR",
-                                              "Green Candles",
-                                              "ATR Live Trade",
-                                              "AI Model",
-                                              ],
-                                     index=0)
+    strategia = st.sidebar.selectbox(
+        label="Strategia",
+        options=[
+            "-",
+            "Close Buy/Sell Limits",
+            "Close ATR",
+            "Close Bullish EMA",
+            "Close EMA Crossover",
+            "Supetrend",
+            "Trend Zones",
+            "TP/SL with ATR",
+            "Green Candles",
+            "ATR Live Trade",
+            "AI Model",
+        ],
+        index=0,
+    )
     if st.sidebar.button("SIMULATE"):
-        st.session_state['df'], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
+        st.session_state["df"], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
 
     col1, col2 = st.sidebar.columns(2)
 
@@ -1751,10 +1930,10 @@ if __name__ == "__main__":
     rsi_sell_limit = col2.number_input(label="RSI Sell limit", min_value=0, max_value=100, value=75, step=1)
 
     # macd_buy_limit = col1.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-2.5,
-                                       # value=-0.66,
+    # value=-0.66,
     #                                    step=0.01)
     # macd_sell_limit = col2.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=2.5,
-                                        # value=0.66,
+    # value=0.66,
     #                                    step=0.01)
     # din_macd_div = col1.number_input(label="ATR Dividend", min_value=-10.0, max_value=10.0, value=1.2,
     #                                  step=0.1)
@@ -1764,21 +1943,21 @@ if __name__ == "__main__":
     num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=1, step=1)
     window_pivot = col2.number_input(label="Min-Max Window", min_value=2, max_value=500, value=100, step=2)
 
-    if st.session_state['df'] is not None:
+    if st.session_state["df"] is not None:
         if st.sidebar.button("SAVE DATA"):
-            st.write(st.session_state['df'])
+            st.write(st.session_state["df"])
 
     csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
     if st.sidebar.button("Read from CSV"):
-        st.session_state['df'] = pd.read_csv(csv_file)
-        st.session_state['df'].set_index('Open time', inplace=True)
+        st.session_state["df"] = pd.read_csv(csv_file)
+        st.session_state["df"].set_index("Open time", inplace=True)
         # Mantieni solo le colonne essenziali, converti a float
-        st.session_state['df'] = st.session_state['df'][['Open', 'High', 'Low', 'Close', 'Volume']].astype(float)
+        st.session_state["df"] = st.session_state["df"][["Open", "High", "Low", "Close", "Volume"]].astype(float)
 
     show_graph = st.sidebar.checkbox(label="Show Graphs", value=1)
 
-    if st.session_state['df'] is not None:
-        (fig, trades_df, actual_hours) = trading_analysis(
+    if st.session_state["df"] is not None:
+        fig, trades_df, actual_hours = trading_analysis(
             asset=symbol,
             interval=interval,
             wallet=wallet,  # Wallet iniziale
@@ -1786,31 +1965,37 @@ if __name__ == "__main__":
             # max_step=max_step,
             time_hours=time_hours,
             fee_percent=0.1,  # %
-            atr_multiplier=atr_multiplier, atr_window=atr_window,
+            atr_multiplier=atr_multiplier,
+            atr_window=atr_window,
             window_pivot=window_pivot,
-            rsi_window=rsi_window, rsi_window2=rsi_window2, rsi_window3=rsi_window3,
-            ema_window=ema_window, ema_window2=ema_window2, ema_window3=ema_window3,
+            rsi_window=rsi_window,
+            rsi_window2=rsi_window2,
+            rsi_window3=rsi_window3,
+            ema_window=ema_window,
+            ema_window2=ema_window2,
+            ema_window3=ema_window3,
             # macd_short_window=macd_short_window, macd_long_window=macd_long_window,
             # macd_signal_window=macd_signal_window,
-            kama_pow1=kama_pow1, kama_pow2=kama_pow2,
-            rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit,  # OK
+            kama_pow1=kama_pow1,
+            kama_pow2=kama_pow2,
+            rsi_buy_limit=rsi_buy_limit,
+            rsi_sell_limit=rsi_sell_limit,  # OK
             # macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,  # NO, DA TOGLIERE
             num_cond=num_cond,
             stop_loss=stop_loss,
             strategia=strategia,
             # din_macd_div=din_macd_div,
-            market_data=st.session_state['df'],
+            market_data=st.session_state["df"],
         )
         text_placeholder.subheader("Operations Report")
 
         if not trades_df.empty:
             # text_placeholder.write(trades_df)
-            total_profit = trades_df['Profit'].sum()
+            total_profit = trades_df["Profit"].sum()
             num_trades = len(trades_df)
-            profitable_trades = trades_df[trades_df['Profit'] > 0]
+            profitable_trades = trades_df[trades_df["Profit"] > 0]
             num_profitable = len(profitable_trades)
-            win_rate = (
-                    num_profitable / num_trades * 100) if num_trades > 0 else 0.0
+            win_rate = (num_profitable / num_trades * 100) if num_trades > 0 else 0.0
             text_placeholder.write(f"Total profit: {total_profit:.2f} {currency}, Winrate: {win_rate:.2f}%")
         else:
             text_placeholder.write("No operation performed.")
@@ -1821,8 +2006,7 @@ if __name__ == "__main__":
         start_date = col1.date_input(label="Start Date")
         end_date = col2.date_input(label="End Date")
         if st.sidebar.button("Get Data from Dates"):
-            data, _ = get_market_data_between_dates(asset=symbol,
-                                   interval=interval,
-                                   start_date=start_date,
-                                   end_date=end_date)
+            data, _ = get_market_data_between_dates(
+                asset=symbol, interval=interval, start_date=start_date, end_date=end_date
+            )
             st.write(data)

@@ -1,16 +1,18 @@
-from binance import ThreadedWebsocketManager, Client
-import pandas as pd
-from ta.volatility import AverageTrueRange
-from ta.momentum import RSIIndicator
-from ta.trend import SMAIndicator, PSARIndicator
-import time
+import os
 import queue
 import threading
-import os
+import time
+import warnings
 from datetime import datetime
+
+import pandas as pd
+from binance import Client, ThreadedWebsocketManager
+
 # import keyboard
 from colorama import Fore, Style, init
-import warnings
+from ta.momentum import RSIIndicator
+from ta.trend import SMAIndicator
+from ta.volatility import AverageTrueRange
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -21,15 +23,18 @@ init(autoreset=True)
 def print_user_and_wallet_info(client: Client):
     try:
         account_info = client.get_account()
-        print(Style.BRIGHT + Fore.GREEN + f"UID: {account_info['uid']}, Tipo: {account_info['accountType']}, "
-                                          f"Trade: {'✅' if account_info['canTrade'] else '❌'} ")
+        print(
+            Style.BRIGHT + Fore.GREEN + f"UID: {account_info['uid']}, Tipo: {account_info['accountType']}, "
+            f"Trade: {'✅' if account_info['canTrade'] else '❌'} "
+        )
         # print(Style.BRIGHT + f"Tipo Account: {account_info['accountType']}")
         # print(f"Permessi: {'✅' if account_info['canTrade'] else '❌'} Trade")
         print(Style.BRIGHT + "Saldo Disponibile:")
         balances = account_info.get("balances", [])
         non_zero_balances = [
             {"asset": b["asset"], "free": float(b["free"]), "locked": float(b["locked"])}
-            for b in balances if float(b["free"]) > 0 or float(b["locked"]) > 0
+            for b in balances
+            if float(b["free"]) > 0 or float(b["locked"]) > 0
         ]
         if non_zero_balances:
             for balance in non_zero_balances:
@@ -51,14 +56,16 @@ def fetch_initial_candles(client: Client, symbol: str, interval: str) -> pd.Data
         klines = client.get_klines(symbol=symbol, interval=interval, limit=90)
         candles = []
         for kline in klines:
-            candles.append({
-                "Open time": pd.to_datetime(kline[0], unit="ms"),
-                "Open": float(kline[1]),
-                "High": float(kline[2]),
-                "Low": float(kline[3]),
-                "Close": float(kline[4]),
-                "Volume": float(kline[5]),
-            })
+            candles.append(
+                {
+                    "Open time": pd.to_datetime(kline[0], unit="ms"),
+                    "Open": float(kline[1]),
+                    "High": float(kline[2]),
+                    "Low": float(kline[3]),
+                    "Close": float(kline[4]),
+                    "Volume": float(kline[5]),
+                }
+            )
 
         initial_df = pd.DataFrame(candles)
         initial_df.set_index("Open time", inplace=True)
@@ -110,11 +117,7 @@ def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str
         # Se lo socket non è attivo (ad esempio perché è il primo giro o dopo una disconnessione), lo avviamo
         if socket_id is None:
             print(Style.BRIGHT + Fore.YELLOW + "Avvio WebSocket...")
-            socket_id = twm.start_kline_socket(
-                callback=handle_socket_message,
-                symbol=symbol,
-                interval=interval
-            )
+            socket_id = twm.start_kline_socket(callback=handle_socket_message, symbol=symbol, interval=interval)
             print(Style.BRIGHT + Fore.GREEN + "WebSocket avviato con successo.")
 
         time.sleep(1)
@@ -152,45 +155,36 @@ def run_socket_with_reconnect(data_queue, stop_event, symbol: str, interval: str
 
 def get_asset_balance(balance, asset):
     # Trova l'asset desiderato
-    asset_info = next((item for item in balance if item['asset'] == asset), None)
+    asset_info = next((item for item in balance if item["asset"] == asset), None)
     # Verifica e stampa i risultati
     if asset_info:
-        return asset_info['free']
+        return asset_info["free"]
     else:
         return 0
 
 
-def add_technical_indicator(df,
-                            atr_window: int = 4,
-                            atr_multiplier: float = 2.4,
-                            rsi_window: int = 12,
-                            sma_window: int = 4
-                            ):
+def add_technical_indicator(
+    df, atr_window: int = 4, atr_multiplier: float = 2.4, rsi_window: int = 12, sma_window: int = 4
+):
     df_copy = df.copy()
 
     # Calcolo dell'RSI
-    rsi_indicator = RSIIndicator(
-        close=df_copy['Close'],
-        window=rsi_window
-    )
-    df_copy['RSI'] = rsi_indicator.rsi()
+    rsi_indicator = RSIIndicator(close=df_copy["Close"], window=rsi_window)
+    df_copy["RSI"] = rsi_indicator.rsi()
 
     # ATR
     atr_indicator = AverageTrueRange(
-        high=df_copy['High'],
-        low=df_copy['Low'],
-        close=df_copy['Close'],
-        window=atr_window
+        high=df_copy["High"], low=df_copy["Low"], close=df_copy["Close"], window=atr_window
     )
-    df_copy['ATR'] = atr_indicator.average_true_range()
+    df_copy["ATR"] = atr_indicator.average_true_range()
 
     # SMA
-    sma_indicator = SMAIndicator(close=df_copy['Close'], window=sma_window)
-    df_copy['SMA'] = sma_indicator.sma_indicator()
+    sma_indicator = SMAIndicator(close=df_copy["Close"], window=sma_window)
+    df_copy["SMA"] = sma_indicator.sma_indicator()
 
     # Rolling ATR Bands
-    df_copy['Upper_Band'] = df_copy['SMA'] + atr_multiplier * df_copy['ATR']
-    df_copy['Lower_Band'] = df_copy['SMA'] - atr_multiplier * df_copy['ATR']
+    df_copy["Upper_Band"] = df_copy["SMA"] + atr_multiplier * df_copy["ATR"]
+    df_copy["Lower_Band"] = df_copy["SMA"] - atr_multiplier * df_copy["ATR"]
 
     return df_copy
 
@@ -246,15 +240,10 @@ def place_order(client: Client, symbol: str, side: str, order_type: str, quantit
                 type=order_type,
                 timeInForce="GTC",  # "Good Till Cancelled"
                 quantity=quantity,
-                price=price
+                price=price,
             )
         elif order_type == "MARKET":
-            order = client.create_order(
-                symbol=symbol,
-                side=side,
-                type=order_type,
-                quantity=quantity
-            )
+            order = client.create_order(symbol=symbol, side=side, type=order_type, quantity=quantity)
         else:
             print(Style.BRIGHT + Fore.RED + "Errore durante l'esecuzione dell'ordine: Tipo di ordine non supportato.")
             return False
@@ -277,11 +266,7 @@ def proceed_buy(client, asset, currency, symbol, current_candle_price) -> bool:
     adjusted_quantity = adjust_quantity(quantity, minQty, maxQty, stepQty)
     print(Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={currency_balance}$)")
     # Piazza l'ordine di acquisto
-    response = place_order(client=client,
-                           symbol=symbol,
-                           side="BUY",
-                           order_type="MARKET",
-                           quantity=adjusted_quantity)
+    response = place_order(client=client, symbol=symbol, side="BUY", order_type="MARKET", quantity=adjusted_quantity)
     # aspetto e verifico che l'ordine è andato a buon fine
     time.sleep(10)
     balance = print_user_and_wallet_info(client=client)
@@ -301,11 +286,7 @@ def proceed_sell(client, asset, currency, symbol, current_candle_price) -> bool:
     adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
     print(Style.BRIGHT + Fore.RED + f"Procceding with SELL Order, quantity={adjusted_quantity} (={asset_balance}$)")
     # Piazza l'ordine di vendita
-    response = place_order(client=client,
-                           symbol=symbol,
-                           side="SELL",
-                           order_type="MARKET",
-                           quantity=adjusted_quantity)
+    response = place_order(client=client, symbol=symbol, side="SELL", order_type="MARKET", quantity=adjusted_quantity)
     # aspetto e verifico che l'ordine è andato a buon fine
     time.sleep(10)
     balance = print_user_and_wallet_info(client=client)
@@ -368,13 +349,13 @@ asset_balance2 = get_asset_balance(balance=balance2, asset=asset)
 currency_balance2 = get_asset_balance(balance=balance2, asset=currency)
 
 exchange_info = client1.get_exchange_info()
-symbol_info = next((s for s in exchange_info['symbols'] if s['symbol'] == symbol), None)
+symbol_info = next((s for s in exchange_info["symbols"] if s["symbol"] == symbol), None)
 if symbol_info:
-    for filter_info in symbol_info['filters']:
-        if filter_info['filterType'] == 'LOT_SIZE':
-            minQty = float(filter_info['minQty'])
-            maxQty = float(filter_info['maxQty'])
-            stepQty = float(filter_info['stepSize'])
+    for filter_info in symbol_info["filters"]:
+        if filter_info["filterType"] == "LOT_SIZE":
+            minQty = float(filter_info["minQty"])
+            maxQty = float(filter_info["maxQty"])
+            stepQty = float(filter_info["stepSize"])
             print(Style.BRIGHT + Fore.GREEN + f"Informazioni per {symbol}:")
             print(f"  MinQty: {minQty}")
             print(f"  MaxQty: {maxQty}")
@@ -390,7 +371,7 @@ stop_event = threading.Event()
 socket_thread = threading.Thread(
     target=run_socket_with_reconnect,
     args=(data_queue, stop_event, symbol, interval, API_KEY1, API_SECRET1),
-    daemon=True
+    daemon=True,
 )
 socket_thread.start()
 
@@ -422,10 +403,10 @@ print(f" Simbolo: {symbol}, Intervallo: {interval}")
 print(f" ATR, Window: {atr_window}, Multiplier: {atr_multiplier}")
 print(f" RSI Window: {rsi_window}, Buy Limit: {rsi_buy_limit}, Sell Limit: {rsi_sell_limit}")
 print(f" Number of conditions: {num_cond}")
-print(f"CLIENT 1")
+print("CLIENT 1")
 print(f" Simbolo: {symbol} ({asset_price_balance1}), holding: {holding1}")
 print(f" {currency} disponibili: {currency_balance1}")
-print(f"CLIENT 2")
+print("CLIENT 2")
 print(f" Simbolo: {symbol} ({asset_price_balance2}), holding: {holding2}")
 print(f" {currency} disponibili: {currency_balance2}")
 
@@ -457,28 +438,33 @@ while True:
     if len(df) > 100:
         df = df.iloc[-100:]  # Tiene solo le ultime 100 righe
 
-    df_copy = add_technical_indicator(df,
-                                      atr_window=atr_window,
-                                      atr_multiplier=atr_multiplier,
-                                      rsi_window=rsi_window,
-                                      sma_window=sma_window)
+    df_copy = add_technical_indicator(
+        df, atr_window=atr_window, atr_multiplier=atr_multiplier, rsi_window=rsi_window, sma_window=sma_window
+    )
 
     if len(df_copy) > 1:
         i = len(df_copy) - 1
         current_candle_time = df_copy.index[i]
         current_candle_price = df_copy["Close"].iloc[i]
 
-        cond_atr_buy = 1 if current_candle_price <= df_copy['Lower_Band'].iloc[i] else 0
-        cond_rsi_buy = 1 if df_copy['RSI'].iloc[i] <= rsi_buy_limit else 0
+        cond_atr_buy = 1 if current_candle_price <= df_copy["Lower_Band"].iloc[i] else 0
+        cond_rsi_buy = 1 if df_copy["RSI"].iloc[i] <= rsi_buy_limit else 0
         sum_buy = cond_atr_buy + cond_rsi_buy
         # if not holding1 and sum_buy >= num_cond:
         if sum_buy >= num_cond:
             if not holding1:
                 # procedo all'acquisto su Client 1
-                print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} "
-                                                  f"and price {current_candle_price} (Client 1)")
-                response = proceed_buy(client=client1, asset=asset, symbol=symbol, currency=currency,
-                                       current_candle_price=current_candle_price)
+                print(
+                    Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} "
+                    f"and price {current_candle_price} (Client 1)"
+                )
+                response = proceed_buy(
+                    client=client1,
+                    asset=asset,
+                    symbol=symbol,
+                    currency=currency,
+                    current_candle_price=current_candle_price,
+                )
                 if response:
                     # last_signal_candle_time1 = current_candle_time
                     holding1 = True
@@ -486,25 +472,39 @@ while True:
 
             if not holding2:
                 # procedo all'acquisto su Client 2
-                print(Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} "
-                                                  f"and price {current_candle_price} (Client 2)")
-                response = proceed_buy(client=client2, asset=asset, symbol=symbol, currency=currency,
-                                       current_candle_price=current_candle_price)
+                print(
+                    Style.BRIGHT + Fore.GREEN + f"Buy Signal detected at {current_candle_time} "
+                    f"and price {current_candle_price} (Client 2)"
+                )
+                response = proceed_buy(
+                    client=client2,
+                    asset=asset,
+                    symbol=symbol,
+                    currency=currency,
+                    current_candle_price=current_candle_price,
+                )
                 if response:
                     # last_signal_candle_time2 = current_candle_time
                     holding2 = True
                     print(Style.BRIGHT + f"BUY Order Completed, holding: {holding2} (Client 2)")
 
-        cond_atr_sell = 1 if current_candle_price >= df_copy['Upper_Band'].iloc[i] else 0
-        cond_rsi_sell = 1 if df_copy['RSI'].iloc[i] >= rsi_sell_limit else 0
+        cond_atr_sell = 1 if current_candle_price >= df_copy["Upper_Band"].iloc[i] else 0
+        cond_rsi_sell = 1 if df_copy["RSI"].iloc[i] >= rsi_sell_limit else 0
         sum_sell = cond_atr_sell + cond_rsi_sell
         if sum_sell >= num_cond:
             if holding1:
                 # procedo alla vendita su Client 1
-                print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} "
-                                                f"and price {current_candle_price} (Client 1)")
-                response = proceed_sell(client=client1, asset=asset, symbol=symbol, currency=currency,
-                                        current_candle_price=current_candle_price)
+                print(
+                    Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} "
+                    f"and price {current_candle_price} (Client 1)"
+                )
+                response = proceed_sell(
+                    client=client1,
+                    asset=asset,
+                    symbol=symbol,
+                    currency=currency,
+                    current_candle_price=current_candle_price,
+                )
                 if response:
                     # last_signal_candle_time1 = current_candle_time
                     holding1 = False
@@ -512,10 +512,17 @@ while True:
 
             if holding2:
                 # procedo alla vendita su Client 2
-                print(Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} "
-                                                f"and price {current_candle_price} (Client 2)")
-                response = proceed_sell(client=client2, asset=asset, symbol=symbol, currency=currency,
-                                        current_candle_price=current_candle_price)
+                print(
+                    Style.BRIGHT + Fore.RED + f"Sell Signal detected at {current_candle_time} "
+                    f"and price {current_candle_price} (Client 2)"
+                )
+                response = proceed_sell(
+                    client=client2,
+                    asset=asset,
+                    symbol=symbol,
+                    currency=currency,
+                    current_candle_price=current_candle_price,
+                )
                 if response:
                     # last_signal_candle_time2 = current_candle_time
                     holding2 = False

@@ -1,21 +1,17 @@
 import pandas as pd
 import plotly.express as px
+
 # import plotly.graph_objects as go
 import streamlit as st
 
 # Carica il file CSV
-file_path = 'C:/Users/marco/Documents/2025-02-08T14-13_export_close_buy_sell_rsi_atr2.csv'  # Sostituisci con il percorso corretto del file
+file_path = "C:/Users/marco/Documents/2025-02-08T14-13_export_close_buy_sell_rsi_atr2.csv"  # Sostituisci con il percorso corretto del file
 data = pd.read_csv(file_path)
-target_column = 'Profitto Totale'
-parameters = ['Moltiplicatore ATR',
-              'Finestra ATR',
-              'Finestra SMA',
-              'Finestra RSI',
-              'RSI Buy Limit',
-              'RSI Sell Limit']
+target_column = "Profitto Totale"
+parameters = ["Moltiplicatore ATR", "Finestra ATR", "Finestra SMA", "Finestra RSI", "RSI Buy Limit", "RSI Sell Limit"]
 
 # Filtra il dataset per l'intervallo di 15 minuti
-filtered_data = data[data['Asset'] != "AMPUSDT"]
+filtered_data = data[data["Asset"] != "AMPUSDT"]
 # filtered_data = filtered_data[filtered_data['Moltiplicatore ATR'] == 3.2]
 # filtered_data = filtered_data[filtered_data['Step'] == 0.04]
 data = filtered_data
@@ -38,8 +34,8 @@ if y_param != x_param:
         x=x_param,
         y=y_param,
         z=target_column,
-        color_continuous_scale='RdBu',
-        title=f'{target_column} in funzione di {x_param} e {y_param}'
+        color_continuous_scale="RdBu",
+        title=f"{target_column} in funzione di {x_param} e {y_param}",
     )
     heatmap_fig.update_layout(autosize=True, height=600)
     st.plotly_chart(heatmap_fig, use_container_width=True)
@@ -53,25 +49,18 @@ if y_param != x_param != z_param:
     st.header(f"{target_column} in funzione di {x_param}, {y_param} e {z_param}")
     subset = data[[x_param, y_param, z_param, target_column]]
     scatter_dati = subset.groupby([x_param, y_param, z_param])[target_column].mean().reset_index()
-    scatter_dati['Size'] = 20
+    scatter_dati["Size"] = 20
     scatter_fig = px.scatter_3d(
         scatter_dati,
         x=x_param,
         y=y_param,
         z=z_param,
         color=target_column,
-        size='Size',
+        size="Size",
         title=f"{target_column} in funzione di {x_param}, {y_param} e {z_param}",
-        color_continuous_scale='RdYlGn'
+        color_continuous_scale="RdYlGn",
     )
-    scatter_fig.update_layout(
-        scene=dict(
-            xaxis_title=x_param,
-            yaxis_title=y_param,
-            zaxis_title=z_param
-        ),
-        height=800
-    )
+    scatter_fig.update_layout(scene=dict(xaxis_title=x_param, yaxis_title=y_param, zaxis_title=z_param), height=800)
     st.plotly_chart(scatter_fig, use_container_width=True)
 
 # Line plot: ROI totale rispetto al Moltiplicatore ATR per ciascun Asset
@@ -100,15 +89,15 @@ if y_param != x_param != z_param:
 
 # Bar Plot: Profitto Totale per Asset e Intervallo
 st.header("Profitto Totale per Asset e Intervallo")
-bar_data = data.groupby(['Asset', 'Intervallo'])['Profitto Totale'].mean().reset_index()
+bar_data = data.groupby(["Asset", "Intervallo"])["Profitto Totale"].mean().reset_index()
 bar_fig = px.bar(
     bar_data,
-    x='Asset',
-    y='Profitto Totale',
-    color='Intervallo',
-    barmode='group',
-    title='Profitto Totale Medio per Asset e Intervallo',
-    labels={'Profitto Totale': 'Profitto Medio'}
+    x="Asset",
+    y="Profitto Totale",
+    color="Intervallo",
+    barmode="group",
+    title="Profitto Totale Medio per Asset e Intervallo",
+    labels={"Profitto Totale": "Profitto Medio"},
 )
 st.plotly_chart(bar_fig, use_container_width=True)
 
@@ -131,16 +120,14 @@ for parametro in parameters:
     print(parametro)
     # Violin Plot: Distribuzione del Profitto Totale per Finestra ATR
     st.header(f"Distribuzione del Profitto Totale per {parametro}")
-    violin_data = data[[parametro, 'Profitto Totale']]
+    violin_data = data[[parametro, "Profitto Totale"]]
     violin_fig = px.violin(
         violin_data,
         x=parametro,
-        y='Profitto Totale',
+        y="Profitto Totale",
         box=True,
-        points='all',
+        points="all",
         color=parametro,
-        title='Distribuzione del Profitto Totale per Intervallo'
+        title="Distribuzione del Profitto Totale per Intervallo",
     )
     st.plotly_chart(violin_fig, use_container_width=True)
-
-
