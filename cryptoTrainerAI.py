@@ -15,16 +15,11 @@ FEATURES = ['Open', 'High', 'Low', 'Close', 'RSI', 'STOCH', 'STOCH_S','ATR','TSI
 
 # Configurazioni principali
 EXT_WINDOW_SIZE = 100  # Dimensione della finestra temporale per min max
-
 WINDOW_SIZE = 50 # Dimensione della finestra temporale per le sequenze
 
 ATR_WINDOW = 6   # Periodo dell'ATR
 RSI_WINDOW = 12   # Periodo dell'RSI
-# MACD_SHORT_WINDOW = 12
-# MACD_LONG_WINDOW = 26
-# MACD_SIGNAL_WINDOW = 9
 
-# file = '/Users/marcomonini/Documents/BTC_1anno_15m.csv'
 
 def prepare_df_from_csv(csv_file:str):
     # Caricamento dati
@@ -39,9 +34,9 @@ def prepare_df_from_csv(csv_file:str):
     # data normalization
     df_transformed = calculate_percentage_changes(df)
     df_transformed.dropna(inplace=True)
-    features = FEATURES
-    features.append('Label')
-    df_transformed = df_transformed[features]
+    #featuress = FEATURES
+    #featuress.append('Label')
+    df_transformed = df_transformed[FEATURES + ['Label']]
     # df_transformed, scaler = normalize_features(df)
 
     return df_transformed
@@ -172,7 +167,6 @@ def calculate_relative_extrema(data, window_pivot=EXT_WINDOW_SIZE):
         # data.loc[data.index[i+1], 'Label'] = 1  # Minimo relativo
     return data
 
-
 # Ora bilancia solo il TRAIN SET
 def balance_data(X, y):
     idx0 = np.where(y == 0)[0]
@@ -189,7 +183,8 @@ def balance_data(X, y):
 
     return X[idx_total], y[idx_total]
 
-
+# Crea le sequenze da passare al modello per l'addestramento
+# ogni sequenza inzia da 0 e varia in punti percentuale
 def create_sequences(data, features, window_size):
     """
     Crea sequenze temporali bilanciate con target equamente distribuiti tra le classi 0, 1, 2.
@@ -214,7 +209,7 @@ def create_sequences(data, features, window_size):
 
     X, y = [], []
     df_copy = data.copy()
-    df_copy = df_copy[features]
+    df_copy = df_copy[features + ['Label']]
     # Creazione delle sequenze e delle etichette
     for i in range(len(df_copy) - window_size):
         open = df_copy['Open'].iloc[i]
@@ -236,16 +231,24 @@ def create_sequences(data, features, window_size):
 
     return X, y
 
+
 def get_model_predictions(df, model):
     data = df.copy()
     data.fillna(0, inplace=True)
+    data['Label'] = 0
     data = data[FEATURES]
-
+    data['Label'] = 0
     df_transformed = calculate_percentage_changes(data)
     #df_transformed.dropna(inplace=True)
     #df_transformed, scaler = normalize_features(df_transformed)
 
-    X, y = create_sequences(df_transformed, FEATURES, WINDOW_SIZE)
+    featuress = FEATURES
+    featuress.append('Label')
+
+    X, y = create_sequences(df_transformed, featuress, WINDOW_SIZE)
+
+    print("Model input:", model.input_shape)
+    print("X shape:", X.shape)
 
     y = model.predict(X, verbose=0)
     # preds_class = np.argmax(preds, axis=1)  # Se output one-hot, es: [0, 1, 0]
@@ -318,13 +321,20 @@ if __name__ == "__main__":
     fileBTC = '/Users/marcomonini/Documents/BTCUSDC_2anni_15m.csv'
     #fileETH = '/Users/marcomonini/Documents/ETH_2anni_15m.csv'
     df = prepare_df_from_csv(fileBTC)
+
+    print("df starting shape:", df.shape)
+    print("df startings columns:", df.columns)
+
     #df2 = prepare_df_from_csv(fileETH)
     #df = pd.concat([df1, df2], axis=0)
 
     X, y = create_sequences(df, FEATURES, WINDOW_SIZE)
 
+    print("X shape:", X.shape)
+    print("Y shape:", y.shape)
+
     # Dividi i dati in train e test
-    train_size = int(0.7 * len(X))
+    train_size = int(0.6 * len(X))
     X_train, X_test = X[:train_size], X[train_size:]
     y_train, y_test = y[:train_size], y[train_size:]
 
