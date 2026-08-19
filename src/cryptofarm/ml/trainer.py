@@ -10,6 +10,8 @@ from tensorflow.keras.layers import LSTM, BatchNormalization, Bidirectional, Den
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 
+from cryptofarm.paths import MODELS_DIR
+
 FEATURES = [
     "Open",
     "High",
@@ -381,7 +383,9 @@ if __name__ == "__main__":
 
     early_stopping = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
     reduce_lr = ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, verbose=1, min_lr=1e-5)
-    checkpoint = ModelCheckpoint("models/optimized_model.keras", monitor="val_loss", save_best_only=True, verbose=1)
+    checkpoint = ModelCheckpoint(
+        str(MODELS_DIR / "optimized_model.keras"), monitor="val_loss", save_best_only=True, verbose=1
+    )
 
     # print("Searching for best model")
     # tuner.search(
@@ -469,7 +473,7 @@ if __name__ == "__main__":
     print(predictions[:10])
 
     # Salva il modello in un file HDF5
-    model.save("models/trained_model.keras")
+    model.save(str(MODELS_DIR / "trained_model.keras"))
     # # Carica il modello salvato
     # loaded_model = load_model('trained_model.h5')
     # # Utilizzo del modello per fare previsioni

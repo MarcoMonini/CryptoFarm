@@ -16,11 +16,12 @@ from ta.volatility import AverageTrueRange
 from tensorflow.keras.models import load_model
 
 from cryptofarm.ml.trainer import get_model_predictions
+from cryptofarm.paths import MODELS_DIR
 
 # Disattiva i FutureWarning
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-MODEL_PATH = "models/trained_model.keras"
+MODEL_PATH = str(MODELS_DIR / "trained_model.keras")
 
 
 def interval_to_minutes(interval: str) -> int:
@@ -1864,7 +1865,7 @@ if __name__ == "__main__":
     if "df" not in st.session_state:
         st.session_state["df"] = None
     if "model" not in st.session_state:
-        st.session_state["model"] = load_model("models/optimized_model.keras")
+        st.session_state["model"] = load_model(str(MODELS_DIR / "optimized_model.keras"))
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
