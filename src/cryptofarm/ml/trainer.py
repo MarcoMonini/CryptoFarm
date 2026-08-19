@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 from scipy.signal import argrelextrema
+from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.utils.class_weight import compute_class_weight
 from ta.momentum import RSIIndicator, StochasticOscillator, TSIIndicator
@@ -345,7 +346,12 @@ if __name__ == "__main__":
 
     # Class weights per gestione sbilanciamento
     class_weights = compute_class_weight(class_weight="balanced", classes=np.unique(y_train), y=y_train)
-    class_weights = dict(enumerate(class_weights))
+    # The raw "balanced" weights hit ~140:1 on this label distribution (extrema are ~1.4% of rows
+    # combined), which made the model oscillate between always predicting "hold" and always
+    # predicting a rare class across epochs - both are cheap local minima of the extremely skewed
+    # weighted loss without the model learning real structure. Damping with sqrt keeps rare classes
+    # upweighted (still ~12:1) without that reward-hacking behavior.
+    class_weights = dict(enumerate(np.sqrt(class_weights)))
 
     # === TUNING CON KERAS TUNER ===
     # tuner = kt.Hyperband(
@@ -375,7 +381,9 @@ if __name__ == "__main__":
         ]
     )
 
-    model.compile(optimizer=Adam(0.01), loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+    # lr=0.01 (the previous default) combined with the class weighting above was the other half of
+    # the instability - Adam's own default (0.001) trains far more smoothly on this architecture.
+    model.compile(optimizer=Adam(0.001), loss="sparse_categorical_crossentropy", metrics=["accuracy"])
 
     early_stopping = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
     reduce_lr = ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, verbose=1, min_lr=1e-5)
@@ -457,16 +465,17 @@ if __name__ == "__main__":
     # Addestramento del modello
     # model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=50, batch_size=32, callbacks=[early_stopping])
 
-    # Valutazione del modello
+    # Valutazione del modello. La accuracy grezza e' fuorviante su un dataset sbilanciato al 98%+
+    # verso "hold": un classificatore banale che predice sempre "hold" la ottiene gratis. Il
+    # classification report per classe (precision/recall/F1) e la confusion matrix mostrano se il
+    # modello sta davvero riconoscendo min/max o e' collassato su una predizione costante.
     loss, accuracy = model.evaluate(X_test, y_test)
     print(f"Test Loss: {loss}, Test Accuracy: {accuracy}")
 
-    # Previsione su nuovi dati
-    # predictions = get_model_predictions(df, model, FEATURES, WINDOW_SIZE)
-    predictions = model.predict(X_train, verbose=1)
-
-    # predictions = model.predict(X)
-    print(predictions[:10])
+    test_predictions = np.argmax(model.predict(X_test, verbose=0), axis=1)
+    print(classification_report(y_test, test_predictions, target_names=["hold", "min", "max"], zero_division=0))
+    print("Confusion matrix (righe=reale, colonne=predetto):")
+    print(confusion_matrix(y_test, test_predictions))
 
     # Salva il modello in un file HDF5
     model.save(str(MODELS_DIR / "trained_model.keras"))
