@@ -45,7 +45,7 @@ LABEL_NAMES = {HOLD: "hold", BUY: "buy", SELL: "sell"}
 #
 # Il prezzo di questa scelta e' che "profitto prima della perdita" diventa piu' raro (circa un
 # terzo delle candele invece di meta'): meno esempi positivi, ma ognuno vale molto di piu'.
-TP_ATR_MULTIPLE = 2.0  # take-profit in multipli dell'ATR corrente
+TP_ATR_MULTIPLE = 1.5  # take-profit in multipli dell'ATR corrente
 SL_ATR_MULTIPLE = 1.0  # stop-loss: meta' del take-profit
 HORIZON_BARS = 96  # limite temporale in barre
 ROUND_TRIP_FEE = 0.002  # 0,1% per lato su spot Binance

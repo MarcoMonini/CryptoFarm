@@ -176,22 +176,31 @@ def train(
 
     take_profit = context["take_profit"].to_numpy()[validation_mask]
     stop_loss = context["stop_loss"].to_numpy()[validation_mask]
-    sweep = evaluate.threshold_sweep(y_validation, probabilities, take_profit, stop_loss, ROUND_TRIP_FEE)
+    sweep = evaluate.quantile_sweep(y_validation, probabilities, take_profit, stop_loss, ROUND_TRIP_FEE)
 
-    print("\nAspettativa economica per soglia di decisione su P(buy):")
-    print("(atteso_per_trade e' il rendimento medio per operazione al netto delle commissioni)")
+    print("\nAspettativa per quota di candele selezionate (le migliori per P(buy)):")
+    print("(atteso_lordo e' prima delle commissioni, atteso_per_trade dopo)")
     print(evaluate.format_sweep(sweep))
 
-    chosen = evaluate.best_threshold(sweep)
+    # La quota migliore si sceglie sull'aspettativa **lorda**: e' quella che misura la capacita'
+    # del modello. Quanto ne sopravvive dipende dai costi di esecuzione, che sono una decisione
+    # separata e vengono riportati sotto.
+    eligible = sweep[sweep["operazioni"] >= 200]
+    chosen = None if eligible.empty else eligible.loc[eligible["atteso_lordo"].idxmax()].to_dict()
     if chosen is None:
-        print("\nNessuna soglia raggiunge abbastanza operazioni per essere valutata.")
+        print("\nNessuna quota raggiunge abbastanza operazioni per essere valutata.")
         threshold = DEFAULT_DECISION_THRESHOLD
     else:
         threshold = float(chosen["soglia"])
         print(
-            f"\nSoglia migliore: {threshold:.2f} -> {int(chosen['operazioni']):,} operazioni, "
-            f"win rate {chosen['win_rate']:.2%} contro un break-even di {chosen['break_even']:.2%}, "
-            f"atteso {chosen['atteso_per_trade']:+.3%} per operazione"
+            f"\nQuota migliore: il {chosen['quota']:.2%} di candele piu' promettenti "
+            f"(P(buy) >= {threshold:.3f}) -> {int(chosen['operazioni']):,} operazioni, "
+            f"win rate {chosen['win_rate']:.2%} contro un break-even di {chosen['break_even']:.2%}"
+        )
+        print(f"Barriera media {chosen['barriera']:.2%} | edge lordo {chosen['atteso_lordo']:+.3%} " f"per operazione")
+        print("\nSensibilita' al costo di esecuzione:")
+        print(
+            evaluate.format_fee_sensitivity(evaluate.fee_sensitivity(chosen["atteso_lordo"], int(chosen["operazioni"])))
         )
     print(evaluate.signal_summary(probabilities, threshold))
     print(f"Lift sul base rate: {evaluate.lift_over_base_rate(y_validation, probabilities, threshold):.2f}x")

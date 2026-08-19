@@ -180,6 +180,45 @@ def quantile_sweep(
     return pd.DataFrame(rows)
 
 
+# Costi di esecuzione realistici su Binance spot, per lato.
+FEE_SCENARIOS = {
+    "market, standard (0,10%/lato)": 0.0020,
+    "market, sconto BNB (0,075%/lato)": 0.0015,
+    "maker/limit, standard (0,02%/lato)": 0.0004,
+    "esecuzione a costo nullo": 0.0,
+}
+
+
+def fee_sensitivity(gross_per_trade: float, trades: int) -> pd.DataFrame:
+    """Cosa resta dell'edge lordo sotto diversi regimi di commissioni.
+
+    E' la tabella che conta quando l'edge esiste ma e' dello stesso ordine dei costi: la
+    differenza fra una strategia che perde e una che guadagna non sta nel modello ma nel modo in
+    cui gli ordini vengono eseguiti. Ordini a mercato pagano il taker, ordini limite il maker --
+    su Binance un fattore cinque.
+    """
+    rows = []
+    for name, fee in FEE_SCENARIOS.items():
+        net = gross_per_trade - fee
+        rows.append(
+            {
+                "esecuzione": name,
+                "costo_andata_ritorno": fee,
+                "netto_per_trade": net,
+                "netto_totale": net * trades,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def format_fee_sensitivity(table: pd.DataFrame) -> str:
+    display = table.copy()
+    display["costo_andata_ritorno"] = display["costo_andata_ritorno"].map(lambda value: f"{value:.3%}")
+    display["netto_per_trade"] = display["netto_per_trade"].map(lambda value: f"{value:+.3%}")
+    display["netto_totale"] = display["netto_totale"].map(lambda value: f"{value:+.1%}")
+    return display.to_string(index=False)
+
+
 def format_sweep(sweep: pd.DataFrame) -> str:
     """Rende leggibile lo sweep, con le percentuali gia' convertite."""
     display = sweep.copy()
@@ -233,6 +272,9 @@ __all__ = [
     "classification_summary",
     "threshold_sweep",
     "quantile_sweep",
+    "fee_sensitivity",
+    "format_fee_sensitivity",
+    "FEE_SCENARIOS",
     "DEFAULT_QUANTILES",
     "format_sweep",
     "best_threshold",
