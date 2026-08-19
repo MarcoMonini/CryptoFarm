@@ -23,11 +23,13 @@ building blocks but is otherwise independent:
   parameters; results are analyzed with `src/cryptofarm/app/grid_results_viewer.py` (a small Streamlit app reading a
   CSV export and plotting heatmaps/violin plots).
 - **ML training** (`src/cryptofarm/ml/trainer.py`) — builds/trains the bidirectional-LSTM classifier (predicts
-  relative price min/max, i.e. buy/sell/hold labels) that `trading/simulator.py`'s "AI Model" strategy consumes.
-  Shares its feature engineering (`add_technical_indicator`, `calculate_percentage_changes`,
-  `calculate_relative_extrema`, `create_sequences`) with the prediction path (`get_model_predictions`), so changing
-  feature logic here requires retraining before any consumer of `models/trained_model.keras` /
-  `models/optimized_model.keras` will behave correctly.
+  buy/sell/hold at each candle) that `trading/simulator.py`'s "AI Model" strategy consumes. It assembles its own
+  dataset from a cartesian product of assets × timeframes downloaded from Binance's public market-data endpoints
+  (`TRAIN_ASSETS` / `TRAIN_INTERVALS` / `TRAIN_HOURS` at the top of the file), plus any local CSVs listed in
+  `EXTRA_CSV_FILES`. Shares its feature engineering (`add_technical_indicator`,
+  `normalize_scale_dependent_features`, `calculate_percentage_changes`, `create_sequences`) with the prediction
+  path (`get_model_predictions`), so changing feature logic here requires retraining before any consumer of
+  `models/trained_model.keras` / `models/optimized_model.keras` will behave correctly.
 
 `src/cryptofarm/data/` is an empty placeholder package, reserved for a future split of the data-fetching logic
 currently living inside `trading/simulator.py`.
@@ -76,15 +78,15 @@ python src/cryptofarm/app/live_bot_dual.py
 # if __name__ == "__main__": block)
 python src/cryptofarm/trading/grid_search.py
 
-# Train/retrain the LSTM model (CSV input path and hyperparameters are hardcoded in the
-# if __name__ == "__main__": block — edit before running)
+# Train/retrain the LSTM model. Downloads its own data from Binance; data sources, labeling
+# parameters and hyperparameters are module-level constants at the top of the file
 python src/cryptofarm/ml/trainer.py
 ```
 
-Tests: `pytest` (3 tests, `tests/test_indicators.py`, covering the `ml/trainer.py` feature pipeline with synthetic
-OHLC data). Lint/format: `ruff check src tests` and `black src tests` (config in `pyproject.toml`; `backup/` is
-excluded from both). `.pre-commit-config.yaml` runs black + `ruff --fix` on commit if installed (`pre-commit
-install`).
+Tests: `pytest` (11 tests, `tests/test_indicators.py`, covering the `ml/trainer.py` feature, labeling and
+balancing pipeline with synthetic OHLC data). Lint/format: `ruff check src tests` and `black src tests` (config in
+`pyproject.toml`; `backup/` is excluded from both). `.pre-commit-config.yaml` runs black + `ruff --fix` on commit
+if installed (`pre-commit install`).
 
 ## Configuration
 
@@ -110,9 +112,9 @@ variables into your shell or your IDE's run configuration before running anythin
   than hand-editing.
 - `tuner_logs/` — Keras Tuner search state from a (currently commented-out) hyperparameter search in
   `ml/trainer.py`.
-- Historical CSVs used for training/analysis are expected as local files at hardcoded paths (see
-  `if __name__ == "__main__":` blocks in `ml/trainer.py` and `app/grid_results_viewer.py`) — these paths are
-  machine-specific and must be updated per environment.
+- Historical CSVs used for analysis are expected as local files at hardcoded paths (see the
+  `if __name__ == "__main__":` block in `app/grid_results_viewer.py`, and `EXTRA_CSV_FILES` in `ml/trainer.py`) —
+  these paths are machine-specific and must be updated per environment.
 
 ## Working with the indicator/strategy code
 
@@ -123,9 +125,20 @@ variables into your shell or your IDE's run configuration before running anythin
   return `(buy_signals, sell_signals)` as lists of `(timestamp, price)` tuples, which `trading_analysis` then feeds
   into `simulate_trading_with_commisions` / `simulate_trading_with_commisions_multiple_buy` to compute P&L
   including trading fees.
-- `ml/trainer.py`'s feature pipeline converts OHLC to percentage changes relative to the previous close
-  (`calculate_percentage_changes`) before windowing into sequences (`create_sequences`, window size
-  `WINDOW_SIZE = 50`) — the model consumes relative price movement, not absolute price. `get_model_predictions` in
-  the same file mirrors this preprocessing at inference time, and `trading/simulator.py`'s `ai_model_simulation`
-  calls into it directly via `from cryptofarm.ml.trainer import get_model_predictions, ...`; keep both paths in
-  sync.
+- `ml/trainer.py`'s feature pipeline rescales the scale-dependent features
+  (`normalize_scale_dependent_features`: ATR as a percentage of Close, the bounded oscillators onto ~[-1,1]) and
+  converts OHLC to percentage changes relative to the previous close (`calculate_percentage_changes`) before
+  windowing into sequences (`create_sequences`, window size `WINDOW_SIZE = 50`) — the model consumes relative
+  price movement, not absolute price, which is what lets one model span several assets. `get_model_predictions`
+  in the same file mirrors this preprocessing at inference time, and `trading/simulator.py`'s
+  `ai_model_simulation` calls into it directly via `from cryptofarm.ml.trainer import get_model_predictions, ...`;
+  keep both paths in sync. Any new feature in absolute price units must be rescaled inside
+  `normalize_scale_dependent_features`, which is the one place both paths go through.
+- Labels come from `calculate_relative_extrema`, a three-stage cascade run on *absolute* prices: local extrema
+  (`EXT_WINDOW_SIZE`), then a minimum forward return within a horizon (`LABEL_MIN_RETURN`,
+  `LABEL_RETURN_HORIZON`), then a minimum spacing between consecutive signals (`LABEL_COOLDOWN`). Retuning these
+  changes how many signals exist and how large the move behind each one is — check the printed per-stage class
+  distribution rather than guessing. The train/validation split (`split_train_val`) applies an embargo sized from
+  those lookaheads; shrinking it reintroduces leakage across the split. Class balancing is done on the data
+  (`balance_signal_classes`, `downsample_holds`) and applied to the *training set only*, so validation metrics
+  still reflect the real market distribution.
