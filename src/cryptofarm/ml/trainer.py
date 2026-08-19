@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 from scipy.signal import argrelextrema
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.utils.class_weight import compute_class_weight
@@ -130,18 +131,16 @@ def calculate_percentage_changes(df):
     # Rimuove i valori NaN (la prima riga avrà NaN dopo la trasformazione)
     df_transformed = df_transformed.dropna()
     # df_transformed = df_transformed.fillna(0, inplace=True)
-    # Aggiustamento per garantire la continuità
-    prev_close = 0  # Punto iniziale di riferimento
-    # prev_vol_close = 0  # Punto iniziale di riferimento per il volume
-    for i in range(len(df_transformed)):
-        df_transformed.iloc[i, df_transformed.columns.get_loc("Open_Perc")] += prev_close
-        df_transformed.iloc[i, df_transformed.columns.get_loc("High_Perc")] += prev_close
-        df_transformed.iloc[i, df_transformed.columns.get_loc("Low_Perc")] += prev_close
-        df_transformed.iloc[i, df_transformed.columns.get_loc("Close_Perc")] += prev_close
-        # df_transformed.iloc[i, df_transformed.columns.get_loc('Volume_Perc')] += prev_vol_close
-        # Aggiorna il valore di chiusura precedente
-        prev_close = df_transformed.iloc[i, df_transformed.columns.get_loc("Close_Perc")]
-        # prev_vol_close = df_transformed.iloc[i, df_transformed.columns.get_loc('Volume_Perc')]
+    # Aggiustamento per garantire la continuità: ogni riga accumula la chiusura percentuale di
+    # tutte le righe precedenti. Equivalente alla cumsum di Close_Perc (dimostrabile per induzione:
+    # prev_close dopo la riga i == Close_Perc_raw[0] + ... + Close_Perc_raw[i] == cumsum(Close_Perc_raw)[i]),
+    # ma vettorizzato invece di un loop Python riga-per-riga (che con decine di migliaia di righe
+    # diventa il collo di bottiglia della pipeline).
+    prev_close = df_transformed["Close_Perc"].cumsum().shift(1, fill_value=0)
+    df_transformed["Open_Perc"] = df_transformed["Open_Perc"] + prev_close
+    df_transformed["High_Perc"] = df_transformed["High_Perc"] + prev_close
+    df_transformed["Low_Perc"] = df_transformed["Low_Perc"] + prev_close
+    df_transformed["Close_Perc"] = df_transformed["Close_Perc"].cumsum()
     df_transformed["Open"] = df_transformed["Open_Perc"]
     df_transformed["High"] = df_transformed["High_Perc"]
     df_transformed["Low"] = df_transformed["Low_Perc"]
@@ -217,27 +216,28 @@ def create_sequences(data, features, window_size):
     """
     print("Create_sequences")
 
-    X, y = [], []
-    df_copy = data.copy()
-    df_copy = df_copy[features + ["Label"]]
-    # Creazione delle sequenze e delle etichette
-    for i in range(len(df_copy) - window_size):
-        open = df_copy["Open"].iloc[i]
-        window = df_copy[features].iloc[i : i + window_size].values
+    df_copy = data[features + ["Label"]].copy()
+    num_sequences = len(df_copy) - window_size
+    if num_sequences <= 0:
+        return np.empty((0, window_size, len(features))), np.empty((0,))
 
-        for j, feature in enumerate(features):
-            if feature in ["Open", "High", "Low", "Close"]:
-                window[:, j] = window[:, j] - open
+    # Finestre scorrevoli vettorizzate (equivalenti al loop Python precedente, ma senza il costo di
+    # migliaia di accessi .iloc riga per riga, che diventa proibitivo su dataset di decine di
+    # migliaia di candele).
+    values = df_copy[features].to_numpy(dtype=float)
+    windows = sliding_window_view(values, window_shape=window_size, axis=0)
+    windows = np.moveaxis(windows, -1, 1)[:num_sequences].copy()
 
-        # window = df_copy[features].iloc[i:i + window_size].values - open
-        X.append(window)
-        if "Label" in df_copy.columns:
-            # Aggiungi l'etichetta corrispondente alla sequenza
-            y.append(df_copy["Label"].iloc[i + window_size])  # Etichetta del punto corrente
+    # Sottrae a ogni finestra il valore di apertura della sua prima riga (solo colonne di prezzo).
+    open_index = features.index("Open")
+    window_open = values[:num_sequences, open_index]
+    price_columns = [j for j, feature in enumerate(features) if feature in ("Open", "High", "Low", "Close")]
+    for j in price_columns:
+        windows[:, :, j] -= window_open[:, None]
 
-    # Converti in numpy array
-    X = np.array(X)
-    y = np.array(y)
+    X = windows
+    # Etichetta del punto immediatamente successivo a ciascuna finestra.
+    y = df_copy["Label"].to_numpy()[window_size:]
 
     return X, y
 
