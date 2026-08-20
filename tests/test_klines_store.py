@@ -10,8 +10,10 @@ import pytest
 from cryptofarm.data.klines import (
     _open_times_to_datetime,
     _parse_dump,
+    clip_wicks,
     interval_to_minutes,
     resample_klines,
+    wick_outliers,
 )
 
 
@@ -157,3 +159,36 @@ def test_resample_drops_incomplete_groups_rather_than_inventing_bars():
     assert not result.isna().any().any()
     assert len(result) == 2  # the empty 15-minute buckets inside the hole are dropped
     assert not np.isin(pd.Timestamp("2024-01-01 00:30"), result.index)
+
+
+def test_clip_wicks_leaves_normal_bars_alone():
+    """Su una serie regolare non deve toccare nulla: il filtro non e' un livellatore."""
+    rng = np.random.default_rng(0)
+    close = 100 + np.cumsum(rng.normal(0, 0.5, 600))
+    df = pd.DataFrame(
+        {
+            "Open": close,
+            "Close": close,
+            "High": close + 0.3,
+            "Low": close - 0.3,
+            "Volume": 1.0,
+        },
+        index=pd.date_range("2024-01-01", periods=600, freq="5min", name="Open time"),
+    )
+    assert not wick_outliers(df).any()
+    pd.testing.assert_frame_equal(clip_wicks(df), df)
+
+
+def test_clip_wicks_compresses_a_liquidation_wick():
+    """Il caso ATOM del 2025-10-10: minimo a 0,001 da 1,86, che va compresso ma non cancellato."""
+    index = pd.date_range("2024-01-01", periods=600, freq="5min", name="Open time")
+    df = pd.DataFrame({"Open": 1.86, "Close": 1.85, "High": 1.87, "Low": 1.84, "Volume": 1.0}, index=index)
+    df.iloc[500, df.columns.get_loc("Low")] = 0.001
+
+    clipped = clip_wicks(df)
+    assert wick_outliers(df).sum() == 1
+    assert clipped["Low"].iloc[500] > 1.0  # compresso
+    assert clipped["Low"].iloc[500] < df["Open"].iloc[500]  # ma resta un minimo
+    # Il corpo non si tocca: sono prezzi a cui si e' davvero scambiato.
+    pd.testing.assert_series_equal(clipped["Open"], df["Open"])
+    pd.testing.assert_series_equal(clipped["Close"], df["Close"])

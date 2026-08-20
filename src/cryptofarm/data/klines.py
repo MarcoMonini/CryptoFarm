@@ -33,6 +33,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 from binance import Client
@@ -210,12 +211,82 @@ def _fetch_recent_from_api(symbol: str, start: pd.Timestamp) -> pd.DataFrame:
     return pd.concat(frames)
 
 
-def load_klines(symbol: str, interval: str = BASE_INTERVAL, store_dir: Path = MARKET_DATA_DIR) -> pd.DataFrame:
-    """Legge le candele di un simbolo, aggregandole se l'intervallo richiesto e' derivato."""
+def load_klines(
+    symbol: str,
+    interval: str = BASE_INTERVAL,
+    store_dir: Path = MARKET_DATA_DIR,
+    clip: bool = True,
+) -> pd.DataFrame:
+    """Legge le candele di un simbolo, aggregandole se l'intervallo richiesto e' derivato.
+
+    I wick di liquidazione vengono compressi qui (`clip_wicks`) invece che nei chiamanti: sono
+    quattro e diverrebbero cinque, e basta dimenticarsene in uno perche' un singolo print
+    irripetibile rientri nell'addestramento. Lo store su disco resta **grezzo** -- si pulisce in
+    lettura, non in scrittura, cosi' la soglia si puo' ritarare senza riscaricare 298 MB.
+
+    `clip=False` serve al percorso di aggiornamento, che rilegge lo store per sapere dove
+    ripartire e non deve reinserire prezzi modificati.
+    """
     path = store_path(symbol, store_dir)
     if not path.exists():
         return pd.DataFrame(columns=COLUMNS, index=pd.DatetimeIndex([], name="Open time"))
-    return resample_klines(pd.read_parquet(path), interval)
+    candles = resample_klines(pd.read_parquet(path), interval)
+    return clip_wicks(candles) if clip else candles
+
+
+# Multiplo del range mediano locale oltre il quale un'escursione non e' un movimento ma un wick di
+# liquidazione: prezzi realmente stampati, ma senza liquidita' dietro e quindi non eseguibili.
+WICK_MULTIPLE = 20.0
+WICK_WINDOW = 288  # 24 ore su barre 5m
+# Pavimento della banda, in frazione del Close: senza, gli asset a tick grosso vengono massacrati.
+# Su DOGE il range mediano nei periodi calmi vale pochi tick, quindi 20 volte quel range e' ancora
+# meno dell'1% e il filtro toccava lo 0,62% delle barre contro lo 0,006% degli altri. Con il
+# pavimento al 2% DOGE scende a 0,0105% e rientra in riga, e il wick ATOM resta catturato.
+WICK_FLOOR = 0.02
+
+
+def clip_wicks(
+    df: pd.DataFrame,
+    multiple: float = WICK_MULTIPLE,
+    window: int = WICK_WINDOW,
+    floor: float = WICK_FLOOR,
+) -> pd.DataFrame:
+    """Comprime High/Low dentro una banda proporzionale al range mediano recente.
+
+    Il 2025-10-10, durante una cascata di liquidazioni su Binance, ATOMUSDT ha stampato un minimo
+    di 0,001 USDT partendo da 1,86: una gamba del 305.100% in una barra da 5 minuti. Il print e'
+    reale ma non e' eseguibile, e **una barra su 480.000 sposta di 28 punti percentuali una media
+    pesata sulla dimensione delle gambe** (`.claude/docs/strategy.md` §10.5).
+
+    Si comprime invece di scartare la barra: togliere una barra apre un buco nell'indice e ogni
+    finestra mobile che ci passa sopra cambia lunghezza in silenzio. Il corpo (Open/Close) non si
+    tocca mai -- sono prezzi a cui si e' davvero scambiato in apertura e chiusura.
+
+    La banda usa una mediana mobile **causale**: la stessa pulizia si puo' applicare in tempo
+    reale, che e' l'unica versione che vale qualcosa per un bot che opera.
+    """
+    if df.empty:
+        return df
+    body_high = df[["Open", "Close"]].max(axis=1)
+    body_low = df[["Open", "Close"]].min(axis=1)
+    # Mediana del range: robusta per costruzione, una barra anomala su 288 non la sposta.
+    band = multiple * (df["High"] - df["Low"]).rolling(window, min_periods=window // 4).median()
+    band = np.maximum(band.bfill(), floor * df["Close"])
+    result = df.copy()
+    result["High"] = np.minimum(df["High"], body_high + band)
+    result["Low"] = np.maximum(df["Low"], body_low - band)
+    return result
+
+
+def wick_outliers(
+    df: pd.DataFrame,
+    multiple: float = WICK_MULTIPLE,
+    window: int = WICK_WINDOW,
+    floor: float = WICK_FLOOR,
+) -> pd.Series:
+    """Maschera delle barre che `clip_wicks` modificherebbe. Serve per contarle, non per filtrare."""
+    clipped = clip_wicks(df, multiple, window, floor)
+    return (clipped["High"] != df["High"]) | (clipped["Low"] != df["Low"])
 
 
 def update_symbol(
@@ -224,7 +295,7 @@ def update_symbol(
     workers: int = DOWNLOAD_WORKERS,
 ) -> pd.DataFrame:
     """Scarica o aggiorna l'archivio 5m di un simbolo, saltando i mesi gia' presenti."""
-    existing = load_klines(symbol, BASE_INTERVAL, store_dir)
+    existing = load_klines(symbol, BASE_INTERVAL, store_dir, clip=False)
     now = pd.Timestamp.utcnow().tz_localize(None)
 
     if existing.empty:
@@ -299,7 +370,7 @@ def update_store(
     symbols = symbols or DEFAULT_SYMBOLS
     started = time.time()
     for position, symbol in enumerate(symbols, start=1):
-        before = len(load_klines(symbol, BASE_INTERVAL, store_dir))
+        before = len(load_klines(symbol, BASE_INTERVAL, store_dir, clip=False))
         print(f"[{position}/{len(symbols)}] {symbol}: {before} candele in archivio...", end=" ", flush=True)
         try:
             frame = update_symbol(symbol, store_dir, workers)
