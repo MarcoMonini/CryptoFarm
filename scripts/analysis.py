@@ -456,6 +456,84 @@ def pivot_labels(capture: float = 0.60, delays: pd.DataFrame | None = None) -> p
     return pd.DataFrame(rows)
 
 
+# Costo di andata e ritorno in modalita' maker, che e' la modalita' in cui vive la strategia (§2.2).
+MAKER_ROUND_TRIP = 0.0008
+OPERATING_THRESHOLDS = (0.003, 0.004, 0.005, 0.008, 0.010, 0.015)
+OPERATING_CAPTURES = (0.05, 0.10, 0.20, 0.30, 0.40)
+
+
+def _leg_arrays(close, pivots):
+    """Per ogni barra: prezzo finale della gamba a cui appartiene e sua direzione, o NaN."""
+    end_price = np.full(len(close), np.nan)
+    direction = np.zeros(len(close), dtype=np.int8)
+    extremes = pivots["extreme_bar"].to_numpy()
+    confirms = pivots["confirm_bar"].to_numpy()
+    prices = pivots["price"].to_numpy()
+    for position in range(len(pivots) - 1):
+        first, last = int(confirms[position]), int(extremes[position + 1])
+        if last < first:
+            continue
+        end_price[first : last + 1] = prices[position + 1]
+        direction[first : last + 1] = 1 if prices[position + 1] > prices[position] else -1
+    return end_price, direction
+
+
+def operating_points(
+    thresholds=OPERATING_THRESHOLDS,
+    captures=OPERATING_CAPTURES,
+    cost: float = MAKER_ROUND_TRIP,
+) -> pd.DataFrame:
+    """Economia netta di ogni punto di lavoro (soglia x capture), a previsione perfetta.
+
+    E' la misura che sceglie il punto di lavoro, e sostituisce il criterio "positivi al 10-15%".
+    Quella quota era un'attesa, non un obiettivo: una etichetta col 35% di positivi che rende non
+    e' peggiore di una col 15% che non rende. Qui si misura invece **quanto si porta a casa al
+    giorno** entrando alla prima barra di ogni blocco di segnale e uscendo alla fine della gamba,
+    al netto del costo maker.
+
+    I rendimenti sono a **previsione perfetta**: sono un tetto superiore, non una previsione di
+    risultato. Servono per ordinare configurazioni fra loro, che e' l'unica cosa che si chiede
+    loro di fare.
+    """
+    from cryptofarm.ml.directional_change import directional_change_pivots, label_distribution, soft_labels
+
+    rows = []
+    for symbol, data in _panel(DEFAULT_SYMBOLS).items():
+        high, low, close = (data[c].to_numpy(float) for c in ("High", "Low", "Close"))
+        days = (data.index[-1] - data.index[0]).total_seconds() / 86400
+        for threshold in thresholds:
+            pivots = directional_change_pivots(high, low, threshold)
+            if len(pivots) < 3:
+                continue
+            end_price, leg_direction = _leg_arrays(close, pivots)
+            legs = len(pivots) - 1
+            for capture in captures:
+                labels = soft_labels(close, pivots, capture)
+                distribution = label_distribution(labels)
+                # Prima barra di ogni blocco contiguo di segnale: e' li' che si entra.
+                entries = np.flatnonzero((labels != 0) & (np.r_[1, labels[:-1]] != labels))
+                if len(entries) == 0:
+                    continue
+                entry_price = close[entries]
+                gross = leg_direction[entries] * (end_price[entries] - entry_price) / entry_price
+                net = gross - cost
+                rows.append(
+                    {
+                        "symbol": symbol,
+                        "soglia": threshold,
+                        "capture": capture,
+                        "positivi": distribution["buy"] + distribution["sell"],
+                        "ingressi_giorno": len(entries) / days,
+                        "gambe_coperte": float(np.isfinite(gross).sum() / legs),
+                        "netto_mediano": float(np.nanmedian(net)),
+                        "netto_medio": float(np.nanmean(net)),
+                        "quota_in_utile": float(np.nanmean(net > 0)),
+                        "netto_giorno": float(np.nansum(net) / days),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
 MEASURES = {
     "store_coverage": store_coverage,
     "market_regimes": market_regimes,
@@ -467,6 +545,7 @@ MEASURES = {
     "concurrency": portfolio_concurrency,
     "pivot_delays": pivot_delays,
     "pivot_labels": pivot_labels,
+    "operating_points": operating_points,
 }
 
 

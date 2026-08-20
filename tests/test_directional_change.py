@@ -79,25 +79,33 @@ def test_soft_labels_cover_more_than_the_exact_extreme():
     assert (labels == SELL).sum() > 1
 
 
-def test_soft_labels_mark_buy_where_most_of_the_up_leg_remains():
+def test_soft_labels_start_at_the_confirmation_not_the_extreme():
+    """The trough itself must not be labelled: nobody can know it is a trough while it forms.
+
+    This is the property the first version got wrong, and it is worth an explicit test rather than
+    a comment - labelling the extreme is the look-ahead that makes the whole thing look easy.
+    """
     # Down to 100, up to 112, down again - the final peak is needed for the up-leg to close.
     close = _zigzag([110.0, 100.0, 112.0, 100.0], bars_per_leg=20)
     pivots = directional_change_pivots(close, close, 0.03)
 
-    labels = soft_labels(close, pivots, capture=0.60)
+    labels = soft_labels(close, pivots, capture=0.30)
 
-    trough = int(pivots[pivots["kind"] == -1].iloc[0]["extreme_bar"])
-    assert labels[trough] == BUY
+    trough_pivot = pivots[pivots["kind"] == -1].iloc[0]
+    trough, confirm = int(trough_pivot["extreme_bar"]), int(trough_pivot["confirm_bar"])
+    assert confirm > trough  # altrimenti il test non sta misurando nulla
+    assert labels[trough] == HOLD
+    assert labels[confirm] == BUY
     # Near the top of the up-leg almost nothing is left to capture, so it cannot be a buy.
-    assert labels[trough + 18] != BUY
+    assert labels[int(pivots[pivots["kind"] == 1].iloc[-1]["extreme_bar"])] != BUY
 
 
 def test_a_higher_capture_requirement_marks_fewer_bars():
     close = _zigzag([100.0, 110.0, 100.0, 110.0], bars_per_leg=25)
     pivots = directional_change_pivots(close, close, 0.03)
 
-    lenient = soft_labels(close, pivots, capture=0.30)
-    strict = soft_labels(close, pivots, capture=0.90)
+    lenient = soft_labels(close, pivots, capture=0.10)
+    strict = soft_labels(close, pivots, capture=0.40)
 
     assert (lenient != HOLD).sum() > (strict != HOLD).sum()
 

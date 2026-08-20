@@ -26,7 +26,11 @@ HOLD, BUY, SELL = 0, 1, 2
 LABEL_NAMES = {HOLD: "hold", BUY: "buy", SELL: "sell"}
 
 DEFAULT_THRESHOLD = 0.005  # 0,5% di inversione per confermare un estremo
-DEFAULT_CAPTURE = 0.60  # frazione minima della gamba catturabile perche' la barra sia un segnale
+# Frazione minima della gamba ancora catturabile perche' la barra sia un segnale. E' bassa per una
+# ragione misurata, non per indulgenza: la finestra parte dalla barra di **conferma** del pivot, e
+# li' il catturabile mediano vale gia' solo 0,41-0,44 (`strategy.md` §10.1). Qualunque soglia sopra
+# 0,44 lascerebbe la maggioranza delle gambe senza nemmeno una barra positiva.
+DEFAULT_CAPTURE = 0.30
 
 
 def directional_change_pivots(high: np.ndarray, low: np.ndarray, threshold: float) -> pd.DataFrame:
@@ -140,13 +144,22 @@ def soft_labels(
     pivots: pd.DataFrame,
     capture: float = DEFAULT_CAPTURE,
 ) -> np.ndarray:
-    """Etichetta morbida: BUY/SELL su ogni barra da cui resta catturabile almeno `capture`.
+    """Etichetta morbida: BUY/SELL su ogni barra **operabile** da cui resta catturabile `capture`.
 
     Per ogni gamba, la frazione catturabile dalla barra `b` e' `(P_fine - Close_b) / (P_fine -
-    P_inizio)` su una gamba al rialzo, e simmetricamente al ribasso. La finestra considerata va
-    dall'estremo precedente all'estremo finale della gamba, quindi la zona di segnale copre sia
-    la discesa verso il minimo sia l'inizio della risalita -- che e' il punto: due barre prima o
-    dopo il minimo esatto valgono quasi lo stesso, e l'etichetta deve dirlo.
+    P_inizio)` su una gamba al rialzo, e simmetricamente al ribasso.
+
+    **La finestra parte dalla barra di conferma del pivot iniziale, non dall'estremo precedente.**
+    La versione precedente la faceva partire dall'estremo precedente, con l'idea che la discesa
+    verso un minimo fosse gia' zona di acquisto: economicamente vero, operativamente impossibile.
+    Quella discesa e' proprio il tratto in cui non si sa ancora che il minimo sara' un minimo, e
+    l'etichetta finiva per dire "il prezzo sta nel 40% inferiore del range che verra'", che e' vero
+    quasi sempre. Misurato su 15 simboli: **il 70% delle barre risultava positivo**, HOLD scendeva
+    al 29%, e un predittore costante SELL prendeva il 37% (`strategy.md` §10.4). Partire dalla
+    conferma toglie dall'etichetta esattamente il tratto che il modello non potrebbe mai vedere.
+
+    Il prezzo di questa correttezza e' che alla conferma il catturabile mediano e' gia' sceso a
+    0,41-0,44, quindi `capture` va tarato **sotto** quella soglia e non sopra.
     """
     labels = np.zeros(len(close), dtype=np.int8)
     if len(pivots) < 2:
@@ -154,13 +167,11 @@ def soft_labels(
 
     for position in range(len(pivots) - 1):
         start, end = pivots.iloc[position], pivots.iloc[position + 1]
-        start_bar, end_bar = int(start["extreme_bar"]), int(end["extreme_bar"])
+        end_bar = int(end["extreme_bar"])
+        window_start = int(start["confirm_bar"])
         span = end["price"] - start["price"]
-        if end_bar <= start_bar or span == 0:
+        if end_bar < window_start or span == 0:
             continue
-        # La finestra parte dall'estremo precedente: la discesa finale verso un minimo e' gia'
-        # zona di acquisto, perche' da li' si cattura quasi tutta la gamba successiva.
-        window_start = int(pivots.iloc[position - 1]["extreme_bar"]) if position > 0 else start_bar
         window = np.arange(window_start, end_bar + 1)
         fraction = (end["price"] - close[window]) / span
         signal = BUY if span > 0 else SELL
