@@ -13,8 +13,10 @@ from scipy.signal import argrelextrema
 from ta.momentum import KAMAIndicator, RSIIndicator, StochasticOscillator, TSIIndicator
 from ta.trend import EMAIndicator
 from ta.volatility import AverageTrueRange
-from cryptofarm.ml.signals import barrier_signals
+from cryptofarm.ml.signals import barrier_signals, meta_signals
 from cryptofarm.ml.trainer import (
+    _meta_parameters,
+    _is_meta_model,
     get_model_predictions,
     load_signal_model,
     stored_decision_threshold,
@@ -1369,6 +1371,8 @@ def ai_model_simulation(df, model, threshold: float = None):
     l'accoppiamento per indice di `simulate_trading_with_commisions` ha senso.
     """
     threshold = threshold if threshold is not None else stored_decision_threshold()
+    if _is_meta_model():
+        return meta_signals(df, model, threshold=threshold, **_meta_parameters())
     return barrier_signals(df, model, threshold=threshold)
 
 

@@ -80,15 +80,15 @@ def barrier_widths(
     return take_profit, stop_loss
 
 
-def triple_barrier_labels(
+def triple_barrier_events(
     df: pd.DataFrame,
     horizon: int = HORIZON_BARS,
     tp_multiple: float = TP_ATR_MULTIPLE,
     sl_multiple: float = SL_ATR_MULTIPLE,
     round_trip_fee: float = ROUND_TRIP_FEE,
     fee_floor_multiple: float = FEE_FLOOR_MULTIPLE,
-) -> pd.Series:
-    """Etichetta ogni candela con l'esito del trade che vi si aprirebbe.
+) -> pd.DataFrame:
+    """Etichetta ogni candela con l'esito del trade che vi si aprirebbe, **e con la sua durata**.
 
     Ingresso al Close della candela; le barriere vengono verificate sui massimi e minimi delle
     candele **successive** (t+1 .. t+horizon), mai su quella corrente.
@@ -98,24 +98,49 @@ def triple_barrier_labels(
     l'esito peggiore (SELL). Assumere il migliore produrrebbe un modello ottimista che in
     esecuzione reale trova sistematicamente meno di quanto si aspetta.
 
-    Le ultime `horizon` candele non hanno futuro osservabile e restano HOLD.
+    Colonne restituite:
+
+    - `Label`      esito: 0 hold (timeout), 1 buy (TP per primo), 2 sell (SL per primo)
+    - `exit_bar`   posizione della candela di uscita
+    - `t_exit`     timestamp della candela di uscita
+    - `exit_return` rendimento realizzato, lordo di commissioni
+    - `tp_width` / `sl_width`  ampiezza effettiva delle barriere, in frazione del prezzo
+
+    `t_exit` non e' un dettaglio diagnostico: e' il dato senza cui il **purging** della
+    cross-validation non e' calcolabile. Due osservazioni le cui vite si sovrappongono
+    condividono futuro, e per saperlo serve sapere quando ciascuna finisce.
     """
     if "ATR" not in df.columns:
-        raise KeyError("triple_barrier_labels richiede la colonna ATR normalizzata in percentuale")
+        raise KeyError("triple_barrier_events richiede la colonna ATR normalizzata in percentuale")
 
     close = df["Close"].to_numpy(dtype=float)
     high = df["High"].to_numpy(dtype=float)
     low = df["Low"].to_numpy(dtype=float)
     take_profit, stop_loss = barrier_widths(df["ATR"], tp_multiple, sl_multiple, round_trip_fee, fee_floor_multiple)
 
-    labels = np.zeros(len(df), dtype=np.int8)
-    labelable = len(df) - horizon
+    total = len(df)
+    labels = np.zeros(total, dtype=np.int8)
+    exit_bar = np.arange(total, dtype=np.int64)
+    exit_return = np.zeros(total, dtype=float)
+
+    labelable = total - horizon
     if labelable <= 0:
-        return pd.Series(labels, index=df.index, name="Label")
+        return pd.DataFrame(
+            {
+                "Label": labels,
+                "exit_bar": exit_bar,
+                "t_exit": df.index,
+                "exit_return": exit_return,
+                "tp_width": take_profit,
+                "sl_width": stop_loss,
+            },
+            index=df.index,
+        )
 
     # Finestra dei futuri: la riga i copre le candele i+1 .. i+horizon.
     future_high = sliding_window_view(high[1:], horizon)[:labelable]
     future_low = sliding_window_view(low[1:], horizon)[:labelable]
+    future_close = sliding_window_view(close[1:], horizon)[:labelable]
 
     upper = close[:labelable] * (1.0 + take_profit[:labelable])
     lower = close[:labelable] * (1.0 - stop_loss[:labelable])
@@ -131,14 +156,48 @@ def triple_barrier_labels(
         first_upper = np.where(hit_upper.any(axis=1), hit_upper.argmax(axis=1), never)
         first_lower = np.where(hit_lower.any(axis=1), hit_lower.argmax(axis=1), never)
 
-        chunk = np.full(stop - start, HOLD, dtype=np.int8)
-        chunk[first_upper < first_lower] = BUY
-        # `<=` e non `<`: a parita' di candela vince lo stop, per la ragione nel docstring.
-        chunk[first_lower <= first_upper] = SELL
-        chunk[(first_upper == never) & (first_lower == never)] = HOLD
-        labels[start:stop] = chunk
+        size = stop - start
+        chunk = np.full(size, HOLD, dtype=np.int8)
+        # Timeout: uscita a mercato sull'ultima candela dell'orizzonte.
+        bars = np.full(size, horizon, dtype=np.int64)
+        returns = future_close[start:stop, -1] / close[start:stop] - 1.0
 
-    return pd.Series(labels, index=df.index, name="Label")
+        won = first_upper < first_lower
+        # `<=` e non `<`: a parita' di candela vince lo stop, per la ragione nel docstring.
+        lost = (first_lower <= first_upper) & (first_lower != never)
+
+        chunk[won] = BUY
+        bars[won] = first_upper[won] + 1
+        returns[won] = take_profit[start:stop][won]
+
+        chunk[lost] = SELL
+        bars[lost] = first_lower[lost] + 1
+        returns[lost] = -stop_loss[start:stop][lost]
+
+        labels[start:stop] = chunk
+        exit_bar[start:stop] = np.arange(start, stop) + bars
+        exit_return[start:stop] = returns
+
+    # La coda senza futuro osservabile resta HOLD, con uscita su se stessa: non e' un trade.
+    exit_bar[labelable:] = np.arange(labelable, total)
+    exit_bar = np.minimum(exit_bar, total - 1)
+
+    return pd.DataFrame(
+        {
+            "Label": labels,
+            "exit_bar": exit_bar,
+            "t_exit": df.index[exit_bar],
+            "exit_return": exit_return,
+            "tp_width": take_profit,
+            "sl_width": stop_loss,
+        },
+        index=df.index,
+    )
+
+
+def triple_barrier_labels(df: pd.DataFrame, **kwargs) -> pd.Series:
+    """Solo le etichette. Comodita' per i chiamanti che non hanno bisogno delle durate."""
+    return triple_barrier_events(df, **kwargs)["Label"].rename("Label")
 
 
 def label_distribution(labels: np.ndarray | pd.Series) -> dict[str, float]:

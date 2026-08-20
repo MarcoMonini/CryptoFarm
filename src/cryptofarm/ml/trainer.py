@@ -299,21 +299,63 @@ def _infer_interval_minutes(index: pd.DatetimeIndex) -> int:
 
 def stored_decision_threshold() -> float:
     """Soglia scelta durante l'addestramento, letta dai metadata del modello."""
-    metadata_path = MODELS_DIR / f"{MODEL_NAME}.json"
-    if metadata_path.exists():
-        try:
-            return float(json.loads(metadata_path.read_text())["decision_threshold"])
-        except Exception:
-            pass
+    for name in ("meta_model", MODEL_NAME):
+        metadata_path = MODELS_DIR / f"{name}.json"
+        if metadata_path.exists():
+            try:
+                return float(json.loads(metadata_path.read_text())["decision_threshold"])
+            except Exception:
+                continue
     return DEFAULT_DECISION_THRESHOLD
+
+
+def _meta_metadata() -> dict | None:
+    """Metadata del modello meta, se ne esiste uno addestrato."""
+    path = MODELS_DIR / "meta_model.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def _is_meta_model() -> bool:
+    """Il modello caricato e' un secondario di meta-labeling?"""
+    return (MODELS_DIR / "meta_model.joblib").exists()
+
+
+def _meta_parameters() -> dict:
+    """Parametri della catena di segnale, letti dai metadata del modello.
+
+    Non sono duplicati qui come costanti di proposito: barriere, soglia CUSUM e parametri di
+    esecuzione devono essere **esattamente** quelli con cui il modello e' stato addestrato, e
+    l'unico modo per garantirlo e' leggerli dall'artefatto invece che riscriverli.
+    """
+    metadata = _meta_metadata() or {}
+    labeling = metadata.get("labeling", {})
+    execution = metadata.get("execution", {})
+    primary = metadata.get("primary", {})
+    return {
+        "horizon_hours": labeling.get("horizon_hours", 24.0),
+        "tp_multiple": labeling.get("tp_multiple", 1.5),
+        "sl_multiple": labeling.get("sl_multiple", 1.0),
+        "round_trip_fee": labeling.get("round_trip_fee", 0.0012),
+        "fee_floor_multiple": labeling.get("fee_floor_multiple", 5.0),
+        "cusum_sigma": primary.get("threshold_sigma", 3.0),
+        "limit_offset_atr": execution.get("limit_offset_atr", 0.5),
+        "limit_patience": execution.get("patience_bars", 12),
+    }
 
 
 def load_signal_model():
     """Carica il modello di segnale addestrato, qualunque formato abbia."""
-    for extension in (".joblib", ".keras"):
-        path = MODELS_DIR / f"{MODEL_NAME}{extension}"
-        if path.exists():
-            return load_model(path)
+    # Il modello meta ha la precedenza: e' quello addestrato sulla strategia corrente.
+    for name in ("meta_model", MODEL_NAME):
+        for extension in (".joblib", ".keras"):
+            path = MODELS_DIR / f"{name}{extension}"
+            if path.exists():
+                return load_model(path)
     raise FileNotFoundError(f"Nessun modello in {MODELS_DIR}. Addestrarne uno con `cryptofarm.ml.trainer`.")
 
 

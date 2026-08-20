@@ -22,7 +22,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from cryptofarm.ml.dataset import build_design_matrix
+from cryptofarm.data.klines import interval_to_minutes
+from cryptofarm.ml.dataset import build_design_matrix, cusum_events
 from cryptofarm.ml.features import build_feature_frame
 from cryptofarm.ml.labeling import BUY, HORIZON_BARS, SL_ATR_MULTIPLE, TP_ATR_MULTIPLE, barrier_widths
 from cryptofarm.ml.models import predict_proba
@@ -116,5 +117,98 @@ def barrier_signals(
         # Nessuna nuova posizione prima che la precedente sia chiusa: il modello stima l'esito di
         # un ingresso isolato, non di posizioni sovrapposte.
         position = exit_position + 1
+
+    return buy_signals, sell_signals
+
+
+def meta_signals(
+    df: pd.DataFrame,
+    model,
+    threshold: float,
+    horizon_hours: float = 24.0,
+    tp_multiple: float = 1.5,
+    sl_multiple: float = 1.0,
+    round_trip_fee: float = 0.0012,
+    fee_floor_multiple: float = 5.0,
+    cusum_sigma: float = 3.0,
+    limit_offset_atr: float = 0.5,
+    limit_patience: int = 12,
+) -> tuple[list[tuple], list[tuple]]:
+    """Catena completa della strategia meta: primario CUSUM, secondario, esecuzione a limite.
+
+    Riproduce esattamente cio' che il modello e' stato addestrato a prevedere, e nell'ordine in
+    cui e' stato valutato:
+
+    1. il **primario** (filtro CUSUM) propone un candidato quando il prezzo ha accumulato un
+       movimento di dimensione rilevante;
+    2. il **secondario** assegna la probabilita' che quell'ingresso chiuda in profitto netto, e
+       si opera solo sopra soglia;
+    3. l'ingresso e' un **ordine limite** sotto il prezzo, che puo' non riempirsi -- e in quel
+       caso non c'e' nessun trade, non un trade a prezzo di mercato;
+    4. l'uscita e' la barriera toccata per prima, calcolata dall'ATR al momento dell'ingresso.
+
+    Rispettare questa catena non e' pedanteria: e' cio' che rende il P&L simulato la traduzione
+    diretta dell'aspettativa misurata in cross-validation. Cambiare un anello -- entrare a
+    mercato invece che a limite, uscire su un segnale invece che su una barriera -- scollega i
+    due numeri senza dare nessun segnale che sia successo.
+    """
+    from cryptofarm.ml.execution import limit_fills
+    from cryptofarm.ml.labeling import barrier_widths
+
+    interval = interval_from_index(df.index)
+    minutes = interval_to_minutes(interval)
+    features = build_feature_frame(df, interval)
+    if features.empty:
+        return [], []
+
+    matrix = build_design_matrix(features)
+    usable = matrix.notna().all(axis=1).to_numpy()
+    events = cusum_events(features["Close"], cusum_sigma)
+    events = events[usable[events]]
+    if len(events) == 0:
+        return [], []
+
+    scores = predict_proba(model, matrix.iloc[events].to_numpy())[:, 1]
+    candidates = events[scores >= threshold]
+    if len(candidates) == 0:
+        return [], []
+
+    fills = limit_fills(features, candidates, offset_atr=limit_offset_atr, patience=limit_patience)
+    take_profit, stop_loss = barrier_widths(
+        features["ATR"], tp_multiple, sl_multiple, round_trip_fee, fee_floor_multiple
+    )
+
+    high = features["High"].to_numpy(dtype=float)
+    low = features["Low"].to_numpy(dtype=float)
+    close = features["Close"].to_numpy(dtype=float)
+    timestamps = features.index
+    horizon_bars = int(horizon_hours * 60 / minutes)
+
+    buy_signals: list[tuple] = []
+    sell_signals: list[tuple] = []
+    busy_until = -1
+
+    for row, position in enumerate(candidates):
+        if position <= busy_until or not fills["filled"].iloc[row]:
+            continue
+        entry_bar = int(fills["fill_bar"].iloc[row])
+        entry_price = float(fills["fill_price"].iloc[row])
+        target = entry_price * (1.0 + take_profit[position])
+        stop = entry_price * (1.0 - stop_loss[position])
+        deadline = min(entry_bar + horizon_bars, len(close) - 1)
+
+        exit_position, exit_price = deadline, close[deadline]
+        for step in range(entry_bar + 1, deadline + 1):
+            if low[step] <= stop:
+                exit_position, exit_price = step, stop
+                break
+            if high[step] >= target:
+                exit_position, exit_price = step, target
+                break
+
+        buy_signals.append((timestamps[entry_bar], entry_price))
+        sell_signals.append((timestamps[exit_position], float(exit_price)))
+        # Una posizione alla volta: il modello stima l'esito di un ingresso isolato.
+        busy_until = exit_position
 
     return buy_signals, sell_signals

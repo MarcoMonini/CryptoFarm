@@ -163,3 +163,35 @@ def test_create_sequences_returns_empty_when_the_window_does_not_fit():
 
     assert windows.shape[0] == 0
     assert y.shape[0] == 0
+
+
+def test_cusum_fires_on_accumulated_moves_not_on_the_clock():
+    from cryptofarm.ml.dataset import cusum_events
+
+    # A long quiet stretch then a sustained move: the filter must stay silent through the quiet
+    # part and fire on the move, which is the whole point of sampling on events.
+    quiet = 100 * (1 + 0.00002 * np.sin(np.arange(600)))
+    move = 100 * np.exp(np.cumsum(np.full(100, 0.002)))
+    close = pd.Series(np.concatenate([quiet, move]))
+
+    events = cusum_events(close, threshold_sigma=3.0, volatility_window=288)
+
+    assert len(events) > 0
+    assert (events >= 600).mean() > 0.8
+
+
+def test_cusum_fires_less_often_as_the_threshold_rises():
+    from cryptofarm.ml.dataset import cusum_events
+
+    rng = np.random.default_rng(4)
+    close = pd.Series(100 * np.exp(np.cumsum(rng.normal(0, 0.002, 5000))))
+
+    assert len(cusum_events(close, 2.0)) > len(cusum_events(close, 5.0))
+
+
+def test_cusum_returns_nothing_when_volatility_cannot_be_estimated():
+    from cryptofarm.ml.dataset import cusum_events
+
+    close = pd.Series(100 * np.exp(np.cumsum(np.random.default_rng(1).normal(0, 0.002, 50))))
+
+    assert len(cusum_events(close, 3.0, volatility_window=288)) == 0
