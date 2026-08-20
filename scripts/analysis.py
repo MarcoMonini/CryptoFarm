@@ -534,6 +534,45 @@ def operating_points(
     return pd.DataFrame(rows)
 
 
+def confirmation_tax(thresholds=(0.003, 0.004, 0.005, 0.008, 0.010, 0.015), cost: float = MAKER_ROUND_TRIP):
+    """Quanto resta entrando alla conferma del minimo e uscendo alla conferma del massimo.
+
+    E' la misura che spiega tutto il resto, e non richiede nessun modello. Entrare a conferma
+    avvenuta costa una soglia (il prezzo si e' gia' mosso di tanto dall'estremo); uscire a
+    conferma avvenuta ne costa un'altra. Il conto e' `gamba - 2 x soglia`, e la gamba mediana
+    misurata vale **1,76-2,05 soglie**: quindi non resta niente.
+
+    Nessuna scelta di implementazione lo cambia, perche' non e' una proprieta' del modello ma
+    dello schema: si paga la conferma due volte e la gamba tipica ne vale meno di due.
+    """
+    from cryptofarm.ml.directional_change import directional_change_pivots, leg_table
+
+    rows = []
+    for symbol, data in _panel(DEFAULT_SYMBOLS).items():
+        high, low, close = (data[column].to_numpy(float) for column in ("High", "Low", "Close"))
+        for threshold in thresholds:
+            pivots = directional_change_pivots(high, low, threshold)
+            legs = leg_table(pivots)
+            rising = legs[legs["direction"] == 1]
+            if rising.empty or rising.index.max() + 1 >= len(pivots):
+                continue
+            entry = rising["confirm_bar"].to_numpy()
+            # La conferma del massimo che chiude la gamba e' il `confirm_bar` del pivot successivo.
+            exit_bar = pivots["confirm_bar"].to_numpy()[rising.index.to_numpy() + 1]
+            captured = close[exit_bar] / close[entry] - 1.0
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "soglia": threshold,
+                    "gamba_su_soglia": float((rising["size"] / threshold).median()),
+                    "catturato_mediano": float(np.median(captured)),
+                    "catturato_medio": float(np.mean(captured)),
+                    "quota_sopra_costo": float(np.mean(captured > cost)),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 MEASURES = {
     "store_coverage": store_coverage,
     "market_regimes": market_regimes,
@@ -546,6 +585,7 @@ MEASURES = {
     "pivot_delays": pivot_delays,
     "pivot_labels": pivot_labels,
     "operating_points": operating_points,
+    "confirmation_tax": confirmation_tax,
 }
 
 
