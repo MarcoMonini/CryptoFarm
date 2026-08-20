@@ -1052,17 +1052,36 @@ l'intera strategia poggia.
 
 ## Riproducibilità
 
-| misura | script |
-|---|---|
-| Copertura dello store | `python -m cryptofarm.data.klines --manifest` |
-| Regimi, dollar bar, CUSUM su BTC (rev. 1) | `feasibility.py` |
-| §1.3 tempo al target censurato, §1.5 holding e capacità | `m1_capacity.py` |
-| §2.2 break-even misurato, confronto random walk, §1.4 CUSUM 15 simboli, concorrenza | `m2_economics.py` |
-| §7.1 ritardo di conferma dei pivot, §7.2 conteggio strutture | `m3_patterns.py` |
-| §4.1 confronto LSTM / GBDT | `diagnose.py` |
-| Sweep configurazioni di labeling | `sweep_labeling.py`, `sweep_barriers.py` |
-| Verifica segnali end-to-end | `check_signals.py` |
+Le misure **conservate e rieseguibili** stanno in `scripts/analysis.py`, che le calcola e le mette
+in cache in `analysis_cache/` (gitignorata, rigenerabile):
 
-**Gli script stanno nella scratchpad di sessione e sono quindi effimeri.** Vanno spostati sotto
-`scripts/` perché le misure di questo documento restino riproducibili — è un prerequisito pratico
-della Fase 0, non un abbellimento: senza, ogni numero qui è verificabile solo a memoria.
+    python -m scripts.analysis --all        # calcola tutto
+    python -m scripts.analysis --capacity   # una sola misura
+    streamlit run src/cryptofarm/app/analysis_dashboard.py   # le visualizza
+
+| misura | funzione in `scripts/analysis.py` | sezione |
+|---|---|---|
+| Copertura dello store | `store_coverage` | §1.1 |
+| Regimi di mercato | `market_regimes` | §1.2 |
+| Tempo al target, con e senza censura | `time_to_target` | §1.3 |
+| Eventi CUSUM per simbolo e soglia | `cusum_rates` | §1.4 |
+| Holding time reale e capacità | `barrier_capacity` | §1.5 |
+| Break-even ed expectancy misurati | `break_even_table` | §2.2 |
+| Confronto con random walk | `random_walk_comparison` | §1.5 |
+| Posizioni concorrenti a portafoglio | `portfolio_concurrency` | §1.5 |
+
+### Misure non conservate — debito noto
+
+Alcune misure citate in questo documento sono state prodotte da script vissuti solo nella
+directory temporanea di sessione, e **non esistono più**. I loro numeri restano validi (sono
+riportati qui), ma non sono rieseguibili senza riscrivere lo script:
+
+| misura | sezione | stato |
+|---|---|---|
+| Confronto LSTM / gradient boosting | §4.1 | da riscrivere se serve rifare il confronto |
+| Sweep delle configurazioni di labeling e barriere | §2, §8bis | da riscrivere |
+| Ritardo di conferma dei pivot e conteggio strutture | §7.1, §7.2 | **parzialmente sostituito**: `ml/directional_change.py` ricalcola i pivot e i ritardi, ma manca lo script che aggrega su tutti i simboli |
+| Verifica dei segnali end-to-end nel simulatore | §8bis | da riscrivere |
+
+Chi riprende il lavoro e ha bisogno di uno di questi numeri lo rimisuri invece di fidarsi: sono
+corretti al momento della scrittura, ma nessuno li ricalcola automaticamente se i dati cambiano.

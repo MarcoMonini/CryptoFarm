@@ -2,6 +2,23 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentazione di lavoro
+
+Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
+
+- `.claude/docs/strategy.md` — fonte di verità delle decisioni su labeling, feature, modello e
+  validazione, con le misure che le giustificano. Da aggiornare in luogo quando si decide qualcosa.
+- `.claude/docs/HANDOFF.md` — stato corrente del lavoro e trappole ambientali per chi riprende.
+- `.claude/docs/INDEX.md` — ordine di lettura consigliato.
+
+Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
+esplicitamente diverse strade che sembrano ragionevoli a prima vista.
+
+## Ambiente
+
+Usare **`.venv312/bin/python`**. Il `.venv` preesistente è Python 3.9 senza `scikit-learn`,
+mentre il progetto richiede Python >= 3.12.
+
 ## Project overview
 
 CryptoFarm simulates and trades cryptocurrency strategies against the Binance API. It lives in a `src/cryptofarm/`
