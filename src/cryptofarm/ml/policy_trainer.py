@@ -74,12 +74,21 @@ EMBARGO_PERCENTILE = 95
 class SymbolData:
     """Tutto cio' che serve di un simbolo, gia' allineato per posizione di barra."""
 
-    def __init__(self, symbol: str, market: pd.DataFrame, close: np.ndarray, signals: np.ndarray, exits: np.ndarray):
+    def __init__(
+        self,
+        symbol: str,
+        market: pd.DataFrame,
+        close: np.ndarray,
+        signals: np.ndarray,
+        exits: np.ndarray,
+        exit_rows: np.ndarray,
+    ):
         self.symbol = symbol
         self.market = market
         self.close = close
         self.signals = signals
         self.exits = exits  # timestamp di fine della gamba a cui la barra appartiene
+        self.exit_rows = exit_rows  # e la sua riga, che serve per il prezzo
 
     @property
     def index(self) -> pd.DatetimeIndex:
@@ -116,6 +125,7 @@ def prepare_symbol(
     # Fine della gamba a cui ogni barra appartiene: e' la vita dell'etichetta, cio' su cui il
     # purging del CPCV deve ragionare. Le barre fuori da ogni gamba scadono con se' stesse.
     exits = market.index.to_numpy().copy()
+    exit_rows = np.arange(len(close))
     extremes = pivots["extreme_bar"].to_numpy()
     confirms = pivots["confirm_bar"].to_numpy()
     stamps = market.index.to_numpy()
@@ -123,8 +133,9 @@ def prepare_symbol(
         first, last = int(confirms[position]), int(extremes[position + 1])
         if last >= first:
             exits[first : last + 1] = stamps[last]
+            exit_rows[first : last + 1] = last
 
-    return SymbolData(symbol, market, close, signals, exits)
+    return SymbolData(symbol, market, close, signals, exits, exit_rows)
 
 
 def training_rows(data: SymbolData, rng: np.random.Generator, stride: int) -> pd.DataFrame:
@@ -524,7 +535,74 @@ def _holdout(
         sweep.append(entry)
         print(f"    {threshold:.1f}: {_summary_line(entry)}", flush=True)
     summary["sweep"] = sweep
+
+    attribution = entry_attribution(panel, model, rows, cost, decision_threshold)
+    if attribution.get("operazioni"):
+        print(
+            f"  attribuzione (stessi ingressi, uscite diverse): politica "
+            f"{attribution['lordo_politica']:+.3%} | esperto {attribution['lordo_uscita_esperto']:+.3%} "
+            f"(netto {attribution['netto_uscita_esperto']:+.3%}) | perfetta "
+            f"{attribution['lordo_uscita_perfetta']:+.3%}"
+        )
+    summary["attribuzione"] = attribution
     return summary
+
+
+def entry_attribution(panel: Panel, model, rows: np.ndarray, cost: float, decision_threshold: float) -> dict:
+    """Separa la qualita' degli ingressi da quella delle uscite, con tre uscite a confronto.
+
+    Un edge lordo prossimo a zero ha due cause diverse e opposte, e il numero aggregato non le
+    distingue: o gli ingressi sono casuali, e allora nessuna uscita li salva; oppure gli ingressi
+    valgono e l'uscita restituisce quello che avevano preso.
+
+    Le uscite confrontate, tutte a partire **dagli ingressi della politica**:
+
+    - *politica*: quando il modello dice SELL. E' il risultato reale.
+    - *esperto*: alla prima barra etichettata SELL. E' il tetto **raggiungibile**, perche'
+      l'etichetta e' costruita su pivot confermati.
+    - *perfetta*: all'estremo della gamba. Non e' raggiungibile da nessuno -- l'estremo si conosce
+      solo dopo -- e serve solo a dire quanto vale l'ingresso in assoluto.
+
+    Il confronto che conta e' politica contro **esperto**: se anche l'esperto restituisce quello
+    che l'ingresso aveva preso, il problema e' l'etichetta e non il modello.
+    """
+    trades = backtest(panel, model, decision_threshold, cost, rows=rows)
+    if trades.empty:
+        return {"operazioni": 0}
+
+    perfect, expert = [], []
+    lookup = {data.symbol: position for position, data in enumerate(panel.prepared)}
+    for symbol, group in trades.groupby("symbol"):
+        data = panel.prepared[lookup[symbol]]
+        entry_rows = data.index.get_indexer(pd.DatetimeIndex(group["entrata"]))
+        target = data.exit_rows[entry_rows]
+        perfect.append(data.close[target] / data.close[entry_rows] - 1.0)
+        expert.append(data.close[_first_sell_after(data.signals, entry_rows)] / data.close[entry_rows] - 1.0)
+    perfect, expert = np.concatenate(perfect), np.concatenate(expert)
+
+    policy_gross = float(trades["lordo"].mean())
+    return {
+        "operazioni": int(len(trades)),
+        "lordo_politica": policy_gross,
+        "lordo_uscita_esperto": float(expert.mean()),
+        "lordo_uscita_perfetta": float(perfect.mean()),
+        "netto_uscita_esperto": float(expert.mean() - cost),
+        "quota_dell_esperto": float(policy_gross / expert.mean()) if expert.mean() else float("nan"),
+    }
+
+
+def _first_sell_after(signals: np.ndarray, entry_rows: np.ndarray) -> np.ndarray:
+    """Prima barra etichettata SELL a partire da ciascun ingresso; l'ultima barra se non arriva.
+
+    E' l'uscita che l'esperto stesso puo' eseguire: l'etichetta SELL vive nella gamba discendente,
+    quindi arriva **dopo** il massimo, in ritardo esattamente di quanto costa la conferma.
+    """
+    sells = np.flatnonzero(signals == SELL)
+    if len(sells) == 0:
+        return np.full(len(entry_rows), len(signals) - 1)
+    position = np.searchsorted(sells, entry_rows, side="left")
+    position = np.minimum(position, len(sells) - 1)
+    return np.maximum(sells[position], entry_rows)
 
 
 def _summary_line(summary: dict) -> str:
