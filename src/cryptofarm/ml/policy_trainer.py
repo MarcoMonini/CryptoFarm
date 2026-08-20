@@ -542,7 +542,9 @@ def _holdout(
             f"  attribuzione (stessi ingressi, uscite diverse): politica "
             f"{attribution['lordo_politica']:+.3%} | esperto {attribution['lordo_uscita_esperto']:+.3%} "
             f"(netto {attribution['netto_uscita_esperto']:+.3%}) | perfetta "
-            f"{attribution['lordo_uscita_perfetta']:+.3%}"
+            f"{attribution['lordo_uscita_perfetta']:+.3%}\n"
+            f"  controllo: ingressi a caso con uscita perfetta {attribution['lordo_ingresso_casuale']:+.3%} "
+            f"-> vantaggio dell'ingresso {attribution['vantaggio_sul_caso']:+.3%}"
         )
     summary["attribuzione"] = attribution
     return summary
@@ -570,15 +572,20 @@ def entry_attribution(panel: Panel, model, rows: np.ndarray, cost: float, decisi
     if trades.empty:
         return {"operazioni": 0}
 
-    perfect, expert = [], []
+    generator = np.random.default_rng(11)
+    perfect, expert, chance = [], [], []
     lookup = {data.symbol: position for position, data in enumerate(panel.prepared)}
     for symbol, group in trades.groupby("symbol"):
         data = panel.prepared[lookup[symbol]]
         entry_rows = data.index.get_indexer(pd.DatetimeIndex(group["entrata"]))
-        target = data.exit_rows[entry_rows]
-        perfect.append(data.close[target] / data.close[entry_rows] - 1.0)
-        expert.append(data.close[_first_sell_after(data.signals, entry_rows)] / data.close[entry_rows] - 1.0)
-    perfect, expert = np.concatenate(perfect), np.concatenate(expert)
+        perfect.append(_exit_returns(data, entry_rows, data.exit_rows[entry_rows]))
+        expert.append(_exit_returns(data, entry_rows, _first_sell_after(data.signals, entry_rows)))
+        # Controllo: stessi ingressi in numero, ma presi a caso nella stessa finestra. Senza,
+        # "+0,28% con uscita perfetta" non significa niente -- meta' delle barre sta in una gamba
+        # al rialzo per costruzione, e uscire al suo estremo paga anche entrando a caso.
+        drawn = generator.choice(np.arange(entry_rows.min(), entry_rows.max() + 1), size=len(entry_rows))
+        chance.append(_exit_returns(data, drawn, data.exit_rows[drawn]))
+    perfect, expert, chance = (np.concatenate(x) for x in (perfect, expert, chance))
 
     policy_gross = float(trades["lordo"].mean())
     return {
@@ -586,9 +593,14 @@ def entry_attribution(panel: Panel, model, rows: np.ndarray, cost: float, decisi
         "lordo_politica": policy_gross,
         "lordo_uscita_esperto": float(expert.mean()),
         "lordo_uscita_perfetta": float(perfect.mean()),
+        "lordo_ingresso_casuale": float(chance.mean()),
         "netto_uscita_esperto": float(expert.mean() - cost),
-        "quota_dell_esperto": float(policy_gross / expert.mean()) if expert.mean() else float("nan"),
+        "vantaggio_sul_caso": float(perfect.mean() - chance.mean()),
     }
+
+
+def _exit_returns(data: SymbolData, entry_rows: np.ndarray, exit_rows: np.ndarray) -> np.ndarray:
+    return data.close[exit_rows] / data.close[entry_rows] - 1.0
 
 
 def _first_sell_after(signals: np.ndarray, entry_rows: np.ndarray) -> np.ndarray:
