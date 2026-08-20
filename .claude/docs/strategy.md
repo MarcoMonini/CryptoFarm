@@ -1249,6 +1249,71 @@ decidere quanto futuro condividono due fold contigui.
 
 ---
 
+## 12. Risultati della politica a tre azioni — **negativi**
+
+15 simboli, barre 5m dal 2022-01-01, 1.217.715 righe x 83 feature, `HistGradientBoosting`, 2
+iterazioni DAgger, costo maker 0,08% andata e ritorno.
+Riprodotto con `python -m cryptofarm.ml.policy_trainer --extremes-per-day 8 12`.
+
+### 12.1 Banda alta (8–12 estremi/giorno)
+
+| | operazioni | trade/g | lordo | netto | win rate | netto/giorno |
+|---|---|---|---|---|---|---|
+| in-sample | 58.866 | 2,32 | **+0,032%** | −0,048% | 36,6% | −0,111% |
+| CPCV, mediana su 15 split | — | 2,33 | negativo su 15/15 | — | ~32,6% | **−0,306%** |
+| CPCV, split peggiore | 17.027 | 2,01 | −0,156% | −0,236% | 29,8% | −0,476% |
+| holdout con DAgger | 10.483 | 1,65 | −0,123% | −0,203% | 32,6% | −0,336% |
+
+**Split in utile: 0 su 15.** Il lordo fuori campione sta fra −0,013% e −0,156%: non e' piccolo e
+positivo, e' negativo.
+
+**Il fatto piu' informativo non e' l'out-of-sample, e' l'in-sample.** Il lordo in-sample vale
++0,032% contro un costo di 0,08%: il modello non batte le commissioni **nemmeno sui dati su cui e'
+stato addestrato**. Non e' principalmente overfitting — un modello che overfitta almeno sembra
+bravo in-sample. Qui il target non e' apprendibile da queste feature, punto.
+
+### 12.2 La soglia di decisione non e' una leva
+
+Sweep sull'holdout, senza riaddestrare:
+
+| soglia | operazioni | trade/g | lordo | win rate |
+|---|---|---|---|---|
+| 0,5 | 10.483 | 1,65 | −0,123% | 32,6% |
+| 0,6 | 2.724 | 0,43 | −0,107% | 40,4% |
+| 0,7 | 675 | 0,11 | −0,112% | 41,8% |
+| 0,8 | 187 | 0,03 | −0,047% | 39,6% |
+| 0,9 | 22 | 0,00 | +0,636% | 54,5% |
+
+Il win rate sale con la soglia ma **il lordo resta negativo**: le operazioni selezionate sono piu'
+spesso vincenti e mediamente peggiori, cioe' il modello scarta i guadagni grandi insieme alle
+perdite. La riga a 0,9 sono 22 operazioni, rumore. **La confidenza del modello non e' correlata
+all'avere ragione**: non c'e' nemmeno un ranking sfruttabile, che e' l'ultima cosa che di solito
+sopravvive a un classificatore debole.
+
+### 12.3 Cosa questo esclude, e cosa no
+
+Non e' un problema di:
+
+- **etichettatura** — la correzione di §10.4 (finestra dalla conferma) e' stata applicata, e il
+  target e' economicamente sensato: a previsione perfetta la stessa etichetta rende 0,64% netto per
+  operazione al punto di lavoro (§11.3);
+- **stato della posizione** — le tre feature ci sono, il mascheramento funziona, e la
+  randomizzazione fornisce 11 volte gli esempi di ingresso/uscita (§11.2);
+- **errore di composizione della traiettoria** — il DAgger raccoglie 913.000 righe con un
+  disaccordo del 13,6%, quindi sta facendo il suo lavoro; semplicemente non e' quello il problema;
+- **overfitting** — l'in-sample e' gia' sotto il costo.
+
+Resta un solo candidato coerente con tutte e quattro le esclusioni: **le feature non contengono
+l'informazione**. Sono 83 colonne derivate da OHLCV — rendimenti a nove ritardi, forma della
+candela, posizione nel range, RSI/Stocastico/ATR/TSI/volume e i loro ritardi. E' esattamente il
+set con cui la strategia precedente aveva ottenuto AUC 0,54 ed edge lordo +0,017% (§8bis).
+
+**Due strategie diverse, due target diversi, due architetture diverse, lo stesso muro.** E' la
+misura che dice che il collo di bottiglia sta a monte del modello, e coincide con la conclusione 3
+della sintesi esecutiva, scritta prima di tutto questo lavoro.
+
+---
+
 ## Riproducibilità
 
 Le misure **conservate e rieseguibili** stanno in `scripts/analysis.py`, che le calcola e le mette
