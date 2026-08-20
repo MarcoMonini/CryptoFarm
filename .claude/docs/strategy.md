@@ -1290,27 +1290,77 @@ perdite. La riga a 0,9 sono 22 operazioni, rumore. **La confidenza del modello n
 all'avere ragione**: non c'e' nemmeno un ranking sfruttabile, che e' l'ultima cosa che di solito
 sopravvive a un classificatore debole.
 
-### 12.3 Cosa questo esclude, e cosa no
+### 12.3 Banda bassa (40–60 estremi/giorno) — peggiore, come previsto
+
+| | operazioni | trade/g | lordo | netto | netto/giorno |
+|---|---|---|---|---|---|
+| in-sample | 314.103 | 12,38 | +0,009% | −0,071% | −0,880% |
+| CPCV, mediana su 15 split | — | 11,29 | ≈0 (da −0,009% a +0,006%) | ≈−0,080% | **−0,907%** |
+| holdout con DAgger | 63.293 | 9,98 | −0,011% | −0,091% | −0,909% |
+
+Sempre 0 split in utile su 15. Il lordo qui e' **zero**, non negativo: il modello e' una moneta e il
+costo si prende tutto. Conferma il ragionamento di §11.3 — il vantaggio della soglia bassa a
+previsione perfetta era un artefatto della frequenza, e con un modello reale piu' trade significa
+solo pagare piu' costo con meno margine.
+
+### 12.4 L'attribuzione ribalta la diagnosi: **gli ingressi valgono, l'uscita li distrugge**
+
+Stessi ingressi della politica, uscite diverse. Holdout della banda bassa, fuori campione:
+
+| uscita | lordo | netto |
+|---|---|---|
+| della politica | −0,011% | −0,091% |
+| dell'esperto (prima barra SELL) | **+0,131%** | **+0,051%** |
+| perfetta, all'estremo della gamba | +0,203% | +0,123% |
+| **controllo — ingressi a caso, uscita perfetta** | **−0,001%** | — |
+
+Il controllo si comporta come deve: entrare a caso e uscire all'estremo della gamba rende zero,
+perche' meta' delle barre sta in una gamba al rialzo e meta' in una al ribasso. Quindi il +0,203%
+degli ingressi della politica non e' un artefatto della costruzione: **gli ingressi valgono +0,204%
+sopra il caso.**
+
+E con l'uscita dell'esperto quegli stessi ingressi rendono **+0,051% netto per operazione, fuori
+campione**. Il problema e' la meta' SELL della politica, non la meta' BUY.
+
+**Attenzione al lookahead prima di festeggiare.** L'uscita dell'esperto e' la prima barra
+etichettata SELL, e quell'etichetta dipende da quanto della gamba discendente restera' da prendere
+— informazione disponibile solo dopo. Il numero sfruttabile e' quello con
+`confirmed_reversal_rows`: uscita alla prima **conferma** di un massimo, cioe' quando il prezzo ha
+ritracciato della soglia dal proprio massimo corrente. Quella e' causale. La misura e' in corso e
+va inserita qui prima di trarre conclusioni operative.
+
+### 12.5 Cosa questo esclude
 
 Non e' un problema di:
 
-- **etichettatura** — la correzione di §10.4 (finestra dalla conferma) e' stata applicata, e il
-  target e' economicamente sensato: a previsione perfetta la stessa etichetta rende 0,64% netto per
-  operazione al punto di lavoro (§11.3);
+- **etichettatura degli ingressi** — la correzione di §10.4 e' applicata e gli ingressi risultano
+  informativi (§12.4);
 - **stato della posizione** — le tre feature ci sono, il mascheramento funziona, e la
   randomizzazione fornisce 11 volte gli esempi di ingresso/uscita (§11.2);
 - **errore di composizione della traiettoria** — il DAgger raccoglie 913.000 righe con un
-  disaccordo del 13,6%, quindi sta facendo il suo lavoro; semplicemente non e' quello il problema;
-- **overfitting** — l'in-sample e' gia' sotto il costo.
+  disaccordo del 13–19%, quindi sta facendo il suo lavoro;
+- **overfitting sugli ingressi** — gli ingressi tengono fuori campione.
 
-Resta un solo candidato coerente con tutte e quattro le esclusioni: **le feature non contengono
-l'informazione**. Sono 83 colonne derivate da OHLCV — rendimenti a nove ritardi, forma della
-candela, posizione nel range, RSI/Stocastico/ATR/TSI/volume e i loro ritardi. E' esattamente il
-set con cui la strategia precedente aveva ottenuto AUC 0,54 ed edge lordo +0,017% (§8bis).
+Resta il **problema dell'uscita**, ed e' asimmetrico rispetto all'ingresso in un modo che ha senso:
+un ingresso si puo' saltare, un'uscita no. Da flat la politica puo' aspettare la configurazione che
+riconosce; da long *deve* decidere a ogni barra, e ogni barra in cui sbaglia costa. La stessa
+architettura che rende facile la meta' BUY rende difficile la meta' SELL.
 
-**Due strategie diverse, due target diversi, due architetture diverse, lo stesso muro.** E' la
-misura che dice che il collo di bottiglia sta a monte del modello, e coincide con la conclusione 3
-della sintesi esecutiva, scritta prima di tutto questo lavoro.
+### 12.6 La soglia di decisione non e' una leva
+
+Sweep sull'holdout della banda alta, senza riaddestrare:
+
+| soglia | operazioni | trade/g | lordo | win rate |
+|---|---|---|---|---|
+| 0,5 | 10.483 | 1,65 | −0,123% | 32,6% |
+| 0,6 | 2.724 | 0,43 | −0,107% | 40,4% |
+| 0,7 | 675 | 0,11 | −0,112% | 41,8% |
+| 0,8 | 187 | 0,03 | −0,047% | 39,6% |
+| 0,9 | 22 | 0,00 | +0,636% | 54,5% |
+
+Il win rate sale con la soglia ma **il lordo resta negativo**: le operazioni selezionate sono piu'
+spesso vincenti e mediamente peggiori, cioe' il modello scarta i guadagni grandi insieme alle
+perdite. La riga a 0,9 sono 22 operazioni, rumore.
 
 ---
 
