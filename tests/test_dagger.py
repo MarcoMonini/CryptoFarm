@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from cryptofarm.ml.dagger import episode_starts, rollout, state_coverage
+from cryptofarm.ml.dagger import episode_bounds, rollout, state_coverage
 from cryptofarm.ml.directional_change import BUY, HOLD, SELL
 from cryptofarm.ml.policy import FLAT, LONG
 
@@ -32,7 +32,7 @@ def test_a_policy_that_only_wants_to_buy_cannot_buy_twice():
     close = np.linspace(100, 120, 200)
     signals = np.zeros(200, dtype=np.int8)
 
-    visited = rollout(_AlwaysBuy(), _market(), close, signals, episode_bars=50)
+    visited = rollout(_AlwaysBuy(), _market(), close, signals, episode_bounds([200], 50))
 
     first = visited[visited["row"] < 50].sort_values("row")
     assert first["action"].iloc[0] == BUY
@@ -44,7 +44,7 @@ def test_the_visited_state_follows_from_the_actions_taken():
     close = np.linspace(100, 120, 200)
     signals = np.zeros(200, dtype=np.int8)
 
-    visited = rollout(_Alternating(), _market(), close, signals, episode_bars=50)
+    visited = rollout(_Alternating(), _market(), close, signals, episode_bounds([200], 50))
     episode = visited[visited["row"] < 50].sort_values("row")
 
     # Compra, vende, compra, vende: lo stato deve alternarsi di conseguenza.
@@ -56,7 +56,7 @@ def test_the_entry_price_is_the_close_at_which_the_policy_entered():
     close = np.linspace(100, 120, 200)
     signals = np.zeros(200, dtype=np.int8)
 
-    visited = rollout(_AlwaysBuy(), _market(), close, signals, episode_bars=50).sort_values("row")
+    visited = rollout(_AlwaysBuy(), _market(), close, signals, episode_bounds([200], 50)).sort_values("row")
     held = visited[(visited["row"] < 50) & (visited["state"] == LONG)]
 
     assert (held["entry_price"] == close[0]).all()
@@ -70,7 +70,7 @@ def test_disagreement_is_measured_against_the_expert_not_the_label():
     signals = np.zeros(200, dtype=np.int8)
     signals[10:20] = SELL
 
-    visited = rollout(_AlwaysBuy(), _market(), close, signals, episode_bars=50)
+    visited = rollout(_AlwaysBuy(), _market(), close, signals, episode_bounds([200], 50))
     coverage = state_coverage(visited)
 
     assert coverage["disaccordo"] > 0
@@ -79,6 +79,18 @@ def test_disagreement_is_measured_against_the_expert_not_the_label():
 
 
 def test_episodes_tile_the_series_without_overlapping():
-    starts = episode_starts(1000, episode_bars=250)
+    starts, stops = episode_bounds([1000], episode_bars=250)
 
-    assert starts.tolist() == [0, 250, 500]
+    assert starts.tolist() == [0, 250, 500, 750]
+    assert stops.tolist() == [250, 500, 750, 1000]
+
+
+def test_episodes_never_cross_a_symbol_boundary():
+    """La ragione per cui i confini sono espliciti: quindici serie concatenate in un blocco solo."""
+    starts, stops = episode_bounds([120, 90], episode_bars=50)
+
+    assert starts.tolist() == [0, 50, 100, 120, 170]
+    assert stops.tolist() == [50, 100, 120, 170, 210]
+    # Nessun episodio inizia in una serie e finisce nell'altra.
+    boundary = 120
+    assert all(stop <= boundary or start >= boundary for start, stop in zip(starts, stops))

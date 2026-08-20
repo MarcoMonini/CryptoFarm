@@ -25,7 +25,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from cryptofarm.ml.directional_change import BUY, SELL
+from cryptofarm.ml.directional_change import BUY, HOLD, SELL
 from cryptofarm.ml.models import predict_proba
 from cryptofarm.ml.policy import (
     FLAT,
@@ -36,12 +36,28 @@ from cryptofarm.ml.policy import (
     position_features,
 )
 
-DEFAULT_EPISODE_BARS = 2000
+# Lunghezza di un episodio, in barre. Corta di proposito: e' il numero di **passi** a costare,
+# perche' ogni passo e' una chiamata a `predict`, e con episodi corti gli episodi in parallelo sono
+# tanti e le chiamate poche. 500 barre sono quasi due giorni su 5m, molto piu' della durata tipica
+# di una posizione, quindi accorciarli non taglia via nessuna operazione realistica.
+DEFAULT_EPISODE_BARS = 500
 
 
-def episode_starts(rows: int, episode_bars: int = DEFAULT_EPISODE_BARS) -> np.ndarray:
-    """Inizi dei tratti in cui spezzare la serie perche' avanzino in parallelo."""
-    return np.arange(0, max(rows - episode_bars, 1), episode_bars)
+def episode_bounds(lengths, episode_bars: int = DEFAULT_EPISODE_BARS) -> tuple[np.ndarray, np.ndarray]:
+    """Inizi e fini degli episodi che ricoprono una o piu' serie concatenate.
+
+    `lengths` sono le lunghezze delle singole serie: gli episodi non attraversano mai un confine,
+    quindi si possono concatenare quindici simboli in un unico array e farli avanzare insieme.
+    E' l'unica leva che conta sul tempo di rollout -- quindicimila episodi in parallelo fanno
+    cinquecento chiamate a `predict` invece di trentamila.
+    """
+    starts, stops, base = [], [], 0
+    for length in np.atleast_1d(lengths):
+        edges = np.arange(0, length, episode_bars)
+        starts.append(base + edges)
+        stops.append(base + np.minimum(edges + episode_bars, length))
+        base += length
+    return np.concatenate(starts), np.concatenate(stops)
 
 
 def rollout(
@@ -49,7 +65,7 @@ def rollout(
     market: np.ndarray,
     close: np.ndarray,
     signals: np.ndarray,
-    episode_bars: int = DEFAULT_EPISODE_BARS,
+    bounds: tuple[np.ndarray, np.ndarray] | None = None,
     decision_threshold: float = 0.5,
 ) -> pd.DataFrame:
     """Fa girare la politica e restituisce gli stati visitati con l'azione dell'esperto.
@@ -60,57 +76,57 @@ def rollout(
     La colonna `action` e' cio' che la politica ha fatto, `expert` cio' che avrebbe dovuto fare.
     Le righe dove le due divergono sono il valore aggiunto dell'iterazione; quelle dove coincidono
     non sono inutili, tengono il dataset rappresentativo.
+
+    Ogni episodio parte **flat**: e' l'ipotesi conservativa, e le posizioni ancora aperte alla fine
+    di un episodio non producono un'operazione (`backtest` le conta e le scarta).
     """
-    starts = episode_starts(len(close), episode_bars)
+    starts, stops = bounds if bounds is not None else episode_bounds([len(close)])
     episodes = len(starts)
     state = np.full(episodes, FLAT, dtype=np.int8)
     entry = close[starts].astype(np.float64)
     bars_in = np.zeros(episodes, dtype=np.float64)
+    identifiers = np.arange(episodes)
 
-    visited_rows, visited_state, visited_entry, visited_bars, visited_action = [], [], [], [], []
-
-    for step in range(episode_bars):
+    collected = []
+    for step in range(int((stops - starts).max())):
         rows = starts + step
-        alive = rows < len(close)
+        alive = rows < stops
         if not alive.any():
             break
-        rows = rows[alive]
+        live_rows = rows[alive]
         current_state, current_entry, current_bars = state[alive], entry[alive], bars_in[alive]
 
-        block = position_features(close[rows], current_state, current_entry, current_bars)
-        features = np.hstack([market[rows], block.to_numpy()])
+        block = position_features(close[live_rows], current_state, current_entry, current_bars)
+        features = np.hstack([market[live_rows], block.to_numpy()])
         probabilities = mask_probabilities(predict_proba(model, features), current_state)
 
         # Si agisce solo con convinzione: sotto la soglia si resta fermi. E' la stessa regola che
         # vale in produzione, e simularne una diversa produrrebbe stati che non si verificheranno.
-        actions = np.where(probabilities.max(axis=1) >= decision_threshold, np.argmax(probabilities, axis=1), 0)
+        actions = np.where(probabilities.max(axis=1) >= decision_threshold, np.argmax(probabilities, axis=1), HOLD)
 
-        visited_rows.append(rows)
-        visited_state.append(current_state.copy())
-        visited_entry.append(current_entry.copy())
-        visited_bars.append(current_bars.copy())
-        visited_action.append(actions)
+        collected.append(
+            pd.DataFrame(
+                {
+                    "episode": identifiers[alive],
+                    "row": live_rows,
+                    "state": current_state,
+                    "entry_price": current_entry,
+                    "bars_in_position": current_bars,
+                    "action": actions.astype(np.int8),
+                }
+            )
+        )
 
         entering = (current_state == FLAT) & (actions == BUY)
         exiting = (current_state == LONG) & (actions == SELL)
         next_state = np.where(entering, LONG, np.where(exiting, FLAT, current_state)).astype(np.int8)
-        next_entry = np.where(entering, close[rows], current_entry)
-        next_bars = np.where(
-            entering, 0.0, np.where(next_state == LONG, np.minimum(current_bars + 1, STATE_BARS_SCALE), 0.0)
-        )
+        next_entry = np.where(entering, close[live_rows], current_entry)
+        held = np.minimum(current_bars + 1, STATE_BARS_SCALE)
+        next_bars = np.where(entering, 0.0, np.where(next_state == LONG, held, 0.0))
 
         state[alive], entry[alive], bars_in[alive] = next_state, next_entry, next_bars
 
-    rows = np.concatenate(visited_rows)
-    visited = pd.DataFrame(
-        {
-            "row": rows,
-            "state": np.concatenate(visited_state),
-            "entry_price": np.concatenate(visited_entry),
-            "bars_in_position": np.concatenate(visited_bars),
-            "action": np.concatenate(visited_action).astype(np.int8),
-        }
-    )
+    visited = pd.concat(collected, ignore_index=True)
     visited["expert"] = expert_actions(signals[visited["row"].to_numpy()], visited["state"].to_numpy())
     return visited
 

@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 from cryptofarm.data.klines import DEFAULT_SYMBOLS, load_klines
-from cryptofarm.ml.dagger import rollout, state_coverage
+from cryptofarm.ml.dagger import DEFAULT_EPISODE_BARS, episode_bounds, rollout, state_coverage
 from cryptofarm.ml.dataset import build_design_matrix
 from cryptofarm.ml.directional_change import (
     BUY,
@@ -148,31 +148,55 @@ def training_rows(data: SymbolData, rng: np.random.Generator, stride: int) -> pd
     return frame
 
 
-def dagger_rows(data: SymbolData, model, stride: int, decision_threshold: float) -> tuple[pd.DataFrame, dict]:
-    """Righe raccolte facendo girare la politica corrente, etichettate dall'esperto.
+class Panel:
+    """I simboli concatenati in un unico blocco, con i confini che gli episodi non attraversano.
 
-    Restituisce anche la copertura degli stati, calcolata sullo **stesso** rollout: e' la parte
-    cara della procedura, e farne due -- per giunta a soglie diverse -- rendeva le due misure
-    incoerenti oltre che lente.
+    Serve solo al rollout, ed e' l'unica ragione per cui il DAgger e' sostenibile: quindici serie
+    fatte avanzare insieme costano quanto la piu' lunga, non quanto la loro somma.
     """
-    market = data.market.to_numpy()
-    full = rollout(model, market, data.close, data.signals, decision_threshold=decision_threshold)
+
+    def __init__(self, prepared: list[SymbolData], episode_bars: int = DEFAULT_EPISODE_BARS):
+        self.prepared = prepared
+        self.lengths = [len(data.close) for data in prepared]
+        self.offsets = np.concatenate([[0], np.cumsum(self.lengths)])
+        self.market = np.vstack([data.market.to_numpy() for data in prepared])
+        self.close = np.concatenate([data.close for data in prepared])
+        self.signals = np.concatenate([data.signals for data in prepared])
+        self.bounds = episode_bounds(self.lengths, episode_bars)
+
+    def owner(self, rows: np.ndarray) -> np.ndarray:
+        """Indice del simbolo a cui appartiene ciascuna riga globale."""
+        return np.searchsorted(self.offsets, rows, side="right") - 1
+
+    def local(self, rows: np.ndarray) -> np.ndarray:
+        return rows - self.offsets[self.owner(rows)]
+
+
+def dagger_rows(panel: Panel, model, stride: int, decision_threshold: float) -> tuple[pd.DataFrame, dict]:
+    """Righe raccolte facendo girare la politica corrente su tutti i simboli, etichettate dall'esperto.
+
+    La copertura degli stati si calcola sullo **stesso** rollout: e' la parte cara della procedura,
+    e farne due -- per giunta a soglie diverse -- rendeva le due misure incoerenti oltre che lente.
+    """
+    full = rollout(model, panel.market, panel.close, panel.signals, panel.bounds, decision_threshold)
     coverage = state_coverage(full)
     visited = full.iloc[::stride]
     rows = visited["row"].to_numpy()
 
     block = position_features(
-        data.close[rows],
+        panel.close[rows],
         visited["state"].to_numpy(),
         visited["entry_price"].to_numpy(),
         visited["bars_in_position"].to_numpy(),
     )
-    frame = data.market.iloc[rows].reset_index(drop=True)
+    frame = pd.DataFrame(panel.market[rows], columns=panel.prepared[0].market.columns)
     frame[list(POSITION_FEATURES)] = block.to_numpy()
     frame["__action"] = visited["expert"].to_numpy()
-    frame["__start"] = data.index[rows]
-    frame["__exit"] = data.exits[rows]
-    frame["__symbol"] = data.symbol
+
+    owners, locals_ = panel.owner(rows), panel.local(rows)
+    frame["__start"] = [panel.prepared[o].index[i] for o, i in zip(owners, locals_)]
+    frame["__exit"] = [panel.prepared[o].exits[i] for o, i in zip(owners, locals_)]
+    frame["__symbol"] = [panel.prepared[o].symbol for o in owners]
     return frame, coverage
 
 
@@ -182,46 +206,64 @@ def _split_columns(frame: pd.DataFrame):
 
 
 def backtest(
-    data: SymbolData,
+    panel: Panel,
     model,
     decision_threshold: float,
     cost: float,
     rows: np.ndarray | None = None,
 ) -> pd.DataFrame:
-    """Traiettoria simulata della politica: un'operazione per riga, al netto del costo.
+    """Traiettoria simulata della politica: un'operazione per coppia ingresso/uscita, al netto del costo.
 
-    `rows` limita la simulazione a una finestra (un blocco di test del CPCV). La politica parte
-    flat all'inizio della finestra: e' l'ipotesi conservativa, non si eredita una posizione che
-    un'altra finestra avrebbe aperto.
+    `rows` limita la simulazione a una finestra (un blocco di test del CPCV). Le posizioni ancora
+    aperte alla fine di un episodio **non** producono un'operazione: chiuderle al prezzo corrente
+    regalerebbe alla politica un'uscita che non ha deciso lei.
     """
-    market = data.market.to_numpy()
-    close, signals = data.close, data.signals
-    if rows is not None:
-        market, close, signals = market[rows], close[rows], signals[rows]
-        stamps = data.index[rows]
+    if rows is None:
+        market, close, signals, bounds = panel.market, panel.close, panel.signals, panel.bounds
+        translate = np.arange(len(panel.close))
     else:
-        stamps = data.index
+        rows = np.asarray(rows)
+        market, close, signals = panel.market[rows], panel.close[rows], panel.signals[rows]
+        # Gli episodi si ricostruiscono sui tratti contigui della selezione: una finestra di test
+        # puo' spezzare un simbolo, e un episodio a cavallo del taglio non esiste.
+        breaks = np.flatnonzero(np.diff(rows) != 1) + 1
+        lengths = np.diff(np.concatenate([[0], breaks, [len(rows)]]))
+        bounds = episode_bounds(lengths)
+        translate = rows
 
-    visited = rollout(model, market, close, signals, decision_threshold=decision_threshold)
-    visited = visited.sort_values("row")
+    visited = rollout(model, market, close, signals, bounds, decision_threshold)
 
+    entries = visited[(visited["state"] == FLAT) & (visited["action"] == BUY)]
+    exits = visited[(visited["state"] == LONG) & (visited["action"] == SELL)]
+    if entries.empty or exits.empty:
+        return pd.DataFrame(columns=["symbol", "entrata", "uscita", "barre", "lordo", "netto"])
+
+    # Dentro un episodio ingressi e uscite si alternano per costruzione (il mascheramento lo
+    # garantisce), quindi accoppiarli in ordine dentro ciascun episodio e' esatto.
     trades = []
-    open_entry, open_row = None, None
-    for row, state, action in zip(visited["row"].to_numpy(), visited["state"].to_numpy(), visited["action"].to_numpy()):
-        if state == FLAT and action == BUY:
-            open_entry, open_row = close[row], row
-        elif state == LONG and action == SELL and open_entry is not None:
+    for episode, opened in entries.groupby("episode", sort=False):
+        closed = exits[exits["episode"] == episode]
+        pairs = min(len(opened), len(closed))
+        if pairs == 0:
+            continue
+        open_rows = opened["row"].to_numpy()[:pairs]
+        close_rows = closed["row"].to_numpy()[:pairs]
+        global_open = translate[open_rows]
+        owners = panel.owner(global_open)
+        locals_open, locals_close = panel.local(global_open), panel.local(translate[close_rows])
+        gross = close[close_rows] / close[open_rows] - 1.0
+        for position in range(pairs):
+            owner = panel.prepared[owners[position]]
             trades.append(
                 {
-                    "symbol": data.symbol,
-                    "entrata": stamps[open_row],
-                    "uscita": stamps[row],
-                    "barre": int(row - open_row),
-                    "lordo": close[row] / open_entry - 1.0,
-                    "netto": close[row] / open_entry - 1.0 - cost,
+                    "symbol": owner.symbol,
+                    "entrata": owner.index[locals_open[position]],
+                    "uscita": owner.index[locals_close[position]],
+                    "barre": int(close_rows[position] - open_rows[position]),
+                    "lordo": float(gross[position]),
+                    "netto": float(gross[position] - cost),
                 }
             )
-            open_entry, open_row = None, None
     return pd.DataFrame(trades)
 
 
@@ -272,8 +314,8 @@ def train(
     if not prepared:
         raise RuntimeError("Nessun simbolo utilizzabile: popolare lo store con `cryptofarm.data.klines --update`")
 
-    frames = [training_rows(data, rng, stride) for data in prepared]
-    dataset = pd.concat(frames, ignore_index=True)
+    panel = Panel(prepared)
+    dataset = pd.concat([training_rows(data, rng, stride) for data in prepared], ignore_index=True)
     X, y, meta = _split_columns(dataset)
     print(f"\nMatrice: {X.shape[0]:,} righe x {X.shape[1]} feature")
     print(_distribution_line("esperto, stato randomizzato", y))
@@ -286,34 +328,28 @@ def train(
     dagger_report = []
     for round_number in range(1, dagger_rounds + 1):
         print(f"\n--- DAgger, iterazione {round_number} ---", flush=True)
-        extra, coverage = [], []
-        for data in prepared:
-            rows, symbol_coverage = dagger_rows(data, model, stride, decision_threshold)
-            extra.append(rows)
-            coverage.append(symbol_coverage)
-        added = pd.concat(extra, ignore_index=True)
+        added, coverage = dagger_rows(panel, model, stride, decision_threshold)
         dataset = pd.concat([dataset, added], ignore_index=True)
         X, y, meta = _split_columns(dataset)
 
-        averages = {key: float(np.mean([c[key] for c in coverage])) for key in coverage[0]}
         print(
-            f"{len(added):,} righe aggiunte | disaccordo {averages['disaccordo']:.2%} | "
-            f"ingressi mancati {averages['ingressi_mancati']:.2%} | uscite mancate {averages['uscite_mancate']:.2%}"
+            f"{len(added):,} righe aggiunte | disaccordo {coverage['disaccordo']:.2%} | "
+            f"ingressi mancati {coverage['ingressi_mancati']:.2%} | uscite mancate {coverage['uscite_mancate']:.2%}"
         )
-        dagger_report.append({"iterazione": round_number, "righe_aggiunte": int(len(added)), **averages})
+        dagger_report.append({"iterazione": round_number, "righe_aggiunte": int(len(added)), **coverage})
 
         model = build_model("gbdt")
         fit_model(model, X.to_numpy(), y)
 
     print("\n=== Backtest in-sample della politica (tutto il periodo) ===", flush=True)
-    all_trades = pd.concat([backtest(data, model, decision_threshold, cost) for data in prepared], ignore_index=True)
-    days = (prepared[0].index[-1] - prepared[0].index[0]).total_seconds() / 86400
-    in_sample = summarise(all_trades, days * len(prepared))
+    all_trades = backtest(panel, model, decision_threshold, cost)
+    days = sum((data.index[-1] - data.index[0]).total_seconds() / 86400 for data in prepared)
+    in_sample = summarise(all_trades, days)
     print(_summary_line(in_sample))
 
     cpcv_report = []
     if run_cpcv:
-        cpcv_report = _cpcv(prepared, meta, model, decision_threshold, cost, capture, stride, rng)
+        cpcv_report = _cpcv(panel, meta, decision_threshold, cost, stride, rng)
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = MODELS_DIR / f"{name}.joblib"
@@ -342,13 +378,13 @@ def train(
     return report
 
 
-def _cpcv(prepared, meta, model, decision_threshold, cost, capture, stride, rng) -> list[dict]:
+def _cpcv(panel: Panel, meta, decision_threshold, cost, stride, rng) -> list[dict]:
     """Valutazione out-of-sample: si riaddestra su ogni split e si simula sul blocco di test.
 
-    Il modello passato in argomento **non** viene valutato: sarebbe in-sample. Serve solo come
-    riferimento per la configurazione. Ogni split riaddestra da zero sulle sole righe di training
-    ammesse dopo purging ed embargo.
+    Il modello addestrato prima **non** viene valutato qui: sarebbe in-sample. Ogni split
+    riaddestra da zero sulle sole righe di training ammesse dopo purging ed embargo.
     """
+    prepared = panel.prepared
     legs = np.concatenate([(data.exits - data.index.to_numpy()) for data in prepared])
     embargo = pd.Timedelta(np.percentile(legs.astype("timedelta64[m]").astype(float), EMBARGO_PERCENTILE), unit="m")
     print(f"\n=== CPCV (embargo {embargo}, p{EMBARGO_PERCENTILE} della durata delle gambe) ===", flush=True)
@@ -356,25 +392,29 @@ def _cpcv(prepared, meta, model, decision_threshold, cost, capture, stride, rng)
     splitter = CombinatorialPurgedCV(n_groups=6, n_test_groups=2, embargo=embargo)
     t_start = pd.Series(meta["__start"].to_numpy())
     t_exit = pd.Series(meta["__exit"].to_numpy())
+    dataset = pd.concat([training_rows(data, rng, stride) for data in prepared], ignore_index=True)
+    X, y, _ = _split_columns(dataset)
+    values = X.to_numpy()
 
-    dataset = None  # ricostruito dentro il ciclo per non tenerne due copie in memoria
     rows = []
     for split, (train_index, test_index) in enumerate(splitter.split(t_start, t_exit), start=1):
-        if dataset is None:
-            dataset = pd.concat([training_rows(data, rng, stride) for data in prepared], ignore_index=True)
-        X, y, _ = _split_columns(dataset)
         fold = build_model("gbdt")
-        fit_model(fold, X.to_numpy()[train_index], y[train_index])
+        fit_model(fold, values[train_index], y[train_index])
 
         window = (t_start.iloc[test_index].min(), t_start.iloc[test_index].max())
-        trades, days = [], 0.0
-        for data in prepared:
+        selected, days = [], 0.0
+        for position, data in enumerate(prepared):
             inside = np.flatnonzero((data.index >= window[0]) & (data.index <= window[1]))
             if len(inside) < 500:
                 continue
-            trades.append(backtest(data, fold, decision_threshold, cost, rows=inside))
+            selected.append(inside + panel.offsets[position])
             days += (data.index[inside[-1]] - data.index[inside[0]]).total_seconds() / 86400
-        summary = summarise(pd.concat(trades, ignore_index=True) if trades else pd.DataFrame(), max(days, 1e-9))
+        trades = (
+            backtest(panel, fold, decision_threshold, cost, rows=np.concatenate(selected))
+            if selected
+            else pd.DataFrame()
+        )
+        summary = summarise(trades, max(days, 1e-9))
         summary["split"] = split
         summary["da"] = window[0]
         summary["a"] = window[1]
