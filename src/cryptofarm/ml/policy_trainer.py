@@ -148,11 +148,17 @@ def training_rows(data: SymbolData, rng: np.random.Generator, stride: int) -> pd
     return frame
 
 
-def dagger_rows(data: SymbolData, model, stride: int, decision_threshold: float) -> pd.DataFrame:
-    """Righe raccolte facendo girare la politica corrente, etichettate dall'esperto."""
+def dagger_rows(data: SymbolData, model, stride: int, decision_threshold: float) -> tuple[pd.DataFrame, dict]:
+    """Righe raccolte facendo girare la politica corrente, etichettate dall'esperto.
+
+    Restituisce anche la copertura degli stati, calcolata sullo **stesso** rollout: e' la parte
+    cara della procedura, e farne due -- per giunta a soglie diverse -- rendeva le due misure
+    incoerenti oltre che lente.
+    """
     market = data.market.to_numpy()
-    visited = rollout(model, market, data.close, data.signals, decision_threshold=decision_threshold)
-    visited = visited.iloc[::stride]
+    full = rollout(model, market, data.close, data.signals, decision_threshold=decision_threshold)
+    coverage = state_coverage(full)
+    visited = full.iloc[::stride]
     rows = visited["row"].to_numpy()
 
     block = position_features(
@@ -167,7 +173,7 @@ def dagger_rows(data: SymbolData, model, stride: int, decision_threshold: float)
     frame["__start"] = data.index[rows]
     frame["__exit"] = data.exits[rows]
     frame["__symbol"] = data.symbol
-    return frame
+    return frame, coverage
 
 
 def _split_columns(frame: pd.DataFrame):
@@ -282,9 +288,9 @@ def train(
         print(f"\n--- DAgger, iterazione {round_number} ---", flush=True)
         extra, coverage = [], []
         for data in prepared:
-            rows = dagger_rows(data, model, stride, decision_threshold)
+            rows, symbol_coverage = dagger_rows(data, model, stride, decision_threshold)
             extra.append(rows)
-            coverage.append(state_coverage(rollout(model, data.market.to_numpy(), data.close, data.signals)))
+            coverage.append(symbol_coverage)
         added = pd.concat(extra, ignore_index=True)
         dataset = pd.concat([dataset, added], ignore_index=True)
         X, y, meta = _split_columns(dataset)
