@@ -24,7 +24,7 @@ import pandas as pd
 
 from cryptofarm.data.klines import DEFAULT_SYMBOLS, interval_to_minutes, load_klines
 from cryptofarm.ml import evaluate
-from cryptofarm.ml.dataset import DEFAULT_STRIDE, LAGS, build_design_matrix, build_samples, time_split
+from cryptofarm.ml.dataset import DEFAULT_STRIDE, LAGS, build_samples, time_split
 from cryptofarm.ml.features import build_feature_frame
 from cryptofarm.ml.labeling import (
     BUY,
@@ -38,6 +38,7 @@ from cryptofarm.ml.labeling import (
     triple_barrier_labels,
 )
 from cryptofarm.ml.models import build_model, fit_model, load_model, predict_proba, save_model
+from cryptofarm.ml.signals import buy_probabilities
 from cryptofarm.paths import MODELS_DIR
 
 INTERVALS = ["5m", "15m", "30m", "1h"]
@@ -272,30 +273,21 @@ def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = Non
     con i periodi scelti dagli slider della dashboard, e un modello alimentato con feature
     calcolate diversamente da come e' stato addestrato sbaglia in silenzio.
 
-    La colonna `Prediction` usa la convenzione del simulatore: 0 = hold, 1 = buy, 2 = sell.
+    Aggiunge due colonne: `P_buy`, la probabilita' grezza, e `Prediction` con 1 sulle candele
+    che superano la soglia e 0 altrove.
+
+    **Non esiste una predizione "sell" per candela.** Il modello stima se un ingresso in quel
+    punto raggiunge il take-profit prima dello stop-loss: la classe opposta significa "brutto
+    momento per comprare" e copre circa il 60% delle candele, quindi emetterla come segnale di
+    vendita ne produce a valanga. L'uscita da una posizione e' governata dalle barriere, in
+    `signals.barrier_signals`.
     """
-    threshold = threshold if threshold is not None else _stored_threshold()
-    minutes = _infer_interval_minutes(df.index)
-    interval = f"{minutes}m" if minutes < 60 else f"{minutes // 60}h"
+    threshold = threshold if threshold is not None else stored_decision_threshold()
 
-    features = build_feature_frame(df, interval)
-    matrix = build_design_matrix(features)
-    usable = matrix.notna().all(axis=1)
-    matrix = matrix[usable]
-    if matrix.empty:
-        result = df.copy()
-        result["Prediction"] = 0
-        return result
-
-    probabilities = predict_proba(model, matrix.to_numpy())
-
-    predictions = np.zeros(len(matrix), dtype=int)
-    predictions[probabilities[:, BUY] >= threshold] = 1
-    # Vendere quando il modello e' altrettanto convinto della direzione opposta.
-    predictions[probabilities[:, 2] >= threshold] = 2
-
-    result = df.loc[matrix.index].copy()
-    result["Prediction"] = predictions
+    scores = buy_probabilities(df, model)
+    result = df.copy()
+    result["P_buy"] = scores.reindex(result.index)
+    result["Prediction"] = (result["P_buy"] >= threshold).astype(int)
     return result
 
 
@@ -305,7 +297,7 @@ def _infer_interval_minutes(index: pd.DatetimeIndex) -> int:
     return int(round(np.median(np.diff(index.to_numpy()).astype("timedelta64[m]").astype(float))))
 
 
-def _stored_threshold() -> float:
+def stored_decision_threshold() -> float:
     """Soglia scelta durante l'addestramento, letta dai metadata del modello."""
     metadata_path = MODELS_DIR / f"{MODEL_NAME}.json"
     if metadata_path.exists():

@@ -13,7 +13,12 @@ from scipy.signal import argrelextrema
 from ta.momentum import KAMAIndicator, RSIIndicator, StochasticOscillator, TSIIndicator
 from ta.trend import EMAIndicator
 from ta.volatility import AverageTrueRange
-from cryptofarm.ml.trainer import get_model_predictions, load_signal_model
+from cryptofarm.ml.signals import barrier_signals
+from cryptofarm.ml.trainer import (
+    get_model_predictions,
+    load_signal_model,
+    stored_decision_threshold,
+)
 from cryptofarm.paths import MODELS_DIR
 
 # Disattiva i FutureWarning
@@ -1353,26 +1358,18 @@ def get_green_red_percentage(df: pd.DataFrame):
     return green_after_green / green
 
 
-def ai_model_simulation(df, model):
-    # FEATURES = ['Open', 'High', 'Low', 'Close', 'RSI', 'STOCH', 'STOCH_S', 'ATR', 'TSI']
-    # WINDOW_SIZE = 20
+def ai_model_simulation(df, model, threshold: float = None):
+    """Strategia "AI Model": ingresso sul punteggio del modello, uscita sulle barriere.
 
-    df_preds = get_model_predictions(df, model)  # , FEATURES, WINDOW_SIZE)
-    df = df.merge(df_preds[["Prediction"]], left_index=True, right_index=True, how="left")
-    df["Prediction"].fillna(0, inplace=True)  # Default to hold
-    # Buy = 1, Sell = 2, Hold = 0
-    buy_signals = []
-    sell_signals = []
-    holding = False
-    for i in range(1, len(df)):
-        if df["Prediction"].iloc[i] == 1:  # and not holding:
-            buy_signals.append((df.index[i], float(df["Close"].iloc[i])))
-            holding = True
-        if df["Prediction"].iloc[i] == 2:  # and holding:
-            sell_signals.append((df.index[i], float(df["Close"].iloc[i])))
-            holding = False
+    Il modello produce solo segnali di ingresso; l'uscita e' il take-profit, lo stop-loss o il
+    limite temporale con cui sono state costruite le etichette. Rispettare quella corrispondenza
+    e' cio' che rende il P&L qui sotto la traduzione diretta del win rate misurato in validation.
 
-    return buy_signals, sell_signals
+    I segnali risultano alternati per costruzione, che e' anche l'unico caso in cui
+    l'accoppiamento per indice di `simulate_trading_with_commisions` ha senso.
+    """
+    threshold = threshold if threshold is not None else stored_decision_threshold()
+    return barrier_signals(df, model, threshold=threshold)
 
 
 def trading_analysis(

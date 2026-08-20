@@ -51,6 +51,11 @@ TSI_FAST_WINDOW = 13
 # Mediana mobile su cui si misura il volume relativo: 96 barre sono 8 ore su 5m, 4 giorni su 1h.
 VOLUME_WINDOW = 96
 
+# Candele minime per calcolare gli indicatori. Sotto questa soglia `ta` non degrada: solleva un
+# IndexError dall'interno del calcolo dell'ATR. La dashboard puo' passare finestre corte, quindi
+# il caso va gestito qui invece di propagare un errore incomprensibile.
+MIN_CANDLES = TSI_SLOW_WINDOW + TSI_FAST_WINDOW + 1
+
 
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Aggiunge gli indicatori nelle loro unita' native. La normalizzazione viene dopo."""
@@ -118,6 +123,9 @@ def build_feature_frame(df: pd.DataFrame, interval: str) -> pd.DataFrame:
     che riempite con zeri: uno zero in RSI e' un valore plausibile e sbagliato, che il modello
     non ha modo di distinguere da un RSI davvero basso.
     """
+    if len(df) < MIN_CANDLES:
+        return df.iloc[:0].reindex(columns=list(df.columns) + FEATURES).drop_duplicates()
+
     result = add_technical_indicators(df)
     result = normalize_indicators(result, interval)
     return result.dropna(subset=[column for column in FEATURES if column in result.columns])

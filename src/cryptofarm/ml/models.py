@@ -82,9 +82,19 @@ def _build_sequence_model(kind: str, input_shape: tuple[int, ...], **overrides):
     return model
 
 
+def _is_probabilistic(model) -> bool:
+    """Il modello espone `predict_proba`, cioe' segue l'interfaccia scikit-learn.
+
+    Il controllo e' sulla capacita' e non su una classe concreta: legare lo smistamento a
+    `HistGradientBoostingClassifier` farebbe finire nel ramo Keras qualunque altro classificatore
+    compatibile con scikit-learn, con un errore che compare solo a runtime.
+    """
+    return hasattr(model, "predict_proba")
+
+
 def fit_model(model, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None, **kwargs):
     """Addestra il modello, qualunque sia la famiglia."""
-    if isinstance(model, HistGradientBoostingClassifier):
+    if _is_probabilistic(model):
         model.fit(X, y, sample_weight=sample_weight)
         return model
     model.fit(X, y, sample_weight=sample_weight, **kwargs)
@@ -97,8 +107,10 @@ def predict_proba(model, X: np.ndarray) -> np.ndarray:
     Le probabilita' sono il prodotto che conta, non la classe predetta: la decisione di operare
     dipende da una soglia scelta sull'aspettativa economica, non dall'argmax.
     """
-    if isinstance(model, HistGradientBoostingClassifier):
-        probabilities = model.predict_proba(X)
+    if _is_probabilistic(model):
+        probabilities = np.asarray(model.predict_proba(X))
+        if probabilities.shape[1] == 3:
+            return probabilities
         # `predict_proba` restituisce le colonne nell'ordine di `classes_`, che puo' non
         # contenere tutte e tre le classi se una manca dal training set.
         full = np.zeros((len(X), 3), dtype=float)
@@ -109,7 +121,7 @@ def predict_proba(model, X: np.ndarray) -> np.ndarray:
 
 
 def save_model(model, path) -> None:
-    if isinstance(model, HistGradientBoostingClassifier):
+    if _is_probabilistic(model):
         import joblib
 
         joblib.dump(model, path)
