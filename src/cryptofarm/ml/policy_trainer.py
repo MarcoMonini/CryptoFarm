@@ -269,10 +269,20 @@ def backtest(
 
 def summarise(trades: pd.DataFrame, days: float) -> dict[str, float]:
     if trades.empty:
-        return {"operazioni": 0, "trade_giorno": 0.0, "netto_medio": 0.0, "win_rate": 0.0, "netto_giorno": 0.0}
+        return {
+            "operazioni": 0,
+            "trade_giorno": 0.0,
+            "lordo_medio": 0.0,
+            "netto_medio": 0.0,
+            "win_rate": 0.0,
+            "netto_giorno": 0.0,
+        }
     return {
         "operazioni": int(len(trades)),
         "trade_giorno": len(trades) / days,
+        # L'edge **lordo** e' il numero diagnostico: dice se il modello ha imparato qualcosa,
+        # separatamente dal fatto che il costo se lo mangi. Il netto da solo confonde le due cose.
+        "lordo_medio": float(trades["lordo"].mean()),
         "netto_medio": float(trades["netto"].mean()),
         "win_rate": float((trades["netto"] > 0).mean()),
         "netto_giorno": float(trades["netto"].sum() / days),
@@ -315,7 +325,10 @@ def train(
         raise RuntimeError("Nessun simbolo utilizzabile: popolare lo store con `cryptofarm.data.klines --update`")
 
     panel = Panel(prepared)
-    dataset = pd.concat([training_rows(data, rng, stride) for data in prepared], ignore_index=True)
+    # Il dataset base resta separato da quello arricchito col DAgger: e' l'unico su cui si puo'
+    # fare cross-validation senza portarsi dentro informazione della finestra di test.
+    base = pd.concat([training_rows(data, rng, stride) for data in prepared], ignore_index=True)
+    dataset = base
     X, y, meta = _split_columns(dataset)
     print(f"\nMatrice: {X.shape[0]:,} righe x {X.shape[1]} feature")
     print(_distribution_line("esperto, stato randomizzato", y))
@@ -347,9 +360,10 @@ def train(
     in_sample = summarise(all_trades, days)
     print(_summary_line(in_sample))
 
-    cpcv_report = []
+    cpcv_report, holdout_report = [], {}
     if run_cpcv:
-        cpcv_report = _cpcv(panel, meta, decision_threshold, cost, stride, rng)
+        cpcv_report = _cpcv(panel, base, decision_threshold, cost)
+        holdout_report = _holdout(panel, base, dagger_rounds, stride, decision_threshold, cost)
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = MODELS_DIR / f"{name}.joblib"
@@ -371,6 +385,7 @@ def train(
         "dagger": dagger_report,
         "in_sample": in_sample,
         "cpcv": cpcv_report,
+        "holdout": holdout_report,
         "seconds": round(time.time() - started, 1),
     }
     (MODELS_DIR / f"{name}.json").write_text(json.dumps(report, indent=2, default=str))
@@ -378,22 +393,36 @@ def train(
     return report
 
 
-def _cpcv(panel: Panel, meta, decision_threshold, cost, stride, rng) -> list[dict]:
-    """Valutazione out-of-sample: si riaddestra su ogni split e si simula sul blocco di test.
+def embargo_width(prepared: list[SymbolData]) -> pd.Timedelta:
+    """Embargo dimensionato sulla coda della durata delle gambe, non sulla mediana.
 
-    Il modello addestrato prima **non** viene valutato qui: sarebbe in-sample. Ogni split
-    riaddestra da zero sulle sole righe di training ammesse dopo purging ed embargo.
+    `t_exit` qui e' il pivot successivo confermato, quindi l'orizzonte e' variabile: e' la coda a
+    decidere quanto futuro condividono due blocchi contigui.
+    """
+    legs = np.concatenate([(data.exits - data.index.to_numpy()) for data in prepared])
+    minutes = np.percentile(legs.astype("timedelta64[m]").astype(float), EMBARGO_PERCENTILE)
+    return pd.Timedelta(minutes, unit="m")
+
+
+def _cpcv(panel: Panel, dataset: pd.DataFrame, decision_threshold, cost) -> list[dict]:
+    """Valutazione out-of-sample della politica **base**, senza righe DAgger.
+
+    Le righe DAgger sono deliberatamente escluse, e non per risparmiare tempo: sono prodotte
+    facendo girare un modello addestrato su *tutti* i dati, quindi ognuna porta con se' un po' di
+    informazione della finestra che poi fa da test. Metterle in un fold di training sarebbe
+    leakage, e per giunta del tipo che non si vede in nessuna metrica.
+
+    Il contributo del DAgger si misura invece in `_holdout`, dove le sue righe vengono raccolte
+    dalla sola finestra di training.
     """
     prepared = panel.prepared
-    legs = np.concatenate([(data.exits - data.index.to_numpy()) for data in prepared])
-    embargo = pd.Timedelta(np.percentile(legs.astype("timedelta64[m]").astype(float), EMBARGO_PERCENTILE), unit="m")
-    print(f"\n=== CPCV (embargo {embargo}, p{EMBARGO_PERCENTILE} della durata delle gambe) ===", flush=True)
+    embargo = embargo_width(prepared)
+    print(f"\n=== CPCV della politica base (embargo {embargo}, p{EMBARGO_PERCENTILE} delle gambe) ===", flush=True)
 
     splitter = CombinatorialPurgedCV(n_groups=6, n_test_groups=2, embargo=embargo)
+    X, y, meta = _split_columns(dataset)
     t_start = pd.Series(meta["__start"].to_numpy())
     t_exit = pd.Series(meta["__exit"].to_numpy())
-    dataset = pd.concat([training_rows(data, rng, stride) for data in prepared], ignore_index=True)
-    X, y, _ = _split_columns(dataset)
     values = X.to_numpy()
 
     rows = []
@@ -430,11 +459,79 @@ def _cpcv(panel: Panel, meta, decision_threshold, cost, stride, rng) -> list[dic
     return rows
 
 
+def _holdout(
+    panel: Panel,
+    dataset: pd.DataFrame,
+    dagger_rounds: int,
+    stride: int,
+    decision_threshold: float,
+    cost: float,
+    train_fraction: float = 0.75,
+) -> dict:
+    """Un solo taglio temporale, ma con l'intera procedura -- DAgger incluso -- dentro il training.
+
+    E' la misura che dice se il DAgger serve davvero. Le sue righe si raccolgono facendo girare
+    un modello che ha visto **solo** la finestra di training, e si tengono solo quelle datate
+    prima del taglio: il rollout attraversa anche il futuro, ma quelle righe si buttano.
+    """
+    prepared = panel.prepared
+    embargo = embargo_width(prepared)
+    stamps = np.sort(dataset["__start"].unique())
+    cut = pd.Timestamp(stamps[int(len(stamps) * train_fraction)])
+    print(f"\n=== Holdout con DAgger (taglio {cut:%Y-%m-%d}, embargo {embargo}) ===", flush=True)
+
+    def before_cut(frame: pd.DataFrame) -> pd.DataFrame:
+        return frame[frame["__start"] < cut - embargo]
+
+    training = before_cut(dataset)
+    X, y, _ = _split_columns(training)
+    model = build_model("gbdt")
+    fit_model(model, X.to_numpy(), y)
+
+    for round_number in range(1, dagger_rounds + 1):
+        added, coverage = dagger_rows(panel, model, stride, decision_threshold)
+        added = before_cut(added)
+        training = pd.concat([training, added], ignore_index=True)
+        X, y, _ = _split_columns(training)
+        model = build_model("gbdt")
+        fit_model(model, X.to_numpy(), y)
+        print(
+            f"  DAgger {round_number}: {len(added):,} righe dalla finestra di training | "
+            f"disaccordo {coverage['disaccordo']:.2%}",
+            flush=True,
+        )
+
+    selected, days = [], 0.0
+    for position, data in enumerate(prepared):
+        inside = np.flatnonzero(data.index >= cut + embargo)
+        if len(inside) < 500:
+            continue
+        selected.append(inside + panel.offsets[position])
+        days += (data.index[inside[-1]] - data.index[inside[0]]).total_seconds() / 86400
+    rows = np.concatenate(selected)
+    summary = summarise(backtest(panel, model, decision_threshold, cost, rows=rows), max(days, 1e-9))
+    summary["taglio"] = cut
+    print(f"  fuori campione: {_summary_line(summary)}")
+
+    # Sweep della soglia: non richiede riaddestramento, solo un backtest per valore. Alzarla
+    # significa operare solo con piu' convinzione, ed e' l'unica leva disponibile a modello fermo.
+    print("  soglia di decisione:")
+    sweep = []
+    for threshold in (0.5, 0.6, 0.7, 0.8, 0.9):
+        trades = backtest(panel, model, threshold, cost, rows=rows)
+        entry = summarise(trades, max(days, 1e-9))
+        entry["soglia"] = threshold
+        sweep.append(entry)
+        print(f"    {threshold:.1f}: {_summary_line(entry)}", flush=True)
+    summary["sweep"] = sweep
+    return summary
+
+
 def _summary_line(summary: dict) -> str:
     return (
         f"{summary['operazioni']:>6,} operazioni | {summary['trade_giorno']:.2f}/giorno | "
-        f"netto medio {summary['netto_medio']:+.3%} | win rate {summary['win_rate']:.1%} | "
-        f"netto/giorno {summary['netto_giorno']:+.4%}"
+        f"lordo {summary['lordo_medio']:+.3%} | netto {summary['netto_medio']:+.3%} | "
+        f"win rate {summary['win_rate']:.1%} | netto/giorno {summary['netto_giorno']:+.4%}"
     )
 
 
