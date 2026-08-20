@@ -25,14 +25,18 @@ L'ordine di lavoro che ha dato è in 5 punti, con l'istruzione esplicita:
 (commit `c8e7b16`). Pivot per directional change con `extreme_bar` e `confirm_bar` separati,
 etichetta morbida (`soft_labels`), `capturable_fraction`, `tune_threshold`. 97 test verdi.
 
-**NON fatto, ed è il gate che l'utente aspetta:** le misure sui 15 simboli reali.
-Vanno prodotte e mostrate prima di passare al punto 2:
+**Fatto, ed è il gate:** le misure sui 15 simboli, in `scripts/analysis.py` (`pivot_delays`,
+`pivot_labels`) e scritte in `.claude/docs/strategy.md` §10. Commit `8853769`.
 
-1. ritardo di conferma dei pivot — mediana e 90° percentile, **per simbolo e per soglia**;
-2. soglia tarata per simbolo che porta a **8–12 estremi/giorno** (`tune_threshold` esiste già);
-3. distribuzione delle classi con l'etichetta morbida al 60% (attesa: positivi al 10–15%);
-4. verifica dei numeri di riferimento del punto 2 del prompt (gamba mediana ~0,95% a soglia 0,5%,
-   ~60% catturabile alla conferma) — **sono da simulazione e vanno confermati sui dati reali**.
+**Stato: fermo al gate, in attesa della decisione dell'utente.** Tre attese su quattro del prompt
+sono contraddette dai dati (§10.1). In particolare **l'etichetta morbida al 60% è degenere**: il
+70% dei bar sono positivi, non il 10–15%, perché la finestra di `soft_labels` parte dall'estremo
+precedente e le gambe consecutive si sovrappongono. Prima di passare al punto 3 va scelta una
+delle tre uscite elencate in §10.4 — la (2), far partire la finestra dalla barra di conferma, è
+una correzione di correttezza e va fatta comunque.
+
+Da fare comunque, indipendentemente dalla decisione: **filtro sui wick** (§10.5, il print ATOM a
+0,001 USDT del 2025-10-10 sposta di 28 punti una media pesata).
 
 I punti 3–5 del prompt (feature di posizione + baseline, randomizzazione dello stato, DAgger,
 CPCV) non sono iniziati.
