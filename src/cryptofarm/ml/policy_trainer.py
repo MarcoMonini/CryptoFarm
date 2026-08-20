@@ -315,6 +315,7 @@ def train(
     decision_threshold: float = DECISION_THRESHOLD,
     cost: float = MAKER_ROUND_TRIP,
     run_cpcv: bool = True,
+    run_holdout: bool = True,
     seed: int = 7,
     name: str = MODEL_NAME,
 ) -> dict:
@@ -377,6 +378,7 @@ def train(
     cpcv_report, holdout_report = [], {}
     if run_cpcv:
         cpcv_report = _cpcv(panel, base, decision_threshold, cost)
+    if run_holdout:
         holdout_report = _holdout(panel, base, dagger_rounds, stride, decision_threshold, cost)
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -670,7 +672,8 @@ def main() -> None:
     )
     parser.add_argument("--dagger-rounds", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--threshold", type=float, default=DECISION_THRESHOLD)
-    parser.add_argument("--no-cpcv", action="store_true")
+    parser.add_argument("--no-cpcv", action="store_true", help="salta la cross-validation, non l'holdout")
+    parser.add_argument("--no-holdout", action="store_true")
     parser.add_argument("--name", default=MODEL_NAME, help="nome dei file di modello e rapporto")
     args = parser.parse_args()
 
@@ -684,6 +687,7 @@ def main() -> None:
         dagger_rounds=args.dagger_rounds,
         decision_threshold=args.threshold,
         run_cpcv=not args.no_cpcv,
+        run_holdout=not args.no_holdout,
         name=args.name,
     )
 
