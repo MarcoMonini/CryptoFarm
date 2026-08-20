@@ -902,6 +902,87 @@ numero reale è più alto perché i segnali arrivano correlati).
 
 ---
 
+## 8bis. Risultati dell'implementazione (Fasi 0–2)
+
+Fasi 0, 1 e 2 implementate e verificate. Riepilogo dei numeri ottenuti, da leggere insieme alle
+riserve in fondo.
+
+### Configurazione
+
+| | |
+|---|---|
+| Primario | filtro CUSUM a 3σ, ~26–30 eventi/giorno/simbolo |
+| Barriere | TP 1,5 × SL, pavimento a 5× le fee → 0,90% / 0,60% |
+| Orizzonte | 24 ore |
+| Esecuzione | limite a 0,5 ATR sotto il prezzo, 12 barre di pazienza, maker in ingresso / taker sullo stop |
+| Dataset | 1.509.968 eventi, 15 simboli × (5m, 15m) |
+| Validazione | CPCV, 8 gruppi, 2 di test → 28 split, embargo 24h |
+
+### Risultati out-of-sample (28 split CPCV)
+
+| quota di eventi | mediana per operazione | split positivi |
+|---|---|---|
+| 5% | +0,157% | 100% |
+| 10% | +0,113% | 100% |
+| **13% (target di frequenza)** | **+0,097%** | **100%** |
+| 20% | +0,068% | 96% |
+| 30% | +0,045% | 89% |
+
+- **PBO 0,00** — la selezione non fa peggio del caso.
+- Take-profit sul 41,1% dei trade selezionati, contro un base rate del 33%.
+- Aspettativa non condizionata: **−0,043% per trade**. Il modello la porta a +0,097%.
+
+### Controlli a cascata
+
+Tre controlli, perché un risultato di questa entità va trattato con sospetto.
+
+1. **Fill rate fra gli eventi selezionati: 78,7% contro 80,3% generale.** Se il modello stesse
+   selezionando ordini che *non si riempiono*, guadagnerebbe zero invece che negativo senza fare
+   nessun trade. Non è così.
+2. **Verifica end-to-end nel simulatore** su BTC/ETH/SOL/XRP/DOGE dal 2025-06: 588 trade, win
+   rate 47,6%, **+0,0624% per operazione**, +37,8% cumulato (buy & hold da −17% a −62% nello
+   stesso periodo). Il numero coincide con la misura in CPCV: la catena è coerente.
+3. **Test di permutazione** — il controllo più importante, e quello con l'esito meno pulito.
+   Riaddestrando su etichette mescolate, la selezione **non collassa a zero**: rende +0,037%
+   contro +0,097% del modello reale. Circa **un terzo del guadagno apparente viene dal
+   selezionare comunque un sottoinsieme**, non dalle etichette — gli eventi ad alta volatilità
+   si riempiono meno spesso, e un ordine non riempito rende zero invece che negativo.
+   **L'edge onesto è quindi +0,060% per operazione**, non +0,097%, ed è quello che va usato.
+
+### Due difetti trovati dai controlli, entrambi con inversione di segno
+
+Prima delle correzioni ogni quota era negativa, il PBO era 0,68 (*selezione peggiore del caso*) e
+il top 5% rendeva **meno** del top 30% — il modello ordinava peggio dove avrebbe dovuto essere
+più sicuro.
+
+1. **Addestramento sugli ordini non riempiti.** Un ordine non riempito rende zero, che è
+   *migliore* di un trade in perdita: etichettarlo "non profittevole" lo accomuna ai perdenti e
+   insegna al modello a evitare gli ingressi che non si riempiono, cosa che non ha niente a che
+   vedere con la loro qualità. Ora si addestra solo sugli eventi in cui un trade è avvenuto.
+2. **Classificatore binario cieco alle magnitudini.** Un trade da +2% e uno da +0,05% sono la
+   stessa osservazione per un classificatore. Pesare per |rendimento| × unicità allinea ciò che
+   il modello minimizza a ciò che conta.
+
+### Il vincolo non soddisfatto: la frequenza
+
+**La frequenza ottenuta è 0,04–0,46 trade/giorno/simbolo, contro il target di 4.** Il collo di
+bottiglia non è la selettività (al 13% i candidati sono ~3,4/giorno) ma la regola di **una
+posizione alla volta** combinata con l'orizzonte di 24 ore: con detenzioni di ore, i trade non
+sovrapposti che stanno in una giornata sono pochi.
+
+Le due vie, da valutare nella prossima iterazione:
+
+- **Accorciare l'orizzonte** da 24h a ~6h e stringere le barriere. §1.5 misura che a 0,60%/0,30%
+  la detenzione media è 1,07 ore e il tetto 22 trade/giorno — abbondante. Il costo è economico:
+  §2.2 mostra che il divario maker sale da 3,1 a 5,0 punti.
+- **Consentire posizioni sovrapposte** sullo stesso simbolo. Cambia il profilo di rischio e
+  richiede il dimensionamento a portafoglio (Fase 5), quindi non è un cambio isolato.
+
+La prima è la strada diretta ed è un solo riaddestramento; ma va verificata, perché sposta il
+punto di lavoro proprio nella zona dove l'economia è peggiore.
+
+---
+
 ## 9. Aspettative realistiche
 
 Stima onesta, basata su quanto misurato in questa sessione e non su quanto sarebbe desiderabile.

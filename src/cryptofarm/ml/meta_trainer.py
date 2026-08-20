@@ -63,6 +63,9 @@ CV_TEST_GROUPS = 2  # C(8,2) = 28 split
 # Quote di eventi su cui operare. 0,13 corrisponde al target di 4 trade/giorno/simbolo dati
 # ~30 eventi al giorno. Ognuna e' una configurazione, e va contata nel Deflated Sharpe Ratio.
 QUANTILES = (0.05, 0.10, 0.13, 0.20, 0.30)
+# Quota corrispondente al target operativo di ~4 trade/giorno/simbolo dati ~30 eventi CUSUM
+# al giorno. E' un vincolo di progetto: la quota si sceglie fra quelle che lo rispettano.
+TARGET_QUANTILE = 0.13
 MODEL_NAME = "meta_model"
 
 
@@ -286,11 +289,26 @@ def train(
     dsr = deflated_sharpe_ratio(pooled, trials=len(QUANTILES) * 4) if len(pooled) else float("nan")
     print(f"Deflated Sharpe Ratio (su {len(QUANTILES) * 4} configurazioni contate): {dsr:.3f}")
 
-    best = max(summary, key=lambda row: row["mediana"])
+    # La quota si sceglie **rispettando il vincolo di frequenza**, non massimizzando
+    # l'aspettativa per operazione. Essere piu' selettivi paga di piu' per trade ma produce meno
+    # trade: a 4 al giorno per simbolo il target e' TARGET_QUANTILE degli eventi CUSUM, e una
+    # quota piu' stretta lascerebbe il bot quasi fermo. Fra le quote che raggiungono la frequenza
+    # richiesta si prende quella con la mediana migliore; se nessuna e' positiva, si ripiega su
+    # quella con la mediana piu' alta e il gate della fase non e' superato.
+    eligible = [row for row in summary if row["quota"] >= TARGET_QUANTILE and row["mediana"] > 0]
+    best = max(eligible or summary, key=lambda row: row["mediana"])
     print(
-        f"\nQuota migliore per mediana out-of-sample: {best['quota']:.0%} "
-        f"-> {best['mediana']:+.4%} per operazione, positiva su {best['split_positivi']:.0%} degli split"
+        f"\nQuota scelta: {best['quota']:.0%} degli eventi -> {best['mediana']:+.4%} per operazione, "
+        f"positiva su {best['split_positivi']:.0%} degli split"
     )
+    if not eligible:
+        print("  ATTENZIONE: nessuna quota compatibile col target di frequenza ha mediana positiva")
+    most_profitable = max(summary, key=lambda row: row["mediana"])
+    if most_profitable["quota"] < best["quota"]:
+        print(
+            f"  (la quota {most_profitable['quota']:.0%} renderebbe {most_profitable['mediana']:+.4%} "
+            f"per operazione, ma produce troppo pochi trade per il target di frequenza)"
+        )
 
     # Modello finale su tutti i dati, con la stessa pesatura per unicita'.
     print("\nAddestramento del modello finale su tutto il dataset...", flush=True)
