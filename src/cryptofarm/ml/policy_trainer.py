@@ -244,6 +244,7 @@ def train(
     cost: float = MAKER_ROUND_TRIP,
     run_cpcv: bool = True,
     seed: int = 7,
+    name: str = MODEL_NAME,
 ) -> dict:
     started = time.time()
     rng = np.random.default_rng(seed)
@@ -309,7 +310,7 @@ def train(
         cpcv_report = _cpcv(prepared, meta, model, decision_threshold, cost, capture, stride, rng)
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    model_path = MODELS_DIR / f"{MODEL_NAME}.joblib"
+    model_path = MODELS_DIR / f"{name}.joblib"
     save_model(model, model_path)
     report = {
         "created": datetime.now(timezone.utc).isoformat(),
@@ -330,8 +331,8 @@ def train(
         "cpcv": cpcv_report,
         "seconds": round(time.time() - started, 1),
     }
-    (MODELS_DIR / f"{MODEL_NAME}.json").write_text(json.dumps(report, indent=2, default=str))
-    print(f"\nModello in {model_path}, rapporto in {MODELS_DIR / (MODEL_NAME + '.json')}")
+    (MODELS_DIR / f"{name}.json").write_text(json.dumps(report, indent=2, default=str))
+    print(f"\nModello in {model_path}, rapporto in {MODELS_DIR / (name + '.json')}")
     return report
 
 
@@ -419,6 +420,7 @@ def main() -> None:
     parser.add_argument("--dagger-rounds", type=int, default=DAGGER_ROUNDS)
     parser.add_argument("--threshold", type=float, default=DECISION_THRESHOLD)
     parser.add_argument("--no-cpcv", action="store_true")
+    parser.add_argument("--name", default=MODEL_NAME, help="nome dei file di modello e rapporto")
     args = parser.parse_args()
 
     train(
@@ -431,6 +433,7 @@ def main() -> None:
         dagger_rounds=args.dagger_rounds,
         decision_threshold=args.threshold,
         run_cpcv=not args.no_cpcv,
+        name=args.name,
     )
 
 

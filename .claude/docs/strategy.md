@@ -1164,6 +1164,91 @@ impara da un evento irripetibile.
 
 ---
 
+## 11. La politica a tre azioni: costruzione e punti di lavoro
+
+Implementata in `ml/policy.py` (stato e mascheramento), `ml/dagger.py` (rollout iterativo) e
+`ml/policy_trainer.py` (dataset, addestramento, CPCV economico). `ml/trainer.py` resta quello della
+strategia precedente e non va toccato finche' il simulatore lo carica.
+
+### 11.1 Perche' lo stato entra nel modello
+
+Il modello precedente prevedeva una proprieta' del mercato ("questa candela e' un buon acquisto") e
+lasciava a un livello sopra il compito di trasformarla in condotta. Qui prevede l'azione, e per
+farlo deve sapere in che stato si trova: **comprare quando si e' gia' dentro non e' un errore di
+previsione, e' un'azione inesistente**. Senza lo stato fra le feature il modello vede due volte la
+stessa candela con due azioni corrette diverse e impara la media delle due, che non e' nessuna
+delle due.
+
+Le azioni non valide si **mascherano a inferenza**, non si puniscono in addestramento: da flat
+esistono solo HOLD e BUY, da long solo HOLD e SELL. Su spot non si vende allo scoperto, quindi SELL
+chiude una posizione e non ne apre una al contrario.
+
+Lo stato e' tre feature scale-free: `STATE_IN`, `STATE_PNL` (rendimento non realizzato) e
+`STATE_BARS` (durata, compressa su 288 barre). Il prefisso e' `STATE_` e non `POS_` perche'
+`build_design_matrix` emette gia' `POS_5`, `POS_8`... per la posizione nel range.
+
+### 11.2 La randomizzazione dello stato — misurata, non postulata
+
+Se lo stato si deduce seguendo l'esperto, il modello vede solo gli stati in cui l'esperto passa, e
+mai una posizione aperta per errore — che e' l'unico tipo di stato in cui si trovera' **quando
+sbagliera'**. Misurato su BTC/ETH dal 2024:
+
+| stato | HOLD | BUY | SELL |
+|---|---|---|---|
+| dedotto dall'esperto | 97,9% | 1,1% | 1,1% |
+| campionato | 77,0% | 12,6% | 10,4% |
+
+**Undici volte gli esempi di ingresso e di uscita.** L'ingresso campionato non e' inventato: si
+estrae *quante barre fa* e si prende la chiusura di allora, quindi il P&L che ne risulta e' un P&L
+che quel mercato ha davvero prodotto. Un P&L estratto da una gaussiana insegnerebbe relazioni fra
+guadagno e contesto che nei dati non esistono.
+
+### 11.3 Punti di lavoro — la soglia bassa vince, ma per un motivo che non regge
+
+`python -m scripts.analysis --operating-points`. Mediana sui 15 simboli, ingresso alla prima barra
+di ogni blocco di segnale, uscita all'estremo della gamba, al netto del costo maker (0,08%
+andata e ritorno). A `capture = 0,30`:
+
+| soglia | ingressi/g | netto mediano/trade | netto medio/trade | netto/giorno |
+|---|---|---|---|---|
+| 0,3% | 75,0 | 0,28% | 0,44% | **0,332%** |
+| 0,4% | 59,4 | 0,36% | 0,53% | 0,314% |
+| 0,5% | 46,6 | 0,43% | 0,62% | 0,294% |
+| 0,8% | 26,3 | 0,64% | 0,91% | 0,242% |
+| 1,0% | 19,7 | 0,78% | 1,10% | 0,217% |
+| 1,5% | 11,4 | 1,11% | 1,55% | 0,176% |
+
+Il netto/giorno premia le soglie basse, e **quel confronto va squalificato**: a previsione perfetta
+ogni ingresso e' in utile (`quota_in_utile` = 100% da `capture` 0,20 in su), quindi la metrica
+misura solo la frequenza. Un ranking che dice "fai piu' trade" quando non si sbaglia mai non dice
+niente su cosa fare quando si sbaglia.
+
+**Il numero che decide e' il netto per trade**, perche' e' il cuscinetto contro l'errore del
+modello. A soglia 0,3% il margine mediano e' 0,28%: un modello che cattura meta' della gamba
+perfetta finisce a 0,10%, cioe' poco piu' del costo. A 1,5% il margine e' 1,11% e la stessa meta'
+lascia 0,47%. La soglia bassa e' fragile esattamente dove il modello e' debole.
+
+Quale delle due sopravviva e' una domanda empirica, e la risposta sta in §11.4: entrambe le bande
+sono state addestrate e valutate su CPCV.
+
+### 11.4 DAgger e valutazione
+
+La metrica primaria e' **il rendimento di una traiettoria simulata, non la precision**. In una
+politica sequenziale le due divergono per costruzione: la precision si misura sugli stati
+dell'esperto, il P&L su quelli in cui la politica finisce da sola. Un modello con ottima precision
+che perde soldi e' il caso normale, non quello patologico.
+
+Il rollout e' sequenziale — l'azione di adesso decide lo stato di dopo — e questo lo renderebbe
+insostenibile. `dagger.py` batcha gli **episodi**: la serie si spezza in tratti indipendenti che
+avanzano in parallelo, e mezzo milione di chiamate a `predict` per simbolo diventa duemila da
+qualche centinaio di righe.
+
+L'embargo del CPCV e' dimensionato sul **p95 della durata delle gambe**, non sulla mediana: qui
+`t_exit` e' il pivot successivo confermato, quindi l'orizzonte e' variabile ed e' la coda a
+decidere quanto futuro condividono due fold contigui.
+
+---
+
 ## Riproducibilità
 
 Le misure **conservate e rieseguibili** stanno in `scripts/analysis.py`, che le calcola e le mette
@@ -1185,6 +1270,7 @@ in cache in `analysis_cache/` (gitignorata, rigenerabile):
 | Posizioni concorrenti a portafoglio | `portfolio_concurrency` | §1.5 |
 | Ritardo di conferma dei pivot per simbolo e soglia | `pivot_delays` | §10.2 |
 | Soglia tarata e distribuzione delle classi | `pivot_labels` | §10.3, §10.4 |
+| Economia netta per punto di lavoro (soglia x capture) | `operating_points` | §11.3 |
 
 ### Misure non conservate — debito noto
 
