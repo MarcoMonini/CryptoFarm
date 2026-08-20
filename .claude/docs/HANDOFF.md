@@ -21,25 +21,58 @@ L'ordine di lavoro che ha dato è in 5 punti, con l'istruzione esplicita:
 
 > "1. Etichettatura + distribuzione delle classi e dei ritardi di conferma → **fermati e mostrami i numeri**"
 
-**Fatto:** `src/cryptofarm/ml/directional_change.py` + `tests/test_directional_change.py`
-(commit `c8e7b16`). Pivot per directional change con `extreme_bar` e `confirm_bar` separati,
-etichetta morbida (`soft_labels`), `capturable_fraction`, `tune_threshold`. 97 test verdi.
+**Tutti e 5 i punti del piano sono stati eseguiti fino in fondo.** Il risultato e' **negativo**, e
+la causa e' nota e misurata. Sta tutto in `.claude/docs/strategy.md` §10–13; qui solo il minimo per
+non ripartire da zero.
 
-**Fatto, ed è il gate:** le misure sui 15 simboli, in `scripts/analysis.py` (`pivot_delays`,
-`pivot_labels`) e scritte in `.claude/docs/strategy.md` §10. Commit `8853769`.
+### Il risultato in una riga
 
-**Stato: fermo al gate, in attesa della decisione dell'utente.** Tre attese su quattro del prompt
-sono contraddette dai dati (§10.1). In particolare **l'etichetta morbida al 60% è degenere**: il
-70% dei bar sono positivi, non il 10–15%, perché la finestra di `soft_labels` parte dall'estremo
-precedente e le gambe consecutive si sovrappongono. Prima di passare al punto 3 va scelta una
-delle tre uscite elencate in §10.4 — la (2), far partire la finestra dalla barra di conferma, è
-una correzione di correttezza e va fatta comunque.
+Entrare alla conferma di un minimo e uscire alla conferma di un massimo cattura **zero in media**,
+su tutti e 15 i simboli, a ogni soglia, **prima** dei costi (§13). La conferma si paga due volte e
+la gamba mediana ne vale 1,76–2,05. Nessuna scelta di modello, feature o iperparametro lo cambia.
 
-Da fare comunque, indipendentemente dalla decisione: **filtro sui wick** (§10.5, il print ATOM a
-0,001 USDT del 2025-10-10 sposta di 28 punti una media pesata).
+Di conseguenza: 0 split CPCV in utile su 15 in entrambe le bande di frequenza, edge lordo sotto il
+costo **anche in-sample**, e il vantaggio degli ingressi del modello misurato con un'uscita
+eseguibile e' −0,004% (§12.4).
 
-I punti 3–5 del prompt (feature di posizione + baseline, randomizzazione dello stato, DAgger,
-CPCV) non sono iniziati.
+### Cosa NON rifare
+
+- Non ritarare `capture`, la soglia dei pivot o la soglia di decisione: misurato, nessuna aiuta
+  (§12.6, §12.5).
+- Non aggiungere iterazioni DAgger: funziona (disaccordo 13–19%, 913.000 righe raccolte) ma
+  corregge un problema che non e' quello che abbiamo.
+- Non provare un'architettura diversa: l'in-sample e' gia' sotto il costo, non e' overfitting.
+- Non fidarsi di un'attribuzione con uscita "perfetta": e' il modo di non pagare la seconda soglia
+  e fa sembrare informativi ingressi che non lo sono. Usare sempre la colonna causale
+  (`confirmed_reversal_rows`) e il controllo con ingressi casuali.
+
+### La sola direzione aperta (§13.4)
+
+> Alla barra di conferma di un minimo, prevedere se **questa** gamba superera' `2 x soglia + costo`.
+
+Classificazione binaria su ~10 eventi al giorno per simbolo invece di una politica per barra su
+487.000 barre, positivi al 33–35% per costruzione, target su quantita' interamente causali. E' la
+prima formulazione in cui il vincolo economico sta **dentro** il target. Costa un'ora di calcolo.
+Le feature sono le stesse che hanno gia' fallito due volte, quindi non e' garantita: e' solo
+l'unica rimasta che sia economica da provare.
+
+Dopo di quella restano le leve di §3.2 e §6.2, in quest'ordine: dati di **microstruttura**
+(`aggTrades`) — l'unica informazione che il modello non ha mai avuto — e il **modello di
+riempimento maker** (Fase 0.3), senza il quale nessun numero in modalita' maker e' verificabile.
+
+### Codice nuovo di questa sessione
+
+| file | cosa |
+|---|---|
+| `data/klines.py` | `clip_wicks` / `wick_outliers`, applicati dentro `load_klines` (`clip=False` nel percorso di aggiornamento). Lo store su disco resta grezzo |
+| `ml/directional_change.py` | finestra di `soft_labels` spostata alla barra di conferma; `confirmed_reversal_rows` (uscita causale) |
+| `ml/policy.py` | stato della posizione, mascheramento delle azioni, randomizzazione dell'ingresso |
+| `ml/dagger.py` | rollout con episodi batchati che non attraversano i confini fra simboli |
+| `ml/policy_trainer.py` | dataset, DAgger, CPCV, holdout, attribuzione ingresso/uscita |
+| `scripts/analysis.py` | `pivot_delays`, `pivot_labels`, `operating_points`, `confirmation_tax` |
+
+`models/policy_alta.*` e `policy_bassa.*` sono i due modelli addestrati, con i rapporti JSON
+completi (CPCV per split, sweep della soglia, attribuzione). Non sono tracciati.
 
 ## Cose che non stanno nei documenti e servono subito
 
@@ -57,7 +90,7 @@ CPCV) non sono iniziati.
   sono in `scripts/analysis.py`. La tabella "Riproducibilità" in fondo a `strategy.md` è stata
   **corretta**: ora distingue le misure conservate in `scripts/analysis.py` da quelle prodotte da
   script effimeri e non più rieseguibili, elencate esplicitamente come debito.
-- 4 errori `ruff` in `trading/simulator.py`, `app/live_bot*.py`, `app/grid_results_viewer.py`
+- 10 rilievi `ruff` in `trading/simulator.py`, `app/live_bot*.py`, `app/grid_results_viewer.py`
   sono **pre-esistenti** e non vanno confusi con regressioni.
 
 ## Regole di ingaggio stabilite dall'utente

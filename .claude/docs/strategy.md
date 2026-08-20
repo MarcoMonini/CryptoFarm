@@ -9,6 +9,26 @@ dove serve.
 
 ---
 
+### Revisione 4 — la politica a tre azioni, e perché non poteva funzionare
+
+Aggiunte **§11** (costruzione della politica condizionata sullo stato), **§12** (risultati, negativi)
+e **§13** (la causa).
+
+Il risultato: 0 split in utile su 15 in entrambe le bande, edge lordo sotto il costo **anche
+in-sample**. La causa non e' il modello: entrare alla conferma di un minimo e uscire alla conferma
+di un massimo cattura **zero in media** su tutti e 15 i simboli, a ogni soglia, prima dei costi,
+perche' la conferma si paga due volte e la gamba mediana vale 1,76–2,05 soglie (§13).
+
+§12.4 e' stata scritta due volte: la prima lettura dell'attribuzione dava gli ingressi come
+informativi (+0,204% sopra il caso), ma valeva solo con un'uscita che richiede di conoscere
+l'estremo. Con un'uscita eseguibile il vantaggio e' −0,004%. La colonna causale era stata aggiunta
+apposta prima di concludere.
+
+Resta un'unica direzione, in §13.4: prevedere alla conferma se **quella** gamba superera'
+`2 x soglia + costo`. E' l'unica formulazione in cui il vincolo economico sta dentro il target.
+
+---
+
 ### Revisione 3 — il gate del directional change
 
 Aggiunta **§10** con le misure sui 15 simboli richieste come gate prima delle feature di posizione.
@@ -1303,48 +1323,51 @@ costo si prende tutto. Conferma il ragionamento di §11.3 — il vantaggio della
 previsione perfetta era un artefatto della frequenza, e con un modello reale piu' trade significa
 solo pagare piu' costo con meno margine.
 
-### 12.4 L'attribuzione ribalta la diagnosi: **gli ingressi valgono, l'uscita li distrugge**
+### 12.4 Attribuzione: gli ingressi sembrano valere, ma solo con un'uscita impossibile
 
-Stessi ingressi della politica, uscite diverse. Holdout della banda bassa, fuori campione:
+Stessi ingressi della politica, quattro uscite a confronto. Holdout fuori campione:
 
-| uscita | lordo | netto |
+| uscita | banda bassa | banda alta |
 |---|---|---|
-| della politica | −0,011% | −0,091% |
-| dell'esperto (prima barra SELL) | **+0,131%** | **+0,051%** |
-| perfetta, all'estremo della gamba | +0,203% | +0,123% |
-| **controllo — ingressi a caso, uscita perfetta** | **−0,001%** | — |
+| della politica | −0,011% | −0,123% |
+| **alla conferma del massimo (causale)** | **−0,010%** | **−0,064%** |
+| dell'esperto (prima barra SELL, *lookahead*) | +0,131% | +0,301% |
+| perfetta, all'estremo (*irraggiungibile*) | +0,203% | +0,917% |
+| controllo — ingressi a caso, uscita perfetta | −0,001% | −0,009% |
+| controllo — ingressi a caso, uscita alla conferma | −0,006% | −0,056% |
+| **vantaggio dell'ingresso, uscita perfetta** | +0,204% | +0,925% |
+| **vantaggio dell'ingresso, uscita eseguibile** | **−0,004%** | **−0,008%** |
 
-Il controllo si comporta come deve: entrare a caso e uscire all'estremo della gamba rende zero,
-perche' meta' delle barre sta in una gamba al rialzo e meta' in una al ribasso. Quindi il +0,203%
-degli ingressi della politica non e' un artefatto della costruzione: **gli ingressi valgono +0,204%
-sopra il caso.**
+La lettura va fatta in due tempi, e il primo tempo inganna.
 
-E con l'uscita dell'esperto quegli stessi ingressi rendono **+0,051% netto per operazione, fuori
-campione**. Il problema e' la meta' SELL della politica, non la meta' BUY.
+Con l'uscita perfetta gli ingressi sembrano portare +0,204% (banda bassa) e +0,925% (alta) sopra il
+caso, e il controllo esclude che sia un artefatto: entrare a caso e uscire all'estremo rende zero,
+perche' meta' delle barre sta in una gamba al rialzo e meta' in una al ribasso.
 
-**Attenzione al lookahead prima di festeggiare.** L'uscita dell'esperto e' la prima barra
-etichettata SELL, e quell'etichetta dipende da quanto della gamba discendente restera' da prendere
-— informazione disponibile solo dopo. Il numero sfruttabile e' quello con
-`confirmed_reversal_rows`: uscita alla prima **conferma** di un massimo, cioe' quando il prezzo ha
-ritracciato della soglia dal proprio massimo corrente. Quella e' causale. La misura e' in corso e
-va inserita qui prima di trarre conclusioni operative.
+Con l'uscita **eseguibile** il vantaggio e' −0,004% e −0,008%: **zero**. Sulla banda alta gli
+ingressi del modello (−0,064%) sono perfino leggermente peggiori di quelli casuali (−0,056%).
+
+Il divario fra le due righe non e' un difetto del modello. L'uscita perfetta e' precisamente il modo
+di **non pagare la seconda soglia di conferma**, ed e' tutto li' il +0,925%. Il §13 lo misura senza
+alcun modello di mezzo.
 
 ### 12.5 Cosa questo esclude
 
-Non e' un problema di:
+Non e' un problema di **implementazione**, e le esclusioni sono misurate una per una:
 
-- **etichettatura degli ingressi** — la correzione di §10.4 e' applicata e gli ingressi risultano
-  informativi (§12.4);
+- **etichettatura** — la correzione di §10.4 e' applicata, e a previsione perfetta la stessa
+  etichetta rende 0,64% netto per operazione (§11.3): il target e' economicamente sensato;
 - **stato della posizione** — le tre feature ci sono, il mascheramento funziona, e la
   randomizzazione fornisce 11 volte gli esempi di ingresso/uscita (§11.2);
 - **errore di composizione della traiettoria** — il DAgger raccoglie 913.000 righe con un
   disaccordo del 13–19%, quindi sta facendo il suo lavoro;
-- **overfitting sugli ingressi** — gli ingressi tengono fuori campione.
+- **overfitting** — l'in-sample e' gia' sotto il costo;
+- **soglia di decisione** — nessun valore la salva (§12.6);
+- **punto di lavoro** — entrambe le bande, a 2,3 e a 11,3 trade al giorno, danno 0 split in utile
+  su 15.
 
-Resta il **problema dell'uscita**, ed e' asimmetrico rispetto all'ingresso in un modo che ha senso:
-un ingresso si puo' saltare, un'uscita no. Da flat la politica puo' aspettare la configurazione che
-riconosce; da long *deve* decidere a ogni barra, e ogni barra in cui sbaglia costa. La stessa
-architettura che rende facile la meta' BUY rende difficile la meta' SELL.
+Non resta nessuna leva di implementazione, ed e' il momento di smettere di cercarne: il §13 mostra
+che il problema sta un livello sotto.
 
 ### 12.6 La soglia di decisione non e' una leva
 
@@ -1361,6 +1384,77 @@ Sweep sull'holdout della banda alta, senza riaddestrare:
 Il win rate sale con la soglia ma **il lordo resta negativo**: le operazioni selezionate sono piu'
 spesso vincenti e mediamente peggiori, cioe' il modello scarta i guadagni grandi insieme alle
 perdite. La riga a 0,9 sono 22 operazioni, rumore.
+
+---
+
+## 13. La tassa di conferma — perché niente di tutto questo poteva funzionare
+
+`python -m scripts.analysis --confirmation-tax`. Nessun modello, nessuna feature, nessun
+addestramento: solo i pivot e i prezzi.
+
+### 13.1 Il conto
+
+Entrare **alla conferma** di un minimo costa una soglia: quando il minimo diventa conoscibile il
+prezzo si e' gia' mosso di tanto. Uscire **alla conferma** di un massimo ne costa un'altra. Quello
+che resta e':
+
+    catturato = gamba − 2 × soglia
+
+E la gamba mediana misurata (§10.1) vale **1,76–2,05 soglie**. Il conto e' negativo per costruzione.
+
+### 13.2 La misura, su 15 simboli
+
+Gambe al rialzo, ingresso alla conferma del minimo, uscita alla conferma del massimo che le chiude:
+
+| soglia | gamba/soglia | catturato mediano | **catturato medio** | quota sopra il costo |
+|---|---|---|---|---|
+| 0,4% | 2,05 | −0,10% | **−0,0000%** | 32,1% |
+| 0,8% | 1,83 | −0,22% | **−0,0001%** | 33,7% |
+| 1,5% | 1,76 | −0,44% | **+0,0000%** | 34,8% |
+
+**Il catturato medio e' zero a quattro decimali, su ogni simbolo e a ogni soglia** (la dispersione
+fra i 15 simboli a soglia 0,8% va da −0,0002% a +0,0007%). Entrare a conferma e uscire a conferma e'
+esattamente a somma nulla **prima** dei costi.
+
+Non e' un risultato sul modello: e' una proprieta' dello schema di directional change. La conferma
+si paga due volte, e la gamba tipica ne vale meno di due.
+
+### 13.3 Cosa spiega
+
+Tutto il §12, e retroattivamente anche il §8bis:
+
+- perche' l'edge lordo e' zero o negativo dovunque, dentro e fuori campione;
+- perche' alzare la soglia di decisione non aiuta: seleziona operazioni piu' spesso vincenti e
+  mediamente peggiori, che e' cio' che succede quando il segnale non c'e';
+- perche' il vantaggio dell'ingresso sparisce passando dall'uscita perfetta a quella eseguibile:
+  l'uscita perfetta e' *esattamente* il modo di non pagare la seconda soglia;
+- perche' due strategie diverse, con target e architetture diverse, hanno trovato lo stesso muro:
+  entrambe pagavano una forma di attesa di conferma, e nessuna delle due ha mai misurato quanto
+  costasse.
+
+### 13.4 Cosa resta, ed e' l'unica cosa che sia mai stata in gioco
+
+**Il 33–35% delle gambe supera comunque il costo.** La media e' zero perche' la coda destra paga la
+maggioranza che non paga. Selezionare quella coda non e' un miglioramento del piano: e' il piano,
+e non era stato formulato cosi'.
+
+Ne segue una riformulazione precisa e molto piu' economica da provare:
+
+> Alla barra di conferma di un minimo, prevedere se **questa** gamba superera' `2 × soglia + costo`.
+
+E' una classificazione binaria su **~10 eventi al giorno per simbolo** invece di una politica per
+barra su 487.000 barre, il campione e' bilanciato per costruzione (33-35% di positivi), il target
+e' definito su quantita' interamente causali, e il valore atteso di un modello con AUC anche solo
+0,58 e' calcolabile in anticipo dalla distribuzione delle gambe gia' misurata.
+
+Non e' garantito che funzioni — le feature sono le stesse che hanno gia' fallito due volte. Ma e'
+la prima formulazione in cui **il vincolo economico e' dentro il target** invece che scoperto dopo,
+e costa un'ora di calcolo invece di una giornata.
+
+Le altre due leve restano quelle di §3.2 e §6.2, e ora hanno una priorita' chiara: dati di
+**microstruttura** (`aggTrades`), che e' l'unica informazione che il modello non ha mai avuto, e il
+**modello di riempimento maker** (Fase 0.3), senza il quale nessun numero in modalita' maker e'
+verificabile.
 
 ---
 
@@ -1386,6 +1480,7 @@ in cache in `analysis_cache/` (gitignorata, rigenerabile):
 | Ritardo di conferma dei pivot per simbolo e soglia | `pivot_delays` | §10.2 |
 | Soglia tarata e distribuzione delle classi | `pivot_labels` | §10.3, §10.4 |
 | Economia netta per punto di lavoro (soglia x capture) | `operating_points` | §11.3 |
+| Tassa di conferma: catturato entrando e uscendo a conferma | `confirmation_tax` | §13.2 |
 
 ### Misure non conservate — debito noto
 
