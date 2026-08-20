@@ -8,6 +8,7 @@ from cryptofarm.ml.directional_change import (
     HOLD,
     SELL,
     capturable_fraction,
+    confirmed_reversal_rows,
     directional_change_pivots,
     label_distribution,
     leg_table,
@@ -153,3 +154,19 @@ def test_label_distribution_sums_to_one():
     distribution = label_distribution(labels)
 
     assert sum(distribution.values()) == pytest.approx(1.0)
+
+
+def test_confirmed_reversal_exits_are_causal():
+    """L'uscita alla conferma deve stare sempre dopo la barra da cui si esce, mai prima."""
+    close = _zigzag([100.0, 112.0, 100.0, 112.0], bars_per_leg=20)
+    pivots = directional_change_pivots(close, close, 0.03)
+
+    exits = confirmed_reversal_rows(pivots, len(close))
+
+    assert (exits >= np.arange(len(close))).all()
+    # Ogni uscita cade su una conferma di massimo, non su un estremo.
+    confirms = set(pivots.loc[pivots["kind"] == 1, "confirm_bar"])
+    assert set(exits[: max(confirms)]) <= confirms | {len(close) - 1}
+    # E la conferma sta dopo l'estremo che conferma: e' l'informazione che uno zigzag nasconde.
+    peaks = pivots[pivots["kind"] == 1]
+    assert (peaks["confirm_bar"] > peaks["extreme_bar"]).all()

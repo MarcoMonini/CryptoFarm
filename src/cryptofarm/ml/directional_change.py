@@ -208,3 +208,22 @@ def tune_threshold(
         if distance < best_distance:
             best, best_rate, best_distance = threshold, rate, distance
     return best, best_rate
+
+
+def confirmed_reversal_rows(pivots: pd.DataFrame, bars: int) -> np.ndarray:
+    """Per ogni barra, la prima barra in cui un massimo risulta **confermato**.
+
+    E' una regola di uscita interamente causale, e per questo vale piu' dell'etichetta SELL: la
+    conferma di un massimo e' il momento in cui il prezzo ha ritracciato della soglia dal proprio
+    massimo corrente, e quel momento si conosce mentre accade. L'etichetta morbida invece dipende
+    da quanto della gamba discendente restera' da prendere, che si sa solo dopo.
+
+    Le barre oltre l'ultima conferma restituiscono l'ultima barra della serie: una posizione che
+    non trova mai la sua uscita si chiude alla fine dei dati.
+    """
+    confirms = np.sort(pivots.loc[pivots["kind"] == 1, "confirm_bar"].to_numpy())
+    if len(confirms) == 0:
+        return np.full(bars, bars - 1)
+    position = np.searchsorted(confirms, np.arange(bars), side="right")
+    exits = np.where(position < len(confirms), confirms[np.minimum(position, len(confirms) - 1)], bars - 1)
+    return exits.astype(np.int64)

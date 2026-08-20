@@ -36,6 +36,7 @@ from cryptofarm.ml.directional_change import (
     HOLD,
     LABEL_NAMES,
     SELL,
+    confirmed_reversal_rows,
     directional_change_pivots,
     soft_labels,
     tune_threshold,
@@ -82,6 +83,7 @@ class SymbolData:
         signals: np.ndarray,
         exits: np.ndarray,
         exit_rows: np.ndarray,
+        reversal_rows: np.ndarray,
     ):
         self.symbol = symbol
         self.market = market
@@ -89,6 +91,7 @@ class SymbolData:
         self.signals = signals
         self.exits = exits  # timestamp di fine della gamba a cui la barra appartiene
         self.exit_rows = exit_rows  # e la sua riga, che serve per il prezzo
+        self.reversal_rows = reversal_rows  # prima conferma di massimo, uscita causale
 
     @property
     def index(self) -> pd.DatetimeIndex:
@@ -135,7 +138,7 @@ def prepare_symbol(
             exits[first : last + 1] = stamps[last]
             exit_rows[first : last + 1] = last
 
-    return SymbolData(symbol, market, close, signals, exits, exit_rows)
+    return SymbolData(symbol, market, close, signals, exits, exit_rows, confirmed_reversal_rows(pivots, len(close)))
 
 
 def training_rows(data: SymbolData, rng: np.random.Generator, stride: int) -> pd.DataFrame:
@@ -539,12 +542,17 @@ def _holdout(
     attribution = entry_attribution(panel, model, rows, cost, decision_threshold)
     if attribution.get("operazioni"):
         print(
-            f"  attribuzione (stessi ingressi, uscite diverse): politica "
-            f"{attribution['lordo_politica']:+.3%} | esperto {attribution['lordo_uscita_esperto']:+.3%} "
-            f"(netto {attribution['netto_uscita_esperto']:+.3%}) | perfetta "
-            f"{attribution['lordo_uscita_perfetta']:+.3%}\n"
-            f"  controllo: ingressi a caso con uscita perfetta {attribution['lordo_ingresso_casuale']:+.3%} "
-            f"-> vantaggio dell'ingresso {attribution['vantaggio_sul_caso']:+.3%}"
+            f"  attribuzione (stessi ingressi, uscite diverse):\n"
+            f"    politica              {attribution['lordo_politica']:+.3%}\n"
+            f"    conferma (causale)    {attribution['lordo_uscita_conferma']:+.3%}  "
+            f"netto {attribution['netto_uscita_conferma']:+.3%}\n"
+            f"    esperto (lookahead)   {attribution['lordo_uscita_esperto']:+.3%}  "
+            f"netto {attribution['netto_uscita_esperto']:+.3%}\n"
+            f"    perfetta (irraggiungibile) {attribution['lordo_uscita_perfetta']:+.3%}\n"
+            f"  controllo, ingressi a caso: perfetta {attribution['lordo_ingresso_casuale']:+.3%} | "
+            f"conferma {attribution['casuale_uscita_conferma']:+.3%}\n"
+            f"  vantaggio dell'ingresso: {attribution['vantaggio_sul_caso']:+.3%} con uscita perfetta, "
+            f"{attribution['vantaggio_causale']:+.3%} con uscita eseguibile"
         )
     summary["attribuzione"] = attribution
     return summary
@@ -573,29 +581,39 @@ def entry_attribution(panel: Panel, model, rows: np.ndarray, cost: float, decisi
         return {"operazioni": 0}
 
     generator = np.random.default_rng(11)
-    perfect, expert, chance = [], [], []
+    perfect, expert, causal, chance, chance_causal = [], [], [], [], []
     lookup = {data.symbol: position for position, data in enumerate(panel.prepared)}
     for symbol, group in trades.groupby("symbol"):
         data = panel.prepared[lookup[symbol]]
         entry_rows = data.index.get_indexer(pd.DatetimeIndex(group["entrata"]))
         perfect.append(_exit_returns(data, entry_rows, data.exit_rows[entry_rows]))
         expert.append(_exit_returns(data, entry_rows, _first_sell_after(data.signals, entry_rows)))
+        causal.append(_exit_returns(data, entry_rows, data.reversal_rows[entry_rows]))
         # Controllo: stessi ingressi in numero, ma presi a caso nella stessa finestra. Senza,
-        # "+0,28% con uscita perfetta" non significa niente -- meta' delle barre sta in una gamba
+        # "+0,20% con uscita perfetta" non significa niente -- meta' delle barre sta in una gamba
         # al rialzo per costruzione, e uscire al suo estremo paga anche entrando a caso.
         drawn = generator.choice(np.arange(entry_rows.min(), entry_rows.max() + 1), size=len(entry_rows))
         chance.append(_exit_returns(data, drawn, data.exit_rows[drawn]))
-    perfect, expert, chance = (np.concatenate(x) for x in (perfect, expert, chance))
+        chance_causal.append(_exit_returns(data, drawn, data.reversal_rows[drawn]))
+    perfect, expert, causal, chance, chance_causal = (
+        np.concatenate(x) for x in (perfect, expert, causal, chance, chance_causal)
+    )
 
     policy_gross = float(trades["lordo"].mean())
     return {
         "operazioni": int(len(trades)),
         "lordo_politica": policy_gross,
+        "lordo_uscita_conferma": float(causal.mean()),
+        "netto_uscita_conferma": float(causal.mean() - cost),
         "lordo_uscita_esperto": float(expert.mean()),
+        "netto_uscita_esperto": float(expert.mean() - cost),
         "lordo_uscita_perfetta": float(perfect.mean()),
         "lordo_ingresso_casuale": float(chance.mean()),
-        "netto_uscita_esperto": float(expert.mean() - cost),
+        "casuale_uscita_conferma": float(chance_causal.mean()),
         "vantaggio_sul_caso": float(perfect.mean() - chance.mean()),
+        # E' questo il numero sfruttabile: quanto vale l'ingresso del modello con una regola di
+        # uscita che si puo' davvero eseguire, al netto di cosa renderebbe entrando a caso.
+        "vantaggio_causale": float(causal.mean() - chance_causal.mean()),
     }
 
 
