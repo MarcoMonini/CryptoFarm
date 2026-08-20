@@ -361,6 +361,101 @@ def portfolio_concurrency(capacity: pd.DataFrame | None = None, symbols: int = 1
     return pd.DataFrame(rows)
 
 
+# ---------------------------------------------------------------------------------------------
+# Directional change: ritardo di conferma, soglia per simbolo, distribuzione delle classi
+# ---------------------------------------------------------------------------------------------
+
+
+PIVOT_THRESHOLDS = (0.002, 0.003, 0.004, 0.005, 0.006, 0.008, 0.010, 0.015)
+
+
+def pivot_delays(thresholds=PIVOT_THRESHOLDS) -> pd.DataFrame:
+    """Ritardo di conferma dei pivot, per simbolo e per soglia.
+
+    Il ritardo e' la distanza fra l'estremo e la barra in cui diventa conoscibile. E' il numero
+    che decide se una feature costruita sui pivot e' utilizzabile: se il p90 e' lungo, il modello
+    non vede la struttura quando servirebbe. Insieme al ritardo si misura quanto della gamba
+    resta da prendere alla conferma, che e' il tetto economico della strategia.
+    """
+    from cryptofarm.ml.directional_change import capturable_fraction, directional_change_pivots, leg_table
+
+    rows = []
+    for symbol, data in _panel(DEFAULT_SYMBOLS).items():
+        high, low, close = (data[c].to_numpy(float) for c in ("High", "Low", "Close"))
+        days = (data.index[-1] - data.index[0]).total_seconds() / 86400
+        for threshold in thresholds:
+            pivots = directional_change_pivots(high, low, threshold)
+            if len(pivots) < 3:
+                continue
+            delay = (pivots["confirm_bar"] - pivots["extreme_bar"]).to_numpy()
+            legs = capturable_fraction(leg_table(pivots), close)
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "soglia": threshold,
+                    "estremi_giorno": len(pivots) / days,
+                    "ritardo_mediano": float(np.median(delay)),
+                    "ritardo_p90": float(np.percentile(delay, 90)),
+                    "ritardo_p99": float(np.percentile(delay, 99)),
+                    "gamba_mediana": float(legs["size"].median()),
+                    "catturabile_mediana": float(legs["capturable_at_confirm"].median()),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def pivot_labels(capture: float = 0.60, delays: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Soglia tarata per simbolo e distribuzione delle classi con l'etichetta morbida.
+
+    La soglia si sceglie per portare gli estremi a 8-12 al giorno (4 trade/giorno per lato con
+    margine di scarto), e va tarata **per simbolo**: la stessa percentuale su asset con
+    volatilita' diverse produce tassi molto diversi.
+    """
+    from cryptofarm.ml.directional_change import (
+        capturable_fraction,
+        directional_change_pivots,
+        label_distribution,
+        leg_table,
+        soft_labels,
+        tune_threshold,
+    )
+
+    del delays  # firma mantenuta per la dashboard; la soglia si ritara qui per simbolo
+    rows = []
+    for symbol, data in _panel(DEFAULT_SYMBOLS).items():
+        high, low, close = (data[c].to_numpy(float) for c in ("High", "Low", "Close"))
+        days = (data.index[-1] - data.index[0]).total_seconds() / 86400
+        threshold, rate = tune_threshold(high, low, days)
+        pivots = directional_change_pivots(high, low, threshold)
+        distribution = label_distribution(soft_labels(close, pivots, capture))
+        delay = (pivots["confirm_bar"] - pivots["extreme_bar"]).to_numpy()
+        legs = capturable_fraction(leg_table(pivots), close)
+        # Cio' che si porta a casa entrando alla conferma, prima dei costi. La media pesata sulla
+        # dimensione conta piu' della mediana: il rendimento viene dalle gambe lunghe.
+        take = legs["size"] * legs["capturable_at_confirm"]
+        weights = legs["size"] / legs["size"].sum()
+        rows.append(
+            {
+                "symbol": symbol,
+                "soglia_tarata": threshold,
+                "estremi_giorno": rate,
+                "ritardo_mediano": float(np.median(delay)),
+                "ritardo_p90": float(np.percentile(delay, 90)),
+                "gamba_mediana": float(legs["size"].median()),
+                "catturabile_mediana": float(legs["capturable_at_confirm"].median()),
+                "catturabile_pesata": float((legs["capturable_at_confirm"] * weights).sum()),
+                "presa_mediana": float(take.median()),
+                "quota_oltre_maker": float((take > 0.0008).mean()),
+                "quota_oltre_taker": float((take > 0.0040).mean()),
+                "hold": distribution["hold"],
+                "buy": distribution["buy"],
+                "sell": distribution["sell"],
+                "positivi": distribution["buy"] + distribution["sell"],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 MEASURES = {
     "store_coverage": store_coverage,
     "market_regimes": market_regimes,
@@ -370,6 +465,8 @@ MEASURES = {
     "random_walk": random_walk_comparison,
     "cusum_rates": cusum_rates,
     "concurrency": portfolio_concurrency,
+    "pivot_delays": pivot_delays,
+    "pivot_labels": pivot_labels,
 }
 
 

@@ -9,6 +9,20 @@ dove serve.
 
 ---
 
+### Revisione 3 — il gate del directional change
+
+Aggiunta **§10** con le misure sui 15 simboli richieste come gate prima delle feature di posizione.
+Tre delle quattro attese poste nel prompt della strategia a 3 stati **non sono confermate**: il
+catturabile alla conferma è 43% e non 60% (ed è forzato dalla geometria, non tarabile), l'etichetta
+morbida al 60% produce il 70% di positivi e non il 10–15%, e la soglia va tarata per simbolo su un
+intervallo di 2,5×. Confermata solo la gamba mediana di ≈0,95% a soglia 0,5%. §10.5 documenta un
+artefatto dei dati (il wick ATOM a 0,001 del 2025-10-10) che invalida ogni statistica pesata sui
+rendimenti finché non c'è un filtro sui wick.
+
+Nulla del documento precedente è stato riscritto: §10 è additiva.
+
+---
+
 ### Revisione 2 — cosa è cambiato e perché
 
 **Target operativo aggiornato: ~4 trade/giorno/simbolo** (≈60/giorno su 15 simboli). È un vincolo
@@ -1050,6 +1064,106 @@ l'intera strategia poggia.
 
 ---
 
+## 10. Directional change — misure del gate
+
+Misurate sui 15 simboli, barre 5m dal 2022-01-01 (≈480.000 barre per simbolo).
+Riproducibili: `python -m scripts.analysis --pivot-delays --pivot-labels`.
+
+Questa sezione risponde al gate posto prima di procedere con le feature di posizione. **Tre delle
+quattro attese poste nel prompt non sono confermate dai dati**, e sono elencate per prime.
+
+### 10.1 Le attese contraddette
+
+| attesa | misurato | verdetto |
+|---|---|---|
+| gamba mediana ≈ 0,95% a soglia 0,5% | **0,97%** (min 0,92% su BTC, max 1,03% su NEAR) | **confermata** |
+| ≈ 60% della gamba catturabile alla conferma | **41–44%** mediana, su *ogni* simbolo e *ogni* soglia | **contraddetta** |
+| positivi al 10–15% con etichetta morbida al 60% | **70%** dei bar sono BUY o SELL, HOLD solo 29% | **contraddetta** |
+| soglia unica ragionevole per tutti i simboli | serve da 0,6% (TRX) a 1,5% (10 simboli su 15) per lo stesso tasso | **contraddetta** |
+
+**Il 43% catturabile non è un difetto tarabile: è forzato dalla geometria.** Alla conferma il
+prezzo si è già mosso di una soglia dall'estremo, quindi resta `1 − soglia/gamba`. Il rapporto
+gamba/soglia misurato è notevolmente stabile — 2,71 a soglia 0,2% che scende a 1,75 a 1,5% — e
+1 − 1/1,9 ≈ 0,47. Per avere il 60% catturabile servirebbero gambe pari a 2,5 volte la soglia, e
+i dati dicono 1,75–1,9. **La conseguenza è che il tetto lordo della strategia è metà della gamba,
+non due terzi**: a soglia tarata la presa mediana a previsione perfetta è 0,46%–1,10% per gamba.
+
+### 10.2 Ritardo di conferma, per soglia (mediana sui 15 simboli, in barre da 5m)
+
+| soglia | estremi/giorno | gamba mediana | catturabile | ritardo mediano | ritardo p90 |
+|---|---|---|---|---|---|
+| 0,2% | 110,1 | 0,54% | 45,3% | 1 | 1 |
+| 0,3% | 84,6 | 0,67% | 44,4% | 1 | 2 |
+| 0,4% | 65,2 | 0,82% | 44,1% | 1 | 3 |
+| 0,5% | 50,4 | 0,97% | 43,4% | 1 | 5 |
+| 0,6% | 39,2 | 1,13% | 42,9% | 1 | 6 |
+| 0,8% | 25,5 | 1,45% | 42,6% | 2 | 10 |
+| 1,0% | 17,8 | 1,78% | 42,1% | 3 | 15 |
+| 1,5% | 8,7 | 2,62% | 41,6% | 6 | 31 |
+
+Il ritardo cresce **più che linearmente** con la soglia mentre il catturabile è piatto: raddoppiare
+la soglia da 0,5% a 1,0% triplica il ritardo mediano e sestuplica il p90, senza restituire nulla
+in frazione catturabile. La dispersione per simbolo è larga: a 0,5% il p90 va da 3 barre (SOL,
+AVAX, NEAR) a 17 (TRX), e il p99 da 9 a 64.
+
+### 10.3 Soglia tarata per simbolo, a 8–12 estremi/giorno
+
+`tune_threshold` centra la fascia su 13 simboli su 15; XRP (7,15) e LTC (7,00) restano sotto
+perché 1,5% è il massimo dei candidati, e NEAR sfora sopra a 13,03.
+
+| simbolo | soglia | estremi/g | rit. med | rit. p90 | gamba med | presa mediana | > costo maker | > costo taker |
+|---|---|---|---|---|---|---|---|---|
+| BTC | 0,8% | 10,0 | 5 | 28 | 1,41% | 0,58% | 95,4% | 63,6% |
+| ETH | 1,0% | 10,9 | 5 | 25 | 1,78% | 0,73% | 97,1% | 71,4% |
+| BNB | 1,0% | 8,2 | 6 | 31 | 1,77% | 0,73% | 96,5% | 70,1% |
+| TRX | 0,6% | 11,3 | 3 | 22 | 1,11% | 0,46% | 92,5% | 55,2% |
+| altri 11 | 1,5% | 7,0–13,0 | 4–7 | 20–39 | 2,60–2,68% | 1,03–1,10% | 97,6–98,3% | 80,0–81,8% |
+
+**Il ritardo di conferma al punto di lavoro è di 20–39 barre al p90, cioè 1,7–3,3 ore.** È il
+numero che vincola le feature di posizione del punto 3: qualunque feature che dica "siamo dentro
+una gamba al rialzo" è ignota per quel tempo, e su BTC/ETH il p99 arriva a 87–146 barre.
+
+### 10.4 Distribuzione delle classi — l'etichetta morbida al 60% è degenere
+
+Alla soglia tarata, con `capture = 0,60`: HOLD 29,0–30,4%, BUY 31,5–34,8%, SELL 35,6–38,7%.
+Il risultato è quasi identico su tutti e 15 i simboli.
+
+**Non è la distribuzione attesa e non è utilizzabile così.** L'etichetta non dice più "questo è un
+momento di ingresso": dice "il prezzo sta nel 40% inferiore del range che verrà", che è vero quasi
+sempre e per costruzione, dato che la finestra di `soft_labels` parte dall'estremo *precedente* e
+le finestre di gambe consecutive si sovrappongono. Un classificatore costante che dice sempre SELL
+prende il 37%. Con positivi al 70% la precision non discrimina nulla e la funzione di perdita non
+ha più il segnale economico che l'etichetta morbida doveva darle.
+
+Va detto che il **tasso di trade** resta invece corretto: la zona BUY è contigua, quindi i blocchi
+sono ≈ il numero di gambe, cioè 4–6 ingressi al giorno per simbolo, in linea con il target di §1.5.
+Il problema è la separabilità, non la frequenza.
+
+Le tre uscite possibili, in ordine di costo:
+1. **alzare `capture`** — a 0,60 la zona è il 40% del range; portarla a 0,85 la riduce al 15%.
+   Da misurare, è uno sweep di pochi minuti;
+2. **non far partire la finestra dall'estremo precedente** ma dalla barra di conferma, il che
+   allinea l'etichetta a ciò che è effettivamente operabile e taglia via la discesa non conoscibile;
+3. **tenere l'etichetta a tre stati ma condizionarla sullo stato di posizione**, che è il punto 3
+   del piano: BUY vale solo da flat, e questo da solo elimina gran parte dei positivi ridondanti.
+
+Le tre non sono alternative: (2) è una correzione di correttezza e va fatta comunque.
+
+### 10.5 Un artefatto dei dati che invalida ogni statistica pesata
+
+`catturabile_pesata` per ATOM è 0,218 contro ≈0,50 di tutti gli altri. Non è un bug del rilevatore:
+il 2025-10-10 alle 21:20 (cascata di liquidazioni su Binance) ATOM ha stampato un minimo di
+**0,001 USDT** partendo da 1,86, cioè una gamba del 305.100% in una barra da 5 minuti. AVAX nella
+stessa barra è sceso da 23,09 a 8,52, BTC da 112.510 a 102.000.
+
+Il print è reale, ma non è eseguibile: è un wick senza liquidità. Una singola barra su 480.000
+sposta la media pesata di un simbolo di 28 punti percentuali. **Serve un filtro sui wick prima di
+qualunque etichettatura o statistica basata su rendimenti percentuali** — la mediana ne è immune
+(0,416 per ATOM, in linea con tutti), la media pesata no, e un modello addestrato senza filtro
+impara da un evento irripetibile.
+
+---
+
 ## Riproducibilità
 
 Le misure **conservate e rieseguibili** stanno in `scripts/analysis.py`, che le calcola e le mette
@@ -1069,6 +1183,8 @@ in cache in `analysis_cache/` (gitignorata, rigenerabile):
 | Break-even ed expectancy misurati | `break_even_table` | §2.2 |
 | Confronto con random walk | `random_walk_comparison` | §1.5 |
 | Posizioni concorrenti a portafoglio | `portfolio_concurrency` | §1.5 |
+| Ritardo di conferma dei pivot per simbolo e soglia | `pivot_delays` | §10.2 |
+| Soglia tarata e distribuzione delle classi | `pivot_labels` | §10.3, §10.4 |
 
 ### Misure non conservate — debito noto
 
@@ -1080,7 +1196,7 @@ riportati qui), ma non sono rieseguibili senza riscrivere lo script:
 |---|---|---|
 | Confronto LSTM / gradient boosting | §4.1 | da riscrivere se serve rifare il confronto |
 | Sweep delle configurazioni di labeling e barriere | §2, §8bis | da riscrivere |
-| Ritardo di conferma dei pivot e conteggio strutture | §7.1, §7.2 | **parzialmente sostituito**: `ml/directional_change.py` ricalcola i pivot e i ritardi, ma manca lo script che aggrega su tutti i simboli |
+| Ritardo di conferma dei pivot e conteggio strutture | §7.1, §7.2 | **sostituito**: `pivot_delays` e `pivot_labels` in `scripts/analysis.py` lo ricalcolano su tutti i simboli (§10) |
 | Verifica dei segnali end-to-end nel simulatore | §8bis | da riscrivere |
 
 Chi riprende il lavoro e ha bisogno di uno di questi numeri lo rimisuri invece di fidarsi: sono
