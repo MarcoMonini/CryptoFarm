@@ -10,6 +10,7 @@ Repo: `/Users/marcomonini/PycharmProjects/CryptoFarm`.
 | `.claude/docs/strategy.md` | **fonte di verità delle decisioni.** Analisi completa, misure, piano a fasi con gate, risultati dell'implementazione precedente (§8bis). Ha una tabella di revisione in testa che elenca le correzioni già fatte. |
 | `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente |
 | `git log main..HEAD` | i messaggi di commit spiegano il *perché* di ogni scelta, inclusi i bug trovati e come |
+| `.claude/docs/sessione-2026-08-21.md` | chiusura della sessione del 20–21 agosto: cosa era in sospeso (niente), come far girare la politica nel simulatore e con quali avvertenze, skill consigliate al prossimo agente |
 
 Non riassumere quei contenuti: sono già scritti e aggiornati.
 
