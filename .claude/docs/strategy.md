@@ -1458,6 +1458,43 @@ verificabile.
 
 ---
 
+## 14. Stato del codice rispetto a questo documento (2026-08-21)
+
+Verificato leggendo il codice, non ricordandolo. **Dove questa tabella e le sezioni precedenti
+divergono, vale questa**: sono i valori con cui il codice gira oggi, e le decisioni piu' vecchie
+vanno lette come il ragionamento che ci ha portati qui, non come lo stato attuale.
+
+| Cosa dice il documento | Cosa fa il codice | Dove |
+|---|---|---|
+| §2.1: «Ripristinare `TP_ATR_MULTIPLE = 2.0`» | `TP_ATR_MULTIPLE = 1.5`, `SL_ATR_MULTIPLE = 1.0`, `HORIZON_BARS = 96`. Stessi valori in `meta_trainer` (`TP_MULTIPLE`/`SL_MULTIPLE`) | `ml/labeling.py:48-50` |
+| §5.5: «il PBO va riportato accanto a ogni risultato» | Calcolato e stampato nel **meta-labeling**, insieme al Deflated Sharpe. **Assente** nella politica a tre azioni | ha: `ml/meta_trainer.py:253`; non ha: `ml/policy_trainer.py` |
+| §8bis: pesare le righe per `\|rendimento\| × unicita'` | Applicato nel meta-labeling (`sample_weight=attribution`). **Assente** nella politica | ha: `ml/meta_trainer.py:193`; non ha: `ml/policy_trainer.py` |
+| §1.4: «il tempo trascorso dall'evento precedente diventa esso stesso una feature» | Non presente: `FEATURES` si ferma a prezzi, RSI, STOCH, ATR, TSI, volume e timeframe | `ml/features.py:32` |
+| Fase 0.4: `data/microstructure.py` | Non esiste. Il gate di §0.3 («il modello di fill e' validato contro `aggTrades` reali») resta non soddisfatto: `limit_fills` e' una regola di tocco deterministica | `src/cryptofarm/data/` |
+| §4.3: «Non ora» sui modelli sequenziali | `models.py` costruisce ancora `gru`, `cnn` e `lstm` dietro `--model`; il default e' `gbdt` | `ml/models.py` |
+
+Due note che non sono divergenze ma erano riportate male altrove:
+
+- Il flag di ogni misura di `scripts/analysis.py` e' il nome in `MEASURES` con i trattini bassi
+  sostituiti da trattini (`barrier_capacity` → `--barrier-capacity`). `--capacity` non esiste.
+- `capture` e' stata esplorata fino a 0,40 (`OPERATING_CAPTURES`). L'opzione 1 di §10.4 era portarla
+  a 0,85 e **non e' mai stata misurata**: resta aperta, vedi `HANDOFF.md`.
+
+### Correzione al CPCV di §12.1 e §12.3
+
+`_cpcv` riduceva il blocco di test a `[min, max]` dei suoi `t_start` e faceva girare il backtest su
+tutto quell'intervallo. `CombinatorialPurgedCV` pero' sceglie combinazioni di gruppi che quasi mai
+sono adiacenti: su C(6,2) = 15 split solo 5 lo sono, e per gli altri 10 l'intervallo unico copriva
+anche i gruppi di training che stavano in mezzo.
+
+**I numeri CPCV di §12.1 e §12.3 sono quindi ottimistici su 10 split su 15 e vanno rimisurati.** Il
+verdetto negativo regge — una politica che perde su dati gia' visti perde anche su dati nuovi — ma i
+valori no. `_holdout` e il CPCV di `meta_trainer` non erano interessati.
+
+Corretto in `ml/policy_trainer.py` (`_test_windows`), con regressione in
+`tests/test_validation.py`. Anche il denominatore di `netto_giorno` cambia: era la distanza fra la
+prima e l'ultima riga di test, che su gruppi non adiacenti includeva il training in mezzo.
+
 ## Riproducibilità
 
 Le misure **conservate e rieseguibili** stanno in `scripts/analysis.py`, che le calcola e le mette
