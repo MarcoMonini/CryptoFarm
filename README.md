@@ -1,122 +1,75 @@
 # CryptoFarm
 
-Crypto trading simulator, live Binance trading bots, and an LSTM-based buy/sell signal
-model, built on `python-binance`, `ta`, TensorFlow/Keras and Streamlit.
+Trains a signal model on Binance market data and backtests trading strategies against it, with one
+headless bot that can trade the result live.
 
-> **Status**: v1 is the only active codebase. Simulator v2 (a more advanced multi-timeframe
-> Streamlit UI) has been archived to [`backup/v2/`](backup/v2/README.md) for reference — see
-> that folder's own README for its architecture. It is not part of the active package and is
-> excluded from linting/formatting.
+Two files matter — `trading/simulator.py` (research) and `ml/trainer.py` (training) — plus their
+dependencies. Everything not reachable from those lives in `backup/unused/`.
 
-## What's in here
+## Layout
 
-| Tool | Entry point | What it does |
-|---|---|---|
-| Backtesting / strategy simulator | `src/cryptofarm/trading/simulator.py` | Streamlit UI — downloads historical klines and backtests ~10 strategies (ATR bands, RSI/MACD limits, Supertrend, an LSTM-driven strategy, ...). Primary research tool. |
-| Live trading dashboard | `src/cryptofarm/app/dashboard_live.py` | Streamlit UI — PSAR/ATR signals on a live Binance WebSocket feed, can place real orders. |
-| Headless live bot (single account) | `src/cryptofarm/app/live_bot.py` | Console bot, same ATR/RSI signal logic, places real orders unattended. |
-| Headless live bot (dual account) | `src/cryptofarm/app/live_bot_dual.py` | Same as above, mirrors the same signal across two Binance accounts. |
-| Grid-search backtester | `src/cryptofarm/trading/grid_search.py` | Runs the strategy backtest across a cartesian product of parameters/assets to search for good settings. |
-| Grid-search results viewer | `src/cryptofarm/app/grid_results_viewer.py` | Streamlit UI — heatmaps/violin plots over a CSV export produced by the grid search. |
-| LSTM trainer | `src/cryptofarm/ml/trainer.py` | Feature engineering (RSI/ATR/Stochastic/TSI via `ta`, percentage-change encoding) and training of the bidirectional-LSTM buy/sell/hold classifier consumed by `simulator.py`'s "AI Model" strategy. |
+| What | Where |
+|---|---|
+| Backtest / strategy simulator (Streamlit) | `src/cryptofarm/trading/simulator.py` |
+| Strategies, indicators, P&L, market data, defaults | `src/cryptofarm/trading/{strategies,indicators,pnl,market_data,config}.py` |
+| Training pipeline | `src/cryptofarm/ml/` (`trainer.py`, `meta_trainer.py`, `policy_trainer.py`) |
+| Local kline store (Binance bulk dumps) | `src/cryptofarm/data/klines.py` |
+| Headless live bot (places real orders) | `src/cryptofarm/trading/live_bot.py` |
+| Measurements behind `.claude/docs/strategy.md` | `scripts/analysis.py` |
 
-There is no shared module between the simulator and the live bots yet — indicator/signal
-logic is intentionally duplicated per entry point rather than partially refactored (see
-`CLAUDE.md` for the reasoning). `src/cryptofarm/data/` is an empty placeholder package,
-reserved for a future split of the data-fetching logic out of `trading/simulator.py`.
+## Running
 
-## Project structure
-
-```
-src/cryptofarm/
-    data/          # placeholder, reserved for a future split of market-data fetching
-    trading/       # backtesting engine, strategies, grid search
-    ml/            # feature engineering + LSTM training
-    app/           # Streamlit apps and live-trading entry points
-tests/             # pytest suite
-models/            # trained .keras models (gitignored — regenerate with ml/trainer.py)
-backup/v2/         # archived Simulator v2, not active
-```
-
-## Setup
-
-Requires **Python >= 3.12**.
+Python >= 3.12. Use `.venv312/bin/python` — the older `.venv` is 3.9 and lacks `scikit-learn`.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
 pip install -e ".[dev]"
-```
 
-This installs the pinned runtime dependencies plus the dev tools (`pytest`, `ruff`,
-`black`, `pre-commit`) from `pyproject.toml`. `requirements.txt` carries the same runtime
-pins and is what the existing Render deployment installs from.
-
-Optionally enable the formatting/lint pre-commit hook:
-```bash
-pre-commit install
-```
-
-### Environment variables
-
-Copy `.env.example` to `.env` and fill in real values before running anything that places
-orders or reads account balances (`dashboard_live.py`, `live_bot.py`, `live_bot_dual.py`).
-Nothing in this repo loads `.env` automatically yet — export the variables into your shell
-(`export $(grep -v '^#' .env | xargs)`) or set them via your IDE's run configuration.
-
-The backtesting/simulation tools (`simulator.py`, `grid_search.py`) call Binance's public
-market-data endpoints directly and don't need real credentials to run.
-
-| Variable | Used by | Notes |
-|---|---|---|
-| `API_KEY`, `API_SECRET` | `dashboard_live.py`, `live_bot.py` | Binance API credentials, single account. |
-| `API_KEY1`, `API_SECRET1`, `API_KEY2`, `API_SECRET2` | `live_bot_dual.py` | Two Binance accounts traded in parallel with the same signal. |
-| `ASSET`, `CURRENCY`, `CANDLES_TIME` | `live_bot.py`, `live_bot_dual.py` | e.g. `AMP`, `USDT`, `15m`. |
-| `SMA_WINDOW`, `ATR_WINDOW`, `ATR_MULTIPLIER`, `RSI_WINDOW`, `RSI_BUY_LIMIT`, `RSI_SELL_LIMIT`, `NUM_CONDITIONS` | `live_bot.py`, `live_bot_dual.py` | Strategy parameters — see `.env.example` for working defaults. |
-
-No credential has ever been hardcoded in this repository or its git history (verified
-across the full commit history, not just the current tree).
-
-## Running the apps
-
-```bash
-# Backtesting / strategy simulator (primary research tool)
+# Backtest / strategy simulator
 streamlit run src/cryptofarm/trading/simulator.py
 
-# Live trading dashboard
-streamlit run src/cryptofarm/app/dashboard_live.py
+# Kline store first, then train
+.venv312/bin/python -m cryptofarm.data.klines --update
+.venv312/bin/python -m cryptofarm.ml.trainer                # gbdt by default
+.venv312/bin/python -m cryptofarm.ml.meta_trainer
+.venv312/bin/python -m cryptofarm.ml.policy_trainer
 
-# Grid-search results viewer (edit the hardcoded CSV path at the top of the file first)
-streamlit run src/cryptofarm/app/grid_results_viewer.py
+# Measurements
+.venv312/bin/python -m scripts.analysis
 
-# Headless live bot(s) — place real orders, require the env vars above
-python src/cryptofarm/app/live_bot.py
-python src/cryptofarm/app/live_bot_dual.py
-
-# Grid-search over strategy parameters (edited directly in the
-# if __name__ == "__main__": block)
-python src/cryptofarm/trading/grid_search.py
-
-# Train/retrain the LSTM model (CSV input path is hardcoded in the
-# if __name__ == "__main__": block — edit it first)
-python src/cryptofarm/ml/trainer.py
+# Live bot — places real orders, needs env vars
+.venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-## Tests
+Tests: `.venv312/bin/python -m pytest` (185 tests). Lint/format: `ruff check src tests`,
+`black src tests`.
 
-```bash
-pytest
-```
+## Which model the simulator uses
 
-3 tests cover the technical-indicator feature pipeline in `cryptofarm.ml.trainer`
-(`add_technical_indicator`, `calculate_relative_extrema`, `calculate_percentage_changes`)
-against synthetic OHLC data — no network calls.
+`ml/trainer.MODEL_PRECEDENCE` is `("policy_model", "meta_model", "signal_model")`. Whichever exists
+in `models/` first wins, for both loading and strategy dispatch. To fall back to the previous model,
+move the newer artifact out of `models/`.
 
-## Linting & formatting
+## Configuration
 
-```bash
-black src tests
-ruff check src tests
-```
+Environment variables only — see `.env.example`. Nothing loads `.env` automatically.
+`API_KEY`/`API_SECRET` and the strategy parameters are read by `live_bot.py`; `MARKET_DATA_CSV`
+points the Streamlit page at a historical CSV. The simulator and the trainers use Binance's public
+endpoints and need no credentials.
 
-`backup/v2/` is excluded from both — it's frozen legacy code, not touched.
+## Known issue
+
+`add_technical_indicator` no longer emits the `MACD` and `PSAR` columns (both computations are
+commented out), but three strategies still read them: `buy_sell_limits_simulation` raises `KeyError`
+immediately, while `atr_buy_sell_simulation` and `close_atr_buy_sell_simulation` raise only once
+their stop-loss branch is reached. All three are selectable in the UI. This predates the 2026-08
+reorganisation and is recorded as-is by the golden-master test rather than silently patched.
+
+## Notes for contributors
+
+`tests/test_simulator_golden.py` pins the simulator's behaviour against
+`tests/data/simulator_golden.json`. It must pass before and after any change to `trading/`, without
+being regenerated. Regenerating accepts any behaviour change, so do it only deliberately.
+
+Row-wise reads in `trading/` go through numpy arrays hoisted out of the loop, not
+`df["Col"].iloc[i]`; that is where the simulator's speed comes from (4295 ms → 125 ms). Keep the
+style.
