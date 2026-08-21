@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from ta.momentum import KAMAIndicator, RSIIndicator, StochasticOscillator, TSIIndicator
-from ta.trend import EMAIndicator
+from ta.trend import EMAIndicator, PSARIndicator
 from ta.volatility import AverageTrueRange
 
 
@@ -32,16 +32,15 @@ def add_technical_indicator(
     kama_pow2=30,
 ):
     df_copy = df.copy()
-    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator)
-    # sar_indicator = PSARIndicator(
-    #     high=df_copy['High'],
-    #     low=df_copy['Low'],
-    #     close=df_copy['Close'],
-    #     step=step,
-    #     max_step=max_step
-    # )
-    # df_copy['PSAR'] = sar_indicator.psar()
-    # df_copy['PSARVP'] = df_copy['PSAR'] / df_copy['Close']
+    # Calcolo del SAR utilizzando la libreria "ta" (PSARIndicator).
+    # Era commentato, ma `atr_buy_sell_simulation` e `close_atr_buy_sell_simulation` leggono
+    # `PSAR` per la loro condizione di stop-loss: senza questa colonna sollevavano `KeyError`
+    # non appena quel ramo veniva raggiunto, e "Close ATR" era una voce di menu che si rompeva.
+    sar_indicator = PSARIndicator(
+        high=df_copy["High"], low=df_copy["Low"], close=df_copy["Close"], step=step, max_step=max_step
+    )
+    df_copy["PSAR"] = sar_indicator.psar()
+    df_copy["PSARVP"] = df_copy["PSAR"] / df_copy["Close"]
 
     # Calcolo dell'RSI
     rsi_indicator = RSIIndicator(close=df_copy["Close"], window=rsi_window)
@@ -94,8 +93,10 @@ def add_technical_indicator(
     # df_copy['Lower_Band'] = df_copy['EMA20'] - atr_multiplier * df_copy['ATR']
     df_copy["Upper_Band"] = df_copy["KAMA"] + atr_multiplier * df_copy["ATR"]
     df_copy["Lower_Band"] = df_copy["KAMA"] - atr_multiplier * df_copy["ATR"]
-    df_copy["Upper_Band"][:atr_window] = None
-    df_copy["Lower_Band"][:atr_window] = None
+    # `df["col"][:n] = None` e' un assegnamento concatenato: con il Copy-on-Write di pandas 3.0
+    # scriverebbe su una copia intermedia e le prime barre resterebbero valorizzate, in silenzio.
+    df_copy.iloc[:atr_window, df_copy.columns.get_loc("Upper_Band")] = None
+    df_copy.iloc[:atr_window, df_copy.columns.get_loc("Lower_Band")] = None
 
     # STOCASTICO
     stoch_indicator = StochasticOscillator(

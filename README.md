@@ -58,11 +58,13 @@ endpoints and need no credentials.
 
 ## Known issue
 
-`add_technical_indicator` no longer emits the `MACD` and `PSAR` columns (both computations are
-commented out), but three strategies still read them: `buy_sell_limits_simulation` raises `KeyError`
-immediately, while `atr_buy_sell_simulation` and `close_atr_buy_sell_simulation` raise only once
-their stop-loss branch is reached. All three are selectable in the UI. This predates the 2026-08
-reorganisation and is recorded as-is by the golden-master test rather than silently patched.
+`add_technical_indicator` still has its `MACD` block commented out, and `buy_sell_limits_simulation`
+reads that column, so it raises `KeyError` when called. No menu entry reaches it — the dispatch binds
+it to `"Buy/Sell Limits"`, which is not in `config.STRATEGIES`, as with `"ATR Bands"` and the
+`"Dinamic *"` variants. Making it usable means restoring the `MACD` block *and* adding the menu entry.
+
+`PSAR` was in the same state and has been restored: `"Close ATR"` and the `"ATR Live Trade"`
+stop-loss no longer raise.
 
 ## Notes for contributors
 

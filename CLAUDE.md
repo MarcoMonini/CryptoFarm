@@ -85,19 +85,16 @@ ri-esportazione**: chi serve una strategia la importa dal modulo che la contiene
   **Se si cambia, va riverificato contro `ta`**: è ciò che rende `simulate_candles` 40 volte più
   veloce, e una divergenza silenziosa qui sposta ogni segnale.
 
-### Difetto noto: `MACD` e `PSAR`
+### `MACD`: un ramo di dispatch irraggiungibile
 
-`add_technical_indicator` non produce più le colonne `MACD` e `PSAR` (i calcoli sono commentati nel
-sorgente), ma tre strategie le leggono ancora:
+`add_technical_indicator` calcola di nuovo `PSAR` (era commentato: le strategie "Close ATR" e
+"ATR Live Trade" si rompevano con `KeyError`). Resta commentato il solo `MACD`, letto da
+`buy_sell_limits_simulation`, che quindi solleva `KeyError` appena chiamata.
 
-- `buy_sell_limits_simulation` legge `MACD` a ogni giro → solleva `KeyError` appena chiamata.
-- `atr_buy_sell_simulation` e `close_atr_buy_sell_simulation` leggono `PSAR` dietro un corto
-  circuito → producono segnali finché quel ramo non viene raggiunto, poi sollevano.
-
-Tutte e tre sono selezionabili dalla pagina. **È un difetto che precede la riorganizzazione del
-2026-08 e non è stato aggiustato di nascosto**: il golden master lo registra così com'è. Sistemarlo
-vuol dire decidere se ripristinare i due indicatori o togliere le strategie, ed è una scelta di
-prodotto, non di refactoring.
+**Nessuna voce del menu la raggiunge**: `trading_analysis` la lega alla stringa `"Buy/Sell Limits"`,
+che non è in `config.STRATEGIES`. Lo stesso vale per `"ATR Bands"` e per le varianti `"Dinamic *"`.
+Sono rami morti; la funzione resta perché il codice attorno la documenta, ma per renderla usabile
+servirebbe ripristinare il blocco `MACD` **e** aggiungere la voce al menu.
 
 ### Il golden master
 
