@@ -1,6 +1,6 @@
 # Handoff — CryptoFarm, strategia a 3 stati (BUY/SELL/HOLD)
 
-Data: 2026-08-20. Branch: **`ai-labeling-rewrite`** (15 commit avanti su `main`, mai fatto merge).
+Data: 2026-08-21. Branch: **`ai-labeling-rewrite`** (34 commit avanti su `main`, mai fatto merge).
 Repo: `/Users/marcomonini/PycharmProjects/CryptoFarm`.
 
 ## Non duplicare: leggi prima questi
@@ -70,6 +70,12 @@ riempimento maker** (Fase 0.3), senza il quale nessun numero in modalita' maker 
 | `ml/dagger.py` | rollout con episodi batchati che non attraversano i confini fra simboli |
 | `ml/policy_trainer.py` | dataset, DAgger, CPCV, holdout, attribuzione ingresso/uscita |
 | `scripts/analysis.py` | `pivot_delays`, `pivot_labels`, `operating_points`, `confirmation_tax` |
+| `ml/signals.py` + `trading/simulator.py` | `policy_signals`: la politica gira nel simulatore (commit `bacd384`). `load_signal_model` prova `policy_model` per primo, poi `meta_model`, poi `signal_model` |
+
+`models/policy_model.*` e' una copia di `policy_alta.*`: e' quello che il simulatore carica.
+Spostarlo altrove fa tornare in uso `meta_model`. Attenzione a due cose leggendo il grafico: il
+simulatore applica **0,1% per lato** contro lo 0,08% andata-e-ritorno maker assunto in §12, e il
+modello e' addestrato su **5m** mentre il simulatore gira anche su 15m.
 
 `models/policy_alta.*` e `policy_bassa.*` sono i due modelli addestrati, con i rapporti JSON
 completi (CPCV per split, sweep della soglia, attribuzione). Non sono tracciati.
