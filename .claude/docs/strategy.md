@@ -1,0 +1,1541 @@
+# Strategia di training — analisi e decisioni
+
+Documento di riferimento per le fasi di sviluppo successive. Contiene l'analisi, le scelte
+motivate e i trade-off espliciti.
+
+Ogni numero qui riportato è misurato sui dati effettivamente presenti nel progetto, non stimato.
+Gli script di misura stanno nella scratchpad di sessione; i comandi per riprodurli sono indicati
+dove serve.
+
+---
+
+### Revisione 4 — la politica a tre azioni, e perché non poteva funzionare
+
+Aggiunte **§11** (costruzione della politica condizionata sullo stato), **§12** (risultati, negativi)
+e **§13** (la causa).
+
+Il risultato: 0 split in utile su 15 in entrambe le bande, edge lordo sotto il costo **anche
+in-sample**. La causa non e' il modello: entrare alla conferma di un minimo e uscire alla conferma
+di un massimo cattura **zero in media** su tutti e 15 i simboli, a ogni soglia, prima dei costi,
+perche' la conferma si paga due volte e la gamba mediana vale 1,76–2,05 soglie (§13).
+
+§12.4 e' stata scritta due volte: la prima lettura dell'attribuzione dava gli ingressi come
+informativi (+0,204% sopra il caso), ma valeva solo con un'uscita che richiede di conoscere
+l'estremo. Con un'uscita eseguibile il vantaggio e' −0,004%. La colonna causale era stata aggiunta
+apposta prima di concludere.
+
+Resta un'unica direzione, in §13.4: prevedere alla conferma se **quella** gamba superera'
+`2 x soglia + costo`. E' l'unica formulazione in cui il vincolo economico sta dentro il target.
+
+---
+
+### Revisione 3 — il gate del directional change
+
+Aggiunta **§10** con le misure sui 15 simboli richieste come gate prima delle feature di posizione.
+Tre delle quattro attese poste nel prompt della strategia a 3 stati **non sono confermate**: il
+catturabile alla conferma è 43% e non 60% (ed è forzato dalla geometria, non tarabile), l'etichetta
+morbida al 60% produce il 70% di positivi e non il 10–15%, e la soglia va tarata per simbolo su un
+intervallo di 2,5×. Confermata solo la gamba mediana di ≈0,95% a soglia 0,5%. §10.5 documenta un
+artefatto dei dati (il wick ATOM a 0,001 del 2025-10-10) che invalida ogni statistica pesata sui
+rendimenti finché non c'è un filtro sui wick.
+
+Nulla del documento precedente è stato riscritto: §10 è additiva.
+
+---
+
+### Revisione 2 — cosa è cambiato e perché
+
+**Target operativo aggiornato: ~4 trade/giorno/simbolo** (≈60/giorno su 15 simboli). È un vincolo
+di progetto: barriere e campionamento si scelgono per rispettarlo.
+
+Correzioni apportate, in ordine di gravità:
+
+| # | cosa | perché |
+|---|---|---|
+| 1 | **§1.3 era distorta.** Il tempo mediano al target era calcolato con `np.nanmedian` sui soli casi che il target lo raggiungevano entro 24h — quindi condizionato al successo, e sottostimato del 25–110%. Ricalcolato con i censurati trattati esplicitamente (§1.3) | sovrastimava la capacità di frequenza |
+| 2 | **§2.2 usava una formula di break-even incompleta**, che assume chiusura sempre su una barriera di prezzo. Sostituita con l'expectancy misurata sulla distribuzione completa degli esiti, timeout inclusi al loro rendimento reale (§2.2) | il timeout esiste e non è a rendimento nullo |
+| 3 | **Il "base rate teorico 33,3%" era teorico.** Sostituito dal base rate **misurato**: 32,1–32,6% (§2.2) | il mercato reale non è una random walk, e la differenza va nella direzione sfavorevole |
+| 4 | **Aggiunta §1.5, la tabella di capacità**, con `t_exit` misurato per configurazione di barriere e confronto esplicito con una random walk driftless | è la tabella che vincola tutto il resto |
+| 5 | **§1.4 misurava il CUSUM solo su BTC.** Esteso a tutti i 15 simboli, con la soglia per simbolo (§1.4) | serviva per verificare la selettività implicata |
+| 6 | **Riformulata la conclusione sulla frequenza** (sintesi esecutiva): non è un limite fisico del mercato, è un limite della commissione | la formulazione precedente era fuorviante |
+| 7 | Aggiunte **Parte B** (dove serve il reinforcement learning) e **Parte C** (pattern strutturali), e §6 riscritta come **piano a fasi con gate espliciti** | richiesti dalla revisione |
+
+**Cosa resta valido e non è stato toccato:** l'impianto metodologico (triple-barrier, CPCV con
+purging ed embargo, meta-labeling, vincolo economico come criterio primario), l'analisi dei dati
+di §1.1–1.2, il set di feature di §3, la scelta del modello di §4 e la struttura di validazione
+di §5.
+
+---
+
+## Sintesi esecutiva
+
+Tre conclusioni, in ordine di importanza.
+
+**1. La modalità di esecuzione domina ogni altra scelta.** Con barriera 2:1 e stop allo 0,60%,
+la precision di break-even misurata sulla distribuzione completa degli esiti è **44,4%** con
+commissioni taker e **35,4%** con commissioni maker, contro un win rate di base **misurato** del
+**32,3%**. Il modello deve quindi battere il caso di **12,1 punti** con ordini a mercato e di
+**3,1 punti** con ordini limite. Alle barriere strette richieste dal target di frequenza il
+divario taker sale a 23,2 punti. Nessun lavoro su feature o architettura sposta questo rapporto.
+
+**2. Il target di 4 trade/giorno/simbolo è raggiungibile, e il limite non è la velocità del
+mercato ma la commissione.** Misurando il tempo di uscita reale del triple-barrier (non il tempo
+al target, che è un'altra cosa): con barriere 0,60%/0,30% l'holding medio è 1,07 ore, il tetto è
+22,3 trade/giorno e per farne 4 basta stare in mercato il **18%** del tempo. Anche a 1,20%/0,60%
+il tetto resta 6,9/giorno. **Movimenti sfruttabili in 1–3 ore esistono in abbondanza: ciò che
+manca è il margine per pagarli.** A 0,60%/0,30% il divario da colmare è di 23,2 punti percentuali
+in modalità taker e di 5,0 punti in modalità maker.
+
+Ne segue la conclusione operativa centrale: **la frequenza richiesta e l'esecuzione con ordini
+limite sono lo stesso vincolo.** Quattro trade al giorno per simbolo con ordini a mercato non è un
+obiettivo ambizioso, è aritmeticamente fuori portata. Con ordini limite è alla portata di un
+modello che batta il caso di 3–5 punti.
+
+**3. Il collo di bottiglia attuale non è il modello.** Un LSTM da 747k parametri e un gradient
+boosting hanno prodotto lo stesso risultato sulle stesse etichette (macro F1 0,092 contro 0,111,
+in 25 minuti contro 3,9 secondi). L'ultimo modello addestrato ha AUC 0,54 ed edge lordo +0,017%
+per operazione. Le leve che restano sono, in ordine: esecuzione maker, campionamento a eventi,
+dati di microstruttura. Il tuning architetturale è l'ultima, non la prima.
+
+**Conseguenza sulla priorità: il modello di riempimento degli ordini limite sale a priorità 1,
+insieme alla validazione.** Non è un dettaglio di simulazione: tutta la strategia vive in modalità
+maker, quindi senza un modello di fill credibile *nessun numero della strategia è verificabile*.
+
+---
+
+## 1. Verifica di idoneità dei dati
+
+### 1.1 Cosa c'è
+
+Store locale in `market_data/`, popolato da `python -m cryptofarm.data.klines --update`:
+
+| | |
+|---|---|
+| Simboli | 15 (BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, DOT, LTC, TRX, ATOM, NEAR, UNI, tutti USDT) |
+| Granularità archiviata | 5m — 15m/30m/1h derivati per aggregazione esatta |
+| Candele | 11.770.246 |
+| Dimensione | 298 MB (parquet) |
+| Copertura | BTC/ETH dal 2017-08; il più recente (AVAX/UNI) dal 2020-09 |
+| Campi | Open, High, Low, Close, Volume |
+
+Aggiornamento incrementale in secondi; il download completo richiede minuti (dump CDN paralleli).
+
+### 1.2 Copertura dei regimi — **adeguata**
+
+BTC, rendimento su finestra mobile di 30 giorni, soglia ±10% (quota di giorni per anno):
+
+| anno | bear | sideways | bull |
+|---|---|---|---|
+| 2017 | 5% | 18% | 78% |
+| 2018 | **48%** | 39% | 13% |
+| 2019 | 22% | 40% | 39% |
+| 2020 | 13% | 33% | 55% |
+| 2021 | 25% | 29% | 46% |
+| 2022 | **44%** | 45% | 11% |
+| 2023 | 10% | 48% | 43% |
+| 2024 | 8% | 56% | 36% |
+| 2025 | 17% | **67%** | 16% |
+| 2026 | 27% | 61% | 12% |
+
+**Complessivo su 9,0 anni: sideways 45%, bull 32%, bear 23%.**
+
+I tre regimi sono tutti rappresentati, e — cosa più importante per la validazione — sono
+*concentrati in periodi distinti*. 2018 e 2022 sono anni prevalentemente ribassisti, 2017 e 2020–21
+prevalentemente rialzisti, 2024–26 prevalentemente laterali. Questo consente una CPCV in cui ogni
+combinazione di fold vede una miscela di regimi diversa: è esattamente la condizione che rende la
+distribuzione degli Sharpe out-of-sample informativa invece che un artefatto di un singolo ciclo.
+
+Il rovescio della medaglia: **la validation attualmente in uso (dal 2024-12-31) cade in un periodo
+per il 61–67% laterale.** Un modello valutato solo lì è valutato su un regime solo. È una ragione
+ulteriore, indipendente dal leakage, per abbandonare lo split singolo.
+
+### 1.3 Tempo al target — **misura corretta**
+
+> **Correzione.** La versione precedente di questa tabella calcolava la mediana con
+> `np.nanmedian` sui soli casi che il target lo raggiungevano entro 24 ore, lasciando gli altri a
+> `NaN`. Era quindi una **mediana condizionata al successo**, sottostimata, che sovrastimava la
+> capacità di frequenza. Sotto ci sono entrambe le versioni, per rendere visibile l'entità
+> dell'errore.
+
+Misura su 5 simboli (BTC, ETH, SOL, XRP, LINK), 5m dal 2022-01-01. La mediana reale usa
+Kaplan-Meier con i casi non raggiunti trattati come censurati.
+
+| target | P(raggiunto entro 24h) | mediana condizionata (h) | **mediana reale (h)** | errore |
+|---|---|---|---|---|
+| 0,30% | 90,6% | 0,67 | **0,83** | +24% |
+| 0,40% | 87,5% | 1,08 | **1,42** | +31% |
+| 0,60% | 81,5% | 1,92 | **3,00** | +56% |
+| 1,00% | 70,1% | 3,67 | **7,75** | +111% |
+
+L'errore cresce con l'ampiezza del target, perché cresce la quota di casi censurati. Nessuna
+mediana risulta però censurata via del tutto: anche all'1% il 70,1% dei casi raggiunge il target
+entro 24 ore, quindi la mediana esiste ed è finita.
+
+**Ma questa non è la tabella giusta per calcolare la capacità in trade/giorno.** Il tempo al
+target non è il tempo di detenzione: con barriere 2:1 la maggior parte dei trade chiude sullo
+stop, che è più vicino e quindi più veloce. La misura corretta è §1.5.
+
+### 1.4 Barre a eventi: dollar bar e CUSUM — **entrambe fattibili, CUSUM preferibile**
+
+Le time-bar fisse attualmente usate campionano il mercato a intervalli regolari, mentre
+l'informazione arriva a raffiche. Su un mercato 24/7 questo significa che gran parte delle barre
+notturne è rumore e le barre nei momenti di attività aggregano troppo.
+
+**Dollar bar** — fattibili con i dati presenti (`Close × Volume` è già in archivio):
+
+| soglia per barra (BTC) | barre/giorno |
+|---|---|
+| $214,2 M | ~10 |
+| $42,8 M | ~50 |
+| $21,4 M | ~100 |
+| $7,1 M | ~300 |
+
+Volume in dollari medio giornaliero di BTC: $2,14 miliardi. La soglia va calibrata **per simbolo**
+(un valore unico produrrebbe 100 barre/giorno su BTC e 2 su NEAR) e **riadattata nel tempo** (il
+volume in dollari di BTC è cresciuto di ordini di grandezza dal 2017: una soglia fissa produce
+poche barre nei primi anni e moltissime negli ultimi, distorcendo la densità del dataset per
+epoca). Meglio una soglia mobile ancorata a una mediana su finestra lunga.
+
+**Filtro CUSUM** — fattibile e, a mio avviso, la scelta migliore. Misurato su **tutti i 15
+simboli**, 5m dal 2022 (σ = deviazione standard dei log-return su finestra di 24 ore, stimata per
+simbolo):
+
+| simbolo | σ 5m | eventi/gg a 3σ | eventi/gg a 5σ |
+|---|---|---|---|
+| BTCUSDT | 0,128% | 30,3 | 14,8 |
+| ETHUSDT | 0,169% | 30,2 | 14,9 |
+| BNBUSDT | 0,144% | 32,0 | 15,8 |
+| SOLUSDT | 0,238% | 33,0 | 16,2 |
+| XRPUSDT | 0,186% | 33,3 | 16,6 |
+| ADAUSDT | 0,218% | 33,2 | 16,2 |
+| DOGEUSDT | 0,223% | 32,4 | 16,1 |
+| AVAXUSDT | 0,240% | 32,7 | 16,1 |
+| LINKUSDT | 0,232% | 32,9 | 15,8 |
+| DOTUSDT | 0,220% | 32,1 | 15,6 |
+| LTCUSDT | 0,194% | 32,2 | 15,7 |
+| TRXUSDT | 0,093% | 35,3 | 18,6 |
+| ATOMUSDT | 0,215% | 34,7 | 16,9 |
+| NEARUSDT | 0,280% | 33,2 | 16,9 |
+| UNIUSDT | 0,251% | 32,2 | 15,4 |
+
+**Il risultato più utile è l'uniformità: a 3σ tutti e 15 i simboli producono 30–35 eventi/giorno**,
+nonostante σ vari di un fattore 3 fra TRX (0,093%) e NEAR (0,280%). È esattamente ciò che ci si
+aspetta da una soglia normalizzata sulla volatilità, e significa che **non serve calibrazione per
+simbolo**: k = 3,0 va bene per undici simboli, k = 3,5 porta gli altri quattro (XRP, ADA, TRX,
+ATOM, NEAR) nella stessa fascia 27–29/giorno.
+
+**Selettività implicata.** Con ~30 eventi/giorno e un target di 4 trade/giorno/simbolo, il
+meta-modello deve accettare il **13,3% degli eventi** — una selezione da decile superiore, che è
+un punto di lavoro ragionevole per un classificatore calibrato e coerente con la §5.2 di
+`evaluate.py` (lo sweep per quantili è già costruito per esprimere esattamente questa scelta).
+
+Il CUSUM è preferibile ai dollar bar per tre ragioni: si auto-normalizza sulla volatilità (quindi
+è già confrontabile tra simboli ed epoche, senza calibrazione per simbolo); campiona *quando è
+successo qualcosa di dimensione rilevante*, che è esattamente la condizione in cui un ingresso ha
+senso; e la soglia si mappa direttamente sul vincolo economico — a 5×σ si generano ~14,7
+eventi/giorno su BTC con un movimento accumulato dello 0,6%, cioè 3× la fee round-trip taker.
+
+**Trade-off da mettere in conto:** con il CUSUM il dataset non è più una serie regolare. Le feature
+a ritardo fisso in barre (`RET_1`, `RET_5`, … in `dataset.py`) cambiano significato, perché la
+distanza temporale fra due eventi consecutivi è variabile. Vanno affiancate da feature calcolate su
+finestre *temporali* fisse, e il tempo trascorso dall'evento precedente diventa esso stesso una
+feature (è informativo: eventi ravvicinati segnalano un regime attivo).
+
+### 1.5 Capacità: holding time reale e tetto di trade/giorno — **la tabella che vincola tutto**
+
+Misura del triple-barrier first-touch sui dati reali (5 simboli, 5m dal 2022): per ogni
+configurazione, la distribuzione degli esiti e il tempo di uscita effettivo `t_exit`.
+
+| TP / SL | orizzonte | P(TP) | P(SL) | P(timeout) | E[r &#124; timeout] | holding medio | tetto trade/gg | in mercato per 4/gg |
+|---|---|---|---|---|---|---|---|---|
+| 0,60% / 0,30% | 8h | 31,9% | 66,1% | 2,0% | +0,111% | **1,07 h** | **22,3** | **18%** |
+| 0,80% / 0,40% | 8h | 30,8% | 64,8% | 4,4% | +0,144% | 1,62 h | 14,8 | 27% |
+| 1,00% / 0,50% | 12h | 30,8% | 65,1% | 4,1% | +0,179% | 2,40 h | 10,0 | 40% |
+| 1,20% / 0,60% | 24h | 31,6% | 66,3% | 2,0% | +0,214% | 3,50 h | 6,9 | 58% |
+
+**Tutte e quattro le configurazioni sostengono 4 trade/giorno/simbolo**, con un tempo in mercato
+fra il 18% e il 58%. Il vincolo di frequenza da solo non esclude nessuna barriera fino all'1,2%.
+
+#### Confronto con una random walk driftless
+
+La tabella di riferimento fornita nella revisione veniva da una simulazione first-touch su random
+walk con σ(5m) = 0,121%. Il confronto con la misura reale:
+
+| TP / SL | orizzonte | holding random walk | holding reale | rapporto | P(TP) random walk | P(TP) reale |
+|---|---|---|---|---|---|---|
+| 0,60% / 0,30% | 8h | 1,43 h | 1,07 h | **0,75×** | 35,5% | **31,9%** |
+| 0,80% / 0,40% | 8h | 2,29 h | 1,62 h | **0,71×** | 33,9% | **30,8%** |
+| 1,00% / 0,50% | 12h | 3,40 h | 2,40 h | **0,70×** | 33,9% | **30,8%** |
+| 1,20% / 0,60% | 24h | 4,85 h | 3,50 h | **0,72×** | 34,6% | **31,6%** |
+
+**I miei numeri differiscono da quelli di riferimento in modo sistematico e nella stessa direzione,
+e la spiegazione è una sola.** Il mercato reale tocca le barriere circa il **30% più in fretta**
+della random walk e centra il take-profit circa **3 punti meno spesso**. Entrambe le deviazioni
+sono la firma delle code grasse e del clustering di volatilità: i rendimenti a 5m non sono
+gaussiani, quindi movimenti abbastanza grandi da toccare una barriera arrivano prima di quanto la
+gaussiana preveda, e la barriera più vicina — lo stop, a metà distanza — ne beneficia in modo
+sproporzionato.
+
+Ne segue una lettura precisa: **la capacità è migliore di quanto la random walk suggerisca, e
+l'economia è peggiore.** Sono due conseguenze dello stesso fenomeno. La differenza sul tetto di
+trade/giorno (22,3 contro 17,8 nel riferimento) è a favore; quella sul P(TP) (31,9% contro 35,5%)
+è a sfavore, e pesa di più perché entra direttamente nel break-even.
+
+Un secondo motivo di differenza, minore: σ = 0,121% è la mediana di BTC, mentre la misura reale
+mescola cinque simboli fra cui alcune alt con σ fino al doppio. Ripetendo su BTC solo, il rapporto
+di holding sale a ~0,85×, quindi circa metà dello scarto viene dalle code e metà dalla
+composizione del campione.
+
+#### Posizioni concorrenti a portafoglio
+
+Con 4 trade/giorno/simbolo su 15 simboli, ingressi simulati come processo di Poisson e holding
+dalla tabella sopra:
+
+| TP / SL | posizioni medie | picco mediano | picco 99° percentile |
+|---|---|---|---|
+| 0,60% / 0,30% | 2,7 | 13 | **15** |
+| 0,80% / 0,40% | 4,0 | 16 | **19** |
+| 1,00% / 0,50% | 6,0 | 20 | **23** |
+| 1,20% / 0,60% | 8,8 | 25 | **28** |
+
+**Il picco è 4–5 volte la media.** Dimensionare il capitale sulla media significa non poter aprire
+metà delle posizioni proprio nei momenti in cui il modello vede più occasioni. E il numero reale è
+peggiore di così: la simulazione assume arrivi indipendenti fra simboli, mentre le criptovalute
+sono fortemente correlate e i segnali arrivano in raffiche sincronizzate. **Il picco misurato qui è
+un limite inferiore.**
+
+### 1.6 Dati mancanti
+
+**L'order book non è presente e non è archiviato.** Verificato su `data.binance.vision`:
+
+| fonte | disponibile | note |
+|---|---|---|
+| spot `aggTrades` | **sì** | ~409 MB/mese per BTC |
+| spot `trades` | **sì** | ~696 MB/mese per BTC |
+| futures `bookDepth` | **sì** | snapshot di profondità, solo futures |
+| futures `metrics` (open interest) | **sì** | piccolo |
+| futures `fundingRate` | **sì** | piccolo |
+| spot `bookTicker` | no | 404 sul percorso mensile spot |
+
+`aggTrades` è la fonte realistica di microstruttura: contiene il flag "buyer is maker", da cui si
+ricavano volume delta, trade flow imbalance, dimensione media degli ordini e VPIN. **Non va
+archiviato in forma grezza** — 409 MB/mese × ~100 mesi × 15 simboli sono centinaia di gigabyte. Va
+processato in streaming file per file, riducendolo ad aggregati per barra da 5m, e conservato solo
+il derivato (poche decine di MB per simbolo).
+
+`fundingRate` e `metrics` (open interest) sono piccoli e vale la pena scaricarli comunque: sono
+feature di regime a costo quasi nullo. Sono dati futures, non spot, ma questo non è un problema —
+si usano come contesto di mercato, non come strumento operativo.
+
+---
+
+## 2. Metodo di labeling
+
+### 2.1 Triple-Barrier — **già implementato, da estendere**
+
+Presente in `src/cryptofarm/ml/labeling.py` (`triple_barrier_labels`), con barriere già
+parametrizzate su ATR e con pavimento legato alle fee (`barrier_widths`). Le costanti attuali:
+
+```
+TP_ATR_MULTIPLE   = 1.5      SL_ATR_MULTIPLE = 1.0
+HORIZON_BARS      = 96       ROUND_TRIP_FEE  = 0.002
+FEE_FLOOR_MULTIPLE = 3.0
+```
+
+Le proprietà già acquisite e da mantenere: etichetta definita su ogni candela, look-ahead che parte
+da t+1 (mai la barra di ingresso), risoluzione pessimistica quando entrambe le barriere risultano
+toccate nella stessa barra, coda non osservabile lasciata a HOLD.
+
+**Modifiche da apportare:**
+
+1. **Ripristinare `TP_ATR_MULTIPLE = 2.0`.** Il valore corrente 1.5 è stato messo in un'ultima
+   iterazione e ha peggiorato il risultato: l'unica configurazione con edge lordo positivo e volume
+   di operazioni decente misurata è tp/sl = 2:1 su 15m/30m/1h (+0,056% lordo su 1.066 operazioni).
+2. **Barriere verticali in tempo, non in barre.** Con barre a eventi (CUSUM) `HORIZON_BARS`
+   perde significato. Va sostituito da un orizzonte espresso in ore.
+3. **Pavimento parametrico per regime di esecuzione.** `FEE_FLOOR_MULTIPLE = 3.0` con
+   `ROUND_TRIP_FEE = 0.002` fissa un pavimento allo 0,6%, che su 5m morde l'84% delle volte —
+   di fatto disattivando lo scaling su ATR. In modalità maker il pavimento scende a 0,12% e lo
+   scaling torna attivo. Il regime di esecuzione va quindi reso un parametro esplicito della
+   configurazione, non una costante.
+
+### 2.2 Il vincolo economico — **expectancy misurata, non formula analitica**
+
+> **Correzione.** La versione precedente usava `p* = (sl + f) / ((tp − f) + (sl + f))`, che
+> assume che ogni trade chiuda su una barriera di prezzo. Non è vero: le uscite sulla barriera
+> temporale chiudono a mercato, con un rendimento qualunque fra −sl e +tp. Inoltre il base rate
+> usato (33,3%) era il valore teorico da random walk, non quello misurato.
+
+La forma corretta include i timeout al loro rendimento reale:
+
+```
+E[netto] = P(TP)·(tp − f) + P(SL)·(−sl − f) + P(timeout)·(E[r | timeout] − f)
+```
+
+Il **win rate** è definito come la quota di trade risolti su barriera di prezzo che chiudono in
+take-profit, `P(TP) / (P(TP) + P(SL))`. Il break-even è il valore di quel win rate che annulla
+`E[netto]`, tenendo fissi `P(timeout)` e `E[r | timeout]` misurati.
+
+Con i valori di §1.5 (5 simboli, 5m dal 2022):
+
+| TP / SL | WR misurato | taker 0,20% | BNB 0,15% | maker 0,04% |
+|---|---|---|---|---|
+| 0,60% / 0,30% | 32,6% | be 55,8% (**+23,2 pt**) · E −0,204% | be 50,1% (+17,5 pt) · E −0,154% | be 37,6% (**+5,0 pt**) · E −0,044% |
+| 0,80% / 0,40% | 32,2% | be 50,2% (+18,0 pt) · E −0,207% | be 45,9% (+13,7 pt) · E −0,157% | be 36,3% (**+4,1 pt**) · E −0,047% |
+| 1,00% / 0,50% | 32,1% | be 46,7% (+14,6 pt) · E −0,211% | be 43,3% (+11,2 pt) · E −0,161% | be 35,6% (**+3,5 pt**) · E −0,051% |
+| 1,20% / 0,60% | 32,3% | be 44,4% (+12,1 pt) · E −0,214% | be 41,6% (+9,3 pt) · E −0,164% | be 35,4% (**+3,1 pt**) · E −0,054% |
+
+`E` è l'expectancy netta per operazione **senza alcuna capacità predittiva** — cioè entrando a
+caso. È il punto di partenza che il modello deve ribaltare.
+
+**Tre osservazioni, in ordine di importanza:**
+
+1. **Il divario in modalità maker è di 3,1–5,0 punti, non di 0,8–2,0.** La tabella di riferimento
+   fornita nella revisione era ottimista, per due ragioni sommate: usava il base rate teorico
+   (33,3%) invece di quello misurato (32,1–32,6%), e ignorava il termine di timeout. La differenza
+   è di circa 2–3 punti, che su un divario di questa dimensione è metà del problema.
+2. **Il termine di timeout è piccolo ma non nullo.** `P(timeout)` è fra il 2,0% e il 4,4% — molto
+   meno di quanto il sospetto della revisione suggerisse — e `E[r | timeout]` è **positivo**
+   (+0,11% … +0,21%). La formula analitica era quindi una buona approssimazione, e sbagliava nella
+   direzione *pessimista*. Va comunque sostituita: il fatto che l'errore fosse piccolo su questa
+   configurazione non garantisce che lo resti su orizzonti più stretti, dove la quota di timeout
+   cresce rapidamente.
+3. **Il divario si stringe con barriere più larghe, ma la frequenza no.** Passando da 0,60% a
+   1,20% di take-profit il divario maker scende da 5,0 a 3,1 punti, e il tetto di trade/giorno da
+   22,3 a 6,9 — che resta sopra il target di 4. **La configurazione 1,20%/0,60% è quindi
+   dominante sotto entrambi i vincoli** e va presa come punto di partenza, non 0,60%/0,30%.
+
+**Nota sull'interpretazione del vincolo "target ≥ 2× fee round-trip".** In modalità maker il
+round-trip è 0,04% e il vincolo imporrebbe un target minimo dello 0,08%, che sarebbe soddisfatto
+da qualunque barriera qui. Il vincolo non è quindi binding: a vincolare è il **divario di win
+rate**, che la tabella sopra rende esplicito e che il vincolo sulle fee non cattura.
+
+### 2.3 Meta-labeling — **raccomandato, e con una motivazione precisa**
+
+Struttura proposta:
+
+- **Modello primario — direzione.** Non necessariamente un modello ML: può essere una regola
+  semplice (breakout del range, rottura di banda, momentum) che genera *candidati* con recall alto
+  e precision bassa. Definisce il lato dell'operazione.
+- **Modello secondario — eseguire o no.** Classificatore binario addestrato **solo sui candidati
+  del primario**, con etichetta 1 se quel trade avrebbe chiuso in profitto netto (barriera TP
+  toccata prima della SL, al netto delle fee), 0 altrimenti. Il suo output è una probabilità che
+  serve sia al filtro sia al dimensionamento della posizione.
+
+Perché conviene qui, concretamente:
+
+1. **Il problema secondario è meglio bilanciato e meglio posto.** Sui candidati del primario il
+   base rate è molto più alto del 33% di partenza, e il modello impara "questo setup regge" invece
+   di "il mercato salirà", che è una domanda più facile e più stabile.
+2. **Il vincolo fee entra nell'etichetta invece che in un filtro a valle.** L'etichetta del
+   secondario è già definita al netto delle commissioni, quindi la precision del secondario *è* il
+   win rate netto. Nessuna traduzione da fare.
+3. **Risolve il problema di calibrazione che ho già incontrato.** Il modello attuale produce
+   P(buy) con mediana 0,377 e p99 0,468 — una distribuzione compressa in cui nessuna soglia
+   assoluta è significativa, tanto che ho dovuto passare ai quantili. Un secondario binario su
+   classi bilanciate produce probabilità distribuite su tutto l'intervallo e direttamente usabili
+   per il dimensionamento (Kelly frazionario o simili).
+4. **Separa due domande che oggi sono confuse.** Ho misurato AUC 0,71 su una configurazione a
+   orizzonte breve, salvo scoprire che veniva in gran parte dal prevedere *la volatilità* (se le
+   barriere verranno toccate) e non *la direzione* (quale). Nel meta-labeling la direzione è
+   responsabilità del primario e il secondario è esplicitamente un giudizio sulla qualità del
+   setup: le due capacità non si mescolano più in una metrica sola.
+
+**Trade-off:** due modelli da mantenere e validare, e il secondario eredita ogni bias del primario
+(se il primario non genera mai candidati in un regime, il secondario è cieco lì). Il primario va
+quindi tenuto deliberatamente permissivo.
+
+---
+
+## 3. Feature engineering
+
+Notazione del rischio di leakage: **A** = calcolo puramente causale, sicuro; **B** = sicuro solo
+con implementazione attenta; **C** = rischio alto.
+
+### 3.1 Indicatori tecnici
+
+Già presenti in `features.py`: RSI(12), ATR(6), Stocastico(12,3), TSI(25,13), volume relativo,
+timeframe. Tutti normalizzati scale-free — proprietà da preservare, è ciò che rende possibile un
+modello unico su 15 asset.
+
+| feature | motivazione | leakage |
+|---|---|---|
+| RSI, Stocastico, TSI | oscillatori di momento già normalizzati; **da soli notoriamente non robusti** — le soglie classiche (30/70) non sopravvivono al cambio di regime. Come input a un modello che li condiziona su altro contesto restano informativi | A |
+| ATR / Close | volatilità normalizzata. Doppio ruolo: feature e dimensionamento delle barriere | A |
+| MACD | **da aggiungere**: cattura convergenza/divergenza fra scale, informazione non presente nel set attuale. Va normalizzato per Close come l'ATR, altrimenti dipende dalla scala del prezzo | A |
+| Bande di Bollinger (%B e ampiezza) | **da aggiungere**: %B posiziona il prezzo nella distribuzione recente, l'ampiezza è un indicatore di compressione. Complementari all'ATR, che misura escursione ma non compressione | A |
+| OBV | **da aggiungere con cautela**: è una somma cumulata senza reset, quindi il livello assoluto è privo di significato e cresce indefinitamente. Usare solo la variazione su finestra, mai il livello | **B** |
+| Breakout di range | `POS_n` in `dataset.py` già lo approssima (posizione del Close nel range delle ultime n barre). Da estendere con distanza dal massimo/minimo di n barre in unità di ATR | A |
+
+**Non aggiungere indicatori a raffica.** Il set attuale genera già 80 colonne dai lag. Ogni feature
+in più aumenta il rischio di overfitting e il numero di configurazioni testate, che entra nel
+calcolo del PBO. Meglio poche feature giustificate.
+
+### 3.2 Microstruttura — richiede `aggTrades`
+
+Nessuna di queste è calcolabile con i dati attualmente in archivio.
+
+| feature | motivazione | leakage |
+|---|---|---|
+| Volume delta (buy − sell aggressivo) | il flag "buyer is maker" di `aggTrades` separa il volume aggressivo dai due lati. È il segnale di microstruttura più diretto sulla pressione | A |
+| Trade flow imbalance | volume delta normalizzato dal volume totale della barra: scale-free, confrontabile fra simboli | A |
+| Dimensione media e dispersione dei trade | distingue attività retail frammentata da flusso istituzionale | A |
+| Conteggio trade / volume per trade | proxy di frammentazione dell'ordine | A |
+| VPIN | probabilità di trading informato; misura consolidata, ma va calcolata su volume bucket, non su time bar | **B** |
+| Spread, order book imbalance | **non disponibili per lo spot**. `bookDepth` esiste solo per i futures. Da valutare in una fase separata | — |
+
+**Il rischio di leakage vero in questa categoria è di natura pratica, non statistica:** gli
+aggregati per barra vanno calcolati usando solo i trade con timestamp `< fine barra`, e i file
+mensili di `aggTrades` vanno tagliati esattamente sui confini di barra. Un errore di allineamento
+di un solo trade inserisce informazione futura in ogni riga.
+
+### 3.3 Regime di mercato
+
+| feature | motivazione | leakage |
+|---|---|---|
+| Volatilità realizzata multi-scala (1h, 4h, 24h, 7g) | il rapporto fra scale distingue compressione da espansione. È il contesto che rende condizionabili gli oscillatori | A |
+| Rapporto trend/range (es. ADX, efficiency ratio di Kaufman) | dice se un segnale di momento ha senso *adesso*. Un modello che non lo sa media comportamenti opposti | A |
+| Volume relativo alla propria mediana mobile | già presente come `VOLUME` | A |
+| Correlazione mobile con BTC | in un mercato dominato da un asset, sapere se un'alt si sta muovendo con o contro BTC è contesto reale | **B** — la finestra mobile deve essere strettamente passata; è facile calcolarla centrata per errore |
+| Funding rate (futures) | posizionamento e sentiment di mercato, a costo quasi nullo. Disponibile | A |
+| Open interest e sua variazione | conferma o smentisce i movimenti di prezzo (aumento di prezzo con OI in calo = ricopertura, non nuova domanda) | A |
+| Dominanza BTC | regime di rotazione verso le alt | A |
+
+### 3.4 Regola generale sul leakage
+
+Tre errori sono i più probabili in questa pipeline, in ordine di probabilità:
+
+1. **Rolling non causale.** Ogni `rolling`, `ewm`, `resample` deve avere la finestra chiusa a
+   sinistra e etichetta a sinistra. `labeling.py` usa già il pattern `[::-1].rolling(...)[::-1]`
+   per guardare *avanti* deliberatamente: quel pattern è corretto lì e sarebbe un disastro altrove.
+2. **Normalizzazione fittata su tutto il dataset.** `features.py` oggi usa solo trasformazioni
+   fisse e senza stato appreso, ed è una proprietà **da difendere**: qualunque scaler fittato va
+   fittato dentro il fold di training, mai sull'intero dataset.
+3. **Feature che incorporano il futuro attraverso l'aggregazione.** Aggregando 5m → 1h, la barra
+   oraria delle 10:00 è completa solo alle 11:00. Usarla su una decisione presa alle 10:15 è
+   leakage. `resample_klines` etichetta a sinistra correttamente, ma **al momento non esiste nulla
+   che impedisca a un consumatore di usare la barra corrente incompleta** — va gestito
+   esplicitamente con uno shift.
+
+---
+
+## 4. Selezione del modello
+
+### 4.1 Il confronto è già stato fatto, su questi dati
+
+Misurato in questa sessione, stesse sequenze e stesse etichette:
+
+| modello | parametri | tempo | macro F1 | lift buy |
+|---|---|---|---|---|
+| LSTM bidirezionale, 3 strati | 747.267 | ~25 min (10 epoche) | 0,092 | 3,5× |
+| HistGradientBoostingClassifier | — | **3,9 s** | **0,111** | 3,6× |
+
+Due famiglie molto diverse convergono sullo stesso risultato: il limite era il target, non
+l'architettura. Sul dataset completo (1,54 M righe × 80 feature) il gradient boosting si addestra
+in **53 secondi**, con il ciclo end-to-end a 1,8 minuti.
+
+### 4.2 Raccomandazione: **gradient boosting come modello di riferimento**
+
+Le ragioni, nell'ordine in cui pesano:
+
+1. **Rischio di overfitting.** Il numero di campioni *effettivamente indipendenti* è molto inferiore
+   a quello nominale: con orizzonte di 96 barre, due etichette adiacenti condividono oltre il 99%
+   del loro futuro. 1,5 milioni di righe con stride 12 corrispondono a un ordine di grandezza di
+   decine di migliaia di osservazioni indipendenti. Su questo numero, una rete da centinaia di
+   migliaia di parametri è fuori scala; un GBDT con regolarizzazione e vincolo sulle foglie no.
+2. **Costo di iterazione.** Quattro secondi per fit permettono di tarare labeling, feature e
+   soglie decine di volte al giorno in locale; venticinque minuti no. Finché il target non è
+   stabile, iterare sul target vale più di qualunque architettura — e serve anche alla CPCV, che
+   moltiplica il numero di fit per il numero di combinazioni.
+3. **Costo di inferenza in produzione.** Con ~60 trade/giorno a portafoglio e valutazione a ogni evento su 15
+   simboli, un GBDT costa microsecondi per riga e non richiede TensorFlow nel processo del bot
+   live. Rilevante per il deploy su Render.
+4. **Robustezza sui dati tabellari.** Le feature qui sono tabellari con lag espliciti; è il regime
+   in cui gli alberi con boosting sono lo stato dell'arte, non un ripiego.
+
+**XGBoost/LightGBM contro `HistGradientBoostingClassifier`:** l'implementazione di scikit-learn è
+già una dipendenza del progetto, usa lo stesso algoritmo a istogrammi di LightGBM e ha prestazioni
+comparabili. LightGBM aggiungerebbe supporto nativo per il campionamento pesato per unicità e
+callback più ricchi. **Raccomandazione: restare su scikit-learn** finché non serve una funzionalità
+specifica; una dipendenza in meno vale più di un margine di prestazione.
+
+### 4.3 Quando riconsiderare le architetture sequenziali
+
+Non ora, ma con due precondizioni chiare: **dopo** che il target è stabile e un GBDT dimostra
+expectancy netta positiva out-of-sample, e **solo** se le feature di microstruttura sono in gioco
+(il flusso di ordini ha struttura sequenziale fine che i lag tabellari comprimono male).
+
+In quel caso il candidato non è l'LSTM ma la **TCN** (convoluzioni causali dilatate): stesso campo
+recettivo, parallela sui timestep, molto più veloce su CPU — è già disponibile in `models.py` come
+`kind="cnn"`. Il Transformer è da escludere a questa scala di dati indipendenti: la sua efficienza
+campionaria è peggiore, non migliore.
+
+---
+
+## 5. Validazione
+
+### 5.1 Cosa c'è oggi e perché non basta
+
+`dataset.py` implementa `time_split`: taglio cronologico unico all'80% con embargo, **globale su
+tutti i simboli** (correttamente: le criptovalute sono troppo correlate perché uno split per
+simbolo abbia senso). Rispetto al punto di partenza è già molto meglio, ma resta insufficiente per
+tre ragioni:
+
+1. **Una sola stima.** Nessuna nozione della varianza della performance.
+2. **Un solo regime.** La validation attuale (dal 2024-12-31) cade in un periodo per oltre il 60%
+   laterale.
+3. **Nessuna difesa contro il backtest overfitting.** Stiamo già testando molte configurazioni
+   (orizzonte, rapporto barriere, ampiezza, soglia): senza correzione, la migliore è selezionata
+   anche sul rumore.
+
+### 5.2 Purged K-Fold con embargo — **minimo indispensabile**
+
+Ogni etichetta triple-barrier ha un intervallo di vita `[t, t_exit]`. Un fold di training deve
+escludere ogni osservazione il cui intervallo si sovrappone a quello di una qualsiasi osservazione
+di test (*purging*), e va aggiunto un embargo temporale dopo il test set per neutralizzare
+l'autocorrelazione seriale.
+
+Dimensionamento: l'embargo deve coprire l'orizzonte massimo dell'etichetta sul timeframe più lungo.
+`trainer.py` già lo calcola così (`longest × horizon`), ed è la logica giusta da riportare nella
+nuova validazione. Il purging invece **richiede il tempo di uscita effettivo di ogni etichetta**,
+che oggi `triple_barrier_labels` non restituisce: restituisce solo la classe. **È la prima
+modifica strutturale necessaria** — senza `t_exit` il purging non è implementabile.
+
+### 5.3 CPCV — **obiettivo**
+
+Con N gruppi temporali e k gruppi di test per combinazione si ottengono `C(N, k)` split, ciascuno
+purged ed embargato, e quindi una *distribuzione* di performance out-of-sample invece di un punto.
+Configurazione ragionevole: N = 8–10 gruppi su 9 anni (quindi ~1 anno per gruppo, che rispetta i
+cicli di mercato), k = 2, per 28–45 combinazioni.
+
+Costo: 28–45 fit. A 53 s per fit sul dataset completo sono **25–40 minuti** — perfettamente
+sostenibile in locale con il GBDT, e completamente fuori portata con una rete neurale. È un altro
+argomento a favore della scelta del modello.
+
+### 5.4 Walk-forward — **verifica finale, non metrica primaria**
+
+Rolling o expanding, riaddestrando periodicamente, come simulazione di come il sistema verrebbe
+davvero operato. Serve a intercettare la degradazione del modello nel tempo (quanto rapidamente
+scade un modello addestrato su dati fino a t?), che la CPCV non misura perché mescola i periodi.
+Da usare come conferma di realismo operativo sulla configurazione finale, non per selezionare.
+
+### 5.5 Metriche anti-overfitting
+
+**PBO (Probability of Backtest Overfitting).** Con la CPCV già in piedi, il PBO si calcola per
+combinazione: si sceglie la configurazione migliore in-sample e si misura la sua posizione nella
+distribuzione out-of-sample. Il PBO è la frazione di combinazioni in cui la migliore in-sample
+finisce sotto la mediana out-of-sample. **PBO > 0,5 significa che la procedura di selezione è
+peggiore di una scelta casuale** e va riportato accanto a ogni risultato.
+
+**Deflated Sharpe Ratio.** Testando molte configurazioni, il massimo Sharpe osservato è distorto
+verso l'alto anche se nessuna ha edge. Il DSR corregge per il numero di prove, per l'asimmetria e
+la curtosi dei rendimenti (rilevanti: i rendimenti di questa strategia sono asimmetrici per
+costruzione, TP e SL non sono simmetrici) e per la lunghezza della serie. **Va calcolato tenendo il
+conto onesto di *tutte* le configurazioni provate**, incluse quelle scartate per strada — è
+l'errore più comune nell'applicarlo.
+
+**Regola vincolante:** ogni metrica riportata (WR, expectancy, Sharpe, max drawdown) va calcolata
+al netto delle fee simulate e dello slippage, e solo su split mai usati né in training né nella
+selezione degli iperparametri. `evaluate.py` già separa `atteso_lordo` da `atteso_per_trade` e
+include `fee_sensitivity`: quella separazione va mantenuta, perché distingue "il modello non
+prevede nulla" da "l'edge c'è ma non copre i costi", due diagnosi con rimedi opposti.
+
+**Slippage — oggi non modellato affatto.** Le fee sono nel calcolo, lo slippage no. Per ordini
+maker lo slippage rilevante non è il costo di attraversare lo spread ma il **rischio di mancato
+riempimento**: se il prezzo si muove contro, l'ordine limite non viene eseguito e si perde
+l'occasione; se si muove a favore, viene eseguito proprio quando non conviene (selezione avversa).
+Una simulazione maker che assume riempimento certo sovrastima sistematicamente. **Va modellata
+prima di dichiarare valido qualunque risultato in modalità maker** — ed è particolarmente critico
+perché tutta l'analisi economica sopra indica proprio la modalità maker come la via praticabile.
+
+---
+
+## 6. Reinforcement learning: dove serve davvero
+
+### 6.1 La tesi, verificata con un conteggio
+
+La tesi della revisione — il RL è debole sulla generazione di alfa e forte sull'esecuzione — è
+**confermata**, e il modo più netto per mostrarlo è contare le osservazioni indipendenti
+disponibili per ciascun problema. Il RL deve stimare non solo una mappa stato→etichetta ma anche
+la dinamica delle conseguenze, e ha quindi un'efficienza campionaria **peggiore** del
+supervisionato sullo stesso numero di campioni. Quel numero cambia però di ordini di grandezza a
+seconda di dove lo si applica.
+
+Periodo di riferimento: 2022-01-01 → 2026-08, cioè 1.691 giorni × 15 simboli = **25.365
+simbolo-giorni**.
+
+| problema | cos'è un episodio | durata | episodi indipendenti disponibili |
+|---|---|---|---|
+| **Generazione di alfa** (direzione) | una decisione di ingresso, il cui esito si risolve nell'orizzonte dell'etichetta | 8–24 h | 25.000 – 76.000 |
+| **Esecuzione** (piazzamento/riprezzamento del limite) | un ordine da piazzare, riprezzare o abbandonare | minuti | **~756.000** (30 eventi CUSUM/gg × 25.365) |
+| **Gestione dell'uscita** | una posizione aperta da gestire fino alla chiusura | 1–3,5 h | 25.000 – 76.000 |
+| **Dimensionamento a portafoglio** | una giornata di allocazione sotto vincolo di capitale | 1 giorno | **1.691** |
+
+**Il problema di esecuzione ha circa trenta volte i dati del problema di alfa**, e i suoi episodi
+sono quasi indipendenti fra loro (l'esito di un piazzamento si risolve in minuti, quindi due
+episodi consecutivi non condividono futuro — a differenza delle etichette di trading, che si
+sovrappongono pesantemente). È la ragione quantitativa, non stilistica, per cui l'esecuzione è il
+punto giusto in cui far entrare il RL.
+
+### 6.2 Raccomandazione: **esecuzione degli ordini limite, come primo e unico candidato ora**
+
+**Perché per primo.** Tre ragioni che si sommano:
+
+1. **È il pezzo che manca ed è bloccante.** Tutta la strategia vive in modalità maker (§2.2), e in
+   modalità maker la domanda "dove metto il limite e quanto aspetto" *è* la strategia. Oggi il
+   progetto non ha nulla in quel punto: `signals.py` assume implicitamente riempimento al prezzo di
+   chiusura.
+2. **Ha i dati.** ~756.000 episodi quasi indipendenti, contro le decine di migliaia degli altri.
+3. **Il suo risultato è verificabile in produzione a costo basso.** Una politica di esecuzione si
+   può confrontare con la baseline (limite al mid, timeout fisso) misurando il prezzo di
+   riempimento effettivo, senza dover attendere che una strategia direzionale maturi. È l'unico dei
+   tre candidati che dà un segnale di validità in giorni invece che in mesi.
+
+**Perché la gestione dell'uscita viene dopo.** È un vero problema sequenziale che il labeling
+supervisionato non sa esprimere — la triple-barrier fissa TP e SL all'ingresso e non li tocca più —
+ma ha lo stesso numero di episodi del problema di alfa (25k–76k) e un difetto aggiuntivo: **una
+politica di uscita appresa può migliorare l'expectancy solo se l'expectancy di partenza non è
+troppo negativa.** Oggi è −0,044% per operazione anche in modalità maker (§2.2). Ottimizzare
+l'uscita di una strategia che entra a caso è ottimizzare il modo di perdere. Ha senso quando la
+Fase 2 ha prodotto expectancy positiva.
+
+**Perché il dimensionamento a portafoglio viene per ultimo.** 1.691 episodi giornalieri sono
+pochissimi per il RL, e il problema è per giunta quello con la maggiore dimensionalità dell'azione
+(15 pesi simultanei sotto vincolo di capitale). In compenso è il problema con le alternative non-RL
+migliori: il dimensionamento tramite Kelly frazionario sulla probabilità calibrata del
+meta-modello, con un tetto sull'esposizione, è quasi certamente sufficiente. **Da valutare solo se
+si dimostra che l'allocazione a regola fissa lascia sul tavolo qualcosa di misurabile.**
+
+### 6.3 Vincoli non negoziabili
+
+Sono i vincoli della revisione, che accetto integralmente, con un'annotazione su ciascuno:
+
+- **Offline, mai online.** Il distribution shift va gestito esplicitamente: la politica proporrà
+  piazzamenti che nei dati storici non compaiono, e stimarne il valore è extrapolazione.
+  Contromisura minima: vincolo di prossimità alla politica di comportamento (BCQ/CQL o un
+  penalty term), più un intervallo di confidenza sulle azioni fuori supporto che va **riportato**,
+  non nascosto.
+- **Il simulatore è il collo di bottiglia, non l'algoritmo.** Un agente addestrato su un
+  simulatore con riempimento certo impara a sfruttare un'assunzione falsa, e lo fa benissimo. **Il
+  modello di fill va costruito e validato contro `aggTrades` reali prima di qualunque
+  addestramento RL.** Se non è pronto, il RL non parte — è un gate, non una raccomandazione.
+- **Reward al netto dei costi reali.** Fee per lato corretto a seconda di come l'ordine si è
+  riempito, mancato riempimento come costo opportunità esplicito, slippage sulle uscite a mercato.
+  Una valutazione a fee piatta sovrastima sistematicamente, e in modalità maker sovrastima
+  *proprio la variabile che si sta ottimizzando*.
+- **Reward risk-adjusted.** Sharpe differenziale o utilità con penalizzazione del drawdown. Il PnL
+  grezzo produce politiche che accettano code di rischio arbitrarie, e in esecuzione questo si
+  manifesta come "aspetta indefinitamente un riempimento migliore".
+- **Stessa validazione del resto: CPCV con purging ed embargo.** Un agente valutato su un solo
+  split non è valutato. L'overfitting a un regime è l'esito di default.
+- **Baseline obbligatoria.** Per l'esecuzione: limite al mid con timeout fisso. Per l'uscita: la
+  triple-barrier statica. Se non batte la regola fissa sulla **distribuzione** CPCV — non sulla
+  media di uno split — non entra.
+
+---
+
+## 7. Pattern strutturali (ABC, ABCD, onde)
+
+### 7.1 Il problema bloccante è reale, e ora è quantificato
+
+Un pivot non è conoscibile quando si forma: lo zigzag lo colloca retroattivamente sull'estremo
+esatto, mentre in tempo reale diventa noto solo quando il ritracciamento raggiunge la soglia.
+Misura del **ritardo di conferma** (barre fra l'estremo e la barra in cui il pivot è conoscibile),
+15 simboli dal 2022:
+
+| timeframe | soglia | pivot totali | ritardo mediano | p90 | p99 |
+|---|---|---|---|---|---|
+| 15m | 0,5% | 702.771 | 1 | 2 | 8 |
+| 15m | 1,0% | 305.823 | 1 | 6 | 21 |
+| 15m | 2,0% | 76.412 | 4 | 19 | **65** |
+| 15m | 3,0% | 16.202 | 8 | 36 | **101** |
+| 1h | 1,0% | 147.610 | 1 | 2 | 7 |
+| 1h | 2,0% | 56.247 | 1 | 6 | 19 |
+| 1h | 3,0% | 14.512 | 2 | 9 | 26 |
+
+**Il ritardo mediano è piccolo (1–8 barre) ma la coda è pesante**: al 99° percentile si arriva a
+101 barre su 15m al 3%, cioè oltre 25 ore. Una pipeline che usa i pivot "come disegnati" inserisce
+quindi un look-ahead che nella maggior parte dei casi vale poco e in una frazione non trascurabile
+vale un giorno intero di informazione futura — ed è esattamente nei casi di movimento ampio, cioè
+quelli su cui si guadagna, che il look-ahead è massimo. **È il meccanismo per cui i backtest su
+pattern sembrano eccellenti e non sopravvivono al live.**
+
+**Requisiti vincolanti** (da rispettare in implementazione):
+
+- Ogni pivot va spostato alla **barra di conferma**; il ritardo è un parametro esplicito.
+- La gamba in formazione non è utilizzabile. Nel caso ABCD questo significa che **il punto D è
+  esattamente ciò che non si conosce quando servirebbe**: un ABCD è utilizzabile solo come
+  *proiezione* di D a partire da A, B, C confermati, mai come struttura completa.
+- Test di regressione dedicato: la pipeline deve produrre, per ogni timestamp, le stesse strutture
+  che sarebbero state visibili in tempo reale. Il confronto fra output causale e retrospettivo va
+  misurato e riportato — **è la misura diretta di quanto vale il look-ahead in questo dominio**, ed
+  è un numero che vale la pena avere prima di fidarsi di qualunque risultato su pattern.
+
+### 7.2 Il conteggio: quante strutture ci sono davvero
+
+Istanze **confermate causalmente**, 15 simboli dal 2022 (1.691 giorni × 15 = 25.365
+simbolo-giorni). "Indipendenti" = non sovrapposte nel tempo, perché istanze sovrapposte
+condividono futuro e non sono osservazioni separate.
+
+| timeframe | soglia | tipo | nominali | **indipendenti** | durata mediana | istanze/gg/simbolo |
+|---|---|---|---|---|---|---|
+| 15m | 1,0% | ABC (3 pivot) | 305.793 | **26.388** | 2,0 h | 1,04 |
+| 15m | 1,0% | doppio max/min | 251.788 | **25.121** | 2,0 h | 0,99 |
+| 15m | 1,0% | ABCD con Fibonacci | 52.422 | **10.356** | 3,2 h | 0,41 |
+| 15m | 1,0% | impulso 5 onde | 9.012 | **2.534** | 6,2 h | 0,10 |
+| 15m | 2,0% | ABC (3 pivot) | 76.386 | 8.790 | 6,2 h | 0,35 |
+| 15m | 2,0% | ABCD con Fibonacci | 13.205 | **3.266** | 9,5 h | 0,13 |
+| 15m | 2,0% | impulso 5 onde | 2.233 | **757** | 19,5 h | 0,030 |
+| 15m | 3,0% | ABCD con Fibonacci | 2.772 | **1.055** | 20,0 h | 0,042 |
+| 15m | 3,0% | impulso 5 onde | 434 | **213** | 36,9 h | 0,008 |
+| 1h | 1,0% | ABC (3 pivot) | 147.582 | 11.723 | 5,0 h | 0,46 |
+| 1h | 2,0% | ABCD con Fibonacci | 9.553 | 2.319 | 13,0 h | 0,091 |
+
+Il termine di paragone è il numero di osservazioni indipendenti dell'intero dataset (§4.2): decine
+di migliaia. Ne segue una classificazione netta:
+
+- **ABC e doppio massimo/minimo a soglia 1%** producono ~25.000 istanze indipendenti — dello stesso
+  ordine dell'intero dataset. Sono utilizzabili.
+- **ABCD è marginale**: 10.356 a soglia 1%, 3.266 al 2%, 1.055 al 3%. Un modello dedicato su
+  qualche migliaio di osservazioni indipendenti, con la libertà di scelta dei parametri di Fibonacci
+  che quel tipo di struttura porta con sé, è una macchina per l'overfitting.
+- **L'impulso a 5 onde è fuori scala e va escluso, non ottimizzato**: 213–2.534 istanze
+  indipendenti. **Da escludere.**
+
+### 7.3 Scale temporali: sono due sistemi, non uno — **raccomando l'Opzione 1**
+
+Il dato che chiude la questione è l'ultima colonna di §7.2: **il tipo di struttura più frequente
+produce 1,04 istanze/giorno/simbolo**, contro un target di 4. ABCD al 2% ne produce 0,13, cioè
+**trenta volte meno del target**. Non è un difetto dei pattern: è che strutture e alta frequenza
+sono due sistemi con orizzonti diversi, e mescolarli in un target unico li rompe entrambi.
+
+**Raccomandazione: Opzione 1 — i pattern entrano come feature di stato nel sistema veloce
+esistente**, non come strategia autonoma. Concretamente:
+
+- distanza dall'ultimo pivot confermato, in unità di ATR (non in prezzo: dev'essere scale-free);
+- tempo trascorso dall'ultimo pivot confermato;
+- rapporto fra le ultime due gambe (è il numero che sta sotto ad ABC e ABCD, senza imporre una
+  classificazione discreta);
+- posizione del prezzo dentro la struttura candidata corrente;
+- flag di struttura invalidata (il prezzo ha superato un livello che nega la struttura).
+
+Non cambia la frequenza, non frammenta il dataset, e aggiunge informazione strutturale che le
+feature attuali — momento, oscillatori, volatilità — non contengono. È a basso rischio e
+compatibile con tutto il resto.
+
+**L'Opzione 2 (sistema lento separato)** resta legittima come progetto distinto, con target di
+frequenza proprio (~1 trade ogni pochi giorni per simbolo), barriere ampie dove il vincolo fee
+sparisce (a TP 4% le commissioni taker sono rumore) e validazione propria. **Non va mescolata con
+il sistema a 4 trade/giorno.** È anche il regime in cui il RL sulla gestione dell'uscita ha più
+spazio, perché la posizione resta aperta abbastanza da poter essere gestita.
+
+### 7.4 Modelli specialisti per tipo di pattern — **sconsigliato**
+
+La proposta di "un grande chunk per tipo di movimento" va valutata contro l'alternativa di **un
+modello unico con il tipo di struttura come feature categorica**. Il criterio proposto nella
+revisione è il conteggio di §7.2, e il conteggio risponde: **migliaia di istanze indipendenti per
+bucket, non decine di migliaia.** Un ABCD a soglia 2% ha 3.266 osservazioni indipendenti.
+
+Separare in specialisti su quei numeri fa due danni contemporaneamente: frammenta un conteggio di
+campioni indipendenti già scarso, e impedisce la condivisione di forza statistica fra tipi che
+condividono struttura (un ABC è il prefisso di un ABCD, un doppio massimo è un ABC con vincolo di
+uguaglianza sui livelli — non sono categorie disgiunte).
+
+**Raccomandazione: modello unico, tipo di struttura come feature categorica**, e verifica *a
+posteriori* che il modello usi davvero quella feature — importanza per permutazione calcolata
+**dentro il fold**, mai sull'intero dataset. Se l'importanza è nulla, la conclusione è che le
+strutture non aggiungono niente sopra le feature esistenti, ed è un risultato utile da avere.
+
+---
+
+## 8. Strategia di addestramento: fasi e gate
+
+Ogni fase ha un **gate**. Se il criterio non è soddisfatto non si passa alla successiva: si torna
+indietro. La colonna "configurazioni" conta le prove da sommare nel calcolo del Deflated Sharpe
+Ratio finale — **il conteggio va tenuto onesto, incluse le configurazioni scartate.**
+
+### Fase 0 — Infrastruttura di verità
+
+| # | intervento | file |
+|---|---|---|
+| 0.1 | `triple_barrier_labels` restituisce anche `t_exit` e la barriera toccata | `ml/labeling.py` |
+| 0.2 | `PurgedKFold`, `CombinatorialPurgedCV`, `sample_uniqueness_weights` | nuovo `ml/validation.py` |
+| 0.3 | Modello di riempimento degli ordini limite: probabilità di fill e selezione avversa | nuovo `ml/execution.py` |
+| 0.4 | Ingestione `aggTrades` in streaming, ridotta ad aggregati per barra | nuovo `data/microstructure.py` |
+
+`0.1` è bloccante per `0.2`: senza il tempo di uscita il purging non è calcolabile. `0.4` è
+bloccante per la validazione di `0.3`: il modello di fill va tarato contro riempimenti reali.
+
+**Gate:** la CPCV gira end-to-end su tutto il dataset, e il modello di fill è validato contro
+`aggTrades` reali su un campione (almeno 3 simboli × 3 mesi, coprendo un regime calmo e uno
+volatile). *Configurazioni testate: 0 — è infrastruttura, non selezione.*
+
+### Fase 1 — Punto di lavoro economico
+
+| # | intervento | file |
+|---|---|---|
+| 1.1 | Ripristinare `TP_ATR_MULTIPLE = 2.0`; regime di esecuzione come parametro esplicito | `ml/labeling.py` |
+| 1.2 | Campionamento a eventi con filtro CUSUM, soglia in multipli di σ | `ml/dataset.py` |
+| 1.3 | Scelta di barriere e soglia CUSUM per 4 trade/giorno/simbolo | configurazione |
+| 1.4 | Expectancy misurata sulla distribuzione completa degli esiti, in modalità maker | `ml/evaluate.py` |
+
+Punto di partenza indicato dalle misure: **barriere 1,20%/0,60% con orizzonte 24h** (§2.2: divario
+maker più basso, 3,1 punti, con tetto 6,9 trade/giorno che resta sopra il target) e **CUSUM a
+k = 3,0–3,5** (§1.4: 27–33 eventi/giorno su tutti i simboli, selettività implicata 13%).
+
+**Gate:** distribuzione CPCV dell'expectancy netta con **mediana positiva** e **PBO < 0,5**.
+*Configurazioni: ~12 (4 barriere × 3 soglie CUSUM).*
+
+### Fase 2 — Meta-labeling — **fermarsi qui e chiedere conferma**
+
+| # | intervento | file |
+|---|---|---|
+| 2.1 | Primario direzionale permissivo (regola o modello leggero) | `ml/labeling.py` |
+| 2.2 | Secondario binario su etichette già nette da fee | `ml/models.py` |
+| 2.3 | Calibrazione delle probabilità e dimensionamento (Kelly frazionario con tetto) | `ml/evaluate.py` |
+
+**Gate:** il secondario batte la soglia applicata direttamente al primario sulla **distribuzione**
+CPCV, non su un singolo split. *Configurazioni: ~8.*
+
+### Fase 3 — Feature strutturali e microstruttura
+
+| # | intervento | file |
+|---|---|---|
+| 3.1 | Feature strutturali causali (§7.3, Opzione 1) con test di regressione causale/retrospettivo | `ml/features.py` |
+| 3.2 | Feature di microstruttura da `aggTrades` (volume delta, flow imbalance) | `ml/features.py` |
+| 3.3 | `fundingRate` e open interest come feature di regime | `data/derivatives.py` |
+| 3.4 | MACD, %B e ampiezza di Bollinger, variazione OBV, ADX/efficiency ratio | `ml/features.py` |
+
+**Gate:** miglioramento dell'expectancy netta out-of-sample che **sopravvive al Deflated Sharpe
+Ratio** con il conteggio onesto di tutte le configurazioni provate fino a qui.
+*Configurazioni: ~10.*
+
+### Fase 4 — RL sull'esecuzione
+
+Il candidato scelto in §6.2. RL offline con vincolo di prossimità alla politica di comportamento,
+reward risk-adjusted al netto dei costi reali.
+
+**Gate:** batte la baseline a regola fissa (limite al mid con timeout fisso) sulla **distribuzione**
+CPCV. *Configurazioni: ~6.*
+
+### Fase 5 — RL sull'uscita e dimensionamento a portafoglio
+
+Solo dopo che le fasi precedenti hanno prodotto expectancy netta positiva stabile. Include il
+vincolo di capitale sul **picco** di posizioni concorrenti (§1.5: 15–28 al 99° percentile, e il
+numero reale è più alto perché i segnali arrivano correlati).
+
+**Gate:** batte il dimensionamento a regola fissa sulla distribuzione CPCV. *Configurazioni: ~6.*
+
+### Cosa **non** va toccato
+
+- La proprietà scale-free di `features.py` e l'assenza di stato appreso.
+- Lo split temporale globale (mai per simbolo).
+- La separazione fra edge lordo e netto in `evaluate.py`.
+- La corrispondenza fra le barriere che definiscono le etichette e quelle che governano le uscite
+  in `signals.py`: è ciò che rende il P&L simulato la traduzione diretta del win rate misurato.
+
+---
+
+## 8bis. Risultati dell'implementazione (Fasi 0–2)
+
+Fasi 0, 1 e 2 implementate e verificate. Riepilogo dei numeri ottenuti, da leggere insieme alle
+riserve in fondo.
+
+### Configurazione
+
+| | |
+|---|---|
+| Primario | filtro CUSUM a 3σ, ~26–30 eventi/giorno/simbolo |
+| Barriere | TP 1,5 × SL, pavimento a 5× le fee → 0,90% / 0,60% |
+| Orizzonte | 24 ore |
+| Esecuzione | limite a 0,5 ATR sotto il prezzo, 12 barre di pazienza, maker in ingresso / taker sullo stop |
+| Dataset | 1.509.968 eventi, 15 simboli × (5m, 15m) |
+| Validazione | CPCV, 8 gruppi, 2 di test → 28 split, embargo 24h |
+
+### Risultati out-of-sample (28 split CPCV)
+
+| quota di eventi | mediana per operazione | split positivi |
+|---|---|---|
+| 5% | +0,157% | 100% |
+| 10% | +0,113% | 100% |
+| **13% (target di frequenza)** | **+0,097%** | **100%** |
+| 20% | +0,068% | 96% |
+| 30% | +0,045% | 89% |
+
+- **PBO 0,00** — la selezione non fa peggio del caso.
+- Take-profit sul 41,1% dei trade selezionati, contro un base rate del 33%.
+- Aspettativa non condizionata: **−0,043% per trade**. Il modello la porta a +0,097%.
+
+### Controlli a cascata
+
+Tre controlli, perché un risultato di questa entità va trattato con sospetto.
+
+1. **Fill rate fra gli eventi selezionati: 78,7% contro 80,3% generale.** Se il modello stesse
+   selezionando ordini che *non si riempiono*, guadagnerebbe zero invece che negativo senza fare
+   nessun trade. Non è così.
+2. **Verifica end-to-end nel simulatore** su BTC/ETH/SOL/XRP/DOGE dal 2025-06: 588 trade, win
+   rate 47,6%, **+0,0624% per operazione**, +37,8% cumulato (buy & hold da −17% a −62% nello
+   stesso periodo). Il numero coincide con la misura in CPCV: la catena è coerente.
+3. **Test di permutazione** — il controllo più importante, e quello con l'esito meno pulito.
+   Riaddestrando su etichette mescolate, la selezione **non collassa a zero**: rende +0,037%
+   contro +0,097% del modello reale. Circa **un terzo del guadagno apparente viene dal
+   selezionare comunque un sottoinsieme**, non dalle etichette — gli eventi ad alta volatilità
+   si riempiono meno spesso, e un ordine non riempito rende zero invece che negativo.
+   **L'edge onesto è quindi +0,060% per operazione**, non +0,097%, ed è quello che va usato.
+
+### Due difetti trovati dai controlli, entrambi con inversione di segno
+
+Prima delle correzioni ogni quota era negativa, il PBO era 0,68 (*selezione peggiore del caso*) e
+il top 5% rendeva **meno** del top 30% — il modello ordinava peggio dove avrebbe dovuto essere
+più sicuro.
+
+1. **Addestramento sugli ordini non riempiti.** Un ordine non riempito rende zero, che è
+   *migliore* di un trade in perdita: etichettarlo "non profittevole" lo accomuna ai perdenti e
+   insegna al modello a evitare gli ingressi che non si riempiono, cosa che non ha niente a che
+   vedere con la loro qualità. Ora si addestra solo sugli eventi in cui un trade è avvenuto.
+2. **Classificatore binario cieco alle magnitudini.** Un trade da +2% e uno da +0,05% sono la
+   stessa osservazione per un classificatore. Pesare per |rendimento| × unicità allinea ciò che
+   il modello minimizza a ciò che conta.
+
+### Il vincolo non soddisfatto: la frequenza
+
+**La frequenza ottenuta è 0,04–0,46 trade/giorno/simbolo, contro il target di 4.** Il collo di
+bottiglia non è la selettività (al 13% i candidati sono ~3,4/giorno) ma la regola di **una
+posizione alla volta** combinata con l'orizzonte di 24 ore: con detenzioni di ore, i trade non
+sovrapposti che stanno in una giornata sono pochi.
+
+Le due vie, da valutare nella prossima iterazione:
+
+- **Accorciare l'orizzonte** da 24h a ~6h e stringere le barriere. §1.5 misura che a 0,60%/0,30%
+  la detenzione media è 1,07 ore e il tetto 22 trade/giorno — abbondante. Il costo è economico:
+  §2.2 mostra che il divario maker sale da 3,1 a 5,0 punti.
+- **Consentire posizioni sovrapposte** sullo stesso simbolo. Cambia il profilo di rischio e
+  richiede il dimensionamento a portafoglio (Fase 5), quindi non è un cambio isolato.
+
+La prima è la strada diretta ed è un solo riaddestramento; ma va verificata, perché sposta il
+punto di lavoro proprio nella zona dove l'economia è peggiore.
+
+---
+
+## 9. Aspettative realistiche
+
+Stima onesta, basata su quanto misurato in questa sessione e non su quanto sarebbe desiderabile.
+
+### Win rate
+
+**Misurato oggi:** win rate 39,6% contro un break-even di 47,3%, AUC 0,54, edge lordo +0,017% per
+operazione. Verificato end-to-end sul periodo mai visto: 32–44% per coppia, coerente.
+
+**Realistico dopo le Fasi 1–2:** **40–45%**. Il ragionamento: il base rate **misurato** è
+32,1–32,6% (§2.2, non il 33,3% teorico); un modello con AUC 0,55–0,60 sul decile superiore porta
+la precision a circa 40–45%. Andare oltre richiederebbe un AUC che su prezzo e indicatori non si
+osserva.
+
+**Con microstruttura (Fase 3):** forse **45–50%**. È la stima più incerta del documento, perché non
+ho misurato nulla su `aggTrades`.
+
+**Un WR >70% in-sample su questo dominio va trattato come un difetto fino a prova contraria.** I
+sospetti da verificare, nell'ordine: normalizzazione fittata fuori dal fold, rolling non causale,
+uso di una barra aggregata incompleta, purging assente (etichette sovrapposte fra train e test).
+
+### Frequenza
+
+| configurazione | trade/gg/simbolo | tetto fisico | note |
+|---|---|---|---|
+| Oggi (soglia 0,484, 15m) | **~0,2** | — | 99 trade in 20 mesi su BTC 15m |
+| Barriere 0,60%/0,30%, orizzonte 8h | 4 | 22,3 | 18% di tempo in mercato |
+| Barriere 0,80%/0,40%, orizzonte 8h | 4 | 14,8 | 27% di tempo in mercato |
+| **Barriere 1,20%/0,60%, orizzonte 24h** | **4** | **6,9** | 58% in mercato — **raccomandata** |
+| CUSUM k=3σ, accettando il 13% degli eventi | 4 | ~30 | selettività da decile superiore |
+
+**Il target di 4 trade/giorno/simbolo è raggiungibile in tutte e quattro le configurazioni di
+barriere misurate**, quindi il vincolo di frequenza non seleziona da solo la barriera: a
+selezionare è l'economia (§2.2), che indica 1,20%/0,60%. A portafoglio sono ~60 trade/giorno con
+un picco di 25–28 posizioni concorrenti (§1.5).
+
+### Expectancy netta
+
+È il criterio vero, e la risposta onesta è che **dipende quasi interamente dal regime di
+esecuzione**. Con la configurazione raccomandata (1,20%/0,60%, orizzonte 24h) e WR di base
+misurato 32,3%:
+
+| scenario | WR richiesto | WR atteso | esito |
+|---|---|---|---|
+| Taker | 44,4% | 40–45% | **negativo o al limite** |
+| Taker + sconto BNB | 41,6% | 40–45% | **marginale** |
+| **Maker** | **35,4%** | 40–45% | **positivo con margine** |
+| Maker, ipotesi conservativa | 35,4% | 37% | **positivo, margine sottile** |
+
+**La conclusione da portare in implementazione: l'esecuzione con ordini limite non è
+un'ottimizzazione, è la precondizione.** Con ordini a mercato la strategia richiede di battere il
+caso di 12,1–23,2 punti, capacità che non ho osservato in nessuna configurazione testata; con
+ordini limite richiede 3,1–5,0 punti, che è alla portata.
+
+**Il numero più fragile del documento è il "WR atteso 40–45%".** Poggia su un AUC osservato di
+0,54 e su un'estrapolazione a 0,55–0,60 dopo le Fasi 1–3. Se l'AUC reale resta a 0,54, il WR sul
+decile superiore si ferma intorno al 36–38% — **appena sopra il break-even maker e sotto ogni
+altro**. In quello scenario la strategia è marginale anche nel suo regime migliore, e la decisione
+onesta è fermarsi al gate della Fase 1 invece di proseguire.
+
+E resta la riserva metodologica principale: **tutti i numeri della colonna maker sono non
+verificati finché il modello di riempimento (Fase 0.3) non esiste.** Una simulazione maker che
+assume riempimento certo sovrastima sistematicamente, e sovrastima proprio la variabile su cui
+l'intera strategia poggia.
+
+---
+
+## 10. Directional change — misure del gate
+
+Misurate sui 15 simboli, barre 5m dal 2022-01-01 (≈480.000 barre per simbolo).
+Riproducibili: `python -m scripts.analysis --pivot-delays --pivot-labels`.
+
+Questa sezione risponde al gate posto prima di procedere con le feature di posizione. **Tre delle
+quattro attese poste nel prompt non sono confermate dai dati**, e sono elencate per prime.
+
+### 10.1 Le attese contraddette
+
+| attesa | misurato | verdetto |
+|---|---|---|
+| gamba mediana ≈ 0,95% a soglia 0,5% | **0,97%** (min 0,92% su BTC, max 1,03% su NEAR) | **confermata** |
+| ≈ 60% della gamba catturabile alla conferma | **41–44%** mediana, su *ogni* simbolo e *ogni* soglia | **contraddetta** |
+| positivi al 10–15% con etichetta morbida al 60% | **70%** dei bar sono BUY o SELL, HOLD solo 29% | **contraddetta** |
+| soglia unica ragionevole per tutti i simboli | serve da 0,6% (TRX) a 1,5% (10 simboli su 15) per lo stesso tasso | **contraddetta** |
+
+**Il 43% catturabile non è un difetto tarabile: è forzato dalla geometria.** Alla conferma il
+prezzo si è già mosso di una soglia dall'estremo, quindi resta `1 − soglia/gamba`. Il rapporto
+gamba/soglia misurato è notevolmente stabile — 2,71 a soglia 0,2% che scende a 1,75 a 1,5% — e
+1 − 1/1,9 ≈ 0,47. Per avere il 60% catturabile servirebbero gambe pari a 2,5 volte la soglia, e
+i dati dicono 1,75–1,9. **La conseguenza è che il tetto lordo della strategia è metà della gamba,
+non due terzi**: a soglia tarata la presa mediana a previsione perfetta è 0,46%–1,10% per gamba.
+
+### 10.2 Ritardo di conferma, per soglia (mediana sui 15 simboli, in barre da 5m)
+
+| soglia | estremi/giorno | gamba mediana | catturabile | ritardo mediano | ritardo p90 |
+|---|---|---|---|---|---|
+| 0,2% | 110,1 | 0,54% | 45,3% | 1 | 1 |
+| 0,3% | 84,6 | 0,67% | 44,4% | 1 | 2 |
+| 0,4% | 65,2 | 0,82% | 44,1% | 1 | 3 |
+| 0,5% | 50,4 | 0,97% | 43,4% | 1 | 5 |
+| 0,6% | 39,2 | 1,13% | 42,9% | 1 | 6 |
+| 0,8% | 25,5 | 1,45% | 42,6% | 2 | 10 |
+| 1,0% | 17,8 | 1,78% | 42,1% | 3 | 15 |
+| 1,5% | 8,7 | 2,62% | 41,6% | 6 | 31 |
+
+Il ritardo cresce **più che linearmente** con la soglia mentre il catturabile è piatto: raddoppiare
+la soglia da 0,5% a 1,0% triplica il ritardo mediano e sestuplica il p90, senza restituire nulla
+in frazione catturabile. La dispersione per simbolo è larga: a 0,5% il p90 va da 3 barre (SOL,
+AVAX, NEAR) a 17 (TRX), e il p99 da 9 a 64.
+
+### 10.3 Soglia tarata per simbolo, a 8–12 estremi/giorno
+
+`tune_threshold` centra la fascia su 13 simboli su 15; XRP (7,15) e LTC (7,00) restano sotto
+perché 1,5% è il massimo dei candidati, e NEAR sfora sopra a 13,03.
+
+| simbolo | soglia | estremi/g | rit. med | rit. p90 | gamba med | presa mediana | > costo maker | > costo taker |
+|---|---|---|---|---|---|---|---|---|
+| BTC | 0,8% | 10,0 | 5 | 28 | 1,41% | 0,58% | 95,4% | 63,6% |
+| ETH | 1,0% | 10,9 | 5 | 25 | 1,78% | 0,73% | 97,1% | 71,4% |
+| BNB | 1,0% | 8,2 | 6 | 31 | 1,77% | 0,73% | 96,5% | 70,1% |
+| TRX | 0,6% | 11,3 | 3 | 22 | 1,11% | 0,46% | 92,5% | 55,2% |
+| altri 11 | 1,5% | 7,0–13,0 | 4–7 | 20–39 | 2,60–2,68% | 1,03–1,10% | 97,6–98,3% | 80,0–81,8% |
+
+**Il ritardo di conferma al punto di lavoro è di 20–39 barre al p90, cioè 1,7–3,3 ore.** È il
+numero che vincola le feature di posizione del punto 3: qualunque feature che dica "siamo dentro
+una gamba al rialzo" è ignota per quel tempo, e su BTC/ETH il p99 arriva a 87–146 barre.
+
+### 10.4 Distribuzione delle classi — l'etichetta morbida al 60% è degenere
+
+Alla soglia tarata, con `capture = 0,60`: HOLD 29,0–30,4%, BUY 31,5–34,8%, SELL 35,6–38,7%.
+Il risultato è quasi identico su tutti e 15 i simboli.
+
+**Non è la distribuzione attesa e non è utilizzabile così.** L'etichetta non dice più "questo è un
+momento di ingresso": dice "il prezzo sta nel 40% inferiore del range che verrà", che è vero quasi
+sempre e per costruzione, dato che la finestra di `soft_labels` parte dall'estremo *precedente* e
+le finestre di gambe consecutive si sovrappongono. Un classificatore costante che dice sempre SELL
+prende il 37%. Con positivi al 70% la precision non discrimina nulla e la funzione di perdita non
+ha più il segnale economico che l'etichetta morbida doveva darle.
+
+Va detto che il **tasso di trade** resta invece corretto: la zona BUY è contigua, quindi i blocchi
+sono ≈ il numero di gambe, cioè 4–6 ingressi al giorno per simbolo, in linea con il target di §1.5.
+Il problema è la separabilità, non la frequenza.
+
+Le tre uscite possibili, in ordine di costo:
+1. **alzare `capture`** — a 0,60 la zona è il 40% del range; portarla a 0,85 la riduce al 15%.
+   Da misurare, è uno sweep di pochi minuti;
+2. **non far partire la finestra dall'estremo precedente** ma dalla barra di conferma, il che
+   allinea l'etichetta a ciò che è effettivamente operabile e taglia via la discesa non conoscibile;
+3. **tenere l'etichetta a tre stati ma condizionarla sullo stato di posizione**, che è il punto 3
+   del piano: BUY vale solo da flat, e questo da solo elimina gran parte dei positivi ridondanti.
+
+Le tre non sono alternative: (2) è una correzione di correttezza e va fatta comunque.
+
+### 10.5 Un artefatto dei dati che invalida ogni statistica pesata
+
+`catturabile_pesata` per ATOM è 0,218 contro ≈0,50 di tutti gli altri. Non è un bug del rilevatore:
+il 2025-10-10 alle 21:20 (cascata di liquidazioni su Binance) ATOM ha stampato un minimo di
+**0,001 USDT** partendo da 1,86, cioè una gamba del 305.100% in una barra da 5 minuti. AVAX nella
+stessa barra è sceso da 23,09 a 8,52, BTC da 112.510 a 102.000.
+
+Il print è reale, ma non è eseguibile: è un wick senza liquidità. Una singola barra su 480.000
+sposta la media pesata di un simbolo di 28 punti percentuali. **Serve un filtro sui wick prima di
+qualunque etichettatura o statistica basata su rendimenti percentuali** — la mediana ne è immune
+(0,416 per ATOM, in linea con tutti), la media pesata no, e un modello addestrato senza filtro
+impara da un evento irripetibile.
+
+---
+
+## 11. La politica a tre azioni: costruzione e punti di lavoro
+
+Implementata in `ml/policy.py` (stato e mascheramento), `ml/dagger.py` (rollout iterativo) e
+`ml/policy_trainer.py` (dataset, addestramento, CPCV economico). `ml/trainer.py` resta quello della
+strategia precedente e non va toccato finche' il simulatore lo carica.
+
+### 11.1 Perche' lo stato entra nel modello
+
+Il modello precedente prevedeva una proprieta' del mercato ("questa candela e' un buon acquisto") e
+lasciava a un livello sopra il compito di trasformarla in condotta. Qui prevede l'azione, e per
+farlo deve sapere in che stato si trova: **comprare quando si e' gia' dentro non e' un errore di
+previsione, e' un'azione inesistente**. Senza lo stato fra le feature il modello vede due volte la
+stessa candela con due azioni corrette diverse e impara la media delle due, che non e' nessuna
+delle due.
+
+Le azioni non valide si **mascherano a inferenza**, non si puniscono in addestramento: da flat
+esistono solo HOLD e BUY, da long solo HOLD e SELL. Su spot non si vende allo scoperto, quindi SELL
+chiude una posizione e non ne apre una al contrario.
+
+Lo stato e' tre feature scale-free: `STATE_IN`, `STATE_PNL` (rendimento non realizzato) e
+`STATE_BARS` (durata, compressa su 288 barre). Il prefisso e' `STATE_` e non `POS_` perche'
+`build_design_matrix` emette gia' `POS_5`, `POS_8`... per la posizione nel range.
+
+### 11.2 La randomizzazione dello stato — misurata, non postulata
+
+Se lo stato si deduce seguendo l'esperto, il modello vede solo gli stati in cui l'esperto passa, e
+mai una posizione aperta per errore — che e' l'unico tipo di stato in cui si trovera' **quando
+sbagliera'**. Misurato su BTC/ETH dal 2024:
+
+| stato | HOLD | BUY | SELL |
+|---|---|---|---|
+| dedotto dall'esperto | 97,9% | 1,1% | 1,1% |
+| campionato | 77,0% | 12,6% | 10,4% |
+
+**Undici volte gli esempi di ingresso e di uscita.** L'ingresso campionato non e' inventato: si
+estrae *quante barre fa* e si prende la chiusura di allora, quindi il P&L che ne risulta e' un P&L
+che quel mercato ha davvero prodotto. Un P&L estratto da una gaussiana insegnerebbe relazioni fra
+guadagno e contesto che nei dati non esistono.
+
+### 11.3 Punti di lavoro — la soglia bassa vince, ma per un motivo che non regge
+
+`python -m scripts.analysis --operating-points`. Mediana sui 15 simboli, ingresso alla prima barra
+di ogni blocco di segnale, uscita all'estremo della gamba, al netto del costo maker (0,08%
+andata e ritorno). A `capture = 0,30`:
+
+| soglia | ingressi/g | netto mediano/trade | netto medio/trade | netto/giorno |
+|---|---|---|---|---|
+| 0,3% | 75,0 | 0,28% | 0,44% | **0,332%** |
+| 0,4% | 59,4 | 0,36% | 0,53% | 0,314% |
+| 0,5% | 46,6 | 0,43% | 0,62% | 0,294% |
+| 0,8% | 26,3 | 0,64% | 0,91% | 0,242% |
+| 1,0% | 19,7 | 0,78% | 1,10% | 0,217% |
+| 1,5% | 11,4 | 1,11% | 1,55% | 0,176% |
+
+Il netto/giorno premia le soglie basse, e **quel confronto va squalificato**: a previsione perfetta
+ogni ingresso e' in utile (`quota_in_utile` = 100% da `capture` 0,20 in su), quindi la metrica
+misura solo la frequenza. Un ranking che dice "fai piu' trade" quando non si sbaglia mai non dice
+niente su cosa fare quando si sbaglia.
+
+**Il numero che decide e' il netto per trade**, perche' e' il cuscinetto contro l'errore del
+modello. A soglia 0,3% il margine mediano e' 0,28%: un modello che cattura meta' della gamba
+perfetta finisce a 0,10%, cioe' poco piu' del costo. A 1,5% il margine e' 1,11% e la stessa meta'
+lascia 0,47%. La soglia bassa e' fragile esattamente dove il modello e' debole.
+
+Quale delle due sopravviva e' una domanda empirica, e la risposta sta in §11.4: entrambe le bande
+sono state addestrate e valutate su CPCV.
+
+### 11.4 DAgger e valutazione
+
+La metrica primaria e' **il rendimento di una traiettoria simulata, non la precision**. In una
+politica sequenziale le due divergono per costruzione: la precision si misura sugli stati
+dell'esperto, il P&L su quelli in cui la politica finisce da sola. Un modello con ottima precision
+che perde soldi e' il caso normale, non quello patologico.
+
+Il rollout e' sequenziale — l'azione di adesso decide lo stato di dopo — e questo lo renderebbe
+insostenibile. `dagger.py` batcha gli **episodi**: la serie si spezza in tratti indipendenti che
+avanzano in parallelo, e mezzo milione di chiamate a `predict` per simbolo diventa duemila da
+qualche centinaio di righe.
+
+L'embargo del CPCV e' dimensionato sul **p95 della durata delle gambe**, non sulla mediana: qui
+`t_exit` e' il pivot successivo confermato, quindi l'orizzonte e' variabile ed e' la coda a
+decidere quanto futuro condividono due fold contigui.
+
+---
+
+## 12. Risultati della politica a tre azioni — **negativi**
+
+15 simboli, barre 5m dal 2022-01-01, 1.217.715 righe x 83 feature, `HistGradientBoosting`, 2
+iterazioni DAgger, costo maker 0,08% andata e ritorno.
+Riprodotto con `python -m cryptofarm.ml.policy_trainer --extremes-per-day 8 12`.
+
+### 12.1 Banda alta (8–12 estremi/giorno)
+
+| | operazioni | trade/g | lordo | netto | win rate | netto/giorno |
+|---|---|---|---|---|---|---|
+| in-sample | 58.866 | 2,32 | **+0,032%** | −0,048% | 36,6% | −0,111% |
+| CPCV, mediana su 15 split | — | 2,33 | negativo su 15/15 | — | ~32,6% | **−0,306%** |
+| CPCV, split peggiore | 17.027 | 2,01 | −0,156% | −0,236% | 29,8% | −0,476% |
+| holdout con DAgger | 10.483 | 1,65 | −0,123% | −0,203% | 32,6% | −0,336% |
+
+**Split in utile: 0 su 15.** Il lordo fuori campione sta fra −0,013% e −0,156%: non e' piccolo e
+positivo, e' negativo.
+
+**Il fatto piu' informativo non e' l'out-of-sample, e' l'in-sample.** Il lordo in-sample vale
++0,032% contro un costo di 0,08%: il modello non batte le commissioni **nemmeno sui dati su cui e'
+stato addestrato**. Non e' principalmente overfitting — un modello che overfitta almeno sembra
+bravo in-sample. Qui il target non e' apprendibile da queste feature, punto.
+
+### 12.2 La soglia di decisione non e' una leva
+
+Sweep sull'holdout, senza riaddestrare:
+
+| soglia | operazioni | trade/g | lordo | win rate |
+|---|---|---|---|---|
+| 0,5 | 10.483 | 1,65 | −0,123% | 32,6% |
+| 0,6 | 2.724 | 0,43 | −0,107% | 40,4% |
+| 0,7 | 675 | 0,11 | −0,112% | 41,8% |
+| 0,8 | 187 | 0,03 | −0,047% | 39,6% |
+| 0,9 | 22 | 0,00 | +0,636% | 54,5% |
+
+Il win rate sale con la soglia ma **il lordo resta negativo**: le operazioni selezionate sono piu'
+spesso vincenti e mediamente peggiori, cioe' il modello scarta i guadagni grandi insieme alle
+perdite. La riga a 0,9 sono 22 operazioni, rumore. **La confidenza del modello non e' correlata
+all'avere ragione**: non c'e' nemmeno un ranking sfruttabile, che e' l'ultima cosa che di solito
+sopravvive a un classificatore debole.
+
+### 12.3 Banda bassa (40–60 estremi/giorno) — peggiore, come previsto
+
+| | operazioni | trade/g | lordo | netto | netto/giorno |
+|---|---|---|---|---|---|
+| in-sample | 314.103 | 12,38 | +0,009% | −0,071% | −0,880% |
+| CPCV, mediana su 15 split | — | 11,29 | ≈0 (da −0,009% a +0,006%) | ≈−0,080% | **−0,907%** |
+| holdout con DAgger | 63.293 | 9,98 | −0,011% | −0,091% | −0,909% |
+
+Sempre 0 split in utile su 15. Il lordo qui e' **zero**, non negativo: il modello e' una moneta e il
+costo si prende tutto. Conferma il ragionamento di §11.3 — il vantaggio della soglia bassa a
+previsione perfetta era un artefatto della frequenza, e con un modello reale piu' trade significa
+solo pagare piu' costo con meno margine.
+
+### 12.4 Attribuzione: gli ingressi sembrano valere, ma solo con un'uscita impossibile
+
+Stessi ingressi della politica, quattro uscite a confronto. Holdout fuori campione:
+
+| uscita | banda bassa | banda alta |
+|---|---|---|
+| della politica | −0,011% | −0,123% |
+| **alla conferma del massimo (causale)** | **−0,010%** | **−0,064%** |
+| dell'esperto (prima barra SELL, *lookahead*) | +0,131% | +0,301% |
+| perfetta, all'estremo (*irraggiungibile*) | +0,203% | +0,917% |
+| controllo — ingressi a caso, uscita perfetta | −0,001% | −0,009% |
+| controllo — ingressi a caso, uscita alla conferma | −0,006% | −0,056% |
+| **vantaggio dell'ingresso, uscita perfetta** | +0,204% | +0,925% |
+| **vantaggio dell'ingresso, uscita eseguibile** | **−0,004%** | **−0,008%** |
+
+La lettura va fatta in due tempi, e il primo tempo inganna.
+
+Con l'uscita perfetta gli ingressi sembrano portare +0,204% (banda bassa) e +0,925% (alta) sopra il
+caso, e il controllo esclude che sia un artefatto: entrare a caso e uscire all'estremo rende zero,
+perche' meta' delle barre sta in una gamba al rialzo e meta' in una al ribasso.
+
+Con l'uscita **eseguibile** il vantaggio e' −0,004% e −0,008%: **zero**. Sulla banda alta gli
+ingressi del modello (−0,064%) sono perfino leggermente peggiori di quelli casuali (−0,056%).
+
+Il divario fra le due righe non e' un difetto del modello. L'uscita perfetta e' precisamente il modo
+di **non pagare la seconda soglia di conferma**, ed e' tutto li' il +0,925%. Il §13 lo misura senza
+alcun modello di mezzo.
+
+### 12.5 Cosa questo esclude
+
+Non e' un problema di **implementazione**, e le esclusioni sono misurate una per una:
+
+- **etichettatura** — la correzione di §10.4 e' applicata, e a previsione perfetta la stessa
+  etichetta rende 0,64% netto per operazione (§11.3): il target e' economicamente sensato;
+- **stato della posizione** — le tre feature ci sono, il mascheramento funziona, e la
+  randomizzazione fornisce 11 volte gli esempi di ingresso/uscita (§11.2);
+- **errore di composizione della traiettoria** — il DAgger raccoglie 913.000 righe con un
+  disaccordo del 13–19%, quindi sta facendo il suo lavoro;
+- **overfitting** — l'in-sample e' gia' sotto il costo;
+- **soglia di decisione** — nessun valore la salva (§12.6);
+- **punto di lavoro** — entrambe le bande, a 2,3 e a 11,3 trade al giorno, danno 0 split in utile
+  su 15.
+
+Non resta nessuna leva di implementazione, ed e' il momento di smettere di cercarne: il §13 mostra
+che il problema sta un livello sotto.
+
+### 12.6 La soglia di decisione non e' una leva
+
+Sweep sull'holdout della banda alta, senza riaddestrare:
+
+| soglia | operazioni | trade/g | lordo | win rate |
+|---|---|---|---|---|
+| 0,5 | 10.483 | 1,65 | −0,123% | 32,6% |
+| 0,6 | 2.724 | 0,43 | −0,107% | 40,4% |
+| 0,7 | 675 | 0,11 | −0,112% | 41,8% |
+| 0,8 | 187 | 0,03 | −0,047% | 39,6% |
+| 0,9 | 22 | 0,00 | +0,636% | 54,5% |
+
+Il win rate sale con la soglia ma **il lordo resta negativo**: le operazioni selezionate sono piu'
+spesso vincenti e mediamente peggiori, cioe' il modello scarta i guadagni grandi insieme alle
+perdite. La riga a 0,9 sono 22 operazioni, rumore.
+
+---
+
+## 13. La tassa di conferma — perché niente di tutto questo poteva funzionare
+
+`python -m scripts.analysis --confirmation-tax`. Nessun modello, nessuna feature, nessun
+addestramento: solo i pivot e i prezzi.
+
+### 13.1 Il conto
+
+Entrare **alla conferma** di un minimo costa una soglia: quando il minimo diventa conoscibile il
+prezzo si e' gia' mosso di tanto. Uscire **alla conferma** di un massimo ne costa un'altra. Quello
+che resta e':
+
+    catturato = gamba − 2 × soglia
+
+E la gamba mediana misurata (§10.1) vale **1,76–2,05 soglie**. Il conto e' negativo per costruzione.
+
+### 13.2 La misura, su 15 simboli
+
+Gambe al rialzo, ingresso alla conferma del minimo, uscita alla conferma del massimo che le chiude:
+
+| soglia | gamba/soglia | catturato mediano | **catturato medio** | quota sopra il costo |
+|---|---|---|---|---|
+| 0,4% | 2,05 | −0,10% | **−0,0000%** | 32,1% |
+| 0,8% | 1,83 | −0,22% | **−0,0001%** | 33,7% |
+| 1,5% | 1,76 | −0,44% | **+0,0000%** | 34,8% |
+
+**Il catturato medio e' zero a quattro decimali, su ogni simbolo e a ogni soglia** (la dispersione
+fra i 15 simboli a soglia 0,8% va da −0,0002% a +0,0007%). Entrare a conferma e uscire a conferma e'
+esattamente a somma nulla **prima** dei costi.
+
+Non e' un risultato sul modello: e' una proprieta' dello schema di directional change. La conferma
+si paga due volte, e la gamba tipica ne vale meno di due.
+
+### 13.3 Cosa spiega
+
+Tutto il §12, e retroattivamente anche il §8bis:
+
+- perche' l'edge lordo e' zero o negativo dovunque, dentro e fuori campione;
+- perche' alzare la soglia di decisione non aiuta: seleziona operazioni piu' spesso vincenti e
+  mediamente peggiori, che e' cio' che succede quando il segnale non c'e';
+- perche' il vantaggio dell'ingresso sparisce passando dall'uscita perfetta a quella eseguibile:
+  l'uscita perfetta e' *esattamente* il modo di non pagare la seconda soglia;
+- perche' due strategie diverse, con target e architetture diverse, hanno trovato lo stesso muro:
+  entrambe pagavano una forma di attesa di conferma, e nessuna delle due ha mai misurato quanto
+  costasse.
+
+### 13.4 Cosa resta, ed e' l'unica cosa che sia mai stata in gioco
+
+**Il 33–35% delle gambe supera comunque il costo.** La media e' zero perche' la coda destra paga la
+maggioranza che non paga. Selezionare quella coda non e' un miglioramento del piano: e' il piano,
+e non era stato formulato cosi'.
+
+Ne segue una riformulazione precisa e molto piu' economica da provare:
+
+> Alla barra di conferma di un minimo, prevedere se **questa** gamba superera' `2 × soglia + costo`.
+
+E' una classificazione binaria su **~10 eventi al giorno per simbolo** invece di una politica per
+barra su 487.000 barre, il campione e' bilanciato per costruzione (33-35% di positivi), il target
+e' definito su quantita' interamente causali, e il valore atteso di un modello con AUC anche solo
+0,58 e' calcolabile in anticipo dalla distribuzione delle gambe gia' misurata.
+
+Non e' garantito che funzioni — le feature sono le stesse che hanno gia' fallito due volte. Ma e'
+la prima formulazione in cui **il vincolo economico e' dentro il target** invece che scoperto dopo,
+e costa un'ora di calcolo invece di una giornata.
+
+Le altre due leve restano quelle di §3.2 e §6.2, e ora hanno una priorita' chiara: dati di
+**microstruttura** (`aggTrades`), che e' l'unica informazione che il modello non ha mai avuto, e il
+**modello di riempimento maker** (Fase 0.3), senza il quale nessun numero in modalita' maker e'
+verificabile.
+
+---
+
+## 14. Stato del codice rispetto a questo documento (2026-08-21)
+
+Verificato leggendo il codice, non ricordandolo. **Dove questa tabella e le sezioni precedenti
+divergono, vale questa**: sono i valori con cui il codice gira oggi, e le decisioni piu' vecchie
+vanno lette come il ragionamento che ci ha portati qui, non come lo stato attuale.
+
+| Cosa dice il documento | Cosa fa il codice | Dove |
+|---|---|---|
+| §2.1: «Ripristinare `TP_ATR_MULTIPLE = 2.0`» | `TP_ATR_MULTIPLE = 1.5`, `SL_ATR_MULTIPLE = 1.0`, `HORIZON_BARS = 96`. Stessi valori in `meta_trainer` (`TP_MULTIPLE`/`SL_MULTIPLE`) | `ml/labeling.py:48-50` |
+| §5.5: «il PBO va riportato accanto a ogni risultato» | Calcolato e stampato nel **meta-labeling**, insieme al Deflated Sharpe. **Assente** nella politica a tre azioni | ha: `ml/meta_trainer.py:253`; non ha: `ml/policy_trainer.py` |
+| §8bis: pesare le righe per `\|rendimento\| × unicita'` | Applicato nel meta-labeling (`sample_weight=attribution`). **Assente** nella politica | ha: `ml/meta_trainer.py:193`; non ha: `ml/policy_trainer.py` |
+| §1.4: «il tempo trascorso dall'evento precedente diventa esso stesso una feature» | Non presente: `FEATURES` si ferma a prezzi, RSI, STOCH, ATR, TSI, volume e timeframe | `ml/features.py:32` |
+| Fase 0.4: `data/microstructure.py` | Non esiste. Il gate di §0.3 («il modello di fill e' validato contro `aggTrades` reali») resta non soddisfatto: `limit_fills` e' una regola di tocco deterministica | `src/cryptofarm/data/` |
+| §4.3: «Non ora» sui modelli sequenziali | `models.py` costruisce ancora `gru`, `cnn` e `lstm` dietro `--model`; il default e' `gbdt` | `ml/models.py` |
+
+Due note che non sono divergenze ma erano riportate male altrove:
+
+- Il flag di ogni misura di `scripts/analysis.py` e' il nome in `MEASURES` con i trattini bassi
+  sostituiti da trattini (`barrier_capacity` → `--barrier-capacity`). `--capacity` non esiste.
+- `capture` e' stata esplorata fino a 0,40 (`OPERATING_CAPTURES`). L'opzione 1 di §10.4 era portarla
+  a 0,85 e **non e' mai stata misurata**: resta aperta, vedi `HANDOFF.md`.
+
+### Correzione al CPCV di §12.1 e §12.3
+
+`_cpcv` riduceva il blocco di test a `[min, max]` dei suoi `t_start` e faceva girare il backtest su
+tutto quell'intervallo. `CombinatorialPurgedCV` pero' sceglie combinazioni di gruppi che quasi mai
+sono adiacenti: su C(6,2) = 15 split solo 5 lo sono, e per gli altri 10 l'intervallo unico copriva
+anche i gruppi di training che stavano in mezzo.
+
+**I numeri CPCV di §12.1 e §12.3 sono quindi ottimistici su 10 split su 15 e vanno rimisurati.** Il
+verdetto negativo regge — una politica che perde su dati gia' visti perde anche su dati nuovi — ma i
+valori no. `_holdout` e il CPCV di `meta_trainer` non erano interessati.
+
+Corretto in `ml/policy_trainer.py` (`_test_windows`), con regressione in
+`tests/test_validation.py`. Anche il denominatore di `netto_giorno` cambia: era la distanza fra la
+prima e l'ultima riga di test, che su gruppi non adiacenti includeva il training in mezzo.
+
+## Riproducibilità
+
+Le misure **conservate e rieseguibili** stanno in `scripts/analysis.py`, che le calcola e le mette
+in cache in `analysis_cache/` (gitignorata, rigenerabile):
+
+    python -m scripts.analysis --all                # calcola tutto
+    python -m scripts.analysis --barrier-capacity   # una sola misura
+
+Il flag di ogni misura e' il suo nome in `MEASURES` con i trattini bassi sostituiti da trattini:
+`barrier_capacity` diventa `--barrier-capacity`. `python -m scripts.analysis --help` li elenca.
+
+La pagina Streamlit che le visualizzava (`app/analysis_dashboard.py`) e' stata spostata in
+`backup/unused/` nel 2026-08 insieme al resto di `app/`: le stesse misure escono da riga di comando.
+
+| misura | funzione in `scripts/analysis.py` | sezione |
+|---|---|---|
+| Copertura dello store | `store_coverage` | §1.1 |
+| Regimi di mercato | `market_regimes` | §1.2 |
+| Tempo al target, con e senza censura | `time_to_target` | §1.3 |
+| Eventi CUSUM per simbolo e soglia | `cusum_rates` | §1.4 |
+| Holding time reale e capacità | `barrier_capacity` | §1.5 |
+| Break-even ed expectancy misurati | `break_even_table` | §2.2 |
+| Confronto con random walk | `random_walk_comparison` | §1.5 |
+| Posizioni concorrenti a portafoglio | `portfolio_concurrency` | §1.5 |
+| Ritardo di conferma dei pivot per simbolo e soglia | `pivot_delays` | §10.2 |
+| Soglia tarata e distribuzione delle classi | `pivot_labels` | §10.3, §10.4 |
+| Economia netta per punto di lavoro (soglia x capture) | `operating_points` | §11.3 |
+| Tassa di conferma: catturato entrando e uscendo a conferma | `confirmation_tax` | §13.2 |
+
+### Misure non conservate — debito noto
+
+Alcune misure citate in questo documento sono state prodotte da script vissuti solo nella
+directory temporanea di sessione, e **non esistono più**. I loro numeri restano validi (sono
+riportati qui), ma non sono rieseguibili senza riscrivere lo script:
+
+| misura | sezione | stato |
+|---|---|---|
+| Confronto LSTM / gradient boosting | §4.1 | da riscrivere se serve rifare il confronto |
+| Sweep delle configurazioni di labeling e barriere | §2, §8bis | da riscrivere |
+| Ritardo di conferma dei pivot e conteggio strutture | §7.1, §7.2 | **sostituito**: `pivot_delays` e `pivot_labels` in `scripts/analysis.py` lo ricalcolano su tutti i simboli (§10) |
+| Verifica dei segnali end-to-end nel simulatore | §8bis | da riscrivere |
+
+Chi riprende il lavoro e ha bisogno di uno di questi numeri lo rimisuri invece di fidarsi: sono
+corretti al momento della scrittura, ma nessuno li ricalcola automaticamente se i dati cambiano.

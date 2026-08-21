@@ -1,485 +1,388 @@
+"""Orchestrazione dell'addestramento: dallo store di candele al modello salvato.
+
+Questo file non contiene logica propria. Le feature stanno in `features.py`, le etichette in
+`labeling.py`, la costruzione della matrice in `dataset.py`, i modelli in `models.py`, le
+metriche in `evaluate.py`. Qui c'e' solo l'ordine in cui vengono usati e la configurazione.
+
+    python -m cryptofarm.ml.trainer                    # addestra con la configurazione di default
+    python -m cryptofarm.ml.trainer --model gru        # con un modello sequenziale
+    python -m cryptofarm.ml.trainer --symbols BTCUSDT --intervals 15m
+
+Prerequisito: lo store di candele. Si popola con `python -m cryptofarm.data.klines --update`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from numpy.lib.stride_tricks import sliding_window_view
-from scipy.signal import argrelextrema
-from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.utils.class_weight import compute_class_weight
-from ta.momentum import RSIIndicator, StochasticOscillator, TSIIndicator
-from ta.volatility import AverageTrueRange
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from tensorflow.keras.layers import LSTM, BatchNormalization, Bidirectional, Dense, Dropout, Input
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.optimizers import Adam
 
+from cryptofarm.data.klines import DEFAULT_SYMBOLS, interval_to_minutes, load_klines
+from cryptofarm.ml import evaluate
+from cryptofarm.ml.dataset import DEFAULT_STRIDE, LAGS, build_samples, time_split
+from cryptofarm.ml.features import build_feature_frame
+from cryptofarm.ml.labeling import (
+    BUY,
+    FEE_FLOOR_MULTIPLE,
+    HORIZON_BARS,
+    ROUND_TRIP_FEE,
+    SL_ATR_MULTIPLE,
+    TP_ATR_MULTIPLE,
+    barrier_widths,
+    format_distribution,
+    triple_barrier_labels,
+)
+from cryptofarm.ml.models import build_model, fit_model, load_model, predict_proba, save_model
+from cryptofarm.ml.signals import buy_probabilities
 from cryptofarm.paths import MODELS_DIR
 
-FEATURES = [
-    "Open",
-    "High",
-    "Low",
-    "Close",
-    "RSI",
-    "STOCH",
-    "STOCH_S",
-    "ATR",
-    "TSI",
-]  # ,'EMA20','EMA50','EMA100','EMA200']
-
-# Configurazioni principali
-EXT_WINDOW_SIZE = 100  # Dimensione della finestra temporale per min max
-WINDOW_SIZE = 50  # Dimensione della finestra temporale per le sequenze
-
-ATR_WINDOW = 6  # Periodo dell'ATR
-RSI_WINDOW = 12  # Periodo dell'RSI
+INTERVALS = ["5m", "15m", "30m", "1h"]
+TRAIN_FRACTION = 0.8
+# Sotto questa probabilita' di "buy" il modello non opera. Il valore di default e' un punto di
+# partenza: quello giusto lo stabilisce lo sweep sull'aspettativa a fine addestramento.
+DEFAULT_DECISION_THRESHOLD = 0.5
+MODEL_NAME = "signal_model"
 
 
-def prepare_df_from_csv(csv_file: str):
-    # Caricamento dati
-    raw_df = pd.read_csv(csv_file)
-    raw_df["Open time"] = pd.to_datetime(raw_df["Open time"])
-    raw_df.set_index("Open time", inplace=True)
-    # Mantieni solo le colonne essenziali, converti a float
-    df = raw_df[["Open", "High", "Low", "Close"]].astype(float)
-    df = add_technical_indicator(df=df, rsi_window=RSI_WINDOW, atr_window=ATR_WINDOW)
-    df = calculate_relative_extrema(df)
-
-    # data normalization
-    df_transformed = calculate_percentage_changes(df)
-    df_transformed.dropna(inplace=True)
-    # featuress = FEATURES
-    # featuress.append('Label')
-    df_transformed = df_transformed[FEATURES + ["Label"]]
-    # df_transformed, scaler = normalize_features(df)
-
-    return df_transformed
+def _git_commit() -> str:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    except Exception:
+        return "unknown"
 
 
-def add_technical_indicator(df, rsi_window=12, atr_window=6):
-    print("add_technical_indicators")
-    df_copy = df.copy()
+def build_dataset(
+    symbols: list[str],
+    intervals: list[str],
+    horizon: int = HORIZON_BARS,
+    stride: int = DEFAULT_STRIDE,
+    verbose: bool = True,
+) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
+    """Assembla la matrice di addestramento su tutte le coppie simbolo/timeframe.
 
-    # Calcolo dell'RSI
-    rsi_indicator = RSIIndicator(close=df_copy["Close"], window=rsi_window)
-    df_copy["RSI"] = rsi_indicator.rsi()
-
-    # ATR
-    atr_indicator = AverageTrueRange(
-        high=df_copy["High"], low=df_copy["Low"], close=df_copy["Close"], window=atr_window
-    )
-    df_copy["ATR"] = atr_indicator.average_true_range()
-
-    # STOCASTICO
-    stoch_indicator = StochasticOscillator(
-        high=df_copy["High"], low=df_copy["Low"], close=df_copy["Close"], window=rsi_window, smooth_window=3
-    )
-    df_copy["STOCH"] = stoch_indicator.stoch()
-    df_copy["STOCH_S"] = stoch_indicator.stoch_signal()
-
-    tsi_indicator = TSIIndicator(
-        close=df_copy["Close"],
-        window_slow=25,
-        window_fast=13,
-    )
-    df_copy["TSI"] = tsi_indicator.tsi()
-
-    # EMA (Media Mobile per le Rolling ATR Bands)
-    # ema_indicator = EMAIndicator(close=df_copy['Close'], window=20)
-    # df_copy['EMA20'] = ema_indicator.ema_indicator()
-    # df_copy['EMA20'] = df_copy['EMA20'] / df_copy['Close']
-    # ema_indicator = EMAIndicator(close=df_copy['Close'], window=50)
-    # df_copy['EMA50'] = ema_indicator.ema_indicator()
-    # df_copy['EMA50'] = df_copy['EMA50'] / df_copy['Close']
-    # ema_indicator = EMAIndicator(close=df_copy['Close'], window=100)
-    # df_copy['EMA100'] = ema_indicator.ema_indicator()
-    # df_copy['EMA100'] = df_copy['EMA100'] / df_copy['Close']
-    # emao_indicator = EMAIndicator(close=df_copy['Open'], window=200)
-    # df_copy['EMA200'] = emao_indicator.ema_indicator()
-    # df_copy['EMA200'] = df_copy['EMA200'] / df_copy['Open']
-
-    df_copy.fillna(0, inplace=True)
-
-    return df_copy
-
-
-# trasforma il dataframe in ingresso in variazioni percentuali rispetto alla chiusura precedente
-def calculate_percentage_changes(df):
-    print("calculate_percentage_changes")
-
-    # Copia del DataFrame per non sovrascrivere i dati originali
-    df_transformed = df.copy()
-    # Calcolo delle variazioni percentuali rispetto alla chiusura precedente
-    df_transformed["Open_Perc"] = (df["Open"] - df["Close"].shift(1)) / df["Close"].shift(1) * 100
-    df_transformed["High_Perc"] = (df["High"] - df["Close"].shift(1)) / df["Close"].shift(1) * 100
-    df_transformed["Low_Perc"] = (df["Low"] - df["Close"].shift(1)) / df["Close"].shift(1) * 100
-    df_transformed["Close_Perc"] = (df["Close"] - df["Close"].shift(1)) / df["Close"].shift(1) * 100
-
-    # Gestione della prima riga: uso df.loc[0] (o il primo index se diverso)
-    df_transformed.iloc[0, df_transformed.columns.get_loc("Open_Perc")] = 0
-    base_open = df.iloc[0]["Open"]
-
-    df_transformed.iloc[0, df_transformed.columns.get_loc("High_Perc")] = (
-        (df.iloc[0]["High"] - base_open) / base_open * 100
-    )
-    df_transformed.iloc[0, df_transformed.columns.get_loc("Low_Perc")] = (
-        (df.iloc[0]["Low"] - base_open) / base_open * 100
-    )
-    df_transformed.iloc[0, df_transformed.columns.get_loc("Close_Perc")] = (
-        (df.iloc[0]["Close"] - base_open) / base_open * 100
-    )
-
-    # df_transformed['Volume_Perc'] = (df['Volume'] - df['Volume'].shift(1)) / df['Volume'].shift(1) * 100
-    # Rimuove i valori NaN (la prima riga avrà NaN dopo la trasformazione)
-    df_transformed = df_transformed.dropna()
-    # df_transformed = df_transformed.fillna(0, inplace=True)
-    # Aggiustamento per garantire la continuità: ogni riga accumula la chiusura percentuale di
-    # tutte le righe precedenti. Equivalente alla cumsum di Close_Perc (dimostrabile per induzione:
-    # prev_close dopo la riga i == Close_Perc_raw[0] + ... + Close_Perc_raw[i] == cumsum(Close_Perc_raw)[i]),
-    # ma vettorizzato invece di un loop Python riga-per-riga (che con decine di migliaia di righe
-    # diventa il collo di bottiglia della pipeline).
-    prev_close = df_transformed["Close_Perc"].cumsum().shift(1, fill_value=0)
-    df_transformed["Open_Perc"] = df_transformed["Open_Perc"] + prev_close
-    df_transformed["High_Perc"] = df_transformed["High_Perc"] + prev_close
-    df_transformed["Low_Perc"] = df_transformed["Low_Perc"] + prev_close
-    df_transformed["Close_Perc"] = df_transformed["Close_Perc"].cumsum()
-    df_transformed["Open"] = df_transformed["Open_Perc"]
-    df_transformed["High"] = df_transformed["High_Perc"]
-    df_transformed["Low"] = df_transformed["Low_Perc"]
-    df_transformed["Close"] = df_transformed["Close_Perc"]
-
-    df_transformed.fillna(0, inplace=True)
-    # df_transformed['Volume'] = df_transformed['Volume_Perc']
-    # df_final = df_transformed[['Open', 'High', 'Low', 'Close']].astype(float)
-
-    return df_transformed
-
-
-# Calcolo dei massimi e minimi relativi
-def calculate_relative_extrema(data, window_pivot=EXT_WINDOW_SIZE):
-    print("calculate_relative_extrema")
-    price_high = data["High"]
-    price_low = data["Low"]
-    order = int(window_pivot / 2)
-    # Trova gli indici dei massimi e minimi relativi
-    max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
-    min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
-    # Inizializza colonna etichette
-    data["Label"] = 0
-    for i in max_idx:
-        # data.loc[data.index[i-1], 'Label'] = 2  # Massimo relativo
-        data.loc[data.index[i], "Label"] = 2  # Massimo relativo
-        # data.loc[data.index[i+1], 'Label'] = 2  # Massimo relativo
-    for i in min_idx:
-        # data.loc[data.index[i-1], 'Label'] = 1  # Minimo relativo
-        data.loc[data.index[i], "Label"] = 1  # Minimo relativo
-        # data.loc[data.index[i+1], 'Label'] = 1  # Minimo relativo
-    return data
-
-
-# Ora bilancia solo il TRAIN SET
-def balance_data(X, y):
-    idx0 = np.where(y == 0)[0]
-    idx1 = np.where(y == 1)[0]
-    idx2 = np.where(y == 2)[0]
-    min_len = min(len(idx0), len(idx1), len(idx2))
-
-    idx0 = np.random.choice(idx0, min_len * 10, replace=False)
-    idx1 = np.random.choice(idx1, min_len, replace=False)
-    idx2 = np.random.choice(idx2, min_len, replace=False)
-
-    idx_total = np.concatenate([idx0, idx1, idx2])
-    np.random.shuffle(idx_total)
-
-    return X[idx_total], y[idx_total]
-
-
-# Crea le sequenze da passare al modello per l'addestramento
-# ogni sequenza inzia da 0 e varia in punti percentuale
-def create_sequences(data, features, window_size):
+    Restituisce anche un frame di contesto (simbolo, timeframe, barriere effettive) che non
+    entra nel modello ma serve alla valutazione economica: l'aspettativa per operazione dipende
+    dall'ampiezza delle barriere delle candele effettivamente selezionate.
     """
-    Crea sequenze temporali bilanciate con target equamente distribuiti tra le classi 0, 1, 2.
-    Sottrae a ogni sequenza il valore di apertura della prima riga della finestra.
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        Dataset contenente i dati con le colonne richieste.
-    features : list
-        Lista di colonne usate come feature per creare le sequenze.
-    window_size : int
-        Lunghezza della finestra temporale (numero di step).
+    matrices, labels, contexts = [], [], []
 
-    Returns
-    -------
-    X_balanced : numpy.ndarray
-        Sequenze bilanciate (shape: [num_samples, window_size, num_features]).
-    y_balanced : numpy.ndarray
-        Etichette bilanciate corrispondenti alle sequenze.
-    """
-    print("Create_sequences")
+    for symbol in symbols:
+        base = load_klines(symbol)
+        if base.empty:
+            print(f"[{symbol}] assente dallo store, saltato")
+            continue
 
-    df_copy = data[features + ["Label"]].copy()
-    num_sequences = len(df_copy) - window_size
-    if num_sequences <= 0:
-        return np.empty((0, window_size, len(features))), np.empty((0,))
+        for interval in intervals:
+            candles = load_klines(symbol, interval)
+            features = build_feature_frame(candles, interval)
+            if len(features) < horizon * 4:
+                continue
 
-    # Finestre scorrevoli vettorizzate (equivalenti al loop Python precedente, ma senza il costo di
-    # migliaia di accessi .iloc riga per riga, che diventa proibitivo su dataset di decine di
-    # migliaia di candele).
-    values = df_copy[features].to_numpy(dtype=float)
-    windows = sliding_window_view(values, window_shape=window_size, axis=0)
-    windows = np.moveaxis(windows, -1, 1)[:num_sequences].copy()
+            label_series = triple_barrier_labels(features, horizon=horizon)
+            matrix, selected_labels = build_samples(
+                features,
+                label_series,
+                expected_minutes=interval_to_minutes(interval),
+                horizon=horizon,
+                stride=stride,
+            )
+            if matrix.empty:
+                continue
 
-    # Sottrae a ogni finestra il valore di apertura della sua prima riga (solo colonne di prezzo).
-    open_index = features.index("Open")
-    window_open = values[:num_sequences, open_index]
-    price_columns = [j for j, feature in enumerate(features) if feature in ("Open", "High", "Low", "Close")]
-    for j in price_columns:
-        windows[:, :, j] -= window_open[:, None]
+            take_profit, stop_loss = barrier_widths(features["ATR"])
+            positions = features.index.get_indexer(matrix.index)
+            contexts.append(
+                pd.DataFrame(
+                    {
+                        "symbol": symbol,
+                        "interval": interval,
+                        "take_profit": take_profit[positions],
+                        "stop_loss": stop_loss[positions],
+                    },
+                    index=matrix.index,
+                )
+            )
+            matrices.append(matrix)
+            labels.append(selected_labels)
+            if verbose:
+                print(
+                    f"[{symbol} {interval}] {len(matrix)} righe "
+                    f"({matrix.index[0]:%Y-%m-%d} .. {matrix.index[-1]:%Y-%m-%d})",
+                    flush=True,
+                )
 
-    X = windows
-    # Etichetta del punto immediatamente successivo a ciascuna finestra.
-    y = df_copy["Label"].to_numpy()[window_size:]
+    if not matrices:
+        raise RuntimeError("Nessun dato utilizzabile: popolare lo store con `cryptofarm.data.klines --update`")
 
-    return X, y
-
-
-def get_model_predictions(df, model):
-    data = df.copy()
-    data.fillna(0, inplace=True)
-    data = data[FEATURES]
-    data["Label"] = 0
-    df_transformed = calculate_percentage_changes(data)
-    # df_transformed.dropna(inplace=True)
-    # df_transformed, scaler = normalize_features(df_transformed)
-
-    X, y = create_sequences(df_transformed, FEATURES, WINDOW_SIZE)
-
-    print("Model input:", model.input_shape)
-    print("X shape:", X.shape)
-
-    y = model.predict(X, verbose=0)
-    # preds_class = np.argmax(preds, axis=1)  # Se output one-hot, es: [0, 1, 0]
-    y = np.nan_to_num(y, nan=0.0)
-    # Verifica che la lunghezza coincida
-    if len(df) - WINDOW_SIZE != y.shape[0]:
-        raise ValueError("Dimension mismatch: df vs model predictions")
-
-    # Allinea con l'indice originale del DataFrame
-    df_preds = df.iloc[WINDOW_SIZE:].copy()
-
-    preds = np.zeros(y.shape[0], dtype=int)
-    # Troviamo l'indice della classe con probabilità massima
-    max_probs = np.max(y, axis=1)
-    # max_probs[not max_probs] = 0  # Imposta a 0 le probabilità sotto la soglia
-    max_classes = np.argmax(y, axis=1)
-    preds = np.where(max_probs > 0.6, max_classes, 0)
-    df_preds["Prediction"] = preds
-    # df_preds['Prediction'] = np.argmax(y, axis=1)  # Converte le probabilità in classi
-
-    return df_preds
+    return pd.concat(matrices), pd.concat(labels), pd.concat(contexts)
 
 
-# Funzione per normalizzare le feature numeriche
-def normalize_features(df, scaler=None):
-    print("Normalize features")
-    numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns
-    if scaler is None:
-        scaler = MinMaxScaler()
-        df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+def train(
+    symbols: list[str],
+    intervals: list[str],
+    model_kind: str = "gbdt",
+    horizon: int = HORIZON_BARS,
+    stride: int = DEFAULT_STRIDE,
+) -> dict:
+    started = time.time()
+    print(f"Costruzione del dataset da {len(symbols)} simboli x {len(intervals)} timeframe\n")
+    X, y, context = build_dataset(symbols, intervals, horizon, stride)
+
+    print(f"\n{format_distribution(y.to_numpy(), 'dataset completo')}")
+    print(f"Matrice: {X.shape[0]:,} righe x {X.shape[1]} feature = {X.memory_usage(deep=True).sum() / 1e6:.0f} MB")
+
+    # L'embargo copre l'orizzonte dell'etichetta sul timeframe piu' lungo: e' li' che due righe a
+    # cavallo del taglio condividono piu' futuro.
+    longest = max(interval_to_minutes(interval) for interval in intervals)
+    embargo = pd.Timedelta(minutes=longest * horizon)
+    train_mask, validation_mask = time_split(X.index, TRAIN_FRACTION, embargo)
+    print(
+        f"\nSplit temporale globale con embargo di {embargo}: "
+        f"train {train_mask.sum():,} righe, validation {validation_mask.sum():,} righe"
+    )
+    print(f"  train fino al   {X.index[train_mask].max():%Y-%m-%d}")
+    print(f"  validation dal  {X.index[validation_mask].min():%Y-%m-%d}")
+    print(format_distribution(y.to_numpy()[train_mask], "training"))
+    print(format_distribution(y.to_numpy()[validation_mask], "validation"))
+
+    # Una sola conversione: `to_numpy()` copia, e su milioni di righe ripeterla tre volte
+    # significa tre gigabyte invece di uno.
+    values = X.to_numpy()
+    all_labels = y.to_numpy()
+    X_train = values[train_mask]
+    y_train = all_labels[train_mask]
+    X_validation = values[validation_mask]
+    y_validation = all_labels[validation_mask]
+    del values
+
+    print(f"\nAddestramento del modello '{model_kind}'...", flush=True)
+    fit_started = time.time()
+    model = build_model(model_kind, input_shape=X_train.shape[1:])
+    fit_model(model, X_train, y_train)
+    fit_seconds = time.time() - fit_started
+    print(f"Addestrato in {fit_seconds:.1f}s")
+
+    probabilities = predict_proba(model, X_validation)
+    predictions = np.argmax(probabilities, axis=1)
+
+    print("\n" + evaluate.classification_summary(y_validation, predictions))
+
+    auc = evaluate.ranking_auc(y_validation, probabilities)
+    print(f"AUC di P(buy): {auc:.4f}  (0,50 = nessun segnale; sopra 0,55 = segnale sfruttabile)")
+
+    take_profit = context["take_profit"].to_numpy()[validation_mask]
+    stop_loss = context["stop_loss"].to_numpy()[validation_mask]
+    sweep = evaluate.quantile_sweep(y_validation, probabilities, take_profit, stop_loss, ROUND_TRIP_FEE)
+
+    print("\nAspettativa per quota di candele selezionate (le migliori per P(buy)):")
+    print("(atteso_lordo e' prima delle commissioni, atteso_per_trade dopo)")
+    print(evaluate.format_sweep(sweep))
+
+    # La quota migliore si sceglie sull'aspettativa **lorda**: e' quella che misura la capacita'
+    # del modello. Quanto ne sopravvive dipende dai costi di esecuzione, che sono una decisione
+    # separata e vengono riportati sotto.
+    eligible = sweep[sweep["operazioni"] >= 200]
+    chosen = None if eligible.empty else eligible.loc[eligible["atteso_lordo"].idxmax()].to_dict()
+    if chosen is None:
+        print("\nNessuna quota raggiunge abbastanza operazioni per essere valutata.")
+        threshold = DEFAULT_DECISION_THRESHOLD
     else:
-        df[numeric_cols] = scaler.transform(df[numeric_cols])
-    return df, scaler
+        threshold = float(chosen["soglia"])
+        print(
+            f"\nQuota migliore: il {chosen['quota']:.2%} di candele piu' promettenti "
+            f"(P(buy) >= {threshold:.3f}) -> {int(chosen['operazioni']):,} operazioni, "
+            f"win rate {chosen['win_rate']:.2%} contro un break-even di {chosen['break_even']:.2%}"
+        )
+        print(f"Barriera media {chosen['barriera']:.2%} | edge lordo {chosen['atteso_lordo']:+.3%} " f"per operazione")
+        print("\nSensibilita' al costo di esecuzione:")
+        print(
+            evaluate.format_fee_sensitivity(evaluate.fee_sensitivity(chosen["atteso_lordo"], int(chosen["operazioni"])))
+        )
+    print(evaluate.signal_summary(probabilities, threshold))
+    print(f"Lift sul base rate: {evaluate.lift_over_base_rate(y_validation, probabilities, threshold):.2f}x")
+
+    # Risultato per timeframe: dice se addestrare un modello unico su tutti sta aiutando o
+    # diluendo, che e' una domanda a cui una metrica aggregata non risponde.
+    print("\nPer timeframe (alla soglia scelta):")
+    intervals_validation = context["interval"].to_numpy()[validation_mask]
+    for interval in intervals:
+        mask = intervals_validation == interval
+        if mask.sum() == 0:
+            continue
+        selected = mask & (probabilities[:, BUY] >= threshold)
+        win_rate = (y_validation[selected] == BUY).mean() if selected.sum() else float("nan")
+        print(
+            f"  {interval:>4}: {int(selected.sum()):>7,} operazioni su {int(mask.sum()):>8,} candele, "
+            f"win rate {win_rate:.2%}"
+        )
+
+    extension = ".joblib" if model_kind == "gbdt" else ".keras"
+    model_path = MODELS_DIR / f"{MODEL_NAME}{extension}"
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    save_model(model, model_path)
+
+    metadata = {
+        "created": datetime.now(timezone.utc).isoformat(),
+        "git_commit": _git_commit(),
+        "model_kind": model_kind,
+        "model_path": model_path.name,
+        "features": list(X.columns),
+        "lags": list(LAGS),
+        "labeling": {
+            "method": "triple_barrier",
+            "horizon_bars": horizon,
+            "tp_atr_multiple": TP_ATR_MULTIPLE,
+            "sl_atr_multiple": SL_ATR_MULTIPLE,
+            "round_trip_fee": ROUND_TRIP_FEE,
+            "fee_floor_multiple": FEE_FLOOR_MULTIPLE,
+        },
+        "data": {
+            "symbols": symbols,
+            "intervals": intervals,
+            "stride": stride,
+            "rows": int(len(X)),
+            "first": str(X.index.min()),
+            "last": str(X.index.max()),
+            "train_rows": int(train_mask.sum()),
+            "validation_rows": int(validation_mask.sum()),
+        },
+        "decision_threshold": threshold,
+        "auc": round(auc, 4),
+        "fit_seconds": round(fit_seconds, 1),
+        "sweep": sweep.to_dict(orient="records"),
+    }
+    metadata_path = MODELS_DIR / f"{MODEL_NAME}.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2))
+
+    print(f"\nModello salvato in {model_path}")
+    print(f"Metadata in {metadata_path}")
+    print(f"Totale: {(time.time() - started) / 60:.1f} minuti")
+    return metadata
 
 
-# Funzione per costruire il modello (usata da Keras Tuner)
-def build_model(hp):
-    print("Build model")
-    model = Sequential()
-    model.add(Input(shape=(X_train.shape[1], X_train.shape[2])))
+def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = None) -> pd.DataFrame:
+    """Applica un modello a un DataFrame di mercato: punto di ingresso usato dal simulatore.
 
-    model.add(Bidirectional(LSTM(units=hp.Int("lstm_units1", 64, 256, step=64), return_sequences=True)))
-    model.add(Dropout(hp.Float("dropout1", 0.1, 0.3, step=0.1)))
-    model.add(BatchNormalization())
+    Ricostruisce le feature dai soli OHLCV con le costanti di questo pacchetto, invece di
+    riusare le colonne che il chiamante ha gia' in tabella: `trading/simulator.py` le calcola
+    con i periodi scelti dagli slider della dashboard, e un modello alimentato con feature
+    calcolate diversamente da come e' stato addestrato sbaglia in silenzio.
 
-    model.add(LSTM(units=hp.Int("lstm_units2", 64, 256, step=64), return_sequences=True))
-    model.add(Dropout(hp.Float("dropout2", 0.1, 0.3, step=0.1)))
-    model.add(BatchNormalization())
+    Aggiunge due colonne: `P_buy`, la probabilita' grezza, e `Prediction` con 1 sulle candele
+    che superano la soglia e 0 altrove.
 
-    model.add(LSTM(units=hp.Int("lstm_units3", 64, 256, step=64), return_sequences=False))
-    model.add(Dropout(hp.Float("dropout3", 0.1, 0.3, step=0.1)))
-    model.add(BatchNormalization())
+    **Non esiste una predizione "sell" per candela.** Il modello stima se un ingresso in quel
+    punto raggiunge il take-profit prima dello stop-loss: la classe opposta significa "brutto
+    momento per comprare" e copre circa il 60% delle candele, quindi emetterla come segnale di
+    vendita ne produce a valanga. L'uscita da una posizione e' governata dalle barriere, in
+    `signals.barrier_signals`.
+    """
+    threshold = threshold if threshold is not None else stored_decision_threshold()
 
-    model.add(Dense(3, activation="softmax"))
+    scores = buy_probabilities(df, model)
+    result = df.copy()
+    result["P_buy"] = scores.reindex(result.index)
+    result["Prediction"] = (result["P_buy"] >= threshold).astype(int)
+    return result
 
-    model.compile(
-        optimizer=Adam(hp.Choice("learning_rate", [1e-2, 1e-3, 1e-4])),
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
+
+# Precedenza alla strategia piu' recente: politica a tre azioni, poi meta-labeling, poi il
+# classificatore di segnale originale. Il modello della strategia piu' recente e' quello che si
+# vuole vedere sul grafico; per tornare al precedente basta spostarne l'artefatto altrove.
+MODEL_PRECEDENCE = ("policy_model", "meta_model", MODEL_NAME)
+
+
+def stored_decision_threshold() -> float:
+    """Soglia scelta durante l'addestramento, letta dai metadata del modello."""
+    for name in MODEL_PRECEDENCE:
+        metadata_path = MODELS_DIR / f"{name}.json"
+        if metadata_path.exists():
+            try:
+                return float(json.loads(metadata_path.read_text())["decision_threshold"])
+            except Exception:
+                continue
+    return DEFAULT_DECISION_THRESHOLD
+
+
+def _meta_metadata() -> dict | None:
+    """Metadata del modello meta, se ne esiste uno addestrato."""
+    path = MODELS_DIR / "meta_model.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def _model_path(name: str) -> Path | None:
+    """L'artefatto addestrato per questa famiglia, in qualunque formato sia stato salvato."""
+    return next((p for ext in (".joblib", ".keras") if (p := MODELS_DIR / f"{name}{ext}").exists()), None)
+
+
+def active_model_name() -> str | None:
+    """Quale famiglia di modello e' addestrata, e quindi quale strategia governa i segnali.
+
+    Unica fonte di verita' per la precedenza: `load_signal_model` carica questo modello e
+    `ai_model_simulation` sceglie in base a questo nome, quindi i due non possono divergere.
+    """
+    return next((name for name in MODEL_PRECEDENCE if _model_path(name)), None)
+
+
+def meta_parameters() -> dict:
+    """Parametri della catena di segnale, letti dai metadata del modello.
+
+    Non sono duplicati qui come costanti di proposito: barriere, soglia CUSUM e parametri di
+    esecuzione devono essere **esattamente** quelli con cui il modello e' stato addestrato, e
+    l'unico modo per garantirlo e' leggerli dall'artefatto invece che riscriverli.
+    """
+    metadata = _meta_metadata() or {}
+    labeling = metadata.get("labeling", {})
+    execution = metadata.get("execution", {})
+    primary = metadata.get("primary", {})
+    return {
+        "horizon_hours": labeling.get("horizon_hours", 24.0),
+        "tp_multiple": labeling.get("tp_multiple", 1.5),
+        "sl_multiple": labeling.get("sl_multiple", 1.0),
+        "round_trip_fee": labeling.get("round_trip_fee", 0.0012),
+        "fee_floor_multiple": labeling.get("fee_floor_multiple", 5.0),
+        "cusum_sigma": primary.get("threshold_sigma", 3.0),
+        "limit_offset_atr": execution.get("limit_offset_atr", 0.5),
+        "limit_patience": execution.get("patience_bars", 12),
+    }
+
+
+def load_signal_model():
+    """Carica il modello di segnale addestrato, qualunque formato abbia."""
+    name = active_model_name()
+    if name is None:
+        raise FileNotFoundError(f"Nessun modello in {MODELS_DIR}. Addestrarne uno con `cryptofarm.ml.trainer`.")
+    return load_model(_model_path(name))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Addestra il modello di segnale.")
+    parser.add_argument("--model", default="gbdt", help="gbdt (default), gru, cnn, lstm")
+    parser.add_argument("--symbols", nargs="+", default=None)
+    parser.add_argument("--intervals", nargs="+", default=None)
+    parser.add_argument("--horizon", type=int, default=HORIZON_BARS)
+    parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE)
+    args = parser.parse_args()
+
+    train(
+        symbols=args.symbols or DEFAULT_SYMBOLS,
+        intervals=args.intervals or INTERVALS,
+        model_kind=args.model,
+        horizon=args.horizon,
+        stride=args.stride,
     )
-    return model
 
 
 if __name__ == "__main__":
-
-    # Selezione delle feature
-    fileBTC = "/Users/marcomonini/Documents/BTCUSDC_2anni_15m.csv"
-    # fileETH = '/Users/marcomonini/Documents/ETH_2anni_15m.csv'
-    df = prepare_df_from_csv(fileBTC)
-
-    print("df starting shape:", df.shape)
-    print("df startings columns:", df.columns)
-
-    # df2 = prepare_df_from_csv(fileETH)
-    # df = pd.concat([df1, df2], axis=0)
-
-    X, y = create_sequences(df, FEATURES, WINDOW_SIZE)
-
-    print("X shape:", X.shape)
-    print("Y shape:", y.shape)
-
-    # Dividi i dati in train e test
-    train_size = int(0.6 * len(X))
-    X_train, X_test = X[:train_size], X[train_size:]
-    y_train, y_test = y[:train_size], y[train_size:]
-
-    # X_train, y_train = balance_data(X_train, y_train)
-
-    # Class weights per gestione sbilanciamento
-    class_weights = compute_class_weight(class_weight="balanced", classes=np.unique(y_train), y=y_train)
-    # The raw "balanced" weights hit ~140:1 on this label distribution (extrema are ~1.4% of rows
-    # combined), which made the model oscillate between always predicting "hold" and always
-    # predicting a rare class across epochs - both are cheap local minima of the extremely skewed
-    # weighted loss without the model learning real structure. Damping with sqrt keeps rare classes
-    # upweighted (still ~12:1) without that reward-hacking behavior.
-    class_weights = dict(enumerate(np.sqrt(class_weights)))
-
-    # === TUNING CON KERAS TUNER ===
-    # tuner = kt.Hyperband(
-    #     build_model,
-    #     objective='val_accuracy',
-    #     max_epochs=20,
-    #     factor=3,
-    #     directory='tuner_logs',
-    #     project_name='crypto_lstm',
-    #     overwrite = True
-    # )
-
-    model = Sequential(
-        [
-            Input(shape=(X.shape[1], X.shape[2])),
-            Bidirectional(LSTM(64, return_sequences=True)),
-            Dropout(0.2),
-            BatchNormalization(),
-            LSTM(192, return_sequences=True),
-            Dropout(0.1),
-            BatchNormalization(),
-            LSTM(256, return_sequences=False),
-            Dropout(0.1),
-            BatchNormalization(),
-            # Dense(3, activation='relu'),
-            Dense(3, activation="softmax"),
-        ]
-    )
-
-    # lr=0.01 (the previous default) combined with the class weighting above was the other half of
-    # the instability - Adam's own default (0.001) trains far more smoothly on this architecture.
-    model.compile(optimizer=Adam(0.001), loss="sparse_categorical_crossentropy", metrics=["accuracy"])
-
-    early_stopping = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
-    reduce_lr = ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, verbose=1, min_lr=1e-5)
-    checkpoint = ModelCheckpoint(
-        str(MODELS_DIR / "optimized_model.keras"), monitor="val_loss", save_best_only=True, verbose=1
-    )
-
-    # print("Searching for best model")
-    # tuner.search(
-    #     X_train, y_train,
-    #     epochs=50,
-    #     validation_data=(X_test, y_test),
-    #     callbacks=[early_stopping, reduce_lr],
-    #     class_weight=class_weights,
-    #     batch_size=32
-    # )
-    #
-    # # Miglior modello trovato
-    # model = tuner.get_best_models(num_models=1)[0]
-
-    print("Final Training")
-    # === ADDDESTRAMENTO FINALE CON IL MIGLIOR MODELLO ===
-    history = model.fit(
-        X_train,
-        y_train,
-        validation_data=(X_test, y_test),
-        epochs=50,
-        batch_size=32,
-        callbacks=[early_stopping, reduce_lr, checkpoint],
-        class_weight=class_weights,
-    )
-
-    #
-    # # 1. Compilazione del modello con learning rate definito
-    # optimizer = Adam(learning_rate=0.001)
-    #
-    # model.compile(
-    #     optimizer=optimizer,
-    #     loss='sparse_categorical_crossentropy',  # per target con etichette intere
-    #     metrics=['accuracy']
-    # )
-    #
-    # # 2. Callback
-    # early_stopping = EarlyStopping(
-    #     monitor='val_loss',
-    #     patience=10,
-    #     restore_best_weights=True
-    # )
-    #
-    # reduce_lr = ReduceLROnPlateau(
-    #     monitor='val_loss',
-    #     factor=0.5,
-    #     patience=3,
-    #     verbose=1,
-    #     min_lr=1e-5
-    # )
-    #
-    # checkpoint = ModelCheckpoint(
-    #     filepath='optimized_model.keras',
-    #     monitor='val_loss',
-    #     save_best_only=True,
-    #     verbose=1
-    # )
-
-    # 3. Addestramento
-    # history = model.fit(
-    #     X_train, y_train,
-    #     validation_data=(X_test, y_test),
-    #     epochs=50,
-    #     batch_size=32,
-    #     callbacks=[early_stopping, reduce_lr, checkpoint],
-    #     class_weight=class_weights,
-    #     #verbose=2
-    # )
-
-    # model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-
-    # early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-    # Addestramento del modello
-    # model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=50, batch_size=32, callbacks=[early_stopping])
-
-    # Valutazione del modello. La accuracy grezza e' fuorviante su un dataset sbilanciato al 98%+
-    # verso "hold": un classificatore banale che predice sempre "hold" la ottiene gratis. Il
-    # classification report per classe (precision/recall/F1) e la confusion matrix mostrano se il
-    # modello sta davvero riconoscendo min/max o e' collassato su una predizione costante.
-    loss, accuracy = model.evaluate(X_test, y_test)
-    print(f"Test Loss: {loss}, Test Accuracy: {accuracy}")
-
-    test_predictions = np.argmax(model.predict(X_test, verbose=0), axis=1)
-    print(classification_report(y_test, test_predictions, target_names=["hold", "min", "max"], zero_division=0))
-    print("Confusion matrix (righe=reale, colonne=predetto):")
-    print(confusion_matrix(y_test, test_predictions))
-
-    # Salva il modello in un file HDF5
-    model.save(str(MODELS_DIR / "trained_model.keras"))
-    # # Carica il modello salvato
-    # loaded_model = load_model('trained_model.h5')
-    # # Utilizzo del modello per fare previsioni
-    # predictions = loaded_model.predict(X_test)
+    main()

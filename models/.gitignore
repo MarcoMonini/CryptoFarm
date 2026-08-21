@@ -1,1 +1,8 @@
+# Gli artefatti addestrati non si tracciano: si rigenerano con i trainer
+# (`cryptofarm.ml.trainer`, `meta_trainer`, `policy_trainer`) e pesano decine di MB.
 *.keras
+*.joblib
+*.json
+
+# La documentazione della cartella invece si tiene.
+!README.md
