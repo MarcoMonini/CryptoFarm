@@ -97,10 +97,12 @@ def _frame(df: pd.DataFrame) -> dict:
 def _capture(call) -> dict:
     """Esegue `call` registrando anche l'eccezione: alcune strategie oggi sollevano KeyError.
 
-    `buy_sell_limits_simulation`, `atr_buy_sell_simulation` e `close_atr_buy_sell_simulation`
-    leggono le colonne `MACD` e `PSAR`, che `add_technical_indicator` non produce piu' (i calcoli
-    sono commentati). Sono rotte *prima* di questa riorganizzazione, e lo snapshot lo registra
-    perche' il refactoring resti fedele invece di nascondere il difetto.
+    `buy_sell_limits_simulation` legge `MACD` e solleva sempre; `atr_buy_sell_simulation` e
+    `close_atr_buy_sell_simulation` leggono `PSAR` dietro un corto circuito e sollevano solo in
+    alcuni scenari, in altri restituiscono segnali. Nessuna delle due colonne viene piu' prodotta
+    da `add_technical_indicator`. Sono rotte *prima* di questa riorganizzazione, e lo snapshot
+    registra per ogni scenario quale dei due esiti si verifica, cosi' il refactoring resta fedele
+    invece di nascondere il difetto.
     """
     try:
         return {"value": call()}
