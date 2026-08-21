@@ -6,16 +6,48 @@ headless bot that can trade the result live.
 Two files matter — `trading/simulator.py` (research) and `ml/trainer.py` (training) — plus their
 dependencies. Everything not reachable from those lives in `backup/unused/`.
 
-## Layout
+## Project structure
 
-| What | Where |
-|---|---|
-| Backtest / strategy simulator (Streamlit) | `src/cryptofarm/trading/simulator.py` |
-| Strategies, indicators, P&L, market data, defaults | `src/cryptofarm/trading/{strategies,indicators,pnl,market_data,config}.py` |
-| Training pipeline | `src/cryptofarm/ml/` (`trainer.py`, `meta_trainer.py`, `policy_trainer.py`) |
-| Local kline store (Binance bulk dumps) | `src/cryptofarm/data/klines.py` |
-| Headless live bot (places real orders) | `src/cryptofarm/trading/live_bot.py` |
-| Measurements behind `.claude/docs/strategy.md` | `scripts/analysis.py` |
+```
+src/cryptofarm/
+├── paths.py                  where models/, market_data/ and friends live
+├── data/
+│   └── klines.py             local candle store, built from Binance bulk dumps
+├── ml/                       training pipeline
+│   ├── features.py           per-bar features (returns, RSI, STOCH, ATR, TSI, volume)
+│   ├── dataset.py            design matrix, lags, CUSUM events, time splits
+│   ├── labeling.py           ATR-based triple barrier
+│   ├── directional_change.py confirmed pivots and soft labels
+│   ├── models.py             model construction (gbdt default; gru/cnn/lstm behind --model)
+│   ├── evaluate.py           per-class and per-score-quantile metrics
+│   ├── validation.py         purged k-fold, CPCV, embargo, PBO, Deflated Sharpe
+│   ├── execution.py          fill simulation (maker entry, taker exit)
+│   ├── meta.py               cost-net meta-labelling targets
+│   ├── policy.py             position state and the three-action policy
+│   ├── dagger.py             DAgger rollouts and state coverage
+│   ├── signals.py            from model to signals, for the simulator
+│   ├── trainer.py            * trains the signal classifier
+│   ├── meta_trainer.py       trains the meta-labelling secondary
+│   └── policy_trainer.py     trains the three-action policy
+└── trading/
+    ├── market_data.py        one-off Binance downloads for the page
+    ├── indicators.py         indicators + the numpy ATR/EMA core, PSAR
+    ├── strategies.py         from indicator table to (buy_signals, sell_signals)
+    ├── pnl.py                from signals to trades, fees included
+    ├── config.py             starting values for the sidebar widgets
+    ├── simulator.py          * Streamlit page: trading_analysis + layout
+    └── live_bot.py           headless bot that places real orders
+
+scripts/analysis.py           reproducible measurements behind .claude/docs/strategy.md
+tests/                        188 tests; test_simulator_golden.py pins the simulator
+models/                       .joblib artifacts + .json metadata (untracked)
+backup/unused/                modules removed from src/ because nothing imported them
+backup/v2/                    multi-timeframe simulator, read-only reference
+```
+
+Dependencies inside `trading/` form a DAG: `market_data`, `indicators`, `pnl` and `config` depend on
+nothing, `strategies` depends on `indicators`, `simulator` on all of them. There is no re-export
+facade — each strategy is imported from the module that holds it.
 
 ## Running
 
@@ -33,21 +65,65 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m cryptofarm.ml.meta_trainer
 .venv312/bin/python -m cryptofarm.ml.policy_trainer
 
-# Measurements
-.venv312/bin/python -m scripts.analysis
+# Measurements (--help lists every measure)
+.venv312/bin/python -m scripts.analysis --barrier-capacity
 
 # Live bot — places real orders, needs env vars
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Tests: `.venv312/bin/python -m pytest` (185 tests). Lint/format: `ruff check src tests`,
+Tests: `.venv312/bin/python -m pytest` (188 tests). Lint/format: `ruff check src tests`,
 `black src tests`.
 
-## Which model the simulator uses
+## The model the simulator uses
 
-`ml/trainer.MODEL_PRECEDENCE` is `("policy_model", "meta_model", "signal_model")`. Whichever exists
-in `models/` first wins, for both loading and strategy dispatch. To fall back to the previous model,
-move the newer artifact out of `models/`.
+`ml/trainer.MODEL_PRECEDENCE` is `("policy_model", "meta_model", "signal_model")`; `active_model_name()`
+is the single source of truth for both loading and strategy dispatch, so they cannot diverge. To fall
+back to an earlier model, move the newer artifact out of `models/`.
+
+**Currently active: `policy_model`** — the three-action, position-conditioned policy. `ai_model_simulation`
+routes it to `policy_signals`, which decides entries *and* exits (the barriers do not apply).
+
+| | |
+|---|---|
+| Type | `HistGradientBoostingClassifier`, 3 classes (hold / buy / sell) |
+| Trained | 2026-08-20, 36 min fit |
+| Input features | 83 |
+| Boosting iterations | 400 (no early stop) — 1.200 trees, 150.000 nodes, 75.600 leaves, max depth 27 |
+| Hyperparameters | `learning_rate=0.06`, `max_leaf_nodes=63`, `min_samples_leaf=200`, `l2=1.0` |
+| Labelling | directional change, `capture=0.30`, 8–12 confirmed extremes/day |
+| Data | 15 symbols, 5m bars since 2022-01-01 — 3.653.165 rows, plus 2,4 M added over 2 DAgger rounds |
+| Decision threshold | 0.50 · assumed round-trip cost 0,08% |
+
+A gradient boosting has no weights: the closest analogue to a parameter count is the leaf count
+(~75.600 values) plus the split thresholds. It is not comparable to an LSTM's parameter count.
+
+### Measured performance — negative
+
+No artifact stores accuracy, and it would mislead here: with these class balances a model that always
+says "hold" scores well and trades nothing. What is recorded:
+
+| Model | Metric | Value |
+|---|---|---|
+| `policy_model` | holdout, 10.483 trades | gross −0,123%, **net −0,203%/trade**, win rate 32,6% |
+| `policy_model` | in-sample, 58.866 trades | gross +0,032%, net −0,048%/trade |
+| `policy_bassa` | holdout, 63.293 trades | net −0,091%/trade, win rate 33,5% |
+| `meta_model` | CPCV, 28 splits | PBO 0,00 · Deflated Sharpe 1,00 · net +0,097%/trade |
+| `signal_model` | validation | **AUC 0,5401** · win rate 39,6% vs break-even 47,3% |
+
+The in-sample gross edge of +0,032% sits below the 0,08% round-trip cost. That gap — not a modelling
+failure — is why none of this is profitable; see §13 of `.claude/docs/strategy.md`.
+
+Three caveats worth carrying:
+
+- `meta_model`'s PBO of 0,00 and Deflated Sharpe of 1,00 are saturated values. Its
+  `mean_uniqueness` is 0,034, meaning each label overlaps ~29 others, so the effective sample is far
+  smaller than 1,5 M events and significance metrics skew optimistic.
+- The policy artifacts were trained with `--no-cpcv`, so they carry holdout numbers only. The CPCV
+  figures in `strategy.md` §12.1/§12.3 predate a leak fix in `_cpcv` and **need rerunning**; the
+  negative verdict stands, the values do not. See §14 of `strategy.md`.
+- `policy_alta.joblib` is byte-identical to `policy_model.joblib` — the same operating point saved
+  twice.
 
 ## Configuration
 
@@ -75,3 +151,6 @@ being regenerated. Regenerating accepts any behaviour change, so do it only deli
 Row-wise reads in `trading/` go through numpy arrays hoisted out of the loop, not
 `df["Col"].iloc[i]`; that is where the simulator's speed comes from (4295 ms → 125 ms). Keep the
 style.
+
+`indicators._atr_ema` reproduces `ta` 0.11's ATR and EMA formulas in numpy. If you change it,
+re-verify against `ta` — a silent divergence there moves every signal.
