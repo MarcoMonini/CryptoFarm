@@ -420,6 +420,28 @@ def embargo_width(prepared: list[SymbolData]) -> pd.Timedelta:
     return pd.Timedelta(minutes, unit="m")
 
 
+def _test_windows(starts: np.ndarray, test_index: np.ndarray) -> list[tuple]:
+    """Gli intervalli temporali coperti dai gruppi di test, uno per blocco contiguo.
+
+    `CombinatorialPurgedCV` sceglie combinazioni di gruppi che in generale **non** sono adiacenti:
+    nello split (0, 5) i blocchi di test sono il primo e l'ultimo, e in mezzo c'e' il training.
+    Ridurre il test a un solo intervallo `[min, max]` significherebbe rimisurare la politica
+    proprio sui dati su cui e' stata addestrata.
+
+    I gruppi sono blocchi contigui nell'ordinamento per `t_start`, quindi si ricostruiscono dai
+    salti fra le posizioni ordinate delle righe di test, senza riscrivere qui la logica dello
+    splitter.
+    """
+    order = np.argsort(starts, kind="stable")
+    rank = np.empty(len(starts), dtype=np.int64)
+    rank[order] = np.arange(len(starts))
+    ranks = np.sort(rank[test_index])
+    if not len(ranks):
+        return []
+    breaks = np.flatnonzero(np.diff(ranks) != 1) + 1
+    return [(starts[order[block[0]]], starts[order[block[-1]]]) for block in np.split(ranks, breaks)]
+
+
 def _cpcv(panel: Panel, dataset: pd.DataFrame, decision_threshold, cost) -> list[dict]:
     """Valutazione out-of-sample della politica **base**, senza righe DAgger.
 
@@ -446,14 +468,22 @@ def _cpcv(panel: Panel, dataset: pd.DataFrame, decision_threshold, cost) -> list
         fold = build_model("gbdt")
         fit_model(fold, values[train_index], y[train_index])
 
-        window = (t_start.iloc[test_index].min(), t_start.iloc[test_index].max())
+        windows = _test_windows(t_start.to_numpy(), test_index)
         selected, days = [], 0.0
         for position, data in enumerate(prepared):
-            inside = np.flatnonzero((data.index >= window[0]) & (data.index <= window[1]))
+            index = data.index.to_numpy()
+            spans = [(index >= start) & (index <= end) for start, end in windows]
+            inside = np.flatnonzero(np.logical_or.reduce(spans))
             if len(inside) < 500:
                 continue
             selected.append(inside + panel.offsets[position])
-            days += (data.index[inside[-1]] - data.index[inside[0]]).total_seconds() / 86400
+            # La durata e' la somma delle finestre, non la distanza fra la prima e l'ultima:
+            # su gruppi non adiacenti quest'ultima includerebbe il training che sta in mezzo e
+            # gonfierebbe il denominatore di `netto_giorno`.
+            for span in spans:
+                covered = np.flatnonzero(span)
+                if len(covered):
+                    days += (index[covered[-1]] - index[covered[0]]) / np.timedelta64(1, "s") / 86400
         trades = (
             backtest(panel, fold, decision_threshold, cost, rows=np.concatenate(selected))
             if selected
@@ -461,8 +491,7 @@ def _cpcv(panel: Panel, dataset: pd.DataFrame, decision_threshold, cost) -> list
         )
         summary = summarise(trades, max(days, 1e-9))
         summary["split"] = split
-        summary["da"] = window[0]
-        summary["a"] = window[1]
+        summary["finestre"] = ", ".join(f"{start:%Y-%m-%d}->{end:%Y-%m-%d}" for start, end in windows)
         rows.append(summary)
         print(f"  split {split:>2}: {_summary_line(summary)}", flush=True)
 
