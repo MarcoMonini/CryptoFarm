@@ -1463,9 +1463,14 @@ verificabile.
 Le misure **conservate e rieseguibili** stanno in `scripts/analysis.py`, che le calcola e le mette
 in cache in `analysis_cache/` (gitignorata, rigenerabile):
 
-    python -m scripts.analysis --all        # calcola tutto
-    python -m scripts.analysis --capacity   # una sola misura
-    streamlit run src/cryptofarm/app/analysis_dashboard.py   # le visualizza
+    python -m scripts.analysis --all                # calcola tutto
+    python -m scripts.analysis --barrier-capacity   # una sola misura
+
+Il flag di ogni misura e' il suo nome in `MEASURES` con i trattini bassi sostituiti da trattini:
+`barrier_capacity` diventa `--barrier-capacity`. `python -m scripts.analysis --help` li elenca.
+
+La pagina Streamlit che le visualizzava (`app/analysis_dashboard.py`) e' stata spostata in
+`backup/unused/` nel 2026-08 insieme al resto di `app/`: le stesse misure escono da riga di comando.
 
 | misura | funzione in `scripts/analysis.py` | sezione |
 |---|---|---|

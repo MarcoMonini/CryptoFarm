@@ -229,7 +229,7 @@ def place_order(client: Client, symbol: str, side: str, order_type: str, quantit
         quantity (float): Quantità da acquistare/vendere.
         price (float, optional): Prezzo (solo per ordini LIMIT).
     Returns:
-        dict: Risposta dell'API Binance.
+        bool: True se l'ordine e' stato accettato, False altrimenti.
     """
     try:
         # Per ordini LIMIT è necessario specificare il prezzo
@@ -266,7 +266,12 @@ def proceed_buy(client, asset, currency, symbol, current_candle_price) -> bool:
     adjusted_quantity = adjust_quantity(quantity, minQty, maxQty, stepQty)
     print(Style.BRIGHT + Fore.GREEN + f"Procceding with BUY Order, quantity={adjusted_quantity} (={currency_balance}$)")
     # Piazza l'ordine di acquisto
-    response = place_order(client=client, symbol=symbol, side="BUY", order_type="MARKET", quantity=adjusted_quantity)
+    placed = place_order(client=client, symbol=symbol, side="BUY", order_type="MARKET", quantity=adjusted_quantity)
+    if not placed:
+        # `place_order` ha gia' stampato il motivo. Senza questo controllo l'esito veniva dedotto
+        # dai saldi dieci secondi dopo, e un ordine rifiutato passava per riuscito quando il conto
+        # deteneva gia' l'asset da prima.
+        return False
     # aspetto e verifico che l'ordine è andato a buon fine
     time.sleep(10)
     balance = print_user_and_wallet_info(client=client)
@@ -286,7 +291,12 @@ def proceed_sell(client, asset, currency, symbol, current_candle_price) -> bool:
     adjusted_quantity = adjust_quantity(asset_balance, minQty, maxQty, stepQty)
     print(Style.BRIGHT + Fore.RED + f"Procceding with SELL Order, quantity={adjusted_quantity} (={asset_balance}$)")
     # Piazza l'ordine di vendita
-    response = place_order(client=client, symbol=symbol, side="SELL", order_type="MARKET", quantity=adjusted_quantity)
+    placed = place_order(client=client, symbol=symbol, side="SELL", order_type="MARKET", quantity=adjusted_quantity)
+    if not placed:
+        # `place_order` ha gia' stampato il motivo. Senza questo controllo l'esito veniva dedotto
+        # dai saldi dieci secondi dopo, e un ordine rifiutato passava per riuscito quando il conto
+        # deteneva gia' l'asset da prima.
+        return False
     # aspetto e verifico che l'ordine è andato a buon fine
     time.sleep(10)
     balance = print_user_and_wallet_info(client=client)

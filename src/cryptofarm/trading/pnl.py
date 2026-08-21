@@ -37,7 +37,8 @@ def simulate_trading_with_commisions(
             # Applichiamo la commissione di vendita
             # commissions = gross_proceed * fee_decimal
             net_proceed = gross_proceed * (1 - fee_decimal)
-            # Calcoliamo il profit: differenza fra l'importo netto incassato e l'importo speso in fase di BUY e le commissioni
+            # Profit: differenza fra l'incasso netto della vendita e quanto speso in fase di BUY,
+            # commissioni comprese.
             cost_in_usd = (quantity * buy_price) * (1 + fee_decimal)  # spesa inziale
             profit = net_proceed - cost_in_usd
             # Aggiorniamo working_wallet

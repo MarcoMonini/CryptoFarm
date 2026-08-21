@@ -38,8 +38,11 @@ eseguibile e' −0,004% (§12.4).
 
 ### Cosa NON rifare
 
-- Non ritarare `capture`, la soglia dei pivot o la soglia di decisione: misurato, nessuna aiuta
-  (§12.6, §12.5).
+- Non ritarare la soglia di decisione: misurato, non aiuta (§12.6).
+- `capture` e' stata esplorata solo fino a 0,40 (`OPERATING_CAPTURES` in `scripts/analysis.py`).
+  L'opzione 1 di §10.4 era portarla a 0,85, e **non e' mai stata misurata**: la voce precedente
+  la dava per esclusa citando §12.6 e §12.5, ma §12.6 misura la soglia di decisione e §12.5 si
+  limita a constatare che la correzione di §10.4 e' applicata. Resta aperta.
 - Non aggiungere iterazioni DAgger: funziona (disaccordo 13–19%, 913.000 righe raccolte) ma
   corregge un problema che non e' quello che abbiamo.
 - Non provare un'architettura diversa: l'in-sample e' gia' sotto il costo, non e' overfitting.
@@ -88,9 +91,11 @@ completi (CPCV per split, sweep della soglia, attribuzione). Non sono tracciati.
 - **`market_data/`** contiene 11.770.246 candele 5m su 15 simboli (298 MB, gitignorato).
   15m/30m/1h si derivano per aggregazione. Rigenerabile con
   `python -m cryptofarm.data.klines --update` (~minuti, dump CDN paralleli).
-- **`analysis_cache/`** è popolata (gitignorata). La pagina Streamlit la usa:
-  `streamlit run src/cryptofarm/app/analysis_dashboard.py`.
-- **`models/*.joblib` e `*.json` non sono tracciati** (gitignore). `meta_model.*` è il modello
+- **`analysis_cache/`** è popolata (gitignorata). Si legge da riga di comando:
+  `python -m scripts.analysis --help` elenca le misure. La pagina Streamlit che la visualizzava è
+  in `backup/unused/app/analysis_dashboard.py`.
+- **`models/*.joblib` e `*.json` non sono tracciati** (`models/.gitignore`, esteso nel 2026-08:
+  prima elencava solo `*.keras` e i `.joblib` erano finiti nel repository). `meta_model.*` è il modello
   della strategia *precedente* (meta-labeling su eventi CUSUM) — non cancellarlo, il simulatore
   lo carica ancora tramite `load_signal_model()`.
 - **Gli script di misura della sessione stavano nella scratchpad ed è effimera.** Quelli salvati
@@ -137,8 +142,9 @@ Il prossimo agente dovrebbe invocare via Skill tool:
   costosi di questa sessione sono stati trovati proprio dai test.
 - **`diagnosing-bugs`** — quando una misura non torna. È già servito: il rilevatore di pivot non
   trovava nessun estremo perché con direzione indecisa entrambi i rami si eseguivano.
-- **`dataviz`** — prima di toccare `app/analysis_dashboard.py` o di aggiungere grafici, per
-  mantenere coerenza con le tavolozze e le convenzioni già in uso.
+- **`dataviz`** — prima di aggiungere grafici (al simulatore, o ripescando
+  `backup/unused/app/analysis_dashboard.py`), per mantenere coerenza con le tavolozze e le
+  convenzioni già in uso.
 - **`artifact-design`** — solo se l'utente chiede un report visuale pubblicabile; i deliverable
   finora sono file nel repo.
 

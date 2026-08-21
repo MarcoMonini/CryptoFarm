@@ -570,7 +570,8 @@ if __name__ == "__main__":
 
     col1, col2 = st.sidebar.columns(2)
 
-    # step = col1.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.01, step=0.001, format="%.3f")
+    # step = col1.number_input(label="PSAR Step", min_value=0.001, max_value=1.000,
+    #                          value=0.01, step=0.001, format="%.3f")
     # max_step = col2.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
     atr_multiplier = col1.number_input(label="ATR Multiplier", **config.ATR_MULTIPLIER.widget)
     atr_window = col2.number_input(label="ATR Window", **config.ATR_WINDOW.widget)

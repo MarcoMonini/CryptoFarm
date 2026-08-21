@@ -73,7 +73,7 @@ def simulate_candles(
 
         o = opens[i]
         h = highs[i]
-        l = lows[i]
+        low = lows[i]
         c = closes[i]
 
         n_steps = 10
@@ -91,25 +91,25 @@ def simulate_candles(
         prices_sequence = []
         if is_green:
             # Segmento 1: open -> low
-            segment1 = linspace_steps(o, l, n=int(n_steps / 2))
+            segment1 = linspace_steps(o, low, n=int(n_steps / 2))
             # Segmento 2: low -> high
-            segment2 = linspace_steps(l, h, n=int(n_steps * 2))
+            segment2 = linspace_steps(low, h, n=int(n_steps * 2))
             # Segmento 3: high -> close
             segment3 = linspace_steps(h, c, n=int(n_steps / 2))
         else:
             # Segmento 1: open -> high
             segment1 = linspace_steps(o, h, n=int(n_steps / 2))
             # Segmento 2: high -> low
-            segment2 = linspace_steps(h, l, n=int(n_steps * 2))
+            segment2 = linspace_steps(h, low, n=int(n_steps * 2))
             # Segmento 3: low -> close
-            segment3 = linspace_steps(l, c, n=int(n_steps / 2))
+            segment3 = linspace_steps(low, c, n=int(n_steps / 2))
         prices_sequence = list(segment1) + list(segment2) + list(segment3)
 
         # A questo punto abbiamo 3*9 = 27 prezzi intermedi,
-        # se vogliamo esattamente 30 step (includendo anche l'ultimo?),
-        # possiamo aggiungere l'ultimo prezzo "Close" come step finale,
+        # se vogliamo esattamente 30 step (includendo anche low'ultimo?),
+        # possiamo aggiungere low'ultimo prezzo "Close" come step finale,
         # così da totalizzare 28 (oppure gestire diversamente).
-        # Per semplicità, qui aggiungo manualmente l'ultimo step = c
+        # Per semplicità, qui aggiungo manualmente low'ultimo step = c
         # (ma dipende da come preferisci gestire i conti).
         prices_sequence.append(c)
         # Inizializza i valori "in costruzione" della candela:
@@ -120,7 +120,7 @@ def simulate_candles(
         # Le bande dipendono solo dalle ultime `needed_bars` barre che finiscono in `i`, e di quelle
         # solo da High/Low/Close. Prima ogni sotto-passo copiava tutto il DataFrame e ricostruiva
         # gli indicatori con `ta`: qui la finestra si ritaglia una volta per candela e i sotto-passi
-        # ne riscrivono solo l'ultima barra, che sovrascrivono comunque per intero.
+        # ne riscrivono solo low'ultima barra, che sovrascrivono comunque per intero.
         start = max(0, i - needed_bars + 1)
         window_high = highs[start : i + 1].copy()
         window_low = lows[start : i + 1].copy()
@@ -128,7 +128,7 @@ def simulate_candles(
 
         # Ora eseguiamo la simulazione step-by-step
         for price in prices_sequence:
-            # Aggiorniamo SOLO l'ultima candela con un "Close" fittizio = price
+            # Aggiorniamo SOLO low'ultima candela con un "Close" fittizio = price
             # e lasciamo invariati Open, High, Low "finali" della candela,
             # in modo che eventuali indicatori che usano 'High', 'Low'
             # vedano la candela 'per intero'.
