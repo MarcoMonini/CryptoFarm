@@ -22,7 +22,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cryptofarm.trading import simulator as S
+from cryptofarm.trading import indicators, market_data, pnl, strategies
+
+# I moduli in cui `simulator.py` e' stato spezzato. `simulator.py` resta la pagina Streamlit e
+# non espone piu' nulla da fissare qui.
+MODULES = (market_data, indicators, strategies, pnl)
 
 SNAPSHOT = Path(__file__).parent / "data" / "simulator_golden.json"
 REGEN = os.environ.get("SIMULATOR_GOLDEN_REGEN") == "1"
@@ -105,17 +109,17 @@ def _capture(call) -> dict:
 
 
 STRATEGIES = {
-    "buy_sell_limits_simulation": lambda f: S.buy_sell_limits_simulation(f, 0.0, 0.0, 30, 70, 2),
-    "buy_sell_limits_close_simulation": S.buy_sell_limits_close_simulation,
-    "close_rsi_buy_sell_limits_simulation": S.close_rsi_buy_sell_limits_simulation,
-    "atr_buy_sell_simulation": lambda f: S.atr_buy_sell_simulation(f, 2.0),
-    "close_atr_buy_sell_simulation": lambda f: S.close_atr_buy_sell_simulation(f, 2.0),
-    "close_ema_crossover_simulation": S.close_ema_crossover_simulation,
-    "close_bullish_ema_simulation": S.close_bullish_ema_simulation,
-    "tp_sl_simulation": S.tp_sl_simulation,
-    "green_candles_simulation": S.green_candles_simulation,
-    "supertrend_simulation": S.supertrend_simulation,
-    "trend_zone_simulation": S.trend_zone_simulation,
+    "buy_sell_limits_simulation": lambda f: strategies.buy_sell_limits_simulation(f, 0.0, 0.0, 30, 70, 2),
+    "buy_sell_limits_close_simulation": strategies.buy_sell_limits_close_simulation,
+    "close_rsi_buy_sell_limits_simulation": strategies.close_rsi_buy_sell_limits_simulation,
+    "atr_buy_sell_simulation": lambda f: strategies.atr_buy_sell_simulation(f, 2.0),
+    "close_atr_buy_sell_simulation": lambda f: strategies.close_atr_buy_sell_simulation(f, 2.0),
+    "close_ema_crossover_simulation": strategies.close_ema_crossover_simulation,
+    "close_bullish_ema_simulation": strategies.close_bullish_ema_simulation,
+    "tp_sl_simulation": strategies.tp_sl_simulation,
+    "green_candles_simulation": strategies.green_candles_simulation,
+    "supertrend_simulation": strategies.supertrend_simulation,
+    "trend_zone_simulation": strategies.trend_zone_simulation,
 }
 
 KEYS = [
@@ -141,32 +145,36 @@ KEYS = [
 
 def build_snapshot() -> dict:
     snapshot: dict = {
-        "interval_to_minutes": {i: S.interval_to_minutes(i) for i in ("1m", "5m", "15m", "1h", "4h", "1d")},
+        "interval_to_minutes": {i: market_data.interval_to_minutes(i) for i in ("1m", "5m", "15m", "1h", "4h", "1d")},
     }
 
     for scenario in SCENARIOS:
         raw = scenario_frame(scenario)
-        indicators = S.add_technical_indicator(raw)
-        snapshot[f"{scenario}/add_technical_indicator"] = _frame(indicators)
-        snapshot[f"{scenario}/get_green_red_percentage"] = round(float(S.get_green_red_percentage(indicators)), 8)
-        snapshot[f"{scenario}/identify_trend_zones"] = _capture(lambda f=indicators: len(S.identify_trend_zones(f)))
-        probes = [i for i in (210, 250, 300, 350, 500) if i < len(indicators)]
-        snapshot[f"{scenario}/bullish_condition"] = [bool(S.bullish_condition(indicators, i)) for i in probes]
-        snapshot[f"{scenario}/bearish_condition"] = [bool(S.bearish_condition(indicators, i)) for i in probes]
+        table = indicators.add_technical_indicator(raw)
+        snapshot[f"{scenario}/add_technical_indicator"] = _frame(table)
+        snapshot[f"{scenario}/get_green_red_percentage"] = round(
+            float(strategies.get_green_red_percentage(table)), 8
+        )
+        snapshot[f"{scenario}/identify_trend_zones"] = _capture(
+            lambda f=table: len(strategies.identify_trend_zones(f))
+        )
+        probes = [i for i in (210, 250, 300, 350, 500) if i < len(table)]
+        snapshot[f"{scenario}/bullish_condition"] = [bool(strategies.bullish_condition(table, i)) for i in probes]
+        snapshot[f"{scenario}/bearish_condition"] = [bool(strategies.bearish_condition(table, i)) for i in probes]
         for name, call in STRATEGIES.items():
-            snapshot[f"{scenario}/{name}"] = _capture(lambda c=call, f=indicators: _signals(c(f)))
+            snapshot[f"{scenario}/{name}"] = _capture(lambda c=call, f=table: _signals(c(f)))
 
     # `simulate_candles` ricalcola gli indicatori a ogni candela: e' troppo lento per girare su
     # tutti gli scenari, quindi resta su una finestra corta.
     short = scenario_frame("laterale").iloc[:300]
-    snapshot["calculate_latest_indicators"] = _frame(S.calculate_latest_indicators(short, 120))
-    snapshot["simulate_candles"] = _capture(lambda: _signals(S.simulate_candles(short)))
+    snapshot["calculate_latest_indicators"] = _frame(indicators.calculate_latest_indicators(short, 120))
+    snapshot["simulate_candles"] = _capture(lambda: _signals(strategies.simulate_candles(short)))
 
     # P&L sui segnali di una strategia che produce parecchie operazioni in entrambi i versi.
     # Entrambe restituiscono la lista delle operazioni: vanno registrati i valori, non la lunghezza.
-    buy, sell = S.green_candles_simulation(S.add_technical_indicator(scenario_frame("regimi")))
+    buy, sell = strategies.green_candles_simulation(indicators.add_technical_indicator(scenario_frame("regimi")))
     for name in ("simulate_trading_with_commisions", "simulate_trading_with_commisions_multiple_buy"):
-        operations = getattr(S, name)(buy, sell, wallet=100, fee_percent=0.1)
+        operations = getattr(pnl, name)(buy, sell, wallet=100, fee_percent=0.1)
         snapshot[name] = [
             {k: (round(float(v), 8) if isinstance(v, (int, float)) else str(v)) for k, v in operation.items()}
             for operation in operations
@@ -188,15 +196,18 @@ def current() -> dict:
 
 
 def test_snapshot_covers_every_public_function(golden):
-    """Lo snapshot non deve perdere pezzi quando il simulatore viene spezzato in piu' moduli."""
+    """Lo snapshot non deve perdere pezzi ora che il simulatore e' spezzato in piu' moduli."""
     public = {
         name
-        for name in dir(S)
-        if not name.startswith("_") and callable(getattr(S, name)) and getattr(S, name).__module__ == S.__name__
+        for module in MODULES
+        for name in dir(module)
+        if not name.startswith("_")
+        and callable(getattr(module, name))
+        and getattr(getattr(module, name), "__module__", None) == module.__name__
     }
-    # Escluse: I/O di rete (`get_market_data*`, `download_market_data`), la pagina Streamlit
-    # (`trading_analysis`) e `ai_model_simulation`, che richiede un modello addestrato.
     covered = {key.split("/")[-1] for key in golden}
+    # Escluse: I/O di rete (`get_market_data*`, `download_market_data`) e `ai_model_simulation`,
+    # che richiede un modello addestrato.
     uncovered = (
         public
         - covered
@@ -204,7 +215,6 @@ def test_snapshot_covers_every_public_function(golden):
             "get_market_data",
             "get_market_data_between_dates",
             "download_market_data",
-            "trading_analysis",
             "ai_model_simulation",
         }
     )
