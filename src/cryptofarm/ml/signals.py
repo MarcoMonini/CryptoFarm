@@ -212,3 +212,47 @@ def meta_signals(
         busy_until = exit_position
 
     return buy_signals, sell_signals
+
+
+def policy_signals(df: pd.DataFrame, model, threshold: float = 0.5) -> tuple[list, list]:
+    """Segnali della politica a tre azioni, per il simulatore.
+
+    A differenza di `barrier_signals` qui **non si predice in blocco**: l'azione di adesso decide
+    lo stato di dopo, quindi la serie va percorsa una barra alla volta riempendo a ogni passo le
+    tre colonne di posizione. E' la ragione per cui questo modello non entra nel percorso
+    esistente senza un adattatore.
+
+    L'uscita non viene dalle barriere ma dal modello stesso: e' lui a emettere SELL. I segnali
+    risultano alternati per costruzione, perche' il mascheramento delle azioni non valide rende
+    impossibile comprare due volte di fila.
+
+    **Il P&L che il simulatore mostrera' e' peggiore di quello di `strategy.md` §12**, e non e'
+    un'incoerenza: li' il costo e' 0,08% andata e ritorno in modalita' maker, mentre il simulatore
+    applica per default lo 0,1% per lato, cioe' 0,2%. Il modello perde in entrambi i casi
+    (§13), ma di quanto dipende dal costo che si applica.
+    """
+    from cryptofarm.ml.dagger import episode_bounds, rollout
+    from cryptofarm.ml.directional_change import BUY, SELL
+    from cryptofarm.ml.policy import FLAT, LONG
+
+    features = build_feature_frame(df, interval_from_index(df.index))
+    matrix = build_design_matrix(features)
+    matrix = matrix[matrix.notna().all(axis=1)]
+    if len(matrix) < 2:
+        return [], []
+
+    close = features.loc[matrix.index, "Close"].to_numpy(float)
+    # Un unico episodio: il simulatore mostra una finestra continua, e spezzarla azzererebbe la
+    # posizione a meta' grafico per una ragione che non ha niente a che vedere col mercato.
+    visited = rollout(model, matrix.to_numpy(), close, bounds=episode_bounds([len(close)], len(close)))
+
+    entries = visited[(visited["state"] == FLAT) & (visited["action"] == BUY)]["row"].to_numpy()
+    exits = visited[(visited["state"] == LONG) & (visited["action"] == SELL)]["row"].to_numpy()
+    pairs = min(len(entries), len(exits))
+    if pairs == 0:
+        return [], []
+
+    stamps = matrix.index
+    buy_signals = [(stamps[row], float(close[row])) for row in entries[:pairs]]
+    sell_signals = [(stamps[row], float(close[row])) for row in exits[:pairs]]
+    return buy_signals, sell_signals

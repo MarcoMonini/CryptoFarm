@@ -64,7 +64,7 @@ def rollout(
     model,
     market: np.ndarray,
     close: np.ndarray,
-    signals: np.ndarray,
+    signals: np.ndarray | None = None,
     bounds: tuple[np.ndarray, np.ndarray] | None = None,
     decision_threshold: float = 0.5,
 ) -> pd.DataFrame:
@@ -79,6 +79,9 @@ def rollout(
 
     Ogni episodio parte **flat**: e' l'ipotesi conservativa, e le posizioni ancora aperte alla fine
     di un episodio non producono un'operazione (`backtest` le conta e le scarta).
+
+    `signals` serve solo a etichettare cio' che l'esperto avrebbe fatto, quindi e' facoltativo: a
+    inferenza le etichette non esistono e la colonna `expert` semplicemente non compare.
     """
     starts, stops = bounds if bounds is not None else episode_bounds([len(close)])
     episodes = len(starts)
@@ -127,7 +130,8 @@ def rollout(
         state[alive], entry[alive], bars_in[alive] = next_state, next_entry, next_bars
 
     visited = pd.concat(collected, ignore_index=True)
-    visited["expert"] = expert_actions(signals[visited["row"].to_numpy()], visited["state"].to_numpy())
+    if signals is not None:
+        visited["expert"] = expert_actions(signals[visited["row"].to_numpy()], visited["state"].to_numpy())
     return visited
 
 

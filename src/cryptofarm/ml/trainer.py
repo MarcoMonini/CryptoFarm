@@ -299,7 +299,7 @@ def _infer_interval_minutes(index: pd.DatetimeIndex) -> int:
 
 def stored_decision_threshold() -> float:
     """Soglia scelta durante l'addestramento, letta dai metadata del modello."""
-    for name in ("meta_model", MODEL_NAME):
+    for name in ("policy_model", "meta_model", MODEL_NAME):
         metadata_path = MODELS_DIR / f"{name}.json"
         if metadata_path.exists():
             try:
@@ -322,7 +322,17 @@ def _meta_metadata() -> dict | None:
 
 def _is_meta_model() -> bool:
     """Il modello caricato e' un secondario di meta-labeling?"""
-    return (MODELS_DIR / "meta_model.joblib").exists()
+    return not _is_policy_model() and (MODELS_DIR / "meta_model.joblib").exists()
+
+
+def _is_policy_model() -> bool:
+    """Il modello caricato e' la politica a tre azioni condizionata sullo stato?
+
+    Ha la precedenza sugli altri due quando esiste, come `meta_model` ce l'aveva su `signal_model`:
+    il modello della strategia piu' recente e' quello che si vuole vedere sul grafico. Per tornare
+    al precedente basta spostare `models/policy_model.joblib` altrove.
+    """
+    return (MODELS_DIR / "policy_model.joblib").exists()
 
 
 def _meta_parameters() -> dict:
@@ -350,8 +360,9 @@ def _meta_parameters() -> dict:
 
 def load_signal_model():
     """Carica il modello di segnale addestrato, qualunque formato abbia."""
-    # Il modello meta ha la precedenza: e' quello addestrato sulla strategia corrente.
-    for name in ("meta_model", MODEL_NAME):
+    # Precedenza alla strategia piu' recente: politica a tre azioni, poi meta-labeling, poi il
+    # classificatore di segnale originale.
+    for name in ("policy_model", "meta_model", MODEL_NAME):
         for extension in (".joblib", ".keras"):
             path = MODELS_DIR / f"{name}{extension}"
             if path.exists():

@@ -178,3 +178,26 @@ def test_the_model_cannot_score_until_it_has_enough_history():
     buys, _ = barrier_signals(long, _AlwaysBuy(), threshold=0.5, horizon=20)
     assert buys
     assert long.index.get_loc(buys[0][0]) >= 90
+
+
+def test_policy_signals_alternate_and_pair_up():
+    """Il simulatore accoppia acquisti e vendite per indice: devono essere alternati e pari."""
+    from cryptofarm.ml.signals import policy_signals
+
+    class _BuyThenSell:
+        """Compra da flat, vende da long: una politica degenere ma perfettamente alternata."""
+
+        def predict_proba(self, X):
+            in_position = X[:, -3] > 0.5
+            return np.where(in_position[:, None], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0])
+
+    index = pd.date_range("2024-01-01", periods=400, freq="15min", name="Open time")
+    close = pd.Series(np.linspace(100, 130, 400) + np.sin(np.arange(400) / 7), index=index)
+    df = pd.DataFrame({"Open": close, "High": close * 1.002, "Low": close * 0.998, "Close": close, "Volume": 1_000.0})
+
+    buys, sells = policy_signals(df, _BuyThenSell())
+
+    assert len(buys) == len(sells) > 0
+    # Ogni vendita segue il proprio acquisto, e ogni acquisto segue la vendita precedente.
+    assert all(sell[0] > buy[0] for buy, sell in zip(buys, sells))
+    assert all(buy[0] > sell[0] for buy, sell in zip(buys[1:], sells[:-1]))
