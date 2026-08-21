@@ -14,7 +14,18 @@ import streamlit as st
 
 from cryptofarm.ml.signals import barrier_signals, meta_signals, policy_signals
 from cryptofarm.ml.trainer import active_model_name, meta_parameters, stored_decision_threshold
-from cryptofarm.trading.indicators import calculate_latest_indicators
+from cryptofarm.trading.indicators import latest_bands
+
+
+def _psar() -> float:
+    """`simulate_candles` legge una colonna `PSAR` che nessun indicatore produce.
+
+    Prima leggeva `row["PSAR"]` da un DataFrame che quella colonna non ce l'ha, e sollevava
+    `KeyError` non appena il ramo dello stop-loss veniva raggiunto. Qui si solleva lo stesso
+    errore invece di inventare un valore, cosi' il comportamento resta identico. Come per `MACD`
+    nelle strategie in cima al modulo, e' un difetto che precede questa riorganizzazione.
+    """
+    raise KeyError("PSAR")
 
 
 @st.cache_data
@@ -35,6 +46,11 @@ def simulate_candles(
 
     df = raw_df.copy()
 
+    # Letture per riga: `df["Open"].iloc[i]` passa dal motore di indicizzazione di pandas a ogni
+    # accesso. Le colonne servono per intero, quindi si estraggono una volta.
+    opens, highs, lows, closes = (df[c].to_numpy() for c in ("Open", "High", "Low", "Close"))
+    needed_bars = atr_window + 12
+
     # Inizializza strutture per salvare i segnali
     buy_signals = []
     sell_signals = []
@@ -52,10 +68,10 @@ def simulate_candles(
     # Loop sulle candele
     for i in range(len(df)):
 
-        o = df["Open"].iloc[i]
-        h = df["High"].iloc[i]
-        l = df["Low"].iloc[i]
-        c = df["Close"].iloc[i]
+        o = opens[i]
+        h = highs[i]
+        l = lows[i]
+        c = closes[i]
 
         n_steps = 10
         is_green = c >= o
@@ -94,10 +110,18 @@ def simulate_candles(
         # (ma dipende da come preferisci gestire i conti).
         prices_sequence.append(c)
         # Inizializza i valori "in costruzione" della candela:
-        step_open = o
         step_high = o
         step_low = o
         step_close = o
+
+        # Le bande dipendono solo dalle ultime `needed_bars` barre che finiscono in `i`, e di quelle
+        # solo da High/Low/Close. Prima ogni sotto-passo copiava tutto il DataFrame e ricostruiva
+        # gli indicatori con `ta`: qui la finestra si ritaglia una volta per candela e i sotto-passi
+        # ne riscrivono solo l'ultima barra, che sovrascrivono comunque per intero.
+        start = max(0, i - needed_bars + 1)
+        window_high = highs[start : i + 1].copy()
+        window_low = lows[start : i + 1].copy()
+        window_close = closes[start : i + 1].copy()
 
         # Ora eseguiamo la simulazione step-by-step
         for price in prices_sequence:
@@ -114,51 +138,37 @@ def simulate_candles(
             # Aggiorna la chiusura
             step_close = price
 
-            temp_df = df.copy()
-            # Sovrascrivi sulla candela i-esima i valori dinamici
-            temp_df.at[temp_df.index[i], "Open"] = step_open
-            temp_df.at[temp_df.index[i], "High"] = step_high
-            temp_df.at[temp_df.index[i], "Low"] = step_low
-            temp_df.at[temp_df.index[i], "Close"] = step_close
+            # Sovrascrivi sulla candela i-esima i valori dinamici. L'apertura non entra nel
+            # calcolo: ATR ed EMA guardano solo High, Low e Close.
+            window_high[-1] = step_high
+            window_low[-1] = step_low
+            window_close[-1] = step_close
 
-            df_utile = calculate_latest_indicators(
-                i=i, df=temp_df, atr_window=atr_window, atr_multiplier=atr_multiplier
-            )
+            upper_band, lower_band = latest_bands(window_high, window_low, window_close, atr_window, atr_multiplier)
 
-            row = df_utile.iloc[-1]
             # Condizione di BUY
             if (
                 not holding
                 and last_signal_candle_index != i
-                and row["Lower_Band"] is not None
-                and row["Close"] <= row["Lower_Band"]
-                and not (got_stop_loss and row["PSAR"] is not None and row["PSAR"] > row["Close"])
+                and lower_band is not None
+                and step_close <= lower_band
+                and not (got_stop_loss and _psar() is not None and _psar() > step_close)
             ):
-                buy_signals.append((df.index[i], float(row["Close"])))
+                buy_signals.append((df.index[i], float(step_close)))
                 holding = True
                 last_signal_candle_index = i
                 got_stop_loss = False
-                stop_loss_price = float(row["Close"]) * (1 - stop_loss_decimal)
+                stop_loss_price = float(step_close) * (1 - stop_loss_decimal)
             # Condizione di SELL
-            if (
-                holding
-                and last_signal_candle_index != i
-                and row["Upper_Band"] is not None
-                and row["Close"] >= row["Upper_Band"]
-            ):
-                sell_signals.append((df.index[i], float(row["Close"])))
+            if holding and last_signal_candle_index != i and upper_band is not None and step_close >= upper_band:
+                sell_signals.append((df.index[i], float(step_close)))
                 holding = False
                 last_signal_candle_index = i
                 stop_loss_price = None
                 got_stop_loss = False
             # Condizione STOP LOSS
-            if (
-                holding
-                and stop_loss_price is not None
-                and row["Close"] < stop_loss_price
-                and row["PSAR"] > row["Close"]
-            ):
-                sell_signals.append((df.index[i], float(row["Close"])))
+            if holding and stop_loss_price is not None and step_close < stop_loss_price and _psar() > step_close:
+                sell_signals.append((df.index[i], float(step_close)))
                 holding = False
                 last_signal_candle_index = i
                 got_stop_loss = True

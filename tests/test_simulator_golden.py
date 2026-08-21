@@ -152,15 +152,23 @@ def build_snapshot() -> dict:
         raw = scenario_frame(scenario)
         table = indicators.add_technical_indicator(raw)
         snapshot[f"{scenario}/add_technical_indicator"] = _frame(table)
-        snapshot[f"{scenario}/get_green_red_percentage"] = round(
-            float(strategies.get_green_red_percentage(table)), 8
-        )
-        snapshot[f"{scenario}/identify_trend_zones"] = _capture(
-            lambda f=table: len(strategies.identify_trend_zones(f))
-        )
+        snapshot[f"{scenario}/get_green_red_percentage"] = round(float(strategies.get_green_red_percentage(table)), 8)
+        snapshot[f"{scenario}/identify_trend_zones"] = _capture(lambda f=table: len(strategies.identify_trend_zones(f)))
         probes = [i for i in (210, 250, 300, 350, 500) if i < len(table)]
         snapshot[f"{scenario}/bullish_condition"] = [bool(strategies.bullish_condition(table, i)) for i in probes]
         snapshot[f"{scenario}/bearish_condition"] = [bool(strategies.bearish_condition(table, i)) for i in probes]
+        # `latest_bands` e' il nucleo numpy su cui gira `simulate_candles`: va fissato anche lui.
+        closes = table["Close"].to_numpy()
+        snapshot[f"{scenario}/latest_bands"] = [
+            [None if b is None else round(float(b), 8) for b in latest]
+            for latest in (
+                indicators.latest_bands(
+                    table["High"].to_numpy()[:end], table["Low"].to_numpy()[:end], closes[:end], window, 2.0
+                )
+                for window in (3, 6, 14)
+                for end in (2, 5, 20, len(closes))
+            )
+        ]
         for name, call in STRATEGIES.items():
             snapshot[f"{scenario}/{name}"] = _capture(lambda c=call, f=table: _signals(c(f)))
 

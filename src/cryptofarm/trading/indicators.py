@@ -4,6 +4,7 @@ Estratto da `simulator.py` senza modifiche. `add_technical_indicator` calcola l'
 in una volta; `calculate_latest_indicators` ricalcola solo la finestra attorno a una candela,
 ed e' cio' che rende `simulate_candles` lento."""
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 from ta.momentum import KAMAIndicator, RSIIndicator, StochasticOscillator, TSIIndicator
@@ -113,6 +114,57 @@ def add_technical_indicator(
     return df_copy
 
 
+def _atr_ema(high: np.ndarray, low: np.ndarray, close: np.ndarray, window: int) -> tuple[np.ndarray, np.ndarray]:
+    """ATR di Wilder ed EMA, con le stesse formule di `ta`, senza costruire oggetti pandas.
+
+    `simulate_candles` chiama questo calcolo dieci volte per candela: con `ta.AverageTrueRange` e
+    `ta.EMAIndicator` ogni chiamata costruiva una manciata di Series, ed era li' che se ne andava
+    quasi tutto il tempo del simulatore.
+
+    Le formule sono quelle di `ta` 0.11 riga per riga:
+    `AverageTrueRange._run` semina l'ATR con la media dei primi `window` true range e poi applica
+    lo smorzamento di Wilder, lasciando zero prima; `_ema` e' `ewm(span=window, adjust=False)` con
+    `min_periods=window`, quindi NaN prima. Il true range della prima barra vale `high - low`,
+    perche' `DataFrame.max(axis=1)` scarta i NaN che nascono dal `close.shift(1)`.
+    """
+    n = len(close)
+    previous_close = np.empty(n)
+    previous_close[0] = np.nan
+    previous_close[1:] = close[:-1]
+    with np.errstate(invalid="ignore"):
+        true_range = np.nanmax(
+            np.vstack([high - low, np.abs(high - previous_close), np.abs(low - previous_close)]), axis=0
+        )
+
+    atr = np.zeros(n)
+    atr[window - 1] = true_range[:window].mean()
+    for i in range(window, n):
+        atr[i] = (atr[i - 1] * (window - 1) + true_range[i]) / window
+
+    alpha = 2.0 / (window + 1.0)
+    ema = np.empty(n)
+    ema[0] = close[0]
+    for i in range(1, n):
+        ema[i] = alpha * close[i] + (1 - alpha) * ema[i - 1]
+    ema[: window - 1] = np.nan
+
+    return atr, ema
+
+
+def latest_bands(
+    high: np.ndarray, low: np.ndarray, close: np.ndarray, window: int, multiplier: float
+) -> tuple[float, float] | tuple[None, None]:
+    """Solo l'ultima banda superiore e inferiore della finestra: cio' che serve a `simulate_candles`.
+
+    `(None, None)` quando la finestra e' piu' corta di `window`, come faceva
+    `calculate_latest_indicators` restituendo colonne a None.
+    """
+    if len(close) < window:
+        return None, None
+    atr, ema = _atr_ema(high, low, close, window)
+    return ema[-1] + multiplier * atr[-1], ema[-1] - multiplier * atr[-1]
+
+
 def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, atr_multiplier: float = 2.4):
     """
     Calcola SOLO l'ultimo valore di RSI e MACD sulla candela 'i'
@@ -136,15 +188,7 @@ def calculate_latest_indicators(df: pd.DataFrame, i: int, atr_window: int = 14, 
         df_copy["PSAR"] = None
         return df_copy
 
-    # ATR
-    atr_indicator = AverageTrueRange(
-        high=temp_df["High"], low=temp_df["Low"], close=temp_df["Close"], window=atr_window
-    )
-    atr = atr_indicator.average_true_range()
-
-    # EMA (Media Mobile per le Rolling ATR Bands)
-    ema_indicator = EMAIndicator(close=temp_df["Close"], window=atr_window)
-    ema = ema_indicator.ema_indicator()
+    atr, ema = _atr_ema(temp_df["High"].to_numpy(), temp_df["Low"].to_numpy(), temp_df["Close"].to_numpy(), atr_window)
 
     # kama_indicator = KAMAIndicator(close=temp_df['Close'],
     #                                window=atr_window,
