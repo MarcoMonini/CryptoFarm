@@ -11,6 +11,7 @@ from cryptofarm.ml.trainer import (
     load_signal_model,
 )
 from cryptofarm.paths import MODELS_DIR
+from cryptofarm.trading import config
 from cryptofarm.trading.indicators import add_technical_indicator
 from cryptofarm.trading.market_data import (
     get_market_data,
@@ -547,33 +548,21 @@ if __name__ == "__main__":
     st.sidebar.title("Market parameters")
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        asset = st.text_input(label="Asset", placeholder="es. BTC, ETH, XRP...", max_chars=8, value="BTC")
-        time_hours = st.number_input(label="Time Hours", min_value=0, value=240, step=24)
+        asset = st.text_input(label="Asset", placeholder="es. BTC, ETH, XRP...", max_chars=8, value=config.ASSET)
+        time_hours = st.number_input(label="Time Hours", **config.TIME_HOURS)
 
     with col2:
-        currency = st.text_input(label="Currency", placeholder="es. USDC, USDT, EUR...", max_chars=8, value="USDC")
-        interval = st.selectbox(
-            label="Candle Interval", options=["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"], index=3
+        currency = st.text_input(
+            label="Currency", placeholder="es. USDC, USDT, EUR...", max_chars=8, value=config.CURRENCY
         )
+        interval = st.selectbox(label="Candle Interval", options=config.INTERVALS, index=config.INTERVAL_INDEX)
 
     symbol = asset + currency
-    wallet = st.sidebar.number_input(label=f"Wallet ({currency})", min_value=0, value=100, step=1)
+    wallet = st.sidebar.number_input(label=f"Wallet ({currency})", **config.WALLET)
     st.sidebar.title("Indicators parameters")
     strategia = st.sidebar.selectbox(
         label="Strategia",
-        options=[
-            "-",
-            "Close Buy/Sell Limits",
-            "Close ATR",
-            "Close Bullish EMA",
-            "Close EMA Crossover",
-            "Supetrend",
-            "Trend Zones",
-            "TP/SL with ATR",
-            "Green Candles",
-            "ATR Live Trade",
-            "AI Model",
-        ],
+        options=config.STRATEGIES,
         index=0,
     )
     if st.sidebar.button("SIMULATE"):
@@ -583,27 +572,27 @@ if __name__ == "__main__":
 
     # step = col1.number_input(label="PSAR Step", min_value=0.001, max_value=1.000, value=0.01, step=0.001, format="%.3f")
     # max_step = col2.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
-    atr_multiplier = col1.number_input(label="ATR Multiplier", min_value=0.1, max_value=50.0, value=1.6, step=0.1)
-    atr_window = col2.number_input(label="ATR Window", min_value=1, max_value=100, value=5, step=1)
+    atr_multiplier = col1.number_input(label="ATR Multiplier", **config.ATR_MULTIPLIER.widget)
+    atr_window = col2.number_input(label="ATR Window", **config.ATR_WINDOW.widget)
 
     col1, col2, col3 = st.sidebar.columns(3)
-    rsi_window = col1.number_input(label="RSI Short", min_value=2, max_value=500, value=12, step=1)
-    rsi_window2 = col2.number_input(label="Medium", min_value=2, max_value=500, value=24, step=1)
-    rsi_window3 = col3.number_input(label="Long", min_value=2, max_value=500, value=36, step=1)
+    rsi_window = col1.number_input(label="RSI Short", **config.RSI_SHORT.widget)
+    rsi_window2 = col2.number_input(label="Medium", **config.RSI_MEDIUM.widget)
+    rsi_window3 = col3.number_input(label="Long", **config.RSI_LONG.widget)
 
-    ema_window = col1.number_input(label="EMA Short", min_value=1, max_value=500, value=10, step=1)
-    ema_window2 = col2.number_input(label="Medium", min_value=1, max_value=500, value=50, step=1)
-    ema_window3 = col3.number_input(label="Long", min_value=1, max_value=500, value=200, step=1)
+    ema_window = col1.number_input(label="EMA Short", **config.EMA_SHORT.widget)
+    ema_window2 = col2.number_input(label="Medium", **config.EMA_MEDIUM.widget)
+    ema_window3 = col3.number_input(label="Long", **config.EMA_LONG.widget)
 
     # macd_short_window = col1.number_input(label="MACD Short", min_value=0, max_value=500, value=12, step=1)
     # macd_long_window = col2.number_input(label="Long", min_value=0, max_value=500, value=26, step=1)
     # macd_signal_window = col3.number_input(label="Signal", min_value=0, max_value=500, value=9, step=1)
 
     col1, col2 = st.sidebar.columns(2)
-    kama_pow1 = col1.number_input(label="KAMA Pow 1", min_value=1, max_value=1000, value=2, step=1)
-    kama_pow2 = col2.number_input(label="Pow 2", min_value=1, max_value=1000, value=30, step=1)
-    rsi_buy_limit = col1.number_input(label="RSI Buy limit", min_value=0, max_value=100, value=25, step=1)
-    rsi_sell_limit = col2.number_input(label="RSI Sell limit", min_value=0, max_value=100, value=75, step=1)
+    kama_pow1 = col1.number_input(label="KAMA Pow 1", **config.KAMA_POW1.widget)
+    kama_pow2 = col2.number_input(label="Pow 2", **config.KAMA_POW2.widget)
+    rsi_buy_limit = col1.number_input(label="RSI Buy limit", **config.RSI_BUY_LIMIT.widget)
+    rsi_sell_limit = col2.number_input(label="RSI Sell limit", **config.RSI_SELL_LIMIT.widget)
 
     # macd_buy_limit = col1.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-2.5,
     # value=-0.66,
@@ -614,23 +603,23 @@ if __name__ == "__main__":
     # din_macd_div = col1.number_input(label="ATR Dividend", min_value=-10.0, max_value=10.0, value=1.2,
     #                                  step=0.1)
 
-    stop_loss = col2.number_input(label="Stop Loss %", min_value=0.1, max_value=100.0, value=99.0, step=1.0)
+    stop_loss = col2.number_input(label="Stop Loss %", **config.STOP_LOSS_PERCENT.widget)
 
-    num_cond = col1.number_input(label="Numero di condizioni", min_value=1, max_value=10, value=1, step=1)
-    window_pivot = col2.number_input(label="Min-Max Window", min_value=2, max_value=500, value=100, step=2)
+    num_cond = col1.number_input(label="Numero di condizioni", **config.NUM_CONDITIONS.widget)
+    window_pivot = col2.number_input(label="Min-Max Window", **config.PIVOT_WINDOW.widget)
 
     if st.session_state["df"] is not None:
         if st.sidebar.button("SAVE DATA"):
             st.write(st.session_state["df"])
 
-    csv_file = st.sidebar.text_input(label="CSV File", value="C:/Users/monini.m/Documents/market_data.csv")
+    csv_file = st.sidebar.text_input(label="CSV File", value=config.CSV_FILE)
     if st.sidebar.button("Read from CSV"):
         st.session_state["df"] = pd.read_csv(csv_file)
         st.session_state["df"].set_index("Open time", inplace=True)
         # Mantieni solo le colonne essenziali, converti a float
         st.session_state["df"] = st.session_state["df"][["Open", "High", "Low", "Close", "Volume"]].astype(float)
 
-    show_graph = st.sidebar.checkbox(label="Show Graphs", value=1)
+    show_graph = st.sidebar.checkbox(label="Show Graphs", value=config.SHOW_GRAPHS)
 
     if st.session_state["df"] is not None:
         fig, trades_df, actual_hours = trading_analysis(
