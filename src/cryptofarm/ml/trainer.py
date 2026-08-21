@@ -18,6 +18,7 @@ import json
 import subprocess
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -291,15 +292,15 @@ def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = Non
     return result
 
 
-def _infer_interval_minutes(index: pd.DatetimeIndex) -> int:
-    if len(index) < 2:
-        return 15
-    return int(round(np.median(np.diff(index.to_numpy()).astype("timedelta64[m]").astype(float))))
+# Precedenza alla strategia piu' recente: politica a tre azioni, poi meta-labeling, poi il
+# classificatore di segnale originale. Il modello della strategia piu' recente e' quello che si
+# vuole vedere sul grafico; per tornare al precedente basta spostarne l'artefatto altrove.
+MODEL_PRECEDENCE = ("policy_model", "meta_model", MODEL_NAME)
 
 
 def stored_decision_threshold() -> float:
     """Soglia scelta durante l'addestramento, letta dai metadata del modello."""
-    for name in ("policy_model", "meta_model", MODEL_NAME):
+    for name in MODEL_PRECEDENCE:
         metadata_path = MODELS_DIR / f"{name}.json"
         if metadata_path.exists():
             try:
@@ -320,22 +321,21 @@ def _meta_metadata() -> dict | None:
         return None
 
 
-def _is_meta_model() -> bool:
-    """Il modello caricato e' un secondario di meta-labeling?"""
-    return not _is_policy_model() and (MODELS_DIR / "meta_model.joblib").exists()
+def _model_path(name: str) -> Path | None:
+    """L'artefatto addestrato per questa famiglia, in qualunque formato sia stato salvato."""
+    return next((p for ext in (".joblib", ".keras") if (p := MODELS_DIR / f"{name}{ext}").exists()), None)
 
 
-def _is_policy_model() -> bool:
-    """Il modello caricato e' la politica a tre azioni condizionata sullo stato?
+def active_model_name() -> str | None:
+    """Quale famiglia di modello e' addestrata, e quindi quale strategia governa i segnali.
 
-    Ha la precedenza sugli altri due quando esiste, come `meta_model` ce l'aveva su `signal_model`:
-    il modello della strategia piu' recente e' quello che si vuole vedere sul grafico. Per tornare
-    al precedente basta spostare `models/policy_model.joblib` altrove.
+    Unica fonte di verita' per la precedenza: `load_signal_model` carica questo modello e
+    `ai_model_simulation` sceglie in base a questo nome, quindi i due non possono divergere.
     """
-    return (MODELS_DIR / "policy_model.joblib").exists()
+    return next((name for name in MODEL_PRECEDENCE if _model_path(name)), None)
 
 
-def _meta_parameters() -> dict:
+def meta_parameters() -> dict:
     """Parametri della catena di segnale, letti dai metadata del modello.
 
     Non sono duplicati qui come costanti di proposito: barriere, soglia CUSUM e parametri di
@@ -360,14 +360,10 @@ def _meta_parameters() -> dict:
 
 def load_signal_model():
     """Carica il modello di segnale addestrato, qualunque formato abbia."""
-    # Precedenza alla strategia piu' recente: politica a tre azioni, poi meta-labeling, poi il
-    # classificatore di segnale originale.
-    for name in ("policy_model", "meta_model", MODEL_NAME):
-        for extension in (".joblib", ".keras"):
-            path = MODELS_DIR / f"{name}{extension}"
-            if path.exists():
-                return load_model(path)
-    raise FileNotFoundError(f"Nessun modello in {MODELS_DIR}. Addestrarne uno con `cryptofarm.ml.trainer`.")
+    name = active_model_name()
+    if name is None:
+        raise FileNotFoundError(f"Nessun modello in {MODELS_DIR}. Addestrarne uno con `cryptofarm.ml.trainer`.")
+    return load_model(_model_path(name))
 
 
 def main() -> None:
