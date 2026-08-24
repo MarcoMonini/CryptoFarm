@@ -9,6 +9,9 @@ Due proprieta' vanno tenute ferme, perche' senza di esse i numeri prodotti da
 2. Le metriche derivano dalle operazioni di `pnl.simulate_trading_with_commisions`: il
    rendimento e' quello del capitale finale, e su un caso costruito a mano si sa quanto deve
    valere.
+3. A parita' di parametri, lo sweep produce **le stesse operazioni** che produrrebbe
+   `trading_analysis`, cioe' la pagina. Le prime due proprieta' valgono sui pezzi; questa lega il
+   risultato al percorso intero, dispatch delle strategie compreso.
 
 Le candele sono sintetiche: il test non deve dipendere dallo store, che nella CI non esiste.
 """
@@ -20,7 +23,18 @@ import pandas as pd
 import pytest
 
 from cryptofarm.trading.indicators import add_technical_indicator
-from scripts.strategy_sweep import Indicators, _ColumnCache, evaluate, indicator_frame, psar_column
+from cryptofarm.trading.pnl import simulate_trading_with_commisions
+from cryptofarm.trading.simulator import trading_analysis
+from scripts.strategy_sweep import (
+    PSAR_MAX_STEP,
+    PSAR_STEP,
+    Indicators,
+    _ColumnCache,
+    _run_strategy,
+    evaluate,
+    indicator_frame,
+    psar_column,
+)
 
 
 @pytest.fixture(scope="module")
@@ -122,6 +136,59 @@ def test_evaluate_counts_the_final_wallet(candles: pd.DataFrame) -> None:
     # Il drawdown si misura anche mentre la posizione e' aperta, non solo sui trade chiusi.
     assert metrics["max_drawdown_%"] > 0
     assert 0 < metrics["esposizione_%"] < 100
+
+
+@pytest.mark.parametrize(
+    "strategia, params",
+    [
+        ("Close ATR", {"stop_loss": 99.0}),
+        ("Close ATR", {"stop_loss": 5.0}),
+        ("Close Buy/Sell Limits", {"rsi_buy_limit": 30, "rsi_sell_limit": 70, "num_cond": 1}),
+        ("Close Bullish EMA", {"rsi_buy_limit": 50, "rsi_sell_limit": 70}),
+        ("TP/SL with ATR", {}),
+        ("Green Candles", {}),
+        ("Trend Zones", {}),
+    ],
+)
+def test_sweep_matches_the_page(candles: pd.DataFrame, strategia: str, params: dict) -> None:
+    """Le stesse operazioni che `trading_analysis` scriverebbe nella tabella della pagina."""
+    indicators = Indicators()
+    cache = _ColumnCache(candles, psar_column(candles))
+    buy_signals, sell_signals = _run_strategy(
+        strategia, indicator_frame(cache, indicators), {**indicators.__dict__, **params}
+    )
+    nostre = pd.DataFrame(simulate_trading_with_commisions(buy_signals, sell_signals, wallet=100.0, fee_percent=0.1))
+
+    _, trades, _ = trading_analysis(
+        asset="TEST",
+        interval="15m",
+        wallet=100.0,
+        fee_percent=0.1,
+        show=False,
+        market_data=candles,
+        step=PSAR_STEP,
+        max_step=PSAR_MAX_STEP,
+        strategia=strategia,
+        stop_loss=params.get("stop_loss", 99.0),
+        rsi_buy_limit=params.get("rsi_buy_limit", 25),
+        rsi_sell_limit=params.get("rsi_sell_limit", 75),
+        num_cond=params.get("num_cond", 1),
+        atr_window=indicators.atr_window,
+        atr_multiplier=indicators.atr_multiplier,
+        rsi_window=indicators.rsi_window,
+        rsi_window2=indicators.rsi_window2,
+        rsi_window3=indicators.rsi_window3,
+        ema_window=indicators.ema_window,
+        ema_window2=indicators.ema_window2,
+        ema_window3=indicators.ema_window3,
+        kama_pow1=indicators.kama_pow1,
+        kama_pow2=indicators.kama_pow2,
+    )
+
+    colonne = ["Buy_Time", "Buy_Price", "Sell_Time", "Sell_Price", "Quantity", "Profit", "Wallet_After"]
+    assert len(nostre) == len(trades)
+    if not nostre.empty:
+        pd.testing.assert_frame_equal(nostre[colonne], trades[colonne])
 
 
 def test_evaluate_without_trades(candles: pd.DataFrame) -> None:

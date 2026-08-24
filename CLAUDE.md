@@ -76,13 +76,13 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m scripts.strategy_focus --top 3                # commissioni e intervalli
 
 # Store delle candele da fonte alternativa, dove data.binance.vision non è raggiungibile
-.venv312/bin/python -m scripts.import_bitstamp --source /percorso/al/clone
+.venv312/bin/python -m scripts.import_candles --source /percorso/al/clone
 
 # Bot live — piazza ordini veri, richiede le variabili d'ambiente (vedi .env.example)
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (188 test in 12 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (201 test in 14 file). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore

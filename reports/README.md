@@ -19,3 +19,4 @@ reinvestito, commissione 0,1% per gamba salvo dove indicato.
 | `walk_forward_15m.csv`, `walk_forward_dettaglio_15m.csv` | riottimizzazione annuale sui soli anni gia' visti |
 | `commissioni.csv` | le configurazioni migliori rieseguite a commissione 0%, 0,04%, 0,075%, 0,1%, 0,2% |
 | `intervalli.csv` | le stesse configurazioni rieseguite da 5m a 1d, senza ritoccare i parametri |
+| `*_ETHUSD.csv` | le stesse viste sul mercato di controllo: ETH/USD di Bitfinex, 2017-2019 (§9 del documento) |

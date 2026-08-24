@@ -457,31 +457,33 @@ def _cells(grid: dict) -> list[tuple[Indicators, dict]]:
 
 # Le candele e il PSAR si calcolano una volta nel processo padre: i worker li ereditano con il
 # fork, senza rileggere il parquet ne' ripagare i 26 secondi del PSAR per ognuno.
-_CANDLES: dict[str, pd.DataFrame] = {}
-_PSAR: dict[str, np.ndarray] = {}
+_CANDLES: dict[tuple[str, str], pd.DataFrame] = {}
+_PSAR: dict[tuple[str, str], np.ndarray] = {}
 
 
-def load_interval(interval: str, since: str = SINCE, until: str | None = None) -> pd.DataFrame:
-    candles = load_klines(SYMBOL, interval)
+def load_interval(interval: str, since: str = SINCE, until: str | None = None, symbol: str = SYMBOL) -> pd.DataFrame:
+    candles = load_klines(symbol, interval)
     candles = candles[candles.index >= since]
     if until:
         candles = candles[candles.index < until]
     return candles
 
 
-def prepare(interval: str, since: str = SINCE, until: str | None = None) -> None:
-    if interval in _CANDLES:
+def prepare(interval: str, since: str = SINCE, until: str | None = None, symbol: str = SYMBOL) -> None:
+    if (symbol, interval) in _CANDLES:
         return
-    candles = load_interval(interval, since, until)
-    _CANDLES[interval] = candles
-    _PSAR[interval] = psar_column(candles)
+    candles = load_interval(interval, since, until, symbol)
+    if candles.empty:
+        raise SystemExit(f"nessuna candela per {symbol} {interval}: lo store e' vuoto o il periodo e' fuori copertura")
+    _CANDLES[(symbol, interval)] = candles
+    _PSAR[(symbol, interval)] = psar_column(candles)
 
 
-def _run_group(job: tuple[str, str, Indicators, list[dict], float]) -> tuple[list[dict], list[dict]]:
+def _run_group(job: tuple[str, str, str, Indicators, list[dict], float]) -> tuple[list[dict], list[dict]]:
     """Una tabella di indicatori e tutte le configurazioni di strategia che ci girano sopra."""
-    interval, strategy, indicators, param_list, fee = job
-    candles = _CANDLES[interval]
-    cache = _ColumnCache(candles, _PSAR[interval])
+    symbol, interval, strategy, indicators, param_list, fee = job
+    candles = _CANDLES[(symbol, interval)]
+    cache = _ColumnCache(candles, _PSAR[(symbol, interval)])
     df = indicator_frame(cache, indicators)
 
     rows, yearly = [], []
@@ -492,6 +494,7 @@ def _run_group(job: tuple[str, str, Indicators, list[dict], float]) -> tuple[lis
             buy_signals=buy_signals, sell_signals=sell_signals, wallet=WALLET, fee_percent=fee
         )
         row = {
+            "simbolo": symbol,
             "intervallo": interval,
             "strategia": strategy,
             "fee_%": fee,
@@ -501,7 +504,7 @@ def _run_group(job: tuple[str, str, Indicators, list[dict], float]) -> tuple[lis
             "secondi": round(time.time() - started, 2),
         }
         rows.append(row)
-        key = {key: row[key] for key in ("intervallo", "strategia", *asdict(indicators), *params)}
+        key = {key: row[key] for key in ("simbolo", "intervallo", "strategia", *asdict(indicators), *params)}
         yearly.extend({**key, **year} for year in by_year(operations, WALLET, fee))
     return rows, yearly
 
@@ -515,17 +518,18 @@ def run_cells(
     since: str = SINCE,
     until: str | None = None,
     label: str = "",
+    symbol: str = SYMBOL,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Esegue un elenco qualunque di configurazioni: e' quello che usano sia le griglie sia le
     analisi mirate (stessa configurazione a commissioni diverse, su intervalli diversi, su
     sotto-periodi diversi)."""
-    prepare(interval, since, until)
+    prepare(interval, since, until, symbol)
     # Le configurazioni che condividono gli stessi indicatori vanno nello stesso lavoro: la
     # tabella si costruisce una volta sola per gruppo.
     grouped: dict[Indicators, list[dict]] = {}
     for indicators, params in cells:
         grouped.setdefault(indicators, []).append(params)
-    jobs = [(interval, strategy, indicators, params, fee) for indicators, params in grouped.items()]
+    jobs = [(symbol, interval, strategy, indicators, params, fee) for indicators, params in grouped.items()]
 
     started = time.time()
     rows, yearly = [], []
@@ -540,7 +544,7 @@ def run_cells(
             rows.extend(group_rows)
             yearly.extend(group_yearly)
     print(
-        f"{label or strategy} [{interval}]: {len(rows)} configurazioni, {len(jobs)} tabelle di indicatori, "
+        f"{label or strategy} [{symbol} {interval}]: {len(rows)} configurazioni, {len(jobs)} tabelle di indicatori, "
         f"{(time.time() - started) / 60:.1f} minuti",
         flush=True,
     )
@@ -554,12 +558,15 @@ def run_grid(
     workers: int = 4,
     since: str = SINCE,
     until: str | None = None,
+    symbol: str = SYMBOL,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     grid = GRIDS[name]
-    return run_cells(grid["strategy"], _cells(grid), interval, fee, workers, since, until, label=name)
+    return run_cells(grid["strategy"], _cells(grid), interval, fee, workers, since, until, name, symbol)
 
 
 def save(name: str, interval: str, results: pd.DataFrame, yearly: pd.DataFrame, suffix: str = "") -> None:
+    """Il simbolo entra nel nome solo quando non e' quello di riferimento, per non spostare i file
+    gia' scritti quando si aggiunge un mercato di controllo."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     stem = f"{name}_{interval}{suffix}"
     results.to_parquet(OUTPUT_DIR / f"{stem}.parquet")
@@ -573,6 +580,7 @@ def main() -> None:
     parser.add_argument("--all", action="store_true", help="tutte le griglie")
     parser.add_argument("--list", action="store_true", help="elenca le griglie e la loro dimensione")
     parser.add_argument("--interval", default="15m")
+    parser.add_argument("--symbol", default=SYMBOL)
     parser.add_argument("--fee", type=float, default=FEE_PERCENT)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--since", default=SINCE)
@@ -589,8 +597,9 @@ def main() -> None:
     if not names:
         parser.error("serve --grid, --all o --list")
     for name in names:
-        results, yearly = run_grid(name, args.interval, args.fee, args.workers, args.since, args.until)
-        save(name, args.interval, results, yearly, args.suffix)
+        results, yearly = run_grid(name, args.interval, args.fee, args.workers, args.since, args.until, args.symbol)
+        suffix = args.suffix if args.symbol == SYMBOL else f"_{args.symbol}{args.suffix}"
+        save(name, args.interval, results, yearly, suffix)
 
 
 if __name__ == "__main__":

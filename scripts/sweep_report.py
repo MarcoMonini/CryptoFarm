@@ -24,7 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 from cryptofarm.paths import PROJECT_ROOT
-from scripts.strategy_sweep import GRIDS, OUTPUT_DIR
+from scripts.strategy_sweep import GRIDS, OUTPUT_DIR, SYMBOL
 
 REPORT_DIR = PROJECT_ROOT / "reports"
 # La divisione in campione di stima e campione di verifica: cinque anni che contengono un ciclo
@@ -51,7 +51,7 @@ METRIC_COLUMNS = [
     "commissioni_%",
     "secondi",
 ]
-KEY_COLUMNS = ["intervallo", "strategia"]
+KEY_COLUMNS = ["simbolo", "intervallo", "strategia"]
 
 
 def _fold_triplet(name: str, frame: pd.DataFrame) -> pd.DataFrame:
@@ -71,22 +71,29 @@ def _fold_triplet(name: str, frame: pd.DataFrame) -> pd.DataFrame:
     return folded.drop(columns=columns)
 
 
-def load_sweeps(interval: str = "15m", grids: list[str] | None = None, fold: bool = True) -> dict[str, pd.DataFrame]:
+def _stem(name: str, interval: str, symbol: str) -> str:
+    """Il simbolo di riferimento non entra nel nome dei file: cosi' li ha scritti lo sweep."""
+    return f"{name}_{interval}" if symbol == SYMBOL else f"{name}_{interval}_{symbol}"
+
+
+def load_sweeps(
+    interval: str = "15m", grids: list[str] | None = None, fold: bool = True, symbol: str = SYMBOL
+) -> dict[str, pd.DataFrame]:
     """`fold=False` restituisce le colonne come le ha scritte lo sweep: serve a chi deve
     ricostruire una configurazione per rieseguirla, non a chi la legge."""
     frames = {}
     for name in grids or GRIDS:
-        path = OUTPUT_DIR / f"{name}_{interval}.parquet"
+        path = OUTPUT_DIR / f"{_stem(name, interval, symbol)}.parquet"
         if path.exists():
             frame = pd.read_parquet(path)
             frames[name] = _fold_triplet(name, frame) if fold else frame
     return frames
 
 
-def load_yearly(interval: str = "15m", grids: list[str] | None = None) -> dict[str, pd.DataFrame]:
+def load_yearly(interval: str = "15m", grids: list[str] | None = None, symbol: str = SYMBOL) -> dict[str, pd.DataFrame]:
     frames = {}
     for name in grids or GRIDS:
-        path = OUTPUT_DIR / f"{name}_{interval}_annuale.parquet"
+        path = OUTPUT_DIR / f"{_stem(name, interval, symbol)}_annuale.parquet"
         if path.exists():
             frames[name] = _fold_triplet(name, pd.read_parquet(path))
     return frames
@@ -265,7 +272,7 @@ def fuori_campione(yearly: dict[str, pd.DataFrame], min_trades: int = MIN_TRADES
                 "percentile_della_scelta": round((table["verifica_%"] < scelta["verifica_%"]).mean() * 100, 1),
                 "correlazione_stima_verifica": round(table["stima_%"].corr(table["verifica_%"], method="spearman"), 2),
                 "parametri_scelti": ", ".join(
-                    f"{key}={scelta[key]}" for key in _config_key(frame) if key not in ("intervallo", "strategia")
+                    f"{key}={scelta[key]}" for key in _config_key(frame) if key not in KEY_COLUMNS
                 ),
             }
         )
@@ -301,7 +308,7 @@ def stabilita(
 
 
 def _pivot(frame: pd.DataFrame, values: str) -> pd.DataFrame:
-    keys = [key for key in _config_key(frame) if key not in ("intervallo", "strategia")]
+    keys = [key for key in _config_key(frame) if key not in KEY_COLUMNS]
     return frame.pivot_table(index=keys, columns="anno", values=values, aggfunc="sum").fillna(0)
 
 
@@ -363,11 +370,13 @@ def walk_forward(
     return pd.DataFrame(riga), pd.DataFrame(dettaglio)
 
 
-def riferimento(interval: str = "15m") -> pd.DataFrame:
+def riferimento(interval: str = "15m", symbol: str = SYMBOL) -> pd.DataFrame:
     """Il possesso passivo, anno per anno e sui due sotto-periodi: il metro di ogni riga sopra."""
     from scripts.strategy_sweep import load_interval
 
-    close = load_interval(interval)["Close"]
+    close = load_interval(interval, symbol=symbol)["Close"]
+    if close.empty:
+        return pd.DataFrame()
     rows = []
     for label, first, last in [
         ("intero", 2017, 2026),
@@ -399,27 +408,29 @@ def salva(tabelle: dict[str, pd.DataFrame], suffix: str = "") -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--interval", default="15m")
+    parser.add_argument("--symbol", default=SYMBOL)
     parser.add_argument("--suffix", default="")
     parser.add_argument("--no-save", action="store_true")
     args = parser.parse_args()
 
-    sweeps = load_sweeps(args.interval)
-    yearly = load_yearly(args.interval)
+    sweeps = load_sweeps(args.interval, symbol=args.symbol)
+    yearly = load_yearly(args.interval, symbol=args.symbol)
     if not sweeps:
-        raise SystemExit(f"nessuno sweep in {OUTPUT_DIR} per {args.interval}")
+        raise SystemExit(f"nessuno sweep in {OUTPUT_DIR} per {args.symbol} {args.interval}")
+    etichetta = args.interval if args.symbol == SYMBOL else f"{args.interval}_{args.symbol}"
 
     tabelle = {
-        f"riferimento_{args.interval}": riferimento(args.interval),
-        f"panoramica_{args.interval}": panoramica(sweeps),
-        f"frequenza_{args.interval}": frequenza(sweeps),
-        f"sensibilita_{args.interval}": sensibilita(sweeps),
-        f"escursione_{args.interval}": escursione(sweeps),
-        f"stabilita_{args.interval}": stabilita(sweeps, yearly),
-        f"fuori_campione_{args.interval}": fuori_campione(yearly),
+        f"riferimento_{etichetta}": riferimento(args.interval, args.symbol),
+        f"panoramica_{etichetta}": panoramica(sweeps),
+        f"frequenza_{etichetta}": frequenza(sweeps),
+        f"sensibilita_{etichetta}": sensibilita(sweeps),
+        f"escursione_{etichetta}": escursione(sweeps),
+        f"stabilita_{etichetta}": stabilita(sweeps, yearly),
+        f"fuori_campione_{etichetta}": fuori_campione(yearly),
     }
     avanti, avanti_dettaglio = walk_forward(yearly)
-    tabelle[f"walk_forward_{args.interval}"] = avanti
-    tabelle[f"walk_forward_dettaglio_{args.interval}"] = avanti_dettaglio
+    tabelle[f"walk_forward_{etichetta}"] = avanti
+    tabelle[f"walk_forward_dettaglio_{etichetta}"] = avanti_dettaglio
     pd.set_option("display.width", 220)
     for name, frame in tabelle.items():
         print(f"\n=== {name} ===")

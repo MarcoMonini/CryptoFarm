@@ -21,10 +21,11 @@ una di "ATR Bands". E nessuna di loro sopravvive alla verifica fuori campione (�
 |---|---|
 | Mercato | BTC/USD, candele a 5 minuti aggregate agli intervalli richiesti |
 | Periodo | 2017-01-01 → 2026-08-24, 9,65 anni, **338.114 barre** a 15 minuti |
-| Fonte | dataset pubblico Bitstamp a un minuto ([`ff137/bitstamp-btcusd-minute-data`](https://github.com/ff137/bitstamp-btcusd-minute-data)), importato con `scripts/import_bitstamp.py` |
+| Fonte | dataset pubblico Bitstamp a un minuto ([`ff137/bitstamp-btcusd-minute-data`](https://github.com/ff137/bitstamp-btcusd-minute-data)), importato con `scripts/import_candles.py` |
 | Capitale | 100, sempre reinvestito per intero, come in `pnl.simulate_trading_with_commisions` |
 | Commissione | 0,1% per gamba (il default della pagina); la sensibilita' e' in §6 |
 | Strategie | le 10 funzioni di `trading/strategies.py` raggiungibili dal dispatch di `trading_analysis` |
+| Controllo | le stesse griglie su ETH/USD 2017-2019, altro exchange e altro periodo (§9) |
 | Metriche | rendimento composto, CAGR, Sharpe e drawdown su equity **segnata a mercato barra per barra**, win rate, profit factor, esposizione, commissioni pagate |
 
 **Perche' Bitstamp e non Binance.** `data/klines.py` prende le candele dai dump di
@@ -39,7 +40,9 @@ e il P&L di `trading/pnl.py` cosi' come stanno. L'unica parte reimplementata e' 
 indicatori, per poter riusare le colonne fra configurazioni invece di ricalcolarle (il PSAR da
 solo costa 26 secondi su 338.000 barre e non dipende da nessun parametro spazzolato):
 `tests/test_strategy_sweep.py` verifica colonna per colonna che produca **la stessa tabella** di
-`indicators.add_technical_indicator`.
+`indicators.add_technical_indicator`, e su sette combinazioni di strategia e parametri che il
+percorso intero produca **le stesse operazioni** che `trading_analysis` scriverebbe nella tabella
+della pagina, dispatch compreso.
 
 **Il metro di paragone.** Il periodo non e' neutro: BTC e' passato da ~1.000 a ~77.500 dollari.
 Una strategia long-only che sta fuori dal mercato meta' del tempo parte in svantaggio, e va
@@ -318,11 +321,49 @@ Nessuno di questi e' stato corretto in questo lavoro: sono osservazioni, con la 
    Lo sweep eredita il comportamento della pagina; e' un motivo in piu' per diffidare delle
    configurazioni con pochissime operazioni.
 
-## 9. Limiti di questa misura
+## 9. Controllo su un secondo mercato
 
-- **Un solo mercato.** BTC/USD. Le conclusioni sulla frequenza e sulle commissioni sono
-  strutturali e difficilmente cambiano altrove, ma i valori ottimi dei parametri sono di questo
-  mercato e di questo periodo.
+Tutto quanto sopra e' misurato su BTC. Per sapere quanto ne dipende, le stesse dieci griglie
+(3.111 configurazioni) sono state rieseguite su **ETH/USD di Bitfinex, 2017-2019** — altro asset,
+altro exchange, altro periodo, altro regime: il possesso passivo fa +1.482% con un drawdown del
+94,1%, e il 2017 da solo vale +8.902%. Lo store si costruisce con
+`python -m scripts.import_candles --format bitfinex --symbol ETHUSD`; le tabelle sono i file
+`*_ETHUSD.csv` in `reports/`.
+
+Il risultato principale si riproduce:
+
+| operazioni/anno | BTC 2017-2026: mediana / in utile | ETH 2017-2019: mediana / in utile |
+|---|---:|---:|
+| < 10 | −2,5% / 39,9% | −1,0% / **50,0%** |
+| 10 – 30 | +19,5% / 53,6% | −14,2% / 36,8% |
+| 30 – 100 | −64,9% / 22,5% | −25,3% / 38,2% |
+| 100 – 300 | −90,5% / 4,2% | −66,0% / 19,0% |
+| 300 – 1.000 | −99,6% / 1,6% | −88,6% / 3,0% |
+| > 1.000 | −100% / 0% | −100% / 0% |
+
+Anche il resto tiene, con gli stessi segni:
+
+- **`atr_multiplier`**: sotto 2,0 la mediana e' fra −30% e −99% su ogni griglia; il migliore e' di
+  nuovo 2,5-3,0 (Supertrend +273%, TP/SL +127%, ATR Bands +54%). Il default 1,6 resta nella parte
+  perdente.
+- **`num_cond=2`** batte `num_cond=1` (mediana −61,5% contro −82,8%, in utile 19,4% contro 1,3%), e
+  **`rsi_sell_limit`** e' di nuovo monotono: da 60 a 85 la mediana di Close Buy/Sell Limits passa
+  da −84,6% a −51,5%, quella di Close Bullish EMA da −14,3% a +291%.
+- **Le stesse tre strategie perdono tutto**: Trend Zones, Green Candles, Close RSI Reverse, con le
+  stesse frequenze a quattro cifre.
+
+Le differenze sono di livello, non di direzione: su ETH la quota in utile e' piu' alta (21,6%
+contro 14,9%) e diciotto configurazioni battono il possesso passivo invece di cinque, il che si
+spiega col periodo — tre anni con un 2018 a −81% premiano chi sta fuori dal mercato molto piu' di
+nove anni con un +7.947%. La classifica delle strategie cambia (qui vince Close EMA Crossover con
++4.992%), ed e' un'altra prova che **la scelta della strategia migliore non trasferisce**: quello
+che trasferisce e' la relazione con la frequenza operativa.
+
+## 10. Limiti di questa misura
+
+- **Due mercati, non quindici.** BTC/USD sul periodo intero, ETH/USD come controllo su tre anni
+  (§9). La relazione con la frequenza e la direzione dei parametri si riproducono su entrambi; la
+  classifica delle strategie e i valori ottimi no.
 - **Un solo verso.** Tutte le strategie sono long-only su un asset che nel periodo ha fatto
   +7.947%: stare fuori dal mercato costa, e il confronto e' severo per costruzione.
 - **Niente slippage, niente book.** Le commissioni ci sono, il resto no (§7.5).
@@ -332,14 +373,21 @@ Nessuno di questi e' stato corretto in questo lavoro: sono osservazioni, con la 
   campione fanno 4-6 operazioni l'anno: 38 e 57 operazioni in totale. Con numeri cosi', la
   differenza fra "strategia" e "fortuna" non e' misurabile con i dati disponibili.
 
-## 10. Come riprodurre
+## 11. Come riprodurre
 
 ```bash
 git clone https://github.com/ff137/bitstamp-btcusd-minute-data /percorso/dati
-.venv312/bin/python -m scripts.import_bitstamp --source /percorso/dati
+.venv312/bin/python -m scripts.import_candles --source /percorso/dati
 .venv312/bin/python -m scripts.strategy_sweep --all --interval 15m --workers 4   # ~45 minuti
 .venv312/bin/python -m scripts.sweep_report --interval 15m                       # tabelle in reports/
 .venv312/bin/python -m scripts.strategy_focus --top 3                            # commissioni e intervalli
+
+# il controllo su un secondo mercato (§9)
+git clone https://github.com/Zombie-3000/Bitfinex-historical-data /percorso/bitfinex
+.venv312/bin/python -m scripts.import_candles --format bitfinex --symbol ETHUSD \
+    --source /percorso/bitfinex/ETHUSD/Candles_1m
+.venv312/bin/python -m scripts.strategy_sweep --symbol ETHUSD --interval 15m --since 2017-01-01 --all
+.venv312/bin/python -m scripts.sweep_report --interval 15m --symbol ETHUSD
 ```
 
 Con lo store Binance gia' popolato (`python -m cryptofarm.data.klines --update`) basta cambiare
