@@ -39,6 +39,10 @@ INTERVAL_INDEX = 3
 TIME_HOURS = {"value": 240, "min_value": 0, "step": 24}
 WALLET = {"value": 100, "min_value": 0, "step": 1}
 
+# Il nome sta in una costante perche' lo usano sia il menu sia il dispatch di
+# `trading_analysis`, e perche' la pagina lo toglie dalle opzioni quando manca il modello.
+AI_STRATEGY = "AI Model"
+
 STRATEGIES = [
     "-",
     "Close Buy/Sell Limits",
@@ -50,7 +54,7 @@ STRATEGIES = [
     "TP/SL with ATR",
     "Green Candles",
     "ATR Live Trade",
-    "AI Model",
+    AI_STRATEGY,
 ]
 
 # Indicatori
