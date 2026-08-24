@@ -139,16 +139,23 @@ stage. Points worth knowing before touching it:
 - **Region `frankfurt`.** Binance blocks US IP addresses on `api.binance.com`, which is where the
   simulator fetches candles on every interaction. A US region silently breaks the page.
 - **No model artifact.** The free plan has no persistent disk and `models/*.joblib` is gitignored,
-  so the deployed page runs the classic strategies; picking "AI Model" reports the missing
-  artifact. The simulator loads the model inside the page, not at import, so nothing else breaks.
+  so the deployed page runs the classic strategies. The model is optional: `available_strategies`
+  drops "AI Model" from the menu when `models/` holds no artifact, and a sidebar caption says why.
+  The same happens in a fresh clone, where nothing has been trained yet.
 - **Memory.** The free instance has 512 MB. `MALLOC_ARENA_MAX=2` caps glibc's per-thread arenas,
   and the `st.cache_data` decorators carry `ttl`/`max_entries` — an unbounded cache filled by
   sliding the sidebar widgets is what pushes the process into an OOM restart.
 - **What the plan still costs you.** Free services spin down after 15 minutes idle and take about a
   minute to wake. Nothing in the image changes that; only a paid instance does.
 
-Changing region or runtime on an existing Render service is not possible — those require creating
-a new service.
+The runtime of an existing service *can* be changed: Settings → Build → Source → Edit, then set
+Language to Docker and point Dockerfile Path at `./Dockerfile`. The URL survives. The region cannot
+be changed, so a service in a US region has to be recreated.
+
+A service created by hand is not managed by a Blueprint, so editing `render.yaml` does not
+reconfigure it — the file documents the intended configuration and applies only to services created
+from it. Set Health Check Path and Auto-Deploy by hand on such a service; the environment variables
+are already `ENV` in the image.
 
 ## CI
 

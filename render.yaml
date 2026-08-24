@@ -8,8 +8,9 @@
 # le strategie classiche, che leggono le candele dagli endpoint pubblici di Binance. La voce
 # "AI Model" del menu richiede un artefatto in `models/`, che qui non c'e'.
 #
-# Attenzione: regione e runtime non si cambiano su un servizio esistente. Per passare da
-# `runtime: python` a Docker, o da una regione USA a Francoforte, il servizio va ricreato.
+# Questo file configura i servizi creati da un Blueprint. Un servizio creato a mano non lo legge:
+# li' il runtime si cambia da Settings -> Build -> Source -> Edit, mettendo Language su Docker.
+# La regione invece non si cambia mai: un servizio in una regione USA va ricreato.
 
 services:
   - type: web
