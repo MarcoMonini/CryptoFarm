@@ -54,7 +54,7 @@ facade — each strategy is imported from the module that holds it.
 Python >= 3.12. Use `.venv312/bin/python` — the older `.venv` is 3.9 and lacks `scikit-learn`.
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[app,dev]"   # app = streamlit + plotly; add dl for gru/cnn/lstm
 
 # Backtest / strategy simulator
 streamlit run src/cryptofarm/trading/simulator.py
@@ -74,6 +74,56 @@ streamlit run src/cryptofarm/trading/simulator.py
 
 Tests: `.venv312/bin/python -m pytest` (188 tests). Lint/format: `ruff check src tests`,
 `black src tests`.
+
+### Dependency extras
+
+The install is split so the common case stays small. Core (`pip install -e .`) covers the kline
+store, features, labels, gbdt models and the live bot. `[app]` adds Streamlit and Plotly, which
+only `trading/simulator.py` and the modules it decorates with `st.cache_data` need. `[dl]` adds
+TensorFlow — roughly 1 GB — and is needed only by `--model gru|cnn|lstm`, because `ml/models.py`
+imports keras inside the functions rather than at module level. `[dev]` is pytest, ruff, black and
+pre-commit.
+
+## Docker
+
+```bash
+mkdir -p models market_data          # first run only, so the bind mounts exist
+
+docker compose up simulator                     # http://localhost:8501
+docker compose --profile data  run --rm klines  # populate the kline store
+docker compose --profile train run --rm trainer # train (gbdt)
+docker compose --profile ci    run --rm tests   # the suite, in the CI image
+```
+
+One `Dockerfile`, three targets: `runtime` (the default — simulator, trainers, kline store,
+`scripts.analysis`), `dev` (`runtime` plus pytest/ruff/black, the image CI runs) and `dl` (`runtime`
+plus TensorFlow, for the sequential models).
+
+`models/` and `market_data/` are bind-mounted from the host, so artifacts and the hundreds of MB of
+candles survive `docker compose down`. Inside the image they live at `/app/models` and
+`/app/market_data`, pointed there by `CRYPTOFARM_MODELS_DIR` and `CRYPTOFARM_MARKET_DATA_DIR` —
+`paths.py` reads both, because the package is installed in `site-packages` and the project root it
+would otherwise derive from its own location points inside the virtualenv.
+
+The container runs as uid 1000. On Linux, if your user has a different uid, the bind-mounted files
+will be written as 1000; uncomment the `user:` line in `compose.yaml` to avoid it.
+
+The live bot is deliberately not a compose service: `live_bot.py` runs its loop at import time with
+no `main()` and no signal handling, so it is not safe to restart automatically. Containerising it
+needs that refactor first.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `main`, in two jobs:
+
+- **quality** — installs `.[app,dev]` on Python 3.12 and runs `ruff check`, `black --check` and
+  `pytest` over `src`, `tests` and `scripts`. No network and no kline store: the tests are synthetic
+  data and monkeypatches.
+- **docker** — builds the `runtime` and `dev` targets with buildx (GitHub Actions cache), checks the
+  image can import the package and resolves its data directories to `/app/...`, then runs the suite
+  inside the `dev` image.
+
+Nothing is pushed anywhere: image publishing and deployment come when there is somewhere to deploy.
 
 ## The model the simulator uses
 

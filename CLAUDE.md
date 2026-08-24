@@ -19,6 +19,14 @@ esplicitamente diverse strade che sembrano ragionevoli a prima vista.
 Usare **`.venv312/bin/python`**. Il `.venv` preesistente è Python 3.9 senza `scikit-learn`,
 mentre il progetto richiede Python >= 3.12.
 
+L'installazione è divisa in extra: `pip install -e ".[app,dev]"` è il caso normale. Il nucleo
+(`pip install -e .`) basta a store delle candele, feature, etichette, modelli `gbdt` e bot live;
+`[app]` aggiunge Streamlit e Plotly (solo `trading/simulator.py` e i moduli che decora con
+`st.cache_data`); `[dl]` aggiunge TensorFlow, circa 1 GB, e serve solo a `--model gru|cnn|lstm`.
+
+`MODELS_DIR` e `MARKET_DATA_DIR` di `paths.py` si spostano con `CRYPTOFARM_MODELS_DIR` e
+`CRYPTOFARM_MARKET_DATA_DIR`. Senza le due variabili restano relative alla radice del repo.
+
 ## Project overview
 
 CryptoFarm trains a signal model on Binance market data and backtests trading strategies against it.
@@ -63,7 +71,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (185 test in 12 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (188 test in 12 file). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -139,6 +147,38 @@ addestrato.
 `*.keras`, per cui i `.joblib` sono finiti tracciati nel repository — circa 24 MB, con
 `policy_alta` e `policy_model` byte per byte identici. **Da sistemare**: estendere il `.gitignore` e
 fare `git rm --cached`. Rigenerare con i trainer, non modificare a mano.
+
+## Docker e CI
+
+Un solo `Dockerfile` con tre target: **`runtime`** (il default: simulatore, trainer, store delle
+candele, `scripts.analysis`), **`dev`** (`runtime` + pytest/ruff/black, è l'immagine con cui gira la
+CI) e **`dl`** (`runtime` + TensorFlow, per i modelli sequenziali).
+
+```bash
+mkdir -p models market_data                     # solo la prima volta: i bind mount devono esistere
+docker compose up simulator                     # http://localhost:8501
+docker compose --profile data  run --rm klines
+docker compose --profile train run --rm trainer
+docker compose --profile ci    run --rm tests
+```
+
+Dentro l'immagine il pacchetto sta in `site-packages`, non in editable: la radice che `paths.py`
+dedurrebbe dalla posizione del file punterebbe dentro il virtualenv, quindi l'immagine imposta
+`CRYPTOFARM_MODELS_DIR=/app/models` e `CRYPTOFARM_MARKET_DATA_DIR=/app/market_data`, che è dove
+`compose.yaml` monta `./models` e `./market_data` dell'host. Chi tocca `paths.py` deve tenere
+funzionante l'override, altrimenti i modelli addestrati in container finiscono in un layer usa e
+getta.
+
+`live_bot.py` **non** è un servizio di compose, di proposito: fa partire il ciclo `while True`
+all'import, senza `main()` e senza gestione dei segnali, quindi un container che si riavvia da solo
+lo rimetterebbe a piazzare ordini senza controllo. Prima serve quel refactor.
+
+La CI (`.github/workflows/ci.yml`) gira su ogni pull request e sui push a `main`: un job installa
+`.[app,dev]` su Python 3.12 e passa `ruff check`, `black --check` e `pytest` su `src`, `tests` e
+`scripts`; l'altro costruisce i target `runtime` e `dev`, verifica che l'immagine importi il
+pacchetto e risolva le directory dei dati a `/app/...`, e rifà girare i test dentro l'immagine.
+Nessuna immagine viene pubblicata: il push su un registry e il deploy si aggiungono quando c'è un
+posto dove spedirle.
 
 ## Configuration
 

@@ -1,0 +1,42 @@
+# Tutto quello che non serve dentro l'immagine. Senza questo file il contesto di build
+# parte da ~55 MB (il solo .git ne pesa 52) e ogni build li ricarica.
+
+.git
+.gitattributes
+.gitignore
+.github
+
+# Dati e artefatti: stanno nei volumi, non nell'immagine.
+market_data/
+analysis_cache/
+models/*
+!models/README.md
+!models/.gitignore
+
+# Codice archiviato, escluso anche da lint e format.
+backup/
+
+# Ambienti locali e cache
+.venv/
+.venv312/
+venv/
+.env
+*.egg-info/
+build/
+dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Roba dell'editor e della sessione di sviluppo
+.idea/
+.vscode/
+.devcontainer/
+.claude/
+.DS_Store
+
+# `tests/` resta nel contesto: serve al target `dev`, non a `runtime`.
