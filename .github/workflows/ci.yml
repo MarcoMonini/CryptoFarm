@@ -1,0 +1,100 @@
+# Cosa deve essere vero prima di un merge: il codice e' formattato, passa il linter, i
+# test passano su Python 3.12, e le immagini si costruiscono davvero.
+#
+# `quality` gira senza Docker (e' piu' veloce e i log sono leggibili); `docker` costruisce
+# i target e fa girare i test dentro l'immagine, che e' l'unico modo di accorgersi che il
+# Dockerfile si e' rotto. Nessun push di immagini: quello arriva quando c'e' un posto dove
+# spedirle.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Un push che arriva mentre la CI del precedente e' in corso la annulla: sullo stesso ramo
+# conta solo l'ultimo commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, format e test (3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Installa il pacchetto
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[app,dev]"
+
+      - name: ruff
+        run: ruff check src tests scripts
+
+      - name: black
+        run: black --check src tests scripts
+
+      # I test non toccano la rete ne' lo store delle candele: sono dati sintetici e
+      # monkeypatch. Il golden master di tests/test_simulator_golden.py e' quello che
+      # tiene fermo il simulatore, che non ha altri test.
+      - name: pytest
+        run: pytest -q
+
+  docker:
+    name: Build delle immagini
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: cryptofarm:runtime
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Se il pacchetto e' installato male nell'immagine, questo lo dice subito e senza
+      # scaricare i dati: importa i due moduli che contano e stampa dove finiranno i file.
+      - name: Fumo sull'immagine
+        run: |
+          docker run --rm cryptofarm:runtime python -c "
+          import cryptofarm.ml.trainer, cryptofarm.trading.simulator
+          from cryptofarm.paths import MODELS_DIR, MARKET_DATA_DIR
+          print('models     ->', MODELS_DIR)
+          print('market_data->', MARKET_DATA_DIR)
+          assert str(MODELS_DIR) == '/app/models', MODELS_DIR
+          assert str(MARKET_DATA_DIR) == '/app/market_data', MARKET_DATA_DIR
+          "
+
+      - name: Build dev
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: dev
+          push: false
+          load: true
+          tags: cryptofarm:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: I test dentro l'immagine
+        run: docker run --rm cryptofarm:dev pytest -q

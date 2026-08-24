@@ -1,0 +1,64 @@
+# Quattro modi di usare la stessa immagine. Solo `simulator` parte da solo:
+#
+#   docker compose up simulator                 # http://localhost:8501
+#   docker compose --profile data run --rm klines
+#   docker compose --profile train run --rm trainer
+#   docker compose --profile ci run --rm tests
+#
+# `models/` e `market_data/` sono montati dall'host: gli artefatti e le centinaia di MB di
+# candele restano sul disco e sopravvivono a `docker compose down`.
+
+name: cryptofarm
+
+x-common: &common
+  build:
+    context: .
+    target: runtime
+  image: cryptofarm:runtime
+  volumes:
+    - ./models:/app/models
+    - ./market_data:/app/market_data
+  environment:
+    CRYPTOFARM_MODELS_DIR: /app/models
+    CRYPTOFARM_MARKET_DATA_DIR: /app/market_data
+  # Su Linux i file scritti nei bind mount appartengono all'uid del container (1000). Se il
+  # tuo utente ha un uid diverso, scommenta e riesegui:
+  # user: "${UID:-1000}:${GID:-1000}"
+
+services:
+  # La pagina Streamlit. Legge i modelli da ./models, scarica le candele che le servono
+  # dagli endpoint pubblici di Binance: nessuna credenziale.
+  simulator:
+    <<: *common
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+
+  # Popola/aggiorna lo store delle candele. Prerequisito dell'addestramento.
+  klines:
+    <<: *common
+    profiles: ["data"]
+    command: ["python", "-m", "cryptofarm.data.klines", "--update"]
+
+  # Addestramento. Il default e' gbdt e non richiede TensorFlow; per gru/cnn/lstm serve
+  # il target `dl` (docker build --target dl -t cryptofarm:dl .).
+  trainer:
+    <<: *common
+    profiles: ["train"]
+    command: ["python", "-m", "cryptofarm.ml.trainer"]
+
+  # Le misure di .claude/docs/strategy.md.
+  analysis:
+    <<: *common
+    profiles: ["train"]
+    command: ["python", "-m", "scripts.analysis"]
+
+  # La stessa immagine con cui gira la CI, per riprodurre in locale un fallimento.
+  tests:
+    <<: *common
+    profiles: ["ci"]
+    build:
+      context: .
+      target: dev
+    image: cryptofarm:dev
+    command: ["pytest"]
