@@ -130,6 +130,7 @@ KEYS = [
     "simulate_candles",
     "simulate_trading_with_commisions",
     "simulate_trading_with_commisions_multiple_buy",
+    "simulate_positions",
     *(
         f"{scenario}/{name}"
         for scenario in SCENARIOS
@@ -189,6 +190,18 @@ def build_snapshot() -> dict:
             {k: (round(float(v), 8) if isinstance(v, (int, float)) else str(v)) for k, v in operation.items()}
             for operation in operations
         ]
+
+    # Il motore a due versi: gli stessi segnali riscritti come cambi di posizione, piu'
+    # un'inversione diretta da lungo a corto, che nel formato a due liste non e' esprimibile.
+    events = [(time, price, 1) for time, price in buy[:20]]
+    events += [(time, price, 0) for time, price in sell[:20]]
+    events.sort(key=lambda event: event[0])
+    if len(events) > 4:
+        events[3] = (events[3][0], events[3][1], -1)
+    snapshot["simulate_positions"] = [
+        {k: (round(float(v), 8) if isinstance(v, (int, float)) else str(v)) for k, v in operation.items()}
+        for operation in pnl.simulate_positions(events, wallet=100, fee_percent=0.05)
+    ]
 
     return snapshot
 

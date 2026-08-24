@@ -3,12 +3,11 @@
 Estratte da `simulator.py` senza modifiche. Ognuna restituisce `(buy_signals, sell_signals)`,
 liste di `(timestamp, prezzo)` che `pnl.py` trasforma in operazioni.
 
-Attenzione: tre strategie leggono colonne che `indicators.add_technical_indicator` non produce
-piu', perche' i calcoli sono commentati. Il difetto precede questa riorganizzazione.
-
 `buy_sell_limits_simulation` legge `MACD`, che resta commentata in `add_technical_indicator`, e
 quindi solleva `KeyError` appena chiamata. Nessuna voce del menu la raggiunge: il dispatch di
-`trading_analysis` la lega alla stringa "Buy/Sell Limits", che non e' in `config.STRATEGIES`."""
+`trading_analysis` la lega alla stringa "Buy/Sell Limits", che non e' in `config.STRATEGIES`.
+Lo stesso vale per `close_rsi_buy_sell_limits_simulation`: la misura su nove anni la da' in
+perdita totale in tutte le 25 configurazioni provate, quindi la voce non e' stata aggiunta."""
 
 import numpy as np
 import pandas as pd
@@ -252,9 +251,12 @@ def buy_sell_limits_close_simulation(
     sell_signals = []
     holding = False
     last_signal_candle_index = -1
-    # stop_loss_price = None
-    # got_stop_loss = False
-    # stop_loss_decimal = stop_loss_percent / 100
+    # Lo stop loss era dichiarato e mai applicato: le tre righe che lo usavano erano commentate,
+    # quindi il widget "Stop Loss %" per questa strategia non faceva nulla. Ora vale come in
+    # `close_atr_buy_sell_simulation`: prezzo di stop fissato all'ingresso, uscita alla prima
+    # chiusura sotto. Il default 99% lo lascia di fatto disattivato, come prima.
+    stop_loss_price = None
+    stop_loss_decimal = stop_loss_percent / 100
 
     index = df.index
     closes = df["Close"].to_numpy()
@@ -270,6 +272,7 @@ def buy_sell_limits_close_simulation(
             buy_signals.append((index[i], float(closes[i])))
             holding = True
             last_signal_candle_index = i
+            stop_loss_price = float(closes[i]) * (1 - stop_loss_decimal)
         # CONDIZIONI DI SELL
         cond_sell_rsi = 1 if rsi[i] >= rsi_sell_limit else 0
         cond_sell_atr = 1 if closes[i] >= upper_band[i] else 0
@@ -278,6 +281,13 @@ def buy_sell_limits_close_simulation(
             sell_signals.append((index[i], float(closes[i])))
             holding = False
             last_signal_candle_index = i
+            stop_loss_price = None
+        # CONDIZIONE DI STOP LOSS
+        if holding and stop_loss_price is not None and last_signal_candle_index != i and closes[i] < stop_loss_price:
+            sell_signals.append((index[i], float(closes[i])))
+            holding = False
+            last_signal_candle_index = i
+            stop_loss_price = None
 
     return buy_signals, sell_signals
 
@@ -564,7 +574,7 @@ def bullish_condition(df, i) -> bool:
     #                 df['STOCH'].iloc[i] > df['STOCH_S'].iloc[i])
 
     # cond_bullish = df['Close'].iloc[i] >= df['Upper_Band'].iloc[i]
-    cond_bullish = df["EMA20"].iloc[i] >= df["EMA200"].iloc[i]
+    cond_bullish = df["EMA20"].iloc[i] >= df["EMA100"].iloc[i]
 
     return cond_bullish
 
@@ -575,7 +585,7 @@ def bearish_condition(df, i) -> bool:
     #                 df['STOCH'].iloc[i] < df['STOCH_S'].iloc[i])
     #
     # cond_bearish = df['Close'].iloc[i] <= df['Lower_Band'].iloc[i]
-    cond_bearish = df["EMA20"].iloc[i] < df["EMA200"].iloc[i]
+    cond_bearish = df["EMA20"].iloc[i] < df["EMA100"].iloc[i]
 
     return cond_bearish
 
@@ -766,13 +776,13 @@ def trend_zone_simulation(df):
     index = df.index
     closes = df["Close"].to_numpy()
     ema20 = df["EMA20"].to_numpy()
-    ema200 = df["EMA200"].to_numpy()
+    ema_long = df["EMA100"].to_numpy()
     for i in range(1, len(df)):
-        if not holding and ema20[i] > ema200[i]:
+        if not holding and ema20[i] > ema_long[i]:
             buy_signals.append((index[i], float(closes[i])))
             holding = True
 
-        if holding and ema20[i] <= ema200[i]:
+        if holding and ema20[i] <= ema_long[i]:
             sell_signals.append((index[i], float(closes[i])))
             holding = False
 

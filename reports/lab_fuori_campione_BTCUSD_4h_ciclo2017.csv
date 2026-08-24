@@ -1,0 +1,6 @@
+famiglia,strategia,configurazioni,scelta_in_stima_%,resa_in_verifica_%,prime5_mediana_%,mediana_verifica_%,rho
+nuova,donchian_breakout,256,359.7,179.9,172.2,21.9,0.69
+nuova,squeeze_breakout,93,273.3,79.2,8.3,-14.8,0.17
+nuova,ichimoku_trend,12,1013.0,29.5,127.5,122.8,-0.02
+nuova,trend_pullback,72,73.6,15.3,7.7,-3.9,0.42
+nuova,band_reversion_gated,51,-0.0,0.1,-17.2,-18.6,0.52

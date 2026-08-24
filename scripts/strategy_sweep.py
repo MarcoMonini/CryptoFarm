@@ -153,9 +153,8 @@ def psar_column(candles: pd.DataFrame, step: float = PSAR_STEP, max_step: float 
 def indicator_frame(cache: _ColumnCache, params: Indicators) -> pd.DataFrame:
     """La stessa tabella di `add_technical_indicator`, con il PSAR gia' calcolato.
 
-    L'ordine dei passaggi e le formule seguono quella funzione riga per riga, compreso il
-    dettaglio che `EMA200` e' l'EMA dell'**apertura** con la finestra corta e non l'EMA a 200
-    periodi che il nome lascerebbe intendere, e che le prime `atr_window` bande sono azzerate.
+    L'ordine dei passaggi e le formule seguono quella funzione riga per riga, comprese le prime
+    `atr_window` bande azzerate.
     """
     df = cache.candles.copy()
     df["PSAR"] = cache.psar
@@ -167,7 +166,6 @@ def indicator_frame(cache: _ColumnCache, params: Indicators) -> pd.DataFrame:
     df["EMA20"] = cache.ema("Close", params.ema_window)
     df["EMA50"] = cache.ema("Close", params.ema_window2)
     df["EMA100"] = cache.ema("Close", params.ema_window3)
-    df["EMA200"] = cache.ema("Open", params.ema_window)
     df["KAMA"] = cache.kama(params.ema_window, params.kama_pow1, params.kama_pow2)
     df["Upper_Band"] = df["KAMA"] + params.atr_multiplier * df["ATR"]
     df["Lower_Band"] = df["KAMA"] - params.atr_multiplier * df["ATR"]

@@ -291,7 +291,9 @@ per candela e sulle barre a 5 minuti costerebbe da solo piu' di venti ore.
 
 ## 8. Difetti trovati nel codice, misurando
 
-Nessuno di questi e' stato corretto in questo lavoro: sono osservazioni, con la misura accanto.
+> **Aggiornamento**: tutti e quattro sono stati corretti nella sessione successiva; l'effetto
+> misurato di ogni correzione sta in [`strategie-nuove.md`](strategie-nuove.md) §1. Le misure di
+> questo documento restano quelle del codice **prima** delle correzioni.
 
 1. **La voce di menu `"Supetrend"` non esegue niente.** `config.STRATEGIES` scrive `"Supetrend"`,
    il dispatch di `trading_analysis` confronta con `"Supertrend"`. Selezionandola non si producono

@@ -20,3 +20,13 @@ reinvestito, commissione 0,1% per gamba salvo dove indicato.
 | `commissioni.csv` | le configurazioni migliori rieseguite a commissione 0%, 0,04%, 0,075%, 0,1%, 0,2% |
 | `intervalli.csv` | le stesse configurazioni rieseguite da 5m a 1d, senza ritoccare i parametri |
 | `*_ETHUSD.csv` | le stesse viste sul mercato di controllo: ETH/USD di Bitfinex, 2017-2019 (§9 del documento) |
+| `lab_panoramica_*.csv` | strategie a due versi: migliore, mediana e quota in utile per intervallo |
+| `lab_effetto_short_*.csv` | la stessa configurazione con e senza il verso corto |
+| `lab_ablazioni_*.csv` | ogni filtro spento a turno: quanto vale ADX, regime, volume, nuvola |
+| `lab_classifica_*.csv` | storiche e nuove sullo stesso periodo e con lo stesso costo |
+| `lab_fuori_campione_*.csv` | scelta sul 2021-2023, resa sul 2024-2026, per entrambe le famiglie |
+| `lab_leva_costi_*.csv` | le migliori a leva 1, 2 e 3 e a tre livelli di commissione e funding |
+
+Le viste `lab_*` sono su BTC/USD 2021-2026 (e ETH/USD 2017-2019 come controllo), commissione 0,05%
+per gamba piu' 0,03% al giorno di mantenimento: la lettura sta in
+[`.claude/docs/strategie-nuove.md`](../.claude/docs/strategie-nuove.md).

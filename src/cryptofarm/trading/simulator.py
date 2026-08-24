@@ -301,12 +301,6 @@ def trading_analysis(
             col=1,
         )
 
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["EMA200"], mode="lines", line=dict(color="Red", width=1), name="EMA OPEN"),
-            row=index,
-            col=1,
-        )
-
         # KAMA
         fig.add_trace(
             go.Scatter(x=df.index, y=df["KAMA"], mode="lines", line=dict(color="yellow", width=1), name="KAMA"),

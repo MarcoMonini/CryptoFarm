@@ -84,8 +84,12 @@ def add_technical_indicator(
     df_copy["EMA50"] = ema_indicator.ema_indicator()
     ema_indicator = EMAIndicator(close=df_copy["Close"], window=ema_window3)
     df_copy["EMA100"] = ema_indicator.ema_indicator()
-    emao_indicator = EMAIndicator(close=df_copy["Open"], window=ema_window)
-    df_copy["EMA200"] = emao_indicator.ema_indicator()
+    # C'era una quarta media, `EMA200`, che era l'EMA dell'**apertura** sulla finestra corta:
+    # stessa finestra di `EMA20` e serie quasi sovrapposta. "Trend Zones" e le due condizioni di
+    # `identify_trend_zones` la confrontavano con `EMA20`, cioe' confrontavano una media con se
+    # stessa, e si incrociavano a ogni barra: 2.080 operazioni l'anno e -100% in ogni
+    # configurazione misurata (`.claude/docs/backtest-strategie.md` §8). Ora quelle tre leggono
+    # `EMA100`, che e' la media lunga vera, e la colonna dell'apertura non esiste piu'.
 
     kama_indicator = KAMAIndicator(close=df_copy["Close"], window=ema_window, pow1=kama_pow1, pow2=kama_pow2)
     df_copy["KAMA"] = kama_indicator.kama()

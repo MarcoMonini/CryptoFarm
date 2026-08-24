@@ -11,6 +11,8 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
 - `.claude/docs/HANDOFF.md` — stato corrente del lavoro e trappole ambientali per chi riprende.
 - `.claude/docs/backtest-strategie.md` — le strategie a indicatori misurate su nove anni: 3.129
   configurazioni, sensibilità ai parametri, tenuta fuori campione, difetti trovati misurando.
+- `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
+  2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
 - `.claude/docs/INDEX.md` — ordine di lettura consigliato.
 
 Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
@@ -44,8 +46,11 @@ src/cryptofarm/
 └── trading/
     ├── market_data.py    scarico puntuale da Binance per la pagina Streamlit
     ├── indicators.py     indicatori + il nucleo numpy ATR/EMA
+    ├── indicators_extra.py  ADX, Donchian, Bollinger/Keltner, StochRSI, OBV/MFI, Ichimoku
     ├── strategies.py     da candele con indicatori a (buy_signals, sell_signals)
-    ├── pnl.py            da segnali a operazioni, commissioni incluse
+    ├── strategies_ls.py  strategie a due versi: da candele a cambi di posizione (+1/0/-1)
+    ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
+    │                     e `simulate_positions` (long/short, con leva e costo di mantenimento)
     ├── config.py         valori di partenza dei widget della pagina
     ├── simulator.py      la pagina Streamlit: `trading_analysis` + layout
     └── live_bot.py       bot headless che piazza ordini veri
@@ -75,6 +80,10 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m scripts.sweep_report --interval 15m           # tabelle in reports/
 .venv312/bin/python -m scripts.strategy_focus --top 3                # commissioni e intervalli
 
+# Strategie a due versi, long e short (vedi .claude/docs/strategie-nuove.md)
+.venv312/bin/python -m scripts.strategy_lab --all --interval 1d --since 2021-01-01
+.venv312/bin/python -m scripts.lab_report --symbol BTCUSD --interval 1d
+
 # Store delle candele da fonte alternativa, dove data.binance.vision non è raggiungibile
 .venv312/bin/python -m scripts.import_candles --source /percorso/al/clone
 
@@ -82,7 +91,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (201 test in 14 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (216 test in 15 file). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -96,7 +105,9 @@ ri-esportazione**: chi serve una strategia la importa dal modulo che la contiene
   `Open, High, Low, Close, Volume`.
 - Le funzioni in `strategies.py` restituiscono `(buy_signals, sell_signals)`, liste di
   `(timestamp, prezzo)`, che `trading_analysis` passa a `pnl.simulate_trading_with_commisions` o
-  `simulate_trading_with_commisions_multiple_buy`.
+  `simulate_trading_with_commisions_multiple_buy`. Quelle in `strategies_ls.py` restituiscono invece
+  cambi di posizione `(timestamp, prezzo, +1|0|-1)` per `pnl.simulate_positions`: è il formato che
+  serve a rappresentare l'inversione diretta e la vendita allo scoperto.
 - Le letture per riga sono in array numpy estratti prima del ciclo, non `df["Col"].iloc[i]`. È da lì
   che viene il grosso della velocità (il simulatore intero: 4295 ms → 125 ms). Mantenere lo stile.
 - `indicators._atr_ema` replica in numpy le formule di `ta` 0.11 riga per riga (seme dell'ATR sulla
@@ -111,9 +122,13 @@ ri-esportazione**: chi serve una strategia la importa dal modulo che la contiene
 `buy_sell_limits_simulation`, che quindi solleva `KeyError` appena chiamata.
 
 **Nessuna voce del menu la raggiunge**: `trading_analysis` la lega alla stringa `"Buy/Sell Limits"`,
-che non è in `config.STRATEGIES`. Lo stesso vale per `"ATR Bands"` e per le varianti `"Dinamic *"`.
-Sono rami morti; la funzione resta perché il codice attorno la documenta, ma per renderla usabile
-servirebbe ripristinare il blocco `MACD` **e** aggiungere la voce al menu.
+che non è in `config.STRATEGIES`. Lo stesso vale per `"Close RSI Reverse"`, `"Close MACD Retest"` e
+per le varianti `"Dinamic *"`. Sono rami morti; la funzione resta perché il codice attorno la
+documenta, ma per renderla usabile servirebbe ripristinare il blocco `MACD` **e** aggiungere la voce
+al menu.
+
+`"ATR Bands"` e `"Supertrend"` erano nella stessa condizione — la prima senza voce, la seconda
+scritta `"Supetrend"` nel menu — e sono state sistemate: vedi `.claude/docs/strategie-nuove.md` §1.
 
 ### Il golden master
 

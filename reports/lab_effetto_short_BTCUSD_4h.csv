@@ -1,0 +1,6 @@
+strategia,coppie,mediana_solo_long_%,mediana_con_short_%,short_migliora_%,sharpe_solo_long,sharpe_con_short,contributo_short_mediano_%,win_rate_short_%
+band_reversion_gated,72,0.0,-6.7,20.8,-0.39,-0.43,-6.7,52.5
+donchian_breakout,128,-13.1,-37.4,3.1,-0.0,-0.15,-40.4,30.7
+ichimoku_trend,6,45.4,-22.1,0.0,0.35,0.05,-61.5,31.5
+squeeze_breakout,54,-51.3,-82.4,1.9,-0.62,-1.05,-97.5,28.7
+trend_pullback,36,-29.3,-45.4,8.3,-0.25,-0.35,-21.1,50.4
