@@ -30,7 +30,10 @@ def interval_to_minutes(interval: str) -> int:
         return 0
 
 
-@st.cache_data
+# Le candele invecchiano: senza `ttl` la pagina servirebbe per sempre quelle del primo
+# caricamento. `max_entries` tiene il tetto alla memoria — su un'istanza da 512 MB una
+# cache senza limite viene riempita da qualche giro di widget e il processo va in OOM.
+@st.cache_data(ttl=300, max_entries=8)
 def get_market_data(asset: str, interval: str, time_hours: int) -> tuple:
     """
     @brief Scarica i dati di mercato per un asset specifico per un determinato intervallo e periodo.
@@ -159,7 +162,8 @@ def get_market_data(asset: str, interval: str, time_hours: int) -> tuple:
     return df, actual_hours
 
 
-@st.cache_data
+# Intervallo storico chiuso: cambia poco, ma la voce non puo' restare in memoria per sempre.
+@st.cache_data(ttl=3600, max_entries=8)
 def get_market_data_between_dates(asset: str, interval: str, start_date: str, end_date: str) -> tuple:
     """
     @brief Scarica i dati di mercato di un asset per un intervallo temporale specificato.
