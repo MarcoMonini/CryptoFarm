@@ -91,7 +91,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (216 test in 15 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (216 test in 14 file). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
