@@ -54,7 +54,7 @@ facade — each strategy is imported from the module that holds it.
 Python >= 3.12. Use `.venv312/bin/python` — the older `.venv` is 3.9 and lacks `scikit-learn`.
 
 ```bash
-pip install -e ".[app,dev]"   # app = streamlit + plotly; add dl for gru/cnn/lstm
+pip install -e ".[app,data,dev]"   # see "Dependency extras" below
 
 # Backtest / strategy simulator
 streamlit run src/cryptofarm/trading/simulator.py
@@ -77,12 +77,18 @@ Tests: `.venv312/bin/python -m pytest` (188 tests). Lint/format: `ruff check src
 
 ### Dependency extras
 
-The install is split so the common case stays small. Core (`pip install -e .`) covers the kline
-store, features, labels, gbdt models and the live bot. `[app]` adds Streamlit and Plotly, which
-only `trading/simulator.py` and the modules it decorates with `st.cache_data` need. `[dl]` adds
-TensorFlow — roughly 1 GB — and is needed only by `--model gru|cnn|lstm`, because `ml/models.py`
-imports keras inside the functions rather than at module level. `[dev]` is pytest, ruff, black and
-pre-commit.
+The install is split so each image carries only what it runs.
+
+| extra | contents | needed by |
+|---|---|---|
+| (core) | numpy, pandas, scipy, ta, requests, python-binance, scikit-learn, colorama | features, labels, gbdt models, live bot |
+| `app` | streamlit, plotly | `trading/simulator.py` and the modules it decorates with `st.cache_data` |
+| `data` | pyarrow (141 MB) | the parquet kline store — `data/klines.py` and `scripts/analysis.py` |
+| `dl` | tensorflow, keras-tuner (~1 GB) | only `--model gru|cnn|lstm`; `ml/models.py` imports keras inside the functions |
+| `dev` | pytest, ruff, black, pre-commit | |
+
+The deployed image installs `[app]` alone: the simulator never reads parquet, so 141 MB of pyarrow
+would ride along for nothing.
 
 ## Docker
 
@@ -95,9 +101,17 @@ docker compose --profile train run --rm trainer # train (gbdt)
 docker compose --profile ci    run --rm tests   # the suite, in the CI image
 ```
 
-One `Dockerfile`, three targets: `runtime` (the default — simulator, trainers, kline store,
-`scripts.analysis`), `dev` (`runtime` plus pytest/ruff/black, the image CI runs) and `dl` (`runtime`
-plus TensorFlow, for the sequential models).
+One `Dockerfile`, four targets:
+
+| target | contents | for |
+|---|---|---|
+| `runtime` | core + `app` + `data` | local use: simulator, trainers, kline store, analysis |
+| `dev` | `runtime` + pytest/ruff/black | the image CI runs |
+| `dl` | `runtime` + TensorFlow | `--model gru|cnn|lstm` |
+| **`web`** | core + `app`, no pyarrow, no `scripts/` | **production — and the file's last stage, so a plain `docker build .` produces it** |
+
+The stage order matters: a build without `--target` takes the last stage, and Render has no field
+to choose one. `web` is last so the platform gets the right image instead of the TensorFlow one.
 
 `models/` and `market_data/` are bind-mounted from the host, so artifacts and the hundreds of MB of
 candles survive `docker compose down`. Inside the image they live at `/app/models` and
@@ -111,6 +125,28 @@ will be written as 1000; uncomment the `user:` line in `compose.yaml` to avoid i
 The live bot is deliberately not a compose service: `live_bot.py` runs its loop at import time with
 no `main()` and no signal handling, so it is not safe to restart automatically. Containerising it
 needs that refactor first.
+
+## Deploy (Render, free plan)
+
+`render.yaml` describes the public service: the simulator alone, built from the Dockerfile's last
+stage. Points worth knowing before touching it:
+
+- **Port.** Render assigns the port through `$PORT` (10000 by default) and requires binding to
+  `0.0.0.0`. The image's command reads `${PORT:-8501}`, so the same image serves Render and
+  `docker compose` locally.
+- **Region `frankfurt`.** Binance blocks US IP addresses on `api.binance.com`, which is where the
+  simulator fetches candles on every interaction. A US region silently breaks the page.
+- **No model artifact.** The free plan has no persistent disk and `models/*.joblib` is gitignored,
+  so the deployed page runs the classic strategies; picking "AI Model" reports the missing
+  artifact. The simulator loads the model inside the page, not at import, so nothing else breaks.
+- **Memory.** The free instance has 512 MB. `MALLOC_ARENA_MAX=2` caps glibc's per-thread arenas,
+  and the `st.cache_data` decorators carry `ttl`/`max_entries` — an unbounded cache filled by
+  sliding the sidebar widgets is what pushes the process into an OOM restart.
+- **What the plan still costs you.** Free services spin down after 15 minutes idle and take about a
+  minute to wake. Nothing in the image changes that; only a paid instance does.
+
+Changing region or runtime on an existing Render service is not possible — those require creating
+a new service.
 
 ## CI
 

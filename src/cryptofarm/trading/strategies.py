@@ -20,7 +20,8 @@ from cryptofarm.ml.trainer import active_model_name, meta_parameters, stored_dec
 from cryptofarm.trading.indicators import latest_bands
 
 
-@st.cache_data
+# Come sopra: la cardinalita' la decidono i widget, quindi il numero di voci va limitato.
+@st.cache_data(max_entries=32)
 def simulate_candles(
     raw_df,
     atr_window: int = 6,

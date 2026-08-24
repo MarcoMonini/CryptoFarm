@@ -17,7 +17,7 @@
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; pip3 install --user -e \".[app,dev]\"; echo '✅ Packages installed and Requirements met'",
+  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; pip3 install --user -e \".[app,data,dev]\"; echo '✅ Packages installed and Requirements met'",
   "postAttachCommand": {
     "server": "streamlit run src/cryptofarm/trading/simulator.py --server.enableCORS false --server.enableXsrfProtection false"
   },

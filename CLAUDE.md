@@ -19,10 +19,11 @@ esplicitamente diverse strade che sembrano ragionevoli a prima vista.
 Usare **`.venv312/bin/python`**. Il `.venv` preesistente è Python 3.9 senza `scikit-learn`,
 mentre il progetto richiede Python >= 3.12.
 
-L'installazione è divisa in extra: `pip install -e ".[app,dev]"` è il caso normale. Il nucleo
-(`pip install -e .`) basta a store delle candele, feature, etichette, modelli `gbdt` e bot live;
-`[app]` aggiunge Streamlit e Plotly (solo `trading/simulator.py` e i moduli che decora con
-`st.cache_data`); `[dl]` aggiunge TensorFlow, circa 1 GB, e serve solo a `--model gru|cnn|lstm`.
+L'installazione è divisa in extra: `pip install -e ".[app,data,dev]"` è il caso normale. Il nucleo
+(`pip install -e .`) basta a feature, etichette, modelli `gbdt` e bot live; `[app]` aggiunge
+Streamlit e Plotly (solo `trading/simulator.py` e i moduli che decora con `st.cache_data`);
+`[data]` aggiunge pyarrow, cioè il motore parquet che vogliono `data/klines.py` e
+`scripts/analysis.py`; `[dl]` aggiunge TensorFlow, circa 1 GB, e serve solo a `--model gru|cnn|lstm`.
 
 `MODELS_DIR` e `MARKET_DATA_DIR` di `paths.py` si spostano con `CRYPTOFARM_MODELS_DIR` e
 `CRYPTOFARM_MARKET_DATA_DIR`. Senza le due variabili restano relative alla radice del repo.
@@ -150,9 +151,14 @@ fare `git rm --cached`. Rigenerare con i trainer, non modificare a mano.
 
 ## Docker e CI
 
-Un solo `Dockerfile` con tre target: **`runtime`** (il default: simulatore, trainer, store delle
-candele, `scripts.analysis`), **`dev`** (`runtime` + pytest/ruff/black, è l'immagine con cui gira la
-CI) e **`dl`** (`runtime` + TensorFlow, per i modelli sequenziali).
+Un solo `Dockerfile` con quattro target: **`runtime`** (uso locale completo: simulatore, trainer,
+store delle candele, `scripts.analysis`), **`dev`** (`runtime` + pytest/ruff/black, è l'immagine con
+cui gira la CI), **`dl`** (`runtime` + TensorFlow, per i modelli sequenziali) e **`web`** (la sola
+pagina, senza pyarrow: è quella che va in produzione).
+
+**`web` è l'ultimo stage del file, e deve restarci**: una build senza `--target` prende l'ultimo
+stage, e Render non ha un campo per sceglierlo. Spostarlo significa spedire in produzione
+l'immagine con TensorFlow. La CI costruisce anche senza `--target` proprio per accorgersene.
 
 ```bash
 mkdir -p models market_data                     # solo la prima volta: i bind mount devono esistere
@@ -169,16 +175,31 @@ dedurrebbe dalla posizione del file punterebbe dentro il virtualenv, quindi l'im
 funzionante l'override, altrimenti i modelli addestrati in container finiscono in un layer usa e
 getta.
 
+Il deploy pubblico sta in `render.yaml` (piano gratuito, regione `frankfurt`). Tre vincoli che
+non si vedono dal codice: il servizio deve legarsi a **`$PORT`** su `0.0.0.0` (il comando
+dell'immagine usa `${PORT:-8501}`); Binance blocca gli IP statunitensi su `api.binance.com`, da cui
+il simulatore prende le candele, quindi la regione non è un dettaglio; il piano gratuito non ha
+dischi persistenti, e con `models/*.joblib` gitignorato online girano le strategie classiche mentre
+la voce "AI Model" segnala l'artefatto mancante.
+
+I quattro `@st.cache_data` di `trading/` hanno `ttl`/`max_entries` per una ragione operativa: i
+parametri arrivano dai widget, quindi la cardinalità la decide chi muove gli slider, e senza tetto
+un'istanza da 512 MB finisce in OOM mentre la si usa. Non toglierli.
+
 `live_bot.py` **non** è un servizio di compose, di proposito: fa partire il ciclo `while True`
 all'import, senza `main()` e senza gestione dei segnali, quindi un container che si riavvia da solo
 lo rimetterebbe a piazzare ordini senza controllo. Prima serve quel refactor.
 
-La CI (`.github/workflows/ci.yml`) gira su ogni pull request e sui push a `main`: un job installa
-`.[app,dev]` su Python 3.12 e passa `ruff check`, `black --check` e `pytest` su `src`, `tests` e
-`scripts`; l'altro costruisce i target `runtime` e `dev`, verifica che l'immagine importi il
-pacchetto e risolva le directory dei dati a `/app/...`, e rifà girare i test dentro l'immagine.
-Nessuna immagine viene pubblicata: il push su un registry e il deploy si aggiungono quando c'è un
-posto dove spedirle.
+La CI (`.github/workflows/ci.yml`) gira su ogni pull request e sui push a `main`, in due job. Il
+primo installa `.[app,data,dev]` su Python 3.12 e passa `ruff check`, `black --check` e `pytest` su
+`src`, `tests` e `scripts`. Il secondo costruisce le immagini e verifica quattro cose che dal
+sorgente non si vedono: che il pacchetto si importi e risolva le directory dei dati a `/app/...`,
+che i test passino dentro l'immagine, che la build **senza `--target`** non porti pyarrow (cioè che
+`web` sia ancora l'ultimo stage), e che il container si leghi davvero a `$PORT` — lo avvia con
+`PORT=10000` e interroga `/_stcore/health`.
+
+Nessuna immagine viene pubblicata su un registry: Render costruisce il Dockerfile da sé a ogni
+push su `main`.
 
 ## Configuration
 

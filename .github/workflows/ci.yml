@@ -39,13 +39,13 @@ jobs:
       - name: Installa il pacchetto
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[app,dev]"
+          pip install -e ".[app,data,dev]"
 
       - name: ruff
-        run: ruff check src tests scripts
+        run: ruff check src tests scripts docker
 
       - name: black
-        run: black --check src tests scripts
+        run: black --check src tests scripts docker
 
       # I test non toccano la rete ne' lo store delle candele: sono dati sintetici e
       # monkeypatch. Il golden master di tests/test_simulator_golden.py e' quello che
@@ -98,3 +98,42 @@ jobs:
 
       - name: I test dentro l'immagine
         run: docker run --rm cryptofarm:dev pytest -q
+
+      # L'immagine che va in produzione e' l'ultimo stage del Dockerfile: si costruisce senza
+      # `--target`, come fa Render, cosi' un giorno in cui l'ordine degli stage cambia la CI
+      # se ne accorge invece di far spedire TensorFlow a un servizio da 512 MB.
+      - name: Build web (stage di default, come lo costruisce Render)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: cryptofarm:web
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: L'immagine web non porta pyarrow
+        run: |
+          if docker run --rm cryptofarm:web python -c "import pyarrow" 2>/dev/null; then
+            echo "pyarrow e' finito nell'immagine web: sono 141 MB che il simulatore non usa" >&2
+            exit 1
+          fi
+          docker run --rm cryptofarm:web python -c "import streamlit, plotly, sklearn; print('le dipendenze della pagina ci sono')"
+
+      # Il contratto con Render: il servizio deve legarsi a $PORT su 0.0.0.0. Qui si verifica
+      # davvero, avviando il container su una porta assegnata e interrogando la sonda.
+      - name: Il servizio si lega a $PORT
+        run: |
+          docker run -d --name cryptofarm-web -e PORT=10000 -p 10000:10000 cryptofarm:web
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:10000/_stcore/health >/dev/null 2>&1; then
+              echo "pronto al tentativo $attempt"
+              docker rm -f cryptofarm-web
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "il servizio non ha risposto su :10000 entro 60 s" >&2
+          docker logs cryptofarm-web
+          docker rm -f cryptofarm-web
+          exit 1

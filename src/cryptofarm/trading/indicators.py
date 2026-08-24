@@ -12,7 +12,9 @@ from ta.trend import EMAIndicator, PSARIndicator
 from ta.volatility import AverageTrueRange
 
 
-@st.cache_data
+# I parametri arrivano dai widget della barra laterale: ogni combinazione e' una voce di
+# cache, e senza tetto muovere gli slider fa crescere la memoria fino al riavvio del processo.
+@st.cache_data(max_entries=32)
 def add_technical_indicator(
     df,
     step=0.02,

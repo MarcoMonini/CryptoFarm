@@ -1,12 +1,15 @@
 # syntax=docker/dockerfile:1.7
 #
-# Tre target, una sola catena di build:
-#   runtime  (default) simulatore Streamlit, trainer, store delle candele, scripts.analysis
-#   dev                runtime + pytest/ruff/black, e' l'immagine con cui gira la CI
-#   dl                 runtime + TensorFlow, serve solo a `--model gru|cnn|lstm`
+# Quattro target. L'ultimo e' `web` di proposito: chi costruisce senza `--target` — Render, che
+# non ha un campo per sceglierlo — prende l'ultimo stage del file, e deve prendere quello giusto.
 #
-#   docker build -t cryptofarm:runtime .
-#   docker build -t cryptofarm:dev --target dev .
+#   runtime  simulatore, trainer, store delle candele, scripts.analysis (uso locale completo)
+#   dev      runtime + pytest/ruff/black, l'immagine con cui gira la CI
+#   dl       runtime + TensorFlow, serve solo a `--model gru|cnn|lstm`
+#   web      il solo simulatore, senza pyarrow: e' l'immagine che va in produzione
+#
+#   docker build -t cryptofarm:web .                       # il default
+#   docker build -t cryptofarm:runtime --target runtime .
 #
 # Il pacchetto viene installato nel virtualenv /opt/venv, non in modalita' editable: i dati
 # stanno fuori dall'immagine, in /app/models e /app/market_data, indirizzati dalle due
@@ -15,7 +18,7 @@
 ARG PYTHON_VERSION=3.12
 
 
-# --- base: interprete e virtualenv, condiviso da builder e runtime ---------------------
+# --- base: interprete e virtualenv, condiviso da tutti gli stage ------------------------
 FROM python:${PYTHON_VERSION}-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
@@ -27,10 +30,26 @@ ENV PYTHONUNBUFFERED=1 \
 RUN python -m venv "${VIRTUAL_ENV}"
 
 
-# --- builder: risolve e installa le dipendenze ----------------------------------------
+# --- builder: dipendenze complete (app + data) -----------------------------------------
 # Il copy in due tempi e' voluto: finche' pyproject.toml non cambia, il layer con le
 # dipendenze resta in cache e una modifica al codice non fa riscaricare nulla.
 FROM base AS builder
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    mkdir -p src/cryptofarm && touch src/cryptofarm/__init__.py && \
+    pip install ".[app,data]"
+
+COPY src ./src
+RUN --mount=type=cache,target=/root/.cache/pip pip install --no-deps .
+
+
+# --- builder-web: le stesse dipendenze senza `data` ------------------------------------
+# pyarrow pesa 141 MB e il simulatore non legge parquet: lo fanno solo `data/klines.py` e
+# `scripts/analysis.py`, che nell'immagine `web` non girano. Serve un builder separato,
+# perche' disinstallarlo in un layer successivo non toglierebbe i file da quello sotto.
+FROM base AS builder-web
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
@@ -42,7 +61,7 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/pip pip install --no-deps .
 
 
-# --- runtime: quello che si spedisce ---------------------------------------------------
+# --- runtime: l'immagine completa per l'uso locale --------------------------------------
 FROM base AS runtime
 
 # tini: PID 1 che inoltra i segnali, altrimenti Ctrl-C e `docker stop` non arrivano al
@@ -57,6 +76,7 @@ WORKDIR /app
 COPY --chown=cryptofarm:cryptofarm src ./src
 COPY --chown=cryptofarm:cryptofarm scripts ./scripts
 COPY --chown=cryptofarm:cryptofarm .streamlit ./.streamlit
+COPY --chown=cryptofarm:cryptofarm docker/healthcheck.py ./docker/healthcheck.py
 
 # I due volumi. Vanno creati qui: montati da un host che non li ha, docker li crea di root
 # e l'utente non privilegiato non ci scriverebbe.
@@ -64,20 +84,21 @@ RUN mkdir -p /app/models /app/market_data && chown -R cryptofarm:cryptofarm /app
 
 ENV CRYPTOFARM_MODELS_DIR=/app/models \
     CRYPTOFARM_MARKET_DATA_DIR=/app/market_data \
-    STREAMLIT_SERVER_PORT=8501 \
-    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
     STREAMLIT_SERVER_HEADLESS=true \
-    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    STREAMLIT_SERVER_FILE_WATCHER_TYPE=none \
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
+    MALLOC_ARENA_MAX=2
 
 USER cryptofarm
 EXPOSE 8501
 
-# Niente curl nell'immagine: la sonda la fa l'interprete che c'e' gia'.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4).status == 200 else 1)"]
+    CMD ["python", "docker/healthcheck.py"]
 
+# `$PORT` perche' i PaaS assegnano la porta a runtime (Render usa 10000 di default) e
+# pretendono il bind su 0.0.0.0; il fallback tiene funzionante `docker compose` in locale.
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["streamlit", "run", "src/cryptofarm/trading/simulator.py"]
+CMD ["sh", "-c", "streamlit run src/cryptofarm/trading/simulator.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]
 
 
 # --- dev: l'immagine dei test ----------------------------------------------------------
@@ -102,3 +123,39 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 USER cryptofarm
 
 CMD ["python", "-m", "cryptofarm.ml.trainer", "--model", "gru"]
+
+
+# --- web: quello che va in produzione, e il default del file ----------------------------
+# Solo la pagina: niente pyarrow, niente `scripts/`. Il modello non c'e' e non serve — il
+# simulatore lo carica dentro la pagina, quindi le strategie classiche funzionano lo stesso
+# e solo la voce "AI Model" segnala l'assenza dell'artefatto.
+FROM base AS web
+
+RUN apt-get update && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --uid 1000 cryptofarm
+COPY --from=builder-web --chown=cryptofarm:cryptofarm /opt/venv /opt/venv
+
+WORKDIR /app
+COPY --chown=cryptofarm:cryptofarm src ./src
+COPY --chown=cryptofarm:cryptofarm .streamlit ./.streamlit
+COPY --chown=cryptofarm:cryptofarm docker/healthcheck.py ./docker/healthcheck.py
+
+RUN mkdir -p /app/models && chown -R cryptofarm:cryptofarm /app
+
+ENV CRYPTOFARM_MODELS_DIR=/app/models \
+    CRYPTOFARM_MARKET_DATA_DIR=/app/market_data \
+    STREAMLIT_SERVER_HEADLESS=true \
+    STREAMLIT_SERVER_FILE_WATCHER_TYPE=none \
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
+    MALLOC_ARENA_MAX=2
+
+USER cryptofarm
+EXPOSE 8501
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD ["python", "docker/healthcheck.py"]
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["sh", "-c", "streamlit run src/cryptofarm/trading/simulator.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]

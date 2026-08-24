@@ -1,11 +1,11 @@
 # Elenco derivato: la fonte di verita' delle dipendenze e' `pyproject.toml`.
-# Qui c'e' il nucleo piu' l'extra `app`, cioe' quanto serve alla pagina Streamlit.
+# Qui c'e' il nucleo piu' l'extra `app`: esattamente il contenuto dell'immagine `web`.
+# Manca pyarrow, che sta nell'extra `data` e serve solo allo store delle candele.
 # In locale e in container si installa il pacchetto, non questo file:
-#     pip install -e ".[app,dev]"
+#     pip install -e ".[app,data,dev]"
 # TensorFlow non c'e' piu': sta nell'extra `dl`, serve solo a `--model gru|cnn|lstm`.
 numpy==2.1.3
 pandas==2.3.1
-pyarrow==21.0.0
 scipy==1.16.0
 ta==0.11.0
 requests==2.32.4

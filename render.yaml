@@ -1,2 +1,49 @@
-runtime: python
-pythonVersion: 3.12.8
+# Blueprint del servizio pubblico: la sola pagina Streamlit, sul piano gratuito.
+#
+# Render costruisce il Dockerfile senza `--target`, quindi prende l'ultimo stage del file:
+# per questo `web` sta in fondo. Il container si lega a `$PORT` (Render assegna 10000) su
+# 0.0.0.0, come richiede la piattaforma.
+#
+# Il piano free non ha dischi persistenti e non esegue un pre-deploy command: online girano
+# le strategie classiche, che leggono le candele dagli endpoint pubblici di Binance. La voce
+# "AI Model" del menu richiede un artefatto in `models/`, che qui non c'e'.
+#
+# Attenzione: regione e runtime non si cambiano su un servizio esistente. Per passare da
+# `runtime: python` a Docker, o da una regione USA a Francoforte, il servizio va ricreato.
+
+services:
+  - type: web
+    name: cryptofarm-simulator
+    runtime: docker
+    plan: free
+    # Francoforte, non una regione USA: Binance blocca gli IP statunitensi su api.binance.com,
+    # che e' l'endpoint da cui il simulatore prende le candele a ogni interazione.
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /_stcore/health
+    autoDeployTrigger: commit
+    # Non ricostruire ~700 MB di immagine per una correzione al README.
+    buildFilter:
+      ignoredPaths:
+        - "**/*.md"
+        - ".claude/**"
+        - ".github/**"
+        - "tests/**"
+        - "backup/**"
+        - ".devcontainer/**"
+    envVars:
+      # glibc alloca un'arena per thread e Streamlit e' multi-thread: senza tetto, su
+      # un'istanza da 512 MB il solo frazionamento del heap costa decine di MB.
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: STREAMLIT_SERVER_HEADLESS
+        value: "true"
+      # In produzione il watcher sorveglia file che non cambiano mai.
+      - key: STREAMLIT_SERVER_FILE_WATCHER_TYPE
+        value: "none"
+      - key: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+        value: "false"
+      - key: CRYPTOFARM_MODELS_DIR
+        value: /app/models
