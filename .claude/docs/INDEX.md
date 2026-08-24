@@ -7,6 +7,7 @@ Claude Code lo carica automaticamente da lì, e rimanda a questa cartella.
 |---|---|
 | [`strategy.md`](strategy.md) | **fonte di verità delle decisioni.** Analisi, misure, piano a fasi con gate, risultati ottenuti. Ha una tabella di revisione in testa che elenca cosa è stato corretto e perché. È il documento da leggere per primo e da aggiornare quando si decide qualcosa. |
 | [`HANDOFF.md`](HANDOFF.md) | ripartire da zero in una sessione nuova: stato del lavoro corrente, trappole ambientali, regole di ingaggio. Non duplica `strategy.md`, lo referenzia. |
+| [`backtest-strategie.md`](backtest-strategie.md) | **le strategie a indicatori, misurate.** 3.129 configurazioni su nove anni di BTC: cosa rende, quanto dipende dai parametri, cosa resta fuori campione, e i difetti del codice trovati misurando. Le tabelle complete stanno in `reports/`, gli script che le producono in `scripts/strategy_sweep.py`, `scripts/sweep_report.py`, `scripts/strategy_focus.py`. |
 | [`sessione-2026-08-21.md`](sessione-2026-08-21.md) | chiusura di una singola sessione: cosa era aperto al momento di staccare e cosa va confermato con l'utente prima di riprendere. Ne nasce uno per sessione, datato; non sostituisce `HANDOFF.md`, che resta il documento sempre valido. |
 | `RESUME.md` (cartella sopra) | generato da Claude Code, non modificarlo a mano |
 

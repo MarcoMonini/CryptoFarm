@@ -9,6 +9,8 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
 - `.claude/docs/strategy.md` — fonte di verità delle decisioni su labeling, feature, modello e
   validazione, con le misure che le giustificano. Da aggiornare in luogo quando si decide qualcosa.
 - `.claude/docs/HANDOFF.md` — stato corrente del lavoro e trappole ambientali per chi riprende.
+- `.claude/docs/backtest-strategie.md` — le strategie a indicatori misurate su nove anni: 3.129
+  configurazioni, sensibilità ai parametri, tenuta fuori campione, difetti trovati misurando.
 - `.claude/docs/INDEX.md` — ordine di lettura consigliato.
 
 Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
@@ -67,6 +69,14 @@ streamlit run src/cryptofarm/trading/simulator.py
 
 # Misure di strategy.md
 .venv312/bin/python -m scripts.analysis
+
+# Backtest delle strategie a indicatori su tutto lo storico (vedi .claude/docs/backtest-strategie.md)
+.venv312/bin/python -m scripts.strategy_sweep --all --interval 15m   # griglie di parametri
+.venv312/bin/python -m scripts.sweep_report --interval 15m           # tabelle in reports/
+.venv312/bin/python -m scripts.strategy_focus --top 3                # commissioni e intervalli
+
+# Store delle candele da fonte alternativa, dove data.binance.vision non è raggiungibile
+.venv312/bin/python -m scripts.import_bitstamp --source /percorso/al/clone
 
 # Bot live — piazza ordini veri, richiede le variabili d'ambiente (vedi .env.example)
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
