@@ -83,12 +83,12 @@ The install is split so each image carries only what it runs.
 |---|---|---|
 | (core) | numpy, pandas, scipy, ta, requests, python-binance, scikit-learn, colorama | features, labels, gbdt models, live bot |
 | `app` | streamlit, plotly | `trading/simulator.py` and the modules it decorates with `st.cache_data` |
-| `data` | pyarrow (141 MB) | the parquet kline store — `data/klines.py` and `scripts/analysis.py` |
+| `data` | pyarrow (141 MB) | the parquet kline store — `data/klines.py` and `scripts/analysis.py`; arrives anyway with `app`, since streamlit requires `pyarrow>=7.0` |
 | `dl` | tensorflow, keras-tuner (~1 GB) | only `--model gru|cnn|lstm`; `ml/models.py` imports keras inside the functions |
 | `dev` | pytest, ruff, black, pre-commit | |
 
-The deployed image installs `[app]` alone: the simulator never reads parquet, so 141 MB of pyarrow
-would ride along for nothing.
+`data` is separate because the core install has no reason to carry a parquet engine — not because
+the deployed image can shed it. Streamlit depends on pyarrow, so any image with the page has it.
 
 ## Docker
 
@@ -105,13 +105,15 @@ One `Dockerfile`, four targets:
 
 | target | contents | for |
 |---|---|---|
-| `runtime` | core + `app` + `data` | local use: simulator, trainers, kline store, analysis |
+| `runtime` | core + `app` + `data` | simulator, trainers, kline store, analysis |
 | `dev` | `runtime` + pytest/ruff/black | the image CI runs |
 | `dl` | `runtime` + TensorFlow | `--model gru|cnn|lstm` |
-| **`web`** | core + `app`, no pyarrow, no `scripts/` | **production — and the file's last stage, so a plain `docker build .` produces it** |
+| **`web`** | same as `runtime` | **production — it is the file's last stage, so a plain `docker build .` produces it** |
 
 The stage order matters: a build without `--target` takes the last stage, and Render has no field
-to choose one. `web` is last so the platform gets the right image instead of the TensorFlow one.
+to choose one. `web` exists to occupy that position, so the platform gets the page image instead of
+the TensorFlow one — CI builds without `--target` and fails if that stops being true. Any new stage
+belongs above it.
 
 `models/` and `market_data/` are bind-mounted from the host, so artifacts and the hundreds of MB of
 candles survive `docker compose down`. Inside the image they live at `/app/models` and

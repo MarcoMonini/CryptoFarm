@@ -3,10 +3,10 @@
 # Quattro target. L'ultimo e' `web` di proposito: chi costruisce senza `--target` — Render, che
 # non ha un campo per sceglierlo — prende l'ultimo stage del file, e deve prendere quello giusto.
 #
-#   runtime  simulatore, trainer, store delle candele, scripts.analysis (uso locale completo)
+#   runtime  simulatore, trainer, store delle candele, scripts.analysis
 #   dev      runtime + pytest/ruff/black, l'immagine con cui gira la CI
 #   dl       runtime + TensorFlow, serve solo a `--model gru|cnn|lstm`
-#   web      il solo simulatore, senza pyarrow: e' l'immagine che va in produzione
+#   web      quello che va in produzione: identico a runtime, ma e' l'ultimo del file
 #
 #   docker build -t cryptofarm:web .                       # il default
 #   docker build -t cryptofarm:runtime --target runtime .
@@ -44,21 +44,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/pip pip install --no-deps .
 
-
-# --- builder-web: le stesse dipendenze senza `data` ------------------------------------
-# pyarrow pesa 141 MB e il simulatore non legge parquet: lo fanno solo `data/klines.py` e
-# `scripts/analysis.py`, che nell'immagine `web` non girano. Serve un builder separato,
-# perche' disinstallarlo in un layer successivo non toglierebbe i file da quello sotto.
-FROM base AS builder-web
-
-WORKDIR /app
-COPY pyproject.toml README.md ./
-RUN --mount=type=cache,target=/root/.cache/pip \
-    mkdir -p src/cryptofarm && touch src/cryptofarm/__init__.py && \
-    pip install ".[app]"
-
-COPY src ./src
-RUN --mount=type=cache,target=/root/.cache/pip pip install --no-deps .
 
 
 # --- runtime: l'immagine completa per l'uso locale --------------------------------------
@@ -126,36 +111,11 @@ CMD ["python", "-m", "cryptofarm.ml.trainer", "--model", "gru"]
 
 
 # --- web: quello che va in produzione, e il default del file ----------------------------
-# Solo la pagina: niente pyarrow, niente `scripts/`. Il modello non c'e' e non serve — il
-# simulatore lo carica dentro la pagina, quindi le strategie classiche funzionano lo stesso
-# e solo la voce "AI Model" segnala l'assenza dell'artefatto.
-FROM base AS web
-
-RUN apt-get update && apt-get install -y --no-install-recommends tini \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN useradd --create-home --uid 1000 cryptofarm
-COPY --from=builder-web --chown=cryptofarm:cryptofarm /opt/venv /opt/venv
-
-WORKDIR /app
-COPY --chown=cryptofarm:cryptofarm src ./src
-COPY --chown=cryptofarm:cryptofarm .streamlit ./.streamlit
-COPY --chown=cryptofarm:cryptofarm docker/healthcheck.py ./docker/healthcheck.py
-
-RUN mkdir -p /app/models && chown -R cryptofarm:cryptofarm /app
-
-ENV CRYPTOFARM_MODELS_DIR=/app/models \
-    CRYPTOFARM_MARKET_DATA_DIR=/app/market_data \
-    STREAMLIT_SERVER_HEADLESS=true \
-    STREAMLIT_SERVER_FILE_WATCHER_TYPE=none \
-    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
-    MALLOC_ARENA_MAX=2
-
-USER cryptofarm
-EXPOSE 8501
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD ["python", "docker/healthcheck.py"]
-
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["sh", "-c", "streamlit run src/cryptofarm/trading/simulator.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]
+# Identico a `runtime`, e sta qui solo per essere **l'ultimo stage**: una build senza
+# `--target` prende l'ultimo, ed e' cosi' che Render costruisce. Se un giorno si aggiunge
+# uno stage, va aggiunto sopra questo.
+#
+# Un'immagine piu' magra per la sola pagina non e' possibile: `streamlit` dipende da
+# `pyarrow>=7.0`, quindi i 141 MB del motore parquet entrano comunque. Toglierli
+# richiederebbe di rinunciare a Streamlit, non a `data/klines.py`.
+FROM runtime AS web

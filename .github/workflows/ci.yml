@@ -112,10 +112,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: L'immagine web non porta pyarrow
+      # L'invariante da difendere: lo stage di default non deve essere `dl`, o al servizio da
+      # 512 MB arriverebbero il giga e mezzo di TensorFlow. Se qualcuno riordina il file, qui
+      # fallisce.
+      - name: L'immagine di default non e' quella con TensorFlow
         run: |
-          if docker run --rm cryptofarm:web python -c "import pyarrow" 2>/dev/null; then
-            echo "pyarrow e' finito nell'immagine web: sono 141 MB che il simulatore non usa" >&2
+          if docker run --rm cryptofarm:web python -c "import tensorflow" 2>/dev/null; then
+            echo "TensorFlow e' nell'immagine di default: lo stage web non e' piu' l'ultimo" >&2
             exit 1
           fi
           docker run --rm cryptofarm:web python -c "import streamlit, plotly, sklearn; print('le dipendenze della pagina ci sono')"

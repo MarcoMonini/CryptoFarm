@@ -23,8 +23,9 @@ app = [
     "streamlit==1.47.1",
     "plotly==6.2.0",
 ]
-# Il motore parquet dello store delle candele. Lo usano `data/klines.py` e `scripts/analysis.py`;
-# il simulatore no, e sono 141 MB, per cui l'immagine `web` ne fa a meno.
+# Il motore parquet dello store delle candele: lo usano `data/klines.py` e `scripts/analysis.py`.
+# E' un extra perche' il nucleo senza store non ne ha bisogno; nelle immagini con la pagina
+# entra comunque, perche' `streamlit` dipende da `pyarrow>=7.0`.
 data = [
     "pyarrow==21.0.0",
 ]

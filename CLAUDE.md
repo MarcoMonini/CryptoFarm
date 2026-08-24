@@ -151,14 +151,18 @@ fare `git rm --cached`. Rigenerare con i trainer, non modificare a mano.
 
 ## Docker e CI
 
-Un solo `Dockerfile` con quattro target: **`runtime`** (uso locale completo: simulatore, trainer,
-store delle candele, `scripts.analysis`), **`dev`** (`runtime` + pytest/ruff/black, è l'immagine con
-cui gira la CI), **`dl`** (`runtime` + TensorFlow, per i modelli sequenziali) e **`web`** (la sola
-pagina, senza pyarrow: è quella che va in produzione).
+Un solo `Dockerfile` con quattro target: **`runtime`** (simulatore, trainer, store delle candele,
+`scripts.analysis`), **`dev`** (`runtime` + pytest/ruff/black, è l'immagine con cui gira la CI),
+**`dl`** (`runtime` + TensorFlow, per i modelli sequenziali) e **`web`**, che è quello che va in
+produzione ed è identico a `runtime`.
 
 **`web` è l'ultimo stage del file, e deve restarci**: una build senza `--target` prende l'ultimo
 stage, e Render non ha un campo per sceglierlo. Spostarlo significa spedire in produzione
-l'immagine con TensorFlow. La CI costruisce anche senza `--target` proprio per accorgersene.
+l'immagine con TensorFlow. La CI costruisce anche senza `--target` proprio per accorgersene. Uno
+stage nuovo va aggiunto sopra `web`, mai sotto.
+
+Un'immagine più magra per la sola pagina non è ottenibile togliendo pyarrow: `streamlit` dipende da
+`pyarrow>=7.0`, quindi i 141 MB del motore parquet ci sono comunque.
 
 ```bash
 mkdir -p models market_data                     # solo la prima volta: i bind mount devono esistere
@@ -194,8 +198,8 @@ La CI (`.github/workflows/ci.yml`) gira su ogni pull request e sui push a `main`
 primo installa `.[app,data,dev]` su Python 3.12 e passa `ruff check`, `black --check` e `pytest` su
 `src`, `tests` e `scripts`. Il secondo costruisce le immagini e verifica quattro cose che dal
 sorgente non si vedono: che il pacchetto si importi e risolva le directory dei dati a `/app/...`,
-che i test passino dentro l'immagine, che la build **senza `--target`** non porti pyarrow (cioè che
-`web` sia ancora l'ultimo stage), e che il container si leghi davvero a `$PORT` — lo avvia con
+che i test passino dentro l'immagine, che la build **senza `--target`** non porti TensorFlow (cioè
+che `web` sia ancora l'ultimo stage), e che il container si leghi davvero a `$PORT` — lo avvia con
 `PORT=10000` e interroga `/_stcore/health`.
 
 Nessuna immagine viene pubblicata su un registry: Render costruisce il Dockerfile da sé a ogni
