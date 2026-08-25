@@ -76,7 +76,7 @@ leva e liquidazione a capitale zero.
 - **Le ablazioni** dicono che ogni filtro nuovo migliora la mediana e riduce le operazioni; l'unico
   ininfluente e' l'ADX come soglia minima nella rottura di canale.
 
-### Cosa resta aperto (l'unica cosa)
+### Cosa resta aperto
 
 **SOL e BNB non sono stati misurati.** L'utente li aveva chiesti esplicitamente. Non e' una scelta:
 in ambiente remoto l'egress verso *ogni* exchange e aggregatore risponde 403 sul CONNECT (Binance,
@@ -93,6 +93,11 @@ done
 ```
 
 Le conclusioni su regimi e verso corto valgono per **un asset e un ciclo** finche' quello non gira.
+
+**Rimisurare `donchian_breakout` e `squeeze_breakout`.** Lo stop a trailing e' stato corretto
+(vedi le trappole sotto e `.claude/docs/strategie-nuove.md` §8): le loro righe in §6 e i
+`reports/lab_*.csv` sono precedenti alla correzione. Servono le stesse candele del punto sopra,
+quindi le due cose si fanno insieme. Le altre tre strategie non sono toccate.
 
 ### Codice nuovo del filone trading
 
@@ -149,7 +154,7 @@ i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0
 - **`models/*.joblib` e `*.json` non sono tracciati** (`models/.gitignore`, esteso nel 2026-08).
   `meta_model.*` e' il modello della strategia precedente: non cancellarlo, `load_signal_model()`
   lo carica ancora. `MODEL_PRECEDENCE` e `active_model_name()` sono l'unica fonte di verita'.
-- **Test: 216 in 14 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
+- **Test: 221 in 14 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
   entrambi i job su ogni PR.
 - Le due misure lunghe (`strategy_sweep`, `strategy_lab`) impiegano decine di minuti: farle partire
   in background e attendere con un ciclo di controllo, mai con `sleep` in catena.
@@ -174,6 +179,16 @@ i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0
 - **Look-ahead nei canali**: un massimo mobile che include la barra corrente rende la rottura
   impossibile da mancare. `indicators_extra` shifta Donchian; il test `test_no_look_ahead` verifica
   che troncare la serie non cambi gli eventi gia' emessi.
+- **Look-ahead *dentro* la barra**: uno stop a trailing costruito con il massimo e l'ATR della
+  barra su cui viene testato assume che dentro quella barra l'estremo favorevole arrivi per primo.
+  **`test_no_look_ahead` non lo vede**, perche' tronca la serie *fra* le barre e la barra che
+  scatena l'evento resta identica: serve il controllo che perturba il massimo della sola barra
+  dell'uscita (`test_trailing_stop_ignores_the_high_of_its_own_bar`). Lo stop va calcolato su dati
+  chiusi a `i-1`.
+- **`ta` riempie, non lascia NaN.** `IchimokuIndicator(visual=True)` costruisce span B con
+  `min_periods=0` e riempie le prime `slow` righe dello shift con la media dell'**intera** serie:
+  span B non e' mai NaN, nessuna guardia lo intercetta, e quel riempimento e' look-ahead. In
+  `ichimoku_trend` la protezione e' `start = slow + span + 2`, e non va abbassata.
 - **Il golden master accetta qualunque differenza** se lo si rigenera. Rigenerare solo dopo aver
   verificato a mano la differenza, e controllare che il diff contenga solo le righe attese.
 - **Gli scenari del golden non sono intercambiabili**: `close_ema_crossover_simulation` pretende tre

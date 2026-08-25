@@ -292,6 +292,18 @@ configurazione rende +11% contro +80%. Sulla sensibilita' al costo, le strategie
 
 ## 8. Limiti
 
+- **I numeri di `donchian_breakout` e `squeeze_breakout` sono precedenti a una correzione dello
+  stop a trailing, e vanno rifatti.** Lo stop in vigore durante una barra veniva costruito con il
+  massimo e l'ATR di quella stessa barra, poi confrontato con il suo minimo: assumeva che dentro
+  la barra l'estremo favorevole arrivasse per primo. Per singolo riempimento il bias e' a senso
+  unico -- si usciva a un prezzo non ottenibile, +0,9% sullo scenario dei test perturbando il solo
+  massimo della barra dell'uscita, +2,6% su una perturbazione piu' larga. Sul **netto di
+  portafoglio** invece il segno non e' prevedibile, perche' lo stop gonfiato scattava anche prima
+  del dovuto: sulla serie sintetica dei test la correzione porta `donchian_breakout` da −6,5% a
+  −1,3% e `squeeze_breakout` da −2,6% a −2,2%, cioe' migliora. Su BTC 2021-2026 non e' stato
+  possibile rimisurare (serve lo store di candele, assente nell'ambiente in cui la correzione e'
+  stata fatta): rilanciare i comandi di §9 e rifare §6 per queste due righe. Le altre tre
+  strategie non usano lo stop a trailing e non sono toccate.
 - **Un asset e un ciclo.** Le conclusioni sul verso corto e sui regimi valgono per BTC 2021-2026.
 - **Selezione.** Le colonne "migliore" sono massimi su griglie: vanno lette con la mediana accanto.
 - **Esecuzione ideale.** Ingressi alla chiusura della barra, stop eseguiti al livello esatto, niente
