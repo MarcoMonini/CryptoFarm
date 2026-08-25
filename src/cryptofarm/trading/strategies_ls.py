@@ -183,11 +183,16 @@ def squeeze_breakout(
         released = squeeze[i - 1] and not squeeze[i]
         if not released or position != 0:
             continue
-        long_side = price > bb_mid[i]
-        if obv is not None and not np.isnan(obv[i]):
-            long_side = long_side and obv[i] > 0
+        if obv is not None:
+            # Conferma richiesta ma non calcolabile (volume nullo sulla finestra): si sta fuori.
+            # Cadere qui nel caso "nessuna conferma" faceva entrare senza il filtro che il
+            # chiamante credeva attivo.
+            if np.isnan(obv[i]):
+                continue
+            long_side = price > bb_mid[i] and obv[i] > 0
             short_ok = price < bb_mid[i] and obv[i] < 0
         else:
+            long_side = price > bb_mid[i]
             short_ok = price < bb_mid[i]
 
         if long_side:

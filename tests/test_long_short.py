@@ -128,3 +128,22 @@ def test_trailing_stop_ignores_the_high_of_its_own_bar(candles: pd.DataFrame, na
     assert [e for e in dopo if e[0] < quando] == [e for e in base if e[0] < quando]
     # ne' l'uscita che avviene su quella barra stessa.
     assert [e for e in dopo if e[0] == quando and e[2] == 0] == [e for e in base if e[0] == quando and e[2] == 0]
+
+
+def test_squeeze_non_entra_se_la_conferma_di_volume_non_e_calcolabile(candles: pd.DataFrame) -> None:
+    """Con `confirm_volume=True` la conferma deve valere sempre, o si sta fuori.
+
+    `obv_slope` e' NaN quando il volume della finestra e' zero. Il ramo che gestiva il NaN cadeva
+    nel caso "nessuna conferma richiesta" ed entrava lo stesso: il chiamante credeva che il filtro
+    fosse attivo su ogni ingresso, e su quelle barre non lo era.
+    """
+    senza_volume = candles.copy()
+    senza_volume["Volume"] = 0.0
+
+    eventi = ls.squeeze_breakout(senza_volume, ExtraCache(senza_volume), confirm_volume=True)
+    assert [event for event in eventi if event[2] != 0] == []
+
+    # Senza conferma richiesta lo stesso scenario opera: e' la prova che il test non passa
+    # semplicemente perche' non c'e' nessun segnale da filtrare.
+    liberi = ls.squeeze_breakout(senza_volume, ExtraCache(senza_volume), confirm_volume=False)
+    assert [event for event in liberi if event[2] != 0] != []
