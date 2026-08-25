@@ -102,3 +102,29 @@ def test_long_only_never_goes_short(candles: pd.DataFrame, name: str) -> None:
     assert all(target >= 0 for _, _, target in events)
     operations = simulate_positions(events, 100, 0.05, 0.03)
     assert all(operation["Side"] == "long" for operation in operations)
+
+
+@pytest.mark.parametrize("name", ["donchian_breakout", "squeeze_breakout"])
+def test_trailing_stop_ignores_the_high_of_its_own_bar(candles: pd.DataFrame, name: str) -> None:
+    """Lo stop a trailing in vigore *durante* una barra non puo' dipendere dal massimo di quella
+    barra.
+
+    Dentro la barra il minimo puo' arrivare prima del massimo: assumere il contrario alza lo stop
+    con un massimo non ancora avvenuto e fa uscire a un prezzo migliore di quello ottenibile.
+    `test_no_look_ahead` non lo vede, perche' tronca la serie *fra* le barre e la barra che scatena
+    l'uscita resta identica nelle due versioni.
+    """
+    strategy = ls.STRATEGIES[name]
+    base = strategy(candles, ExtraCache(candles))
+    uscite = [event for event in base if event[2] == 0]
+    assert uscite, "lo scenario deve produrre almeno un'uscita, altrimenti il test non prova nulla"
+    quando = uscite[0][0]
+
+    alterate = candles.copy()
+    alterate.iloc[alterate.index.get_loc(quando), alterate.columns.get_loc("High")] *= 1.05
+    dopo = strategy(alterate, ExtraCache(alterate))
+
+    # Il massimo di una barra non puo' cambiare nulla di cio' che e' gia' successo,
+    assert [e for e in dopo if e[0] < quando] == [e for e in base if e[0] < quando]
+    # ne' l'uscita che avviene su quella barra stessa.
+    assert [e for e in dopo if e[0] == quando and e[2] == 0] == [e for e in base if e[0] == quando and e[2] == 0]

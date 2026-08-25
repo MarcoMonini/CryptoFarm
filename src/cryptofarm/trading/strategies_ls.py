@@ -26,7 +26,10 @@ Convenzioni comuni, uguali per tutte:
   esecuzione al livello dello stop. E' la convenzione standard; sottostima le perdite quando il
   prezzo salta oltre lo stop, che nelle liquidazioni crypto succede.
 - **niente look-ahead**: il canale di Donchian e' spostato di una barra, le span di Ichimoku sono
-  quelle gia' visibili sul grafico, ogni incrocio si valuta fra `i-1` e `i`.
+  quelle gia' visibili sul grafico, ogni incrocio si valuta fra `i-1` e `i`. Vale anche *dentro* la
+  barra: lo stop a trailing usa l'estremo raggiunto fino a `i-1` e l'ATR di `i-1`, mai quelli della
+  barra su cui viene testato, e all'ingresso parte dal prezzo di riempimento invece che
+  dall'estremo della barra d'ingresso.
 - `allow_short=False` rende ognuna delle quattro una strategia solo lunga, identica in tutto il
   resto: e' il confronto che isola il contributo del verso corto.
 """
@@ -82,19 +85,26 @@ def donchian_breakout(
 
     for i in range(start, len(closes)):
         price = closes[i]
-        if position != 0 and not np.isnan(atr[i]):
+        if position != 0 and not np.isnan(atr[i - 1]):
+            # Lo stop in vigore *durante* la barra i e' quello calcolabile alla chiusura della
+            # barra precedente: estremo raggiunto fino a i-1 e ATR di i-1. Aggiornarlo con il
+            # massimo (o il minimo) della barra i prima di confrontarlo con il suo minimo (o
+            # massimo) assume che dentro la barra l'estremo favorevole arrivi per primo -- vero
+            # meta' delle volte, e sempre a favore: fa uscire a un prezzo che non era ottenibile.
             if position > 0:
-                extreme = max(extreme, highs[i])
-                stop = extreme - atr_multiplier * atr[i]
+                stop = extreme - atr_multiplier * atr[i - 1]
                 if lows[i] <= stop:
                     events.append((index[i], float(stop), 0))
                     position = 0
+                else:
+                    extreme = max(extreme, highs[i])
             else:
-                extreme = min(extreme, lows[i])
-                stop = extreme + atr_multiplier * atr[i]
+                stop = extreme + atr_multiplier * atr[i - 1]
                 if highs[i] >= stop:
                     events.append((index[i], float(stop), 0))
                     position = 0
+                else:
+                    extreme = min(extreme, lows[i])
 
         if np.isnan(upper[i]) or np.isnan(adx[i]) or adx[i] < adx_min:
             continue
@@ -104,11 +114,11 @@ def donchian_breakout(
         if position <= 0 and price > upper[i] and trend_up:
             events.append((index[i], float(price), 1))
             position = 1
-            extreme = highs[i]
+            extreme = price
         elif allow_short and position >= 0 and price < lower[i] and trend_down:
             events.append((index[i], float(price), -1))
             position = -1
-            extreme = lows[i]
+            extreme = price
 
     return events
 
@@ -149,19 +159,26 @@ def squeeze_breakout(
 
     for i in range(start, len(closes)):
         price = closes[i]
-        if position != 0 and not np.isnan(atr[i]):
+        if position != 0 and not np.isnan(atr[i - 1]):
+            # Lo stop in vigore *durante* la barra i e' quello calcolabile alla chiusura della
+            # barra precedente: estremo raggiunto fino a i-1 e ATR di i-1. Aggiornarlo con il
+            # massimo (o il minimo) della barra i prima di confrontarlo con il suo minimo (o
+            # massimo) assume che dentro la barra l'estremo favorevole arrivi per primo -- vero
+            # meta' delle volte, e sempre a favore: fa uscire a un prezzo che non era ottenibile.
             if position > 0:
-                extreme = max(extreme, highs[i])
-                stop = extreme - atr_multiplier * atr[i]
+                stop = extreme - atr_multiplier * atr[i - 1]
                 if lows[i] <= stop:
                     events.append((index[i], float(stop), 0))
                     position = 0
+                else:
+                    extreme = max(extreme, highs[i])
             else:
-                extreme = min(extreme, lows[i])
-                stop = extreme + atr_multiplier * atr[i]
+                stop = extreme + atr_multiplier * atr[i - 1]
                 if highs[i] >= stop:
                     events.append((index[i], float(stop), 0))
                     position = 0
+                else:
+                    extreme = min(extreme, lows[i])
 
         released = squeeze[i - 1] and not squeeze[i]
         if not released or position != 0:
@@ -176,11 +193,11 @@ def squeeze_breakout(
         if long_side:
             events.append((index[i], float(price), 1))
             position = 1
-            extreme = highs[i]
+            extreme = price
         elif allow_short and short_ok:
             events.append((index[i], float(price), -1))
             position = -1
-            extreme = lows[i]
+            extreme = price
 
     return events
 
