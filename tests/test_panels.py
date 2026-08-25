@@ -12,11 +12,16 @@ poi non produce niente.
 
 from __future__ import annotations
 
+import ast
+import inspect
+import re
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from cryptofarm.trading import config, indicators, panels, strategies_ls
+from cryptofarm.trading import config, indicators, panels, simulator, strategies_ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.pnl import simulate_positions, simulate_trading_with_commisions
 
@@ -328,3 +333,66 @@ def test_gli_overlay_non_usano_l_acquamarina() -> None:
                 panels.BLU,
                 panels.ARANCIO,
             }, f"{chiave}: '{traccia.nome}' e' acquamarina sopra le candele"
+
+
+# -------------------------------------------------------------------------------------------------
+# La lingua dell'interfaccia
+# -------------------------------------------------------------------------------------------------
+# Il codice, i commenti e le docstring restano in italiano: e' la lingua di lavoro del progetto.
+# Cio' che l'utente legge no. Senza un controllo la regola dura fino al widget successivo, perche'
+# scrivere l'etichetta nella lingua in cui si sta pensando e' la cosa piu' naturale del mondo.
+
+# Parole che in inglese non esistono: bastano a intercettare un'etichetta rimasta in italiano,
+# senza pretendere di riconoscere una lingua.
+SPIE = re.compile(
+    r"\b(della|dello|delle|degli|nessun\w*|quando|viene|perche|soltanto|oppure|invece|questo|"
+    r"questa|sono|dalla|nella|senza|solo|con|per|il|lo|gli|una|un'|non|piu')\b|[àèéìòù]",
+    re.IGNORECASE,
+)
+
+
+def _testi_del_registro() -> list[tuple[str, str]]:
+    """Tutto cio' che il registro fa arrivare sotto gli occhi di chi usa la pagina."""
+    testi = [("SOGLIE", panels.SOGLIE)]
+    testi += [(f"ETICHETTE[{k}]", v) for k, v in panels.ETICHETTE.items()]
+    for chiave, indicatore in panels.INDICATORI.items():
+        testi.append((f"{chiave}.etichetta", indicatore.etichetta))
+        if indicatore.pannello:
+            testi.append((f"{chiave}.pannello", indicatore.pannello))
+        testi += [(f"{chiave}.{t.serie}", t.nome) for t in indicatore.tracce]
+    for nome, strategia in panels.STRATEGIE.items():
+        if strategia.note:
+            testi.append((f"{nome}.note", strategia.note))
+    return testi
+
+
+@pytest.mark.parametrize("dove, testo", _testi_del_registro())
+def test_il_registro_parla_inglese(dove: str, testo: str) -> None:
+    trovata = SPIE.search(testo)
+    assert not trovata, f"{dove}: «{testo}» sembra italiano ({trovata.group()})"
+
+
+def test_i_widget_della_pagina_parlano_inglese() -> None:
+    """Le stringhe passate alle chiamate `st.*`, prese dall'albero sintattico.
+
+    Commenti e docstring non sono argomenti di chiamata, quindi restano fuori da soli: il
+    controllo guarda solo cio' che Streamlit disegna.
+    """
+    sorgente = Path(inspect.getfile(simulator)).read_text()
+    problemi = []
+    for nodo in ast.walk(ast.parse(sorgente)):
+        if not isinstance(nodo, ast.Call):
+            continue
+        radice = nodo.func
+        while isinstance(radice, ast.Attribute):
+            radice = radice.value
+        if not (isinstance(radice, ast.Name) and radice.id == "st"):
+            continue
+        pezzi = list(nodo.args) + [k.value for k in nodo.keywords]
+        for pezzo in pezzi:
+            for costante in ast.walk(pezzo):
+                if isinstance(costante, ast.Constant) and isinstance(costante.value, str):
+                    trovata = SPIE.search(costante.value)
+                    if trovata:
+                        problemi.append(f"riga {costante.lineno}: «{costante.value}» ({trovata.group()})")
+    assert not problemi, "stringhe non inglesi nei widget:\n  " + "\n  ".join(problemi)

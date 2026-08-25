@@ -126,38 +126,38 @@ def _serie(indice: pd.Index, **colonne) -> dict[str, pd.Series]:
 
 INDICATORI: dict[str, Indicatore] = {
     "medie": Indicatore(
-        etichetta="Medie esponenziali",
+        etichetta="Exponential moving averages",
         parametri=("EMA_SHORT", "EMA_MEDIUM", "EMA_LONG"),
         pannello=None,
         serie=_colonne("EMA20", "EMA50", "EMA100"),
         tracce=(
-            Traccia("EMA20", "EMA corta", BLU, larghezza=1.0),
-            Traccia("EMA50", "EMA media", BLU, tratteggio="dot", larghezza=1.5),
-            Traccia("EMA100", "EMA lunga", BLU, tratteggio="dash", larghezza=2.0),
+            Traccia("EMA20", "EMA fast", BLU, larghezza=1.0),
+            Traccia("EMA50", "EMA mid", BLU, tratteggio="dot", larghezza=1.5),
+            Traccia("EMA100", "EMA slow", BLU, tratteggio="dash", larghezza=2.0),
         ),
     ),
     "medie_trend": Indicatore(
         # "Trend Zones" confronta la corta con la lunga: la media di mezzo non la tocca.
-        etichetta="Medie corta e lunga",
+        etichetta="Fast and slow averages",
         parametri=("EMA_SHORT", "EMA_LONG"),
         pannello=None,
         serie=_colonne("EMA20", "EMA100"),
         tracce=(
-            Traccia("EMA20", "EMA corta", BLU, larghezza=1.0),
-            Traccia("EMA100", "EMA lunga", BLU, tratteggio="dash", larghezza=2.0),
+            Traccia("EMA20", "EMA fast", BLU, larghezza=1.0),
+            Traccia("EMA100", "EMA slow", BLU, tratteggio="dash", larghezza=2.0),
         ),
     ),
     "bande_atr": Indicatore(
         # KAMA usa `ema_window`, e le bande sono KAMA +/- moltiplicatore * ATR: i cinque
         # parametri servono tutti, anche se il nome ne cita uno solo.
-        etichetta="Bande ATR su KAMA",
+        etichetta="ATR bands on KAMA",
         parametri=("ATR_WINDOW", "ATR_MULTIPLIER", "KAMA_POW1", "KAMA_POW2", "EMA_SHORT"),
         pannello=None,
         serie=_colonne("KAMA", "Upper_Band", "Lower_Band"),
         tracce=(
             Traccia("KAMA", "KAMA", ARANCIO, larghezza=1.5),
-            Traccia("Upper_Band", "Banda superiore", ARANCIO, tratteggio="dash", larghezza=1.0),
-            Traccia("Lower_Band", "Banda inferiore", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("Upper_Band", "Upper band", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("Lower_Band", "Lower band", ARANCIO, tratteggio="dash", larghezza=1.0),
         ),
     ),
     "psar": Indicatore(
@@ -170,7 +170,7 @@ INDICATORI: dict[str, Indicatore] = {
     "estremi": Indicatore(
         # Non e' letto da nessuna strategia: e' il riferimento visivo dei massimi e minimi
         # relativi, e resta disponibile nella panoramica senza strategia selezionata.
-        etichetta="Massimi e minimi relativi",
+        etichetta="Swing highs and lows",
         parametri=("PIVOT_WINDOW",),
         pannello=None,
         serie=lambda df, cache, valori: {},
@@ -182,19 +182,19 @@ INDICATORI: dict[str, Indicatore] = {
         pannello="RSI",
         serie=_colonne("RSI", "RSI2", "RSI3"),
         tracce=(
-            Traccia("RSI", "RSI corto", BLU, larghezza=1.5),
-            Traccia("RSI2", "RSI medio", BLU, tratteggio="dot", larghezza=1.0),
-            Traccia("RSI3", "RSI lungo", BLU, tratteggio="dash", larghezza=1.0),
+            Traccia("RSI", "RSI fast", BLU, larghezza=1.5),
+            Traccia("RSI2", "RSI mid", BLU, tratteggio="dot", larghezza=1.0),
+            Traccia("RSI3", "RSI slow", BLU, tratteggio="dash", larghezza=1.0),
         ),
     ),
     "stocastico": Indicatore(
-        etichetta="Stocastico",
+        etichetta="Stochastic",
         parametri=("RSI_SHORT",),
-        pannello="Stocastico",
+        pannello="Stochastic",
         serie=_colonne("STOCH", "STOCH_S"),
         tracce=(
-            Traccia("STOCH", "Stocastico", ARANCIO, larghezza=1.5),
-            Traccia("STOCH_S", "Segnale", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("STOCH", "Stochastic", ARANCIO, larghezza=1.5),
+            Traccia("STOCH_S", "Signal", ARANCIO, tratteggio="dash", larghezza=1.0),
         ),
     ),
     "tsi": Indicatore(
@@ -205,28 +205,28 @@ INDICATORI: dict[str, Indicatore] = {
         tracce=(Traccia("TSI", "TSI", ACQUA, larghezza=1.5),),
     ),
     "donchian": Indicatore(
-        etichetta="Canale di Donchian",
+        etichetta="Donchian channel",
         parametri=("DONCHIAN_CHANNEL",),
         pannello=None,
         serie=lambda df, cache, v: _serie(
             df.index, **dict(zip(("canale_alto", "canale_basso"), cache.donchian(int(v["DONCHIAN_CHANNEL"]))))
         ),
         tracce=(
-            Traccia("canale_alto", "Canale superiore", ARANCIO, larghezza=1.5),
-            Traccia("canale_basso", "Canale inferiore", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("canale_alto", "Channel high", ARANCIO, larghezza=1.5),
+            Traccia("canale_basso", "Channel low", ARANCIO, tratteggio="dash", larghezza=1.0),
         ),
     ),
     "media_regime": Indicatore(
-        etichetta="Media di regime",
+        etichetta="Regime average",
         parametri=("REGIME_EMA",),
         pannello=None,
         serie=lambda df, cache, v: (
             _serie(df.index, regime=cache.ema(int(v["REGIME_EMA"]))) if int(v["REGIME_EMA"]) else {}
         ),
-        tracce=(Traccia("regime", "EMA di regime", BLU, tratteggio="dash", larghezza=2.0),),
+        tracce=(Traccia("regime", "Regime EMA", BLU, tratteggio="dash", larghezza=2.0),),
     ),
     "bollinger": Indicatore(
-        etichetta="Bande di Bollinger",
+        etichetta="Bollinger bands",
         parametri=("BB_WINDOW", "BB_DEV"),
         pannello=None,
         serie=lambda df, cache, v: _serie(
@@ -239,14 +239,14 @@ INDICATORI: dict[str, Indicatore] = {
             ),
         ),
         tracce=(
-            Traccia("bb_alta", "Bollinger superiore", BLU, larghezza=1.0),
-            Traccia("bb_media", "Bollinger media", BLU, tratteggio="dot", larghezza=1.0),
-            Traccia("bb_bassa", "Bollinger inferiore", BLU, larghezza=1.0),
+            Traccia("bb_alta", "Bollinger upper", BLU, larghezza=1.0),
+            Traccia("bb_media", "Bollinger mid", BLU, tratteggio="dot", larghezza=1.0),
+            Traccia("bb_bassa", "Bollinger lower", BLU, larghezza=1.0),
         ),
     ),
     "keltner": Indicatore(
         # Il canale di Keltner usa la stessa finestra ATR dell'uscita a trailing.
-        etichetta="Canale di Keltner",
+        etichetta="Keltner channel",
         parametri=("KC_WINDOW", "KC_MULTIPLIER", "TRAIL_ATR_WINDOW"),
         pannello=None,
         serie=lambda df, cache, v: _serie(
@@ -259,8 +259,8 @@ INDICATORI: dict[str, Indicatore] = {
             ),
         ),
         tracce=(
-            Traccia("kc_alta", "Keltner superiore", ARANCIO, tratteggio="dash", larghezza=1.0),
-            Traccia("kc_bassa", "Keltner inferiore", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("kc_alta", "Keltner upper", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("kc_bassa", "Keltner lower", ARANCIO, tratteggio="dash", larghezza=1.0),
         ),
     ),
     "ichimoku": Indicatore(
@@ -279,14 +279,14 @@ INDICATORI: dict[str, Indicatore] = {
         tracce=(
             Traccia("tenkan", "Tenkan", BLU, larghezza=1.5),
             Traccia("kijun", "Kijun", ARANCIO, larghezza=1.5),
-            Traccia("span_a", "Nuvola A", BLU, tratteggio="dot", larghezza=1.0),
-            Traccia("span_b", "Nuvola B", ARANCIO, tratteggio="dot", larghezza=1.0),
+            Traccia("span_a", "Cloud A", BLU, tratteggio="dot", larghezza=1.0),
+            Traccia("span_b", "Cloud B", ARANCIO, tratteggio="dot", larghezza=1.0),
         ),
     ),
     "bande_kama": Indicatore(
         # Non sono le `Upper_Band`/`Lower_Band` del frame: stessa forma, ma finestra e
         # moltiplicatore sono quelli della strategia di ritorno alla media.
-        etichetta="Bande di ritorno alla media",
+        etichetta="Mean-reversion bands",
         parametri=("REVERSION_KAMA_WINDOW", "REVERSION_BAND_MULT", "TRAIL_ATR_WINDOW"),
         pannello=None,
         serie=lambda df, cache, v: _serie(
@@ -299,12 +299,12 @@ INDICATORI: dict[str, Indicatore] = {
         ),
         tracce=(
             Traccia("kama", "KAMA", ARANCIO, larghezza=1.5),
-            Traccia("banda_alta", "Banda superiore", ARANCIO, tratteggio="dash", larghezza=1.0),
-            Traccia("banda_bassa", "Banda inferiore", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("banda_alta", "Upper band", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("banda_bassa", "Lower band", ARANCIO, tratteggio="dash", larghezza=1.0),
         ),
     ),
     "adx": Indicatore(
-        etichetta="ADX (forza del trend)",
+        etichetta="ADX (trend strength)",
         parametri=("ADX_WINDOW",),
         pannello="ADX",
         serie=lambda df, cache, v: _serie(df.index, adx=cache.adx(int(v["ADX_WINDOW"]))),
@@ -320,11 +320,11 @@ INDICATORI: dict[str, Indicatore] = {
         tracce=(Traccia("stochrsi", "StochRSI", BLU, larghezza=1.5),),
     ),
     "obv": Indicatore(
-        etichetta="Pendenza dell'OBV",
+        etichetta="OBV slope",
         parametri=("OBV_WINDOW",),
         pannello="Volume (OBV)",
         serie=lambda df, cache, v: _serie(df.index, obv=cache.obv_slope(int(v["OBV_WINDOW"]))),
-        tracce=(Traccia("obv", "Pendenza OBV", ACQUA, larghezza=1.5),),
+        tracce=(Traccia("obv", "OBV slope", ACQUA, larghezza=1.5),),
     ),
 }
 
@@ -405,7 +405,7 @@ STRATEGIE: dict[str, Strategia] = {
     "Green Candles": Strategia(
         indicatori=(),
         esegui=lambda df, cache, v: strategies.green_candles_simulation(df=df),
-        note="Guarda solo la forma delle candele: nessun indicatore.",
+        note="Reads candle shape only: no indicators.",
     ),
     "ATR Live Trade": Strategia(
         indicatori=("bande_atr", "psar"),
@@ -416,12 +416,12 @@ STRATEGIE: dict[str, Strategia] = {
             atr_multiplier=v["ATR_MULTIPLIER"],
             stop_loss_percent=v["STOP_LOSS_PERCENT"],
         ),
-        note="Ricalcola il PSAR per conto suo a partire dalle candele grezze.",
+        note="Recomputes the PSAR itself from the raw candles.",
     ),
     "AI Model": Strategia(
         indicatori=(),
         esegui=lambda df, cache, v: strategies.ai_model_simulation(df=df, model=v["MODELLO"]),
-        note="I segnali vengono dal modello addestrato: nessun indicatore da disegnare.",
+        note="Signals come from the trained model: nothing to plot.",
     ),
     "Donchian Breakout": Strategia(
         indicatori=("donchian", "media_regime", "adx"),
@@ -439,7 +439,7 @@ STRATEGIE: dict[str, Strategia] = {
                 allow_short=False,
             )
         ),
-        note="Rottura di canale con filtro ADX e uscita a trailing sull'ATR.",
+        note="Channel breakout, ADX-filtered, with an ATR trailing exit.",
     ),
     "Squeeze Breakout": Strategia(
         indicatori=("bollinger", "keltner", "obv"),
@@ -467,7 +467,7 @@ STRATEGIE: dict[str, Strategia] = {
                 allow_short=False,
             )
         ),
-        note="Entra quando le bande di Bollinger escono dal canale di Keltner.",
+        note="Enters when the Bollinger bands expand out of the Keltner channel.",
     ),
     "Trend Pullback": Strategia(
         indicatori=("media_regime", "stochrsi"),
@@ -494,7 +494,7 @@ STRATEGIE: dict[str, Strategia] = {
                 allow_short=False,
             )
         ),
-        note="Compra il ritracciamento, ma solo sopra la media lunga.",
+        note="Buys the pullback, but only above the slow average.",
     ),
     "Ichimoku Trend": Strategia(
         indicatori=("ichimoku",),
@@ -510,7 +510,7 @@ STRATEGIE: dict[str, Strategia] = {
                 allow_short=False,
             )
         ),
-        note="Il sistema di trend preso dal manuale, come metro di paragone.",
+        note="The textbook trend system, kept as a benchmark.",
     ),
     "Band Reversion": Strategia(
         indicatori=("bande_kama", "adx"),
@@ -538,8 +538,8 @@ STRATEGIE: dict[str, Strategia] = {
             )
         ),
         note=(
-            "Ritorno alla media, ma solo quando l'ADX dice che non c'e' trend. Il filtro di regime "
-            "e' spento di default, come nella misura: in quel caso la media non viene disegnata."
+            "Mean reversion, but only while the ADX says there is no trend. The regime filter is "
+            "off by default, as it was when measured, and then no average is drawn."
         ),
     ),
 }
@@ -549,7 +549,7 @@ VUOTA = "-"  # la voce che non seleziona nessuna strategia: si mostra tutto
 # Nella panoramica senza strategia questi due si tolgono, perche' sarebbero doppioni visivi:
 # `medie_trend` disegna due delle tre linee di `medie`, e `bande_kama` ha la stessa forma di
 # `bande_atr` con finestra e moltiplicatore diversi. Mostrarli tutti metteva in legenda due
-# "EMA corta" e due "Banda superiore", cioe' due etichette identiche su linee diverse -- che e'
+# "EMA fast" e due "Upper band", cioe' due etichette identiche su linee diverse -- che e'
 # peggio di un'informazione mancante, perche' sembra un errore di lettura di chi guarda.
 PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama")
 
@@ -609,50 +609,58 @@ def pannelli_di(strategia: str) -> list[str]:
 # grafico. `STOP_LOSS_PERCENT` e' "Stop loss %", `TRAIL_ATR_WINDOW` e' "Finestra ATR (uscita)" e non
 # semplicemente "ATR", perche' nella stessa vista puo' esserci anche l'ATR delle bande.
 
+# -------------------------------------------------------------------------------------------------
+# Come si presentano nella barra laterale
+# -------------------------------------------------------------------------------------------------
+# Il nome della costante dice a cosa serve nel codice; l'etichetta dice cosa muove a chi guarda il
+# grafico. `STOP_LOSS_PERCENT` e' "Stop loss %", `TRAIL_ATR_WINDOW` e' "Finestra ATR (uscita)" e non
+# semplicemente "ATR", perche' nella stessa vista puo' esserci anche l'ATR delle bande.
+
 ETICHETTE: dict[str, str] = {
-    "ATR_MULTIPLIER": "Moltiplicatore ATR",
-    "ATR_WINDOW": "Finestra ATR",
-    "RSI_SHORT": "RSI corto",
-    "RSI_MEDIUM": "RSI medio",
-    "RSI_LONG": "RSI lungo",
-    "EMA_SHORT": "EMA corta",
-    "EMA_MEDIUM": "EMA media",
-    "EMA_LONG": "EMA lunga",
-    "KAMA_POW1": "KAMA potenza 1",
-    "KAMA_POW2": "KAMA potenza 2",
-    "RSI_BUY_LIMIT": "Soglia RSI di acquisto",
-    "RSI_SELL_LIMIT": "Soglia RSI di vendita",
+    "ATR_MULTIPLIER": "ATR multiplier",
+    "ATR_WINDOW": "ATR window",
+    "RSI_SHORT": "RSI fast",
+    "RSI_MEDIUM": "RSI mid",
+    "RSI_LONG": "RSI slow",
+    "EMA_SHORT": "EMA fast",
+    "EMA_MEDIUM": "EMA mid",
+    "EMA_LONG": "EMA slow",
+    "KAMA_POW1": "KAMA power 1",
+    "KAMA_POW2": "KAMA power 2",
+    "RSI_BUY_LIMIT": "RSI buy threshold",
+    "RSI_SELL_LIMIT": "RSI sell threshold",
     "STOP_LOSS_PERCENT": "Stop loss %",
-    "NUM_CONDITIONS": "Condizioni richieste",
-    "PIVOT_WINDOW": "Finestra massimi/minimi",
-    "ADX_WINDOW": "Finestra ADX",
-    "ADX_MIN": "ADX minimo (serve trend)",
-    "ADX_MAX": "ADX massimo (serve intervallo)",
-    "REGIME_EMA": "EMA di regime",
-    "TRAIL_ATR_WINDOW": "Finestra ATR (uscita)",
-    "DONCHIAN_CHANNEL": "Ampiezza del canale",
-    "DONCHIAN_ATR_MULT": "Distanza dello stop (ATR)",
-    "BB_WINDOW": "Finestra Bollinger",
-    "BB_DEV": "Deviazioni Bollinger",
-    "KC_WINDOW": "Finestra Keltner",
-    "KC_MULTIPLIER": "Moltiplicatore Keltner",
-    "OBV_WINDOW": "Finestra OBV",
-    "SQUEEZE_ATR_MULT": "Distanza dello stop (ATR)",
-    "STOCHRSI_WINDOW": "Finestra StochRSI",
-    "STOCHRSI_SMOOTH": "Lisciatura StochRSI",
-    "STOCH_OVERSOLD": "Soglia di ipervenduto",
-    "STOCH_OVERBOUGHT": "Soglia di ipercomprato",
-    "PULLBACK_ATR_MULT": "Distanza dello stop (ATR)",
+    "NUM_CONDITIONS": "Conditions required",
+    "PIVOT_WINDOW": "Swing window",
+    "ADX_WINDOW": "ADX window",
+    "ADX_MIN": "ADX minimum (trend required)",
+    "ADX_MAX": "ADX maximum (range required)",
+    "REGIME_EMA": "Regime EMA",
+    "TRAIL_ATR_WINDOW": "ATR window (exit)",
+    "DONCHIAN_CHANNEL": "Channel length",
+    "DONCHIAN_ATR_MULT": "Stop distance (ATR)",
+    "BB_WINDOW": "Bollinger window",
+    "BB_DEV": "Bollinger deviations",
+    "KC_WINDOW": "Keltner window",
+    "KC_MULTIPLIER": "Keltner multiplier",
+    "OBV_WINDOW": "OBV window",
+    "SQUEEZE_ATR_MULT": "Stop distance (ATR)",
+    "STOCHRSI_WINDOW": "StochRSI window",
+    "STOCHRSI_SMOOTH": "StochRSI smoothing",
+    "STOCH_OVERSOLD": "Oversold threshold",
+    "STOCH_OVERBOUGHT": "Overbought threshold",
+    "PULLBACK_ATR_MULT": "Stop distance (ATR)",
     "ICHIMOKU_FAST": "Tenkan",
     "ICHIMOKU_SLOW": "Kijun",
     "ICHIMOKU_SPAN": "Senkou B",
-    "REVERSION_KAMA_WINDOW": "Finestra KAMA",
-    "REVERSION_BAND_MULT": "Ampiezza delle bande (ATR)",
-    "REVERSION_STOP_MULT": "Distanza dello stop (ATR)",
-    "REVERSION_REGIME_EMA": "EMA di regime (0 = spento)",
+    "REVERSION_KAMA_WINDOW": "KAMA window",
+    "REVERSION_BAND_MULT": "Band width (ATR)",
+    "REVERSION_STOP_MULT": "Stop distance (ATR)",
+    "REVERSION_REGIME_EMA": "Regime EMA (0 = off)",
 }
 
-SOGLIE = "Soglie della strategia"
+
+SOGLIE = "Strategy thresholds"
 
 # Le cinque strategie che nella pagina passano dal motore classico: quello non addebita il costo di
 # mantenimento e non conosce la leva, quindi i loro numeri qui sono piu' ottimisti di quelli

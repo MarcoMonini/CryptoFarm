@@ -139,9 +139,7 @@ def trading_analysis(
         if strategia == config.AI_STRATEGY and valori.get("MODELLO") is None:
             # Il menu non offre la voce quando manca l'artefatto, ma `trading_analysis` e'
             # chiamabile anche da fuori: meglio fermarsi con un messaggio che con un traceback.
-            st.error(
-                f"Nessun modello addestrato in {MODELS_DIR}: la strategia «{config.AI_STRATEGY}» non e' disponibile."
-            )
+            st.error(f"No trained model in {MODELS_DIR}: the «{config.AI_STRATEGY}» strategy is unavailable.")
             st.stop()
         buy_signals, sell_signals = voce.esegui(df, cache, valori)
 
@@ -341,42 +339,44 @@ if __name__ == "__main__":
     fig_placeholder = st.empty()
 
     # --- Mercato ------------------------------------------------------------------------------
-    st.sidebar.header("Mercato")
+    st.sidebar.header("Market")
     col1, col2 = st.sidebar.columns(2)
-    asset = col1.text_input(label="Asset", placeholder="es. BTC, ETH, XRP...", max_chars=8, value=config.ASSET)
-    currency = col2.text_input(label="Valuta", placeholder="es. USDC, USDT, EUR...", max_chars=8, value=config.CURRENCY)
-    interval = col1.selectbox(label="Intervallo", options=config.INTERVALS, index=config.INTERVAL_INDEX)
-    time_hours = col2.number_input(label="Ore di storico", **config.TIME_HOURS)
+    asset = col1.text_input(label="Asset", placeholder="e.g. BTC, ETH, XRP...", max_chars=8, value=config.ASSET)
+    currency = col2.text_input(
+        label="Currency", placeholder="e.g. USDC, USDT, EUR...", max_chars=8, value=config.CURRENCY
+    )
+    interval = col1.selectbox(label="Candle interval", options=config.INTERVALS, index=config.INTERVAL_INDEX)
+    time_hours = col2.number_input(label="Hours of history", **config.TIME_HOURS)
     symbol = asset + currency
-    wallet = st.sidebar.number_input(label=f"Capitale ({currency})", **config.WALLET)
+    wallet = st.sidebar.number_input(label=f"Wallet ({currency})", **config.WALLET)
 
-    if st.sidebar.button("SCARICA CANDELE", use_container_width=True, type="primary"):
+    if st.sidebar.button("FETCH CANDLES", use_container_width=True, type="primary"):
         st.session_state["df"], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
 
     # --- Strategia ----------------------------------------------------------------------------
-    st.sidebar.header("Strategia")
+    st.sidebar.header("Strategy")
     strategia = st.sidebar.selectbox(
-        label="Strategia",
+        label="Strategy",
         options=available_strategies(st.session_state["model"]),
         index=0,
         label_visibility="collapsed",
     )
     if st.session_state["model"] is None:
         st.sidebar.caption(
-            f"«{config.AI_STRATEGY}» non e' in elenco: nessun modello in `{MODELS_DIR}`. "
-            "Addestrane uno con `python -m cryptofarm.ml.trainer`."
+            f"«{config.AI_STRATEGY}» is not listed: no model in `{MODELS_DIR}`. "
+            "Train one with `python -m cryptofarm.ml.trainer`."
         )
     voce = panels.STRATEGIE.get(strategia)
     if voce is not None and voce.note:
         st.sidebar.caption(voce.note)
     elif voce is None:
-        st.sidebar.caption("Nessuna strategia: la pagina mostra tutti gli indicatori disponibili.")
+        st.sidebar.caption("No strategy selected: every available indicator is shown.")
 
     # --- Parametri, solo quelli che servono ---------------------------------------------------
     # I widget nascono da `panels.gruppi_di`: cambiando strategia cambiano i riquadri, e un
     # parametro che la strategia scelta non usa non compare. Chi non ha widget resta al suo valore
     # iniziale, che e' cio' che `trading_analysis` usa per gli indicatori non mostrati.
-    st.sidebar.header("Parametri")
+    st.sidebar.header("Parameters")
     valori: dict = {}
     for titolo, nomi in panels.gruppi_di(strategia):
         with st.sidebar.expander(titolo, expanded=True):
@@ -387,33 +387,33 @@ if __name__ == "__main__":
                 )
 
     if strategia == "Squeeze Breakout":
-        valori["CONFIRM_VOLUME"] = st.sidebar.checkbox("Richiedi conferma dal volume", value=config.CONFIRM_VOLUME)
+        valori["CONFIRM_VOLUME"] = st.sidebar.checkbox("Require volume confirmation", value=config.CONFIRM_VOLUME)
     if strategia == "Ichimoku Trend":
-        valori["REQUIRE_CLOUD"] = st.sidebar.checkbox("Richiedi conferma dalla nuvola", value=config.REQUIRE_CLOUD)
+        valori["REQUIRE_CLOUD"] = st.sidebar.checkbox("Require cloud confirmation", value=config.REQUIRE_CLOUD)
     valori["MODELLO"] = st.session_state["model"]
 
     # --- Dati e visualizzazione ---------------------------------------------------------------
-    st.sidebar.header("Dati")
-    show_graph = st.sidebar.checkbox(label="Mostra il grafico", value=config.SHOW_GRAPHS)
-    with st.sidebar.expander("Altre sorgenti", expanded=False):
-        csv_file = st.text_input(label="File CSV", value=config.CSV_FILE)
-        if st.button("Leggi dal CSV", use_container_width=True):
+    st.sidebar.header("Data")
+    show_graph = st.sidebar.checkbox(label="Show chart", value=config.SHOW_GRAPHS)
+    with st.sidebar.expander("Other sources", expanded=False):
+        csv_file = st.text_input(label="CSV file", value=config.CSV_FILE)
+        if st.button("Load from CSV", use_container_width=True):
             letto = pd.read_csv(csv_file)
             letto.set_index("Open time", inplace=True)
             st.session_state["df"] = letto[["Open", "High", "Low", "Close", "Volume"]].astype(float)
         col1, col2 = st.columns(2)
-        start_date = col1.date_input(label="Da")
-        end_date = col2.date_input(label="A")
-        if st.button("Scarica per date", use_container_width=True):
+        start_date = col1.date_input(label="From")
+        end_date = col2.date_input(label="To")
+        if st.button("Fetch by date range", use_container_width=True):
             st.session_state["df"], _ = get_market_data_between_dates(
                 asset=symbol, interval=interval, start_date=start_date, end_date=end_date
             )
-        if st.session_state["df"] is not None and st.button("Mostra la tabella", use_container_width=True):
+        if st.session_state["df"] is not None and st.button("Show raw table", use_container_width=True):
             st.write(st.session_state["df"])
 
     # --- Risultato ----------------------------------------------------------------------------
     if st.session_state["df"] is None:
-        text_placeholder.info("Scarica le candele per cominciare.")
+        text_placeholder.info("Fetch candles to get started.")
     else:
         fig, trades_df, actual_hours = trading_analysis(
             asset=symbol,
@@ -426,20 +426,20 @@ if __name__ == "__main__":
             market_data=st.session_state["df"],
         )
         with text_placeholder.container():
-            st.subheader("Operazioni")
+            st.subheader("Trades")
             if trades_df.empty:
-                st.info("Nessuna operazione con questi parametri.")
+                st.info("No trades with these parameters.")
             else:
                 profitto = trades_df["Profit"].sum()
                 in_utile = len(trades_df[trades_df["Profit"] > 0])
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Profitto totale", f"{profitto:.2f} {currency}")
-                col2.metric("Operazioni", f"{len(trades_df)}")
-                col3.metric("Quota in utile", f"{in_utile / len(trades_df) * 100:.1f}%")
+                col1.metric("Total profit", f"{profitto:.2f} {currency}")
+                col2.metric("Trades", f"{len(trades_df)}")
+                col3.metric("Win rate", f"{in_utile / len(trades_df) * 100:.1f}%")
             if strategia in panels.NUOVE_SENZA_MANTENIMENTO:
                 st.caption(
-                    "Il motore della pagina non addebita il costo di mantenimento giornaliero e non "
-                    "conosce la leva: questi numeri sono piu' ottimisti di quelli di `reports/lab_*.csv`."
+                    "The page engine charges no daily carry and knows nothing about leverage: "
+                    "these figures are more optimistic than the ones in `reports/lab_*.csv`."
                 )
         if show_graph:
             fig_placeholder.plotly_chart(fig, use_container_width=True)
