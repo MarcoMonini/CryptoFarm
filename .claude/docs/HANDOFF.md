@@ -99,6 +99,26 @@ Le conclusioni su regimi e verso corto valgono per **un asset e un ciclo** finch
 `reports/lab_*.csv` sono precedenti alla correzione. Servono le stesse candele del punto sopra,
 quindi le due cose si fanno insieme. Le altre tre strategie non sono toccate.
 
+### La pagina, rifatta attorno al registro
+
+Il simulatore mostrava sempre tutto: quindici parametri nella barra laterale e una dozzina di
+tracce, uguali per ogni strategia. Ora `trading/panels.py` tiene la mappa strategia → indicatori →
+parametri → tracce, e la pagina la legge: si vede solo cio' che la strategia scelta usa davvero, e
+tutto solo quando non ne e' selezionata nessuna. `trading_analysis` e' passata da trenta argomenti
+nominali a un dizionario, la catena di `if strategia == ...` non c'e' piu', e `simulator.py` da 672
+a 402 righe.
+
+Le cinque strategie nuove sono nel menu, **sempre e solo lunghe**: il verso corto e' misurato in
+perdita. Passano dal motore classico tramite un adattatore da cambi di posizione a due liste,
+esatto senza il verso corto e verificato contro `simulate_positions`. **I loro numeri nella pagina
+sono piu' ottimisti di `reports/lab_*.csv`**, perche' quel motore non addebita il funding e non
+conosce la leva: la pagina lo dice accanto al risultato.
+
+Trappole trovate guardando la figura renderizzata, non il codice: l'acquamarina sopra le candele si
+confonde con il corpo rialzista (il validatore di palette approva la coppia, perche' non sa che una
+delle due e' un corpo pieno), e la panoramica metteva in legenda due "EMA corta" e due "Banda
+superiore". Entrambe fissate da un test.
+
 ### Codice nuovo del filone trading
 
 | file | cosa |
@@ -154,7 +174,7 @@ i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0
 - **`models/*.joblib` e `*.json` non sono tracciati** (`models/.gitignore`, esteso nel 2026-08).
   `meta_model.*` e' il modello della strategia precedente: non cancellarlo, `load_signal_model()`
   lo carica ancora. `MODEL_PRECEDENCE` e `active_model_name()` sono l'unica fonte di verita'.
-- **Test: 221 in 14 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
+- **Test: 430 in 15 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
   entrambi i job su ogni PR.
 - Le due misure lunghe (`strategy_sweep`, `strategy_lab`) impiegano decine di minuti: farle partire
   in background e attendere con un ciclo di controllo, mai con `sleep` in catena.

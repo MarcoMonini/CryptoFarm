@@ -47,6 +47,7 @@ src/cryptofarm/
     ├── market_data.py    scarico puntuale da Binance per la pagina Streamlit
     ├── indicators.py     indicatori + il nucleo numpy ATR/EMA
     ├── indicators_extra.py  ADX, Donchian, Bollinger/Keltner, StochRSI, OBV/MFI, Ichimoku
+    ├── panels.py         il registro: quale strategia usa quali indicatori e quali parametri
     ├── strategies.py     da candele con indicatori a (buy_signals, sell_signals)
     ├── strategies_ls.py  strategie a due versi: da candele a cambi di posizione (+1/0/-1)
     ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
@@ -91,7 +92,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (216 test in 14 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (430 test in 15 file). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -115,20 +116,33 @@ ri-esportazione**: chi serve una strategia la importa dal modulo che la contiene
   **Se si cambia, va riverificato contro `ta`**: è ciò che rende `simulate_candles` 40 volte più
   veloce, e una divergenza silenziosa qui sposta ogni segnale.
 
-### `MACD`: un ramo di dispatch irraggiungibile
+### Il registro di `panels.py`
 
-`add_technical_indicator` calcola di nuovo `PSAR` (era commentato: le strategie "Close ATR" e
-"ATR Live Trade" si rompevano con `KeyError`). Resta commentato il solo `MACD`, letto da
-`buy_sell_limits_simulation`, che quindi solleva `KeyError` appena chiamata.
+La pagina non decide piu' da sola cosa mostrare. `trading/panels.py` tiene, in forma di dati, quali
+indicatori usa ogni strategia, quali parametri servono a ognuno e come si disegnano; `simulator.py`
+lo legge e dispone widget e tracce. Aggiungere una strategia vuol dire aggiungere una riga li' e la
+voce in `config.STRATEGIES` — un test verifica che le due liste coincidano.
 
-**Nessuna voce del menu la raggiunge**: `trading_analysis` la lega alla stringa `"Buy/Sell Limits"`,
-che non è in `config.STRATEGIES`. Lo stesso vale per `"Close RSI Reverse"`, `"Close MACD Retest"` e
-per le varianti `"Dinamic *"`. Sono rami morti; la funzione resta perché il codice attorno la
-documenta, ma per renderla usabile servirebbe ripristinare il blocco `MACD` **e** aggiungere la voce
-al menu.
+Tre cose da sapere prima di toccarlo:
 
-`"ATR Bands"` e `"Supertrend"` erano nella stessa condizione — la prima senza voce, la seconda
-scritta `"Supetrend"` nel menu — e sono state sistemate: vedi `.claude/docs/strategie-nuove.md` §1.
+- **La mappa e' verificata a mano.** Uno scan statico delle colonne lette non basta:
+  `close_bullish_ema_simulation` prende le medie con `(df[c].to_numpy() for c in (...))`, uno slice
+  variabile che l'analisi dell'albero sintattico non vede.
+- **Le dipendenze contano piu' dei nomi.** `Upper_Band`/`Lower_Band` sono `KAMA ± moltiplicatore ×
+  ATR` e `KAMA` usa `ema_window`: una strategia a bande dipende da "EMA Short" anche se di medie non
+  ne disegna nessuna.
+- **I colori sono tre**, blu/arancio/acquamarina: le uniche che passano tutte le coppie del
+  validatore su superficie scura. Il quarto slot contro l'arancio scende a 4,8 di ΔE per
+  deuteranopia. L'acquamarina non si usa sopra le candele, dove si confonde con il corpo rialzista.
+  Verde e rosso restano allo stato. Tre test tengono ferme queste regole.
+
+### Funzioni di `strategies.py` che il menu non raggiunge
+
+`buy_sell_limits_simulation` legge `MACD`, che resta commentata in `add_technical_indicator`, e
+quindi solleva `KeyError` appena chiamata. `close_rsi_buy_sell_limits_simulation` e'
+irraggiungibile per scelta: misurata su nove anni, e' in perdita totale in tutte le 25
+configurazioni provate. Nessuna delle due sta nel registro, quindi non compare nel menu; restano
+nel modulo perche' il golden master le copre e il codice attorno le documenta.
 
 ### Il golden master
 
