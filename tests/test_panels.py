@@ -323,16 +323,14 @@ def test_gli_overlay_non_usano_l_acquamarina() -> None:
 
     E' un vincolo che si vede solo guardando la figura renderizzata, non leggendo il codice: il
     validatore approva la coppia, perche' non sa che una delle due tinte e' un corpo pieno che
-    occupa meta' del riquadro. Gli overlay restano su blu e arancio.
+    occupa meta' del riquadro. Gli overlay restano sulle due famiglie, blu e arancio.
     """
     for chiave, indicatore in panels.INDICATORI.items():
         if indicatore.pannello is not None:
             continue
         for traccia in indicatore.tracce:
-            assert traccia.colore in {
-                panels.BLU,
-                panels.ARANCIO,
-            }, f"{chiave}: '{traccia.nome}' e' acquamarina sopra le candele"
+            ammessi = {*panels.FAMIGLIA_BLU, *panels.FAMIGLIA_ARANCIO}
+            assert traccia.colore in ammessi, f"{chiave}: '{traccia.nome}' non e' blu ne' arancio sopra le candele"
 
 
 # -------------------------------------------------------------------------------------------------
@@ -373,7 +371,7 @@ def test_il_registro_parla_inglese(dove: str, testo: str) -> None:
 
 
 def test_i_widget_della_pagina_parlano_inglese() -> None:
-    """Le stringhe passate alle chiamate `st.*`, prese dall'albero sintattico.
+    """Le stringhe passate alle chiamate `st.*` e `go.*`, prese dall'albero sintattico.
 
     Commenti e docstring non sono argomenti di chiamata, quindi restano fuori da soli: il
     controllo guarda solo cio' che Streamlit disegna.
@@ -386,7 +384,10 @@ def test_i_widget_della_pagina_parlano_inglese() -> None:
         radice = nodo.func
         while isinstance(radice, ast.Attribute):
             radice = radice.value
-        if not (isinstance(radice, ast.Name) and radice.id == "st"):
+        # `st.*` disegna i widget, `go.*` costruisce le tracce: i nomi in legenda venivano di
+        # li', e la prima versione di questo test non li guardava. Se ne sono accorti gli occhi
+        # sul grafico renderizzato, non la suite.
+        if not (isinstance(radice, ast.Name) and radice.id in {"st", "go"}):
             continue
         pezzi = list(nodo.args) + [k.value for k in nodo.keywords]
         for pezzo in pezzi:
@@ -396,3 +397,32 @@ def test_i_widget_della_pagina_parlano_inglese() -> None:
                     if trovata:
                         problemi.append(f"riga {costante.lineno}: «{costante.value}» ({trovata.group()})")
     assert not problemi, "stringhe non inglesi nei widget:\n  " + "\n  ".join(problemi)
+
+
+def test_dentro_un_indicatore_le_linee_si_distinguono() -> None:
+    """Tre serie con lo stesso colore, spessore e tratteggio non si distinguono.
+
+    E' il difetto che si vedeva guardando il grafico: le tre EMA erano tre linee blu identiche
+    salvo il tratteggio, che a schermo non si legge. Due tracce possono condividere lo stile solo
+    se sono una coppia -- una banda superiore e una inferiore si leggono come inviluppo, ed e'
+    giusto che siano uguali -- ma tre no.
+    """
+    for chiave, indicatore in panels.INDICATORI.items():
+        stili = [(t.colore, t.tratteggio, t.larghezza) for t in indicatore.tracce]
+        for stile in set(stili):
+            quante = stili.count(stile)
+            assert quante <= 2, f"{chiave}: {quante} tracce con lo stesso stile {stile}"
+
+
+def test_le_rampe_ordinali_sono_monotone() -> None:
+    """Chiarezza crescente e spessore crescente devono andare nello stesso verso.
+
+    Se una famiglia ordinata avesse la linea piu' chiara anche piu' spessa in mezzo alla serie,
+    i due canali direbbero cose diverse e l'ordine smetterebbe di leggersi.
+    """
+    for chiave in ("medie", "rsi"):
+        tracce = panels.INDICATORI[chiave].tracce
+        posizioni = [panels.FAMIGLIA_BLU.index(t.colore) for t in tracce]
+        larghezze = [t.larghezza for t in tracce]
+        assert posizioni == sorted(posizioni), f"{chiave}: la rampa di chiarezza non e' monotona"
+        assert larghezze == sorted(larghezze), f"{chiave}: gli spessori non seguono la rampa"

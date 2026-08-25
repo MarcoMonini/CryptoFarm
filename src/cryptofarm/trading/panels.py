@@ -53,6 +53,20 @@ from cryptofarm.trading.indicators_extra import ExtraCache
 BLU = "#3987e5"
 ARANCIO = "#d95926"
 ACQUA = "#199e70"
+
+# Dentro una famiglia le serie sono **ordinate** -- corta, media e lunga si distinguono per la
+# finestra, non per identita' -- e la codifica giusta per un ordine e' una rampa di chiarezza, non
+# tre tratteggi della stessa tinta. Tre linee blu che differiscono solo per il tratteggio non si
+# distinguono a colpo d'occhio: era il difetto della prima versione. Qui chiarezza e spessore
+# crescono insieme alla finestra, cosi' due canali dicono la stessa cosa.
+# Le due rampe passano tutti i controlli ordinali del validatore sulla superficie scura: chiarezza
+# monotona, salti di almeno 0,06, estremo scuro sopra 2:1 di contrasto.
+BLU_CHIARO = "#9ec5f4"
+BLU_SCURO = "#184f95"
+ARANCIO_CHIARO = "#f5a183"
+ARANCIO_SCURO = "#8c3413"
+FAMIGLIA_BLU = (BLU_CHIARO, BLU, BLU_SCURO)
+FAMIGLIA_ARANCIO = (ARANCIO_CHIARO, ARANCIO, ARANCIO_SCURO)
 # Stato: non sono mai il colore di un indicatore.
 RIALZO = "#26a69a"
 RIBASSO = "#ef5350"
@@ -69,6 +83,7 @@ class Traccia:
     larghezza: float = 1.5
     modo: str = "lines"
     simbolo: str = "circle"
+    dimensione: float = 5.0  # solo per i marcatori
 
 
 @dataclass(frozen=True)
@@ -131,9 +146,9 @@ INDICATORI: dict[str, Indicatore] = {
         pannello=None,
         serie=_colonne("EMA20", "EMA50", "EMA100"),
         tracce=(
-            Traccia("EMA20", "EMA fast", BLU, larghezza=1.0),
-            Traccia("EMA50", "EMA mid", BLU, tratteggio="dot", larghezza=1.5),
-            Traccia("EMA100", "EMA slow", BLU, tratteggio="dash", larghezza=2.0),
+            Traccia("EMA20", "EMA fast", BLU_CHIARO, larghezza=1.0),
+            Traccia("EMA50", "EMA mid", BLU, larghezza=2.0),
+            Traccia("EMA100", "EMA slow", BLU_SCURO, larghezza=3.2),
         ),
     ),
     "medie_trend": Indicatore(
@@ -143,8 +158,8 @@ INDICATORI: dict[str, Indicatore] = {
         pannello=None,
         serie=_colonne("EMA20", "EMA100"),
         tracce=(
-            Traccia("EMA20", "EMA fast", BLU, larghezza=1.0),
-            Traccia("EMA100", "EMA slow", BLU, tratteggio="dash", larghezza=2.0),
+            Traccia("EMA20", "EMA fast", BLU_CHIARO, larghezza=1.0),
+            Traccia("EMA100", "EMA slow", BLU_SCURO, larghezza=3.2),
         ),
     ),
     "bande_atr": Indicatore(
@@ -155,9 +170,9 @@ INDICATORI: dict[str, Indicatore] = {
         pannello=None,
         serie=_colonne("KAMA", "Upper_Band", "Lower_Band"),
         tracce=(
-            Traccia("KAMA", "KAMA", ARANCIO, larghezza=1.5),
-            Traccia("Upper_Band", "Upper band", ARANCIO, tratteggio="dash", larghezza=1.0),
-            Traccia("Lower_Band", "Lower band", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("KAMA", "KAMA", ARANCIO_SCURO, larghezza=2.2),
+            Traccia("Upper_Band", "Upper band", ARANCIO_CHIARO, tratteggio="dash", larghezza=1.3),
+            Traccia("Lower_Band", "Lower band", ARANCIO_CHIARO, tratteggio="dash", larghezza=1.3),
         ),
     ),
     "psar": Indicatore(
@@ -165,7 +180,7 @@ INDICATORI: dict[str, Indicatore] = {
         parametri=(),
         pannello=None,
         serie=_colonne("PSAR"),
-        tracce=(Traccia("PSAR", "PSAR", BLU, modo="markers", simbolo="circle", larghezza=0.0),),
+        tracce=(Traccia("PSAR", "PSAR", BLU_CHIARO, modo="markers", larghezza=0.0, dimensione=3.5),),
     ),
     "estremi": Indicatore(
         # Non e' letto da nessuna strategia: e' il riferimento visivo dei massimi e minimi
@@ -182,9 +197,9 @@ INDICATORI: dict[str, Indicatore] = {
         pannello="RSI",
         serie=_colonne("RSI", "RSI2", "RSI3"),
         tracce=(
-            Traccia("RSI", "RSI fast", BLU, larghezza=1.5),
-            Traccia("RSI2", "RSI mid", BLU, tratteggio="dot", larghezza=1.0),
-            Traccia("RSI3", "RSI slow", BLU, tratteggio="dash", larghezza=1.0),
+            Traccia("RSI", "RSI fast", BLU_CHIARO, larghezza=1.0),
+            Traccia("RSI2", "RSI mid", BLU, larghezza=2.0),
+            Traccia("RSI3", "RSI slow", BLU_SCURO, larghezza=3.2),
         ),
     ),
     "stocastico": Indicatore(
@@ -193,8 +208,8 @@ INDICATORI: dict[str, Indicatore] = {
         pannello="Stochastic",
         serie=_colonne("STOCH", "STOCH_S"),
         tracce=(
-            Traccia("STOCH", "Stochastic", ARANCIO, larghezza=1.5),
-            Traccia("STOCH_S", "Signal", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("STOCH", "Stochastic", ARANCIO, larghezza=1.8),
+            Traccia("STOCH_S", "Signal", ARANCIO_CHIARO, tratteggio="dash", larghezza=1.2),
         ),
     ),
     "tsi": Indicatore(
@@ -202,7 +217,7 @@ INDICATORI: dict[str, Indicatore] = {
         parametri=(),
         pannello="TSI",
         serie=_colonne("TSI"),
-        tracce=(Traccia("TSI", "TSI", ACQUA, larghezza=1.5),),
+        tracce=(Traccia("TSI", "TSI", ACQUA, larghezza=1.8),),
     ),
     "donchian": Indicatore(
         etichetta="Donchian channel",
@@ -212,8 +227,8 @@ INDICATORI: dict[str, Indicatore] = {
             df.index, **dict(zip(("canale_alto", "canale_basso"), cache.donchian(int(v["DONCHIAN_CHANNEL"]))))
         ),
         tracce=(
-            Traccia("canale_alto", "Channel high", ARANCIO, larghezza=1.5),
-            Traccia("canale_basso", "Channel low", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("canale_alto", "Channel high", ARANCIO, larghezza=1.8),
+            Traccia("canale_basso", "Channel low", ARANCIO, larghezza=1.8),
         ),
     ),
     "media_regime": Indicatore(
@@ -223,7 +238,7 @@ INDICATORI: dict[str, Indicatore] = {
         serie=lambda df, cache, v: (
             _serie(df.index, regime=cache.ema(int(v["REGIME_EMA"]))) if int(v["REGIME_EMA"]) else {}
         ),
-        tracce=(Traccia("regime", "Regime EMA", BLU, tratteggio="dash", larghezza=2.0),),
+        tracce=(Traccia("regime", "Regime EMA", BLU_CHIARO, tratteggio="dash", larghezza=2.2),),
     ),
     "bollinger": Indicatore(
         etichetta="Bollinger bands",
@@ -239,9 +254,9 @@ INDICATORI: dict[str, Indicatore] = {
             ),
         ),
         tracce=(
-            Traccia("bb_alta", "Bollinger upper", BLU, larghezza=1.0),
-            Traccia("bb_media", "Bollinger mid", BLU, tratteggio="dot", larghezza=1.0),
-            Traccia("bb_bassa", "Bollinger lower", BLU, larghezza=1.0),
+            Traccia("bb_alta", "Bollinger upper", BLU_CHIARO, larghezza=1.6),
+            Traccia("bb_media", "Bollinger mid", BLU_SCURO, tratteggio="dot", larghezza=1.2),
+            Traccia("bb_bassa", "Bollinger lower", BLU_CHIARO, larghezza=1.6),
         ),
     ),
     "keltner": Indicatore(
@@ -259,8 +274,8 @@ INDICATORI: dict[str, Indicatore] = {
             ),
         ),
         tracce=(
-            Traccia("kc_alta", "Keltner upper", ARANCIO, tratteggio="dash", larghezza=1.0),
-            Traccia("kc_bassa", "Keltner lower", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("kc_alta", "Keltner upper", ARANCIO, tratteggio="dash", larghezza=1.4),
+            Traccia("kc_bassa", "Keltner lower", ARANCIO, tratteggio="dash", larghezza=1.4),
         ),
     ),
     "ichimoku": Indicatore(
@@ -277,10 +292,10 @@ INDICATORI: dict[str, Indicatore] = {
             ),
         ),
         tracce=(
-            Traccia("tenkan", "Tenkan", BLU, larghezza=1.5),
-            Traccia("kijun", "Kijun", ARANCIO, larghezza=1.5),
-            Traccia("span_a", "Cloud A", BLU, tratteggio="dot", larghezza=1.0),
-            Traccia("span_b", "Cloud B", ARANCIO, tratteggio="dot", larghezza=1.0),
+            Traccia("tenkan", "Tenkan", BLU_CHIARO, larghezza=1.8),
+            Traccia("kijun", "Kijun", ARANCIO, larghezza=1.8),
+            Traccia("span_a", "Cloud A", BLU_SCURO, tratteggio="dot", larghezza=1.2),
+            Traccia("span_b", "Cloud B", ARANCIO_SCURO, tratteggio="dot", larghezza=1.2),
         ),
     ),
     "bande_kama": Indicatore(
@@ -298,9 +313,9 @@ INDICATORI: dict[str, Indicatore] = {
             - float(v["REVERSION_BAND_MULT"]) * cache.atr(int(v["TRAIL_ATR_WINDOW"])),
         ),
         tracce=(
-            Traccia("kama", "KAMA", ARANCIO, larghezza=1.5),
-            Traccia("banda_alta", "Upper band", ARANCIO, tratteggio="dash", larghezza=1.0),
-            Traccia("banda_bassa", "Lower band", ARANCIO, tratteggio="dash", larghezza=1.0),
+            Traccia("kama", "KAMA", ARANCIO_SCURO, larghezza=2.2),
+            Traccia("banda_alta", "Upper band", ARANCIO_CHIARO, tratteggio="dash", larghezza=1.3),
+            Traccia("banda_bassa", "Lower band", ARANCIO_CHIARO, tratteggio="dash", larghezza=1.3),
         ),
     ),
     "adx": Indicatore(
@@ -308,7 +323,7 @@ INDICATORI: dict[str, Indicatore] = {
         parametri=("ADX_WINDOW",),
         pannello="ADX",
         serie=lambda df, cache, v: _serie(df.index, adx=cache.adx(int(v["ADX_WINDOW"]))),
-        tracce=(Traccia("adx", "ADX", ACQUA, larghezza=1.5),),
+        tracce=(Traccia("adx", "ADX", ACQUA, larghezza=1.8),),
     ),
     "stochrsi": Indicatore(
         etichetta="StochRSI",
@@ -317,14 +332,14 @@ INDICATORI: dict[str, Indicatore] = {
         serie=lambda df, cache, v: _serie(
             df.index, stochrsi=cache.stochrsi(int(v["STOCHRSI_WINDOW"]), int(v["STOCHRSI_SMOOTH"]))
         ),
-        tracce=(Traccia("stochrsi", "StochRSI", BLU, larghezza=1.5),),
+        tracce=(Traccia("stochrsi", "StochRSI", ACQUA, larghezza=1.8),),
     ),
     "obv": Indicatore(
         etichetta="OBV slope",
         parametri=("OBV_WINDOW",),
         pannello="Volume (OBV)",
         serie=lambda df, cache, v: _serie(df.index, obv=cache.obv_slope(int(v["OBV_WINDOW"]))),
-        tracce=(Traccia("obv", "OBV slope", ACQUA, larghezza=1.5),),
+        tracce=(Traccia("obv", "OBV slope", ACQUA, larghezza=1.8),),
     ),
 }
 

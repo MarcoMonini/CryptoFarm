@@ -206,7 +206,7 @@ def trading_analysis(
                         name=traccia.nome,
                         legendgroup=chiave,
                         line=dict(color=traccia.colore, width=traccia.larghezza, dash=traccia.tratteggio),
-                        marker=dict(size=3, color=traccia.colore, symbol=traccia.simbolo),
+                        marker=dict(size=traccia.dimensione, color=traccia.colore, symbol=traccia.simbolo),
                     ),
                     row=riga,
                     col=1,
@@ -214,8 +214,8 @@ def trading_analysis(
 
         if "estremi" in indicatori:
             for punti, etichetta, simbolo in (
-                (rel_max, "Massimi relativi", "triangle-down-open"),
-                (rel_min, "Minimi relativi", "triangle-up-open"),
+                (rel_max, "Swing highs", "triangle-down-open"),
+                (rel_min, "Swing lows", "triangle-up-open"),
             ):
                 fig.add_trace(
                     go.Scatter(
@@ -235,8 +235,8 @@ def trading_analysis(
         propri = panels.STRATEGIE[strategia].parametri if strategia in panels.STRATEGIE else ()
         if "rsi" in indicatori and "RSI_BUY_LIMIT" in propri:
             for nome_parametro, etichetta, colore in (
-                ("RSI_SELL_LIMIT", "Soglia di vendita", panels.RIBASSO),
-                ("RSI_BUY_LIMIT", "Soglia di acquisto", panels.RIALZO),
+                ("RSI_SELL_LIMIT", "Sell threshold", panels.RIBASSO),
+                ("RSI_BUY_LIMIT", "Buy threshold", panels.RIALZO),
             ):
                 fig.add_trace(
                     go.Scatter(
@@ -252,8 +252,8 @@ def trading_analysis(
                 )
 
         for punti, etichetta, simbolo, colore in (
-            (buy_signals, "Acquisto", "triangle-up", panels.RIALZO),
-            (sell_signals, "Vendita", "triangle-down", panels.RIBASSO),
+            (buy_signals, "Buy", "triangle-up", panels.RIALZO),
+            (sell_signals, "Sell", "triangle-down", panels.RIBASSO),
         ):
             if punti:
                 fig.add_trace(
