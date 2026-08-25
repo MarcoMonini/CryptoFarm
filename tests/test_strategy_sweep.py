@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cryptofarm.trading import config
 from cryptofarm.trading.indicators import add_technical_indicator
 from cryptofarm.trading.pnl import simulate_trading_with_commisions
 from cryptofarm.trading.simulator import trading_analysis
@@ -163,26 +164,29 @@ def test_sweep_matches_the_page(candles: pd.DataFrame, strategia: str, params: d
         asset="TEST",
         interval="15m",
         wallet=100.0,
+        # La pagina prende i parametri in un dizionario con i nomi delle costanti di `config`:
+        # la barra laterale mostra solo quelli della strategia scelta, e chi non ha widget resta
+        # al valore iniziale. Qui si passano espliciti quelli che lo sweep sta usando.
+        valori={
+            "STOP_LOSS_PERCENT": params.get("stop_loss", 99.0),
+            "RSI_BUY_LIMIT": params.get("rsi_buy_limit", 25),
+            "RSI_SELL_LIMIT": params.get("rsi_sell_limit", 75),
+            "NUM_CONDITIONS": params.get("num_cond", 1),
+            "ATR_WINDOW": indicators.atr_window,
+            "ATR_MULTIPLIER": indicators.atr_multiplier,
+            "RSI_SHORT": indicators.rsi_window,
+            "RSI_MEDIUM": indicators.rsi_window2,
+            "RSI_LONG": indicators.rsi_window3,
+            "EMA_SHORT": indicators.ema_window,
+            "EMA_MEDIUM": indicators.ema_window2,
+            "EMA_LONG": indicators.ema_window3,
+            "KAMA_POW1": indicators.kama_pow1,
+            "KAMA_POW2": indicators.kama_pow2,
+        },
+        strategia=strategia,
         fee_percent=0.1,
         show=False,
         market_data=candles,
-        step=PSAR_STEP,
-        max_step=PSAR_MAX_STEP,
-        strategia=strategia,
-        stop_loss=params.get("stop_loss", 99.0),
-        rsi_buy_limit=params.get("rsi_buy_limit", 25),
-        rsi_sell_limit=params.get("rsi_sell_limit", 75),
-        num_cond=params.get("num_cond", 1),
-        atr_window=indicators.atr_window,
-        atr_multiplier=indicators.atr_multiplier,
-        rsi_window=indicators.rsi_window,
-        rsi_window2=indicators.rsi_window2,
-        rsi_window3=indicators.rsi_window3,
-        ema_window=indicators.ema_window,
-        ema_window2=indicators.ema_window2,
-        ema_window3=indicators.ema_window3,
-        kama_pow1=indicators.kama_pow1,
-        kama_pow2=indicators.kama_pow2,
     )
 
     colonne = ["Buy_Time", "Buy_Price", "Sell_Time", "Sell_Price", "Quantity", "Profit", "Wallet_After"]
@@ -196,3 +200,12 @@ def test_evaluate_without_trades(candles: pd.DataFrame) -> None:
     assert metrics["n_trade"] == 0
     assert metrics["rendimento_%"] == pytest.approx(0.0)
     assert metrics["esposizione_%"] == 0.0
+
+
+def test_la_pagina_e_lo_sweep_usano_lo_stesso_psar() -> None:
+    """Il confronto qui sopra regge solo se i due calcolano il PSAR con gli stessi passi.
+
+    La pagina li prende da `config`, lo sweep li tiene suoi: sono due costanti in due file, e se
+    una si sposta il test end-to-end fallirebbe senza dire perche'.
+    """
+    assert (config.PSAR_STEP, config.PSAR_MAX_STEP) == (PSAR_STEP, PSAR_MAX_STEP)

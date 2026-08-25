@@ -116,6 +116,11 @@ REVERSION_STOP_MULT = Param(2.0, 0.5, 10.0, 0.1)
 # intervallo, e limitarla a un lato della media lunga le toglie meta' delle occasioni.
 REVERSION_REGIME_EMA = Param(0, 0, 500, 10)
 
+# Il PSAR non ha widget: questi erano i valori con cui la pagina lo calcolava, e restano tali.
+# I default di `add_technical_indicator` sono diversi (0,02), quindi vanno passati per esteso.
+PSAR_STEP = 0.01
+PSAR_MAX_STEP = 0.4
+
 # Interruttori delle strategie nuove.
 CONFIRM_VOLUME = True
 REQUIRE_CLOUD = True

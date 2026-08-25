@@ -588,3 +588,88 @@ def pannelli_di(strategia: str) -> list[str]:
         if pannello is not None and pannello not in titoli:
             titoli.append(pannello)
     return titoli
+
+
+# -------------------------------------------------------------------------------------------------
+# Come si presentano nella barra laterale
+# -------------------------------------------------------------------------------------------------
+# Il nome della costante dice a cosa serve nel codice; l'etichetta dice cosa muove a chi guarda il
+# grafico. `STOP_LOSS_PERCENT` e' "Stop loss %", `TRAIL_ATR_WINDOW` e' "Finestra ATR (uscita)" e non
+# semplicemente "ATR", perche' nella stessa vista puo' esserci anche l'ATR delle bande.
+
+ETICHETTE: dict[str, str] = {
+    "ATR_MULTIPLIER": "Moltiplicatore ATR",
+    "ATR_WINDOW": "Finestra ATR",
+    "RSI_SHORT": "RSI corto",
+    "RSI_MEDIUM": "RSI medio",
+    "RSI_LONG": "RSI lungo",
+    "EMA_SHORT": "EMA corta",
+    "EMA_MEDIUM": "EMA media",
+    "EMA_LONG": "EMA lunga",
+    "KAMA_POW1": "KAMA potenza 1",
+    "KAMA_POW2": "KAMA potenza 2",
+    "RSI_BUY_LIMIT": "Soglia RSI di acquisto",
+    "RSI_SELL_LIMIT": "Soglia RSI di vendita",
+    "STOP_LOSS_PERCENT": "Stop loss %",
+    "NUM_CONDITIONS": "Condizioni richieste",
+    "PIVOT_WINDOW": "Finestra massimi/minimi",
+    "ADX_WINDOW": "Finestra ADX",
+    "ADX_MIN": "ADX minimo (serve trend)",
+    "ADX_MAX": "ADX massimo (serve intervallo)",
+    "REGIME_EMA": "EMA di regime",
+    "TRAIL_ATR_WINDOW": "Finestra ATR (uscita)",
+    "DONCHIAN_CHANNEL": "Ampiezza del canale",
+    "DONCHIAN_ATR_MULT": "Distanza dello stop (ATR)",
+    "BB_WINDOW": "Finestra Bollinger",
+    "BB_DEV": "Deviazioni Bollinger",
+    "KC_WINDOW": "Finestra Keltner",
+    "KC_MULTIPLIER": "Moltiplicatore Keltner",
+    "OBV_WINDOW": "Finestra OBV",
+    "SQUEEZE_ATR_MULT": "Distanza dello stop (ATR)",
+    "STOCHRSI_WINDOW": "Finestra StochRSI",
+    "STOCHRSI_SMOOTH": "Lisciatura StochRSI",
+    "STOCH_OVERSOLD": "Soglia di ipervenduto",
+    "STOCH_OVERBOUGHT": "Soglia di ipercomprato",
+    "PULLBACK_ATR_MULT": "Distanza dello stop (ATR)",
+    "ICHIMOKU_FAST": "Tenkan",
+    "ICHIMOKU_SLOW": "Kijun",
+    "ICHIMOKU_SPAN": "Senkou B",
+    "REVERSION_KAMA_WINDOW": "Finestra KAMA",
+    "REVERSION_BAND_MULT": "Ampiezza delle bande (ATR)",
+    "REVERSION_STOP_MULT": "Distanza dello stop (ATR)",
+    "REVERSION_REGIME_EMA": "EMA di regime (0 = spento)",
+}
+
+SOGLIE = "Soglie della strategia"
+
+# Le cinque strategie che nella pagina passano dal motore classico: quello non addebita il costo di
+# mantenimento e non conosce la leva, quindi i loro numeri qui sono piu' ottimisti di quelli
+# misurati. La pagina lo dice accanto al risultato invece di lasciarlo scoprire per confronto.
+NUOVE_SENZA_MANTENIMENTO = (
+    "Donchian Breakout",
+    "Squeeze Breakout",
+    "Trend Pullback",
+    "Ichimoku Trend",
+    "Band Reversion",
+)
+
+
+def gruppi_di(strategia: str) -> list[tuple[str, list[str]]]:
+    """I riquadri della barra laterale: un titolo e i parametri che ci vanno dentro.
+
+    Un parametro compare **una volta sola**, nel primo gruppo che lo rivendica: `EMA_SHORT` serve
+    sia alle medie sia alle bande costruite su KAMA, e disegnarlo due volte darebbe due widget con
+    la stessa chiave -- cioe' un errore di Streamlit, non un doppione innocuo.
+    """
+    gruppi: list[tuple[str, list[str]]] = []
+    gia_visti: set[str] = set()
+    for chiave in indicatori_di(strategia):
+        indicatore = INDICATORI[chiave]
+        dentro = [nome for nome in indicatore.parametri if nome not in gia_visti]
+        gia_visti.update(dentro)
+        if dentro:
+            gruppi.append((indicatore.etichetta, dentro))
+    propri = [nome for nome in parametri_di(strategia) if nome not in gia_visti]
+    if propri:
+        gruppi.append((SOGLIE, propri))
+    return gruppi

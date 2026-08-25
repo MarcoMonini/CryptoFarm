@@ -188,3 +188,59 @@ def _funzione(voce_di_menu: str) -> str:
         "Ichimoku Trend": "ichimoku_trend",
         "Band Reversion": "band_reversion_gated",
     }[voce_di_menu]
+
+
+@pytest.mark.parametrize("nome", sorted(panels.ETICHETTE))
+def test_ogni_etichetta_corrisponde_a_un_parametro(nome: str) -> None:
+    assert isinstance(getattr(config, nome, None), config.Param), f"etichetta orfana: {nome}"
+
+
+@pytest.mark.parametrize("strategia", [panels.VUOTA, *sorted(panels.STRATEGIE)])
+def test_ogni_parametro_mostrato_ha_un_etichetta(strategia: str) -> None:
+    """Un parametro senza etichetta comparirebbe con il nome della costante."""
+    for nome in panels.parametri_di(strategia):
+        assert nome in panels.ETICHETTE, f"{strategia}: manca l'etichetta di {nome}"
+
+
+@pytest.mark.parametrize("strategia", [panels.VUOTA, *sorted(panels.STRATEGIE)])
+def test_i_gruppi_coprono_i_parametri_senza_ripeterli(strategia: str) -> None:
+    """Due widget con la stessa chiave sono un errore di Streamlit, non un doppione innocuo."""
+    dai_gruppi = [nome for _, dentro in panels.gruppi_di(strategia) for nome in dentro]
+    assert len(dai_gruppi) == len(set(dai_gruppi)), f"{strategia}: parametro ripetuto"
+    assert set(dai_gruppi) == set(panels.parametri_di(strategia))
+
+
+def test_ema_short_compare_una_volta_sola_anche_se_due_indicatori_la_usano() -> None:
+    """`Close Buy/Sell Limits` usa bande (che dipendono da EMA Short via KAMA) e RSI."""
+    gruppi = dict(panels.gruppi_di("Close Buy/Sell Limits"))
+    quante = sum(dentro.count("EMA_SHORT") for dentro in gruppi.values())
+    assert quante == 1
+
+
+# -------------------------------------------------------------------------------------------------
+# La pagina, per ogni voce del menu
+# -------------------------------------------------------------------------------------------------
+# `trading_analysis` non aveva test: il golden master copre i moduli in cui e' stata spezzata, non
+# lei. Questo la esegue su candele sintetiche per ogni voce, grafico compreso, e intercetta la
+# classe di guasto piu' probabile dopo il passaggio al registro -- una strategia che non trova un
+# parametro, o una traccia che chiede una colonna che non c'e'.
+
+
+@pytest.mark.parametrize("strategia", [panels.VUOTA, *sorted(panels.STRATEGIE)])
+def test_la_pagina_gira_per_ogni_voce_del_menu(strategia: str, frame_laterale: pd.DataFrame) -> None:
+    if strategia == "AI Model":
+        pytest.skip("richiede un modello addestrato, che nell'ambiente dei test non c'e'")
+    from cryptofarm.trading.simulator import trading_analysis
+
+    grezzo = frame_laterale[["Open", "High", "Low", "Close", "Volume"]]
+    figura, operazioni, _ = trading_analysis(
+        asset="TEST",
+        interval="1h",
+        wallet=100.0,
+        valori={},
+        strategia=strategia,
+        show=True,
+        market_data=grezzo,
+    )
+    assert figura is not None
+    assert list(operazioni.columns) if not operazioni.empty else True

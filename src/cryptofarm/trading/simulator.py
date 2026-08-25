@@ -11,29 +11,15 @@ from cryptofarm.ml.trainer import (
     load_signal_model,
 )
 from cryptofarm.paths import MODELS_DIR
-from cryptofarm.trading import config
+from cryptofarm.trading import config, panels
 from cryptofarm.trading.indicators import add_technical_indicator
+from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.market_data import (
     get_market_data,
     get_market_data_between_dates,
 )
-from cryptofarm.trading.pnl import simulate_trading_with_commisions, simulate_trading_with_commisions_multiple_buy
-from cryptofarm.trading.strategies import (
-    ai_model_simulation,
-    atr_buy_sell_simulation,
-    buy_sell_limits_close_simulation,
-    buy_sell_limits_simulation,
-    close_atr_buy_sell_simulation,
-    close_bullish_ema_simulation,
-    close_ema_crossover_simulation,
-    close_rsi_buy_sell_limits_simulation,
-    green_candles_simulation,
-    identify_trend_zones,
-    simulate_candles,
-    supertrend_simulation,
-    tp_sl_simulation,
-    trend_zone_simulation,
-)
+from cryptofarm.trading.pnl import simulate_trading_with_commisions
+from cryptofarm.trading.strategies import identify_trend_zones
 
 # Disattiva i FutureWarning
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -45,68 +31,27 @@ def trading_analysis(
     asset: str,
     interval: str,
     wallet: float,
+    valori: dict,
+    strategia: str = panels.VUOTA,
     time_hours: int = 24,
-    fee_percent: float = 0.1,  # Commissione % per ogni operazione (buy e sell)
+    fee_percent: float = 0.1,
     show: bool = True,
-    step: float = 0.01,
-    max_step: float = 0.4,
-    atr_multiplier: float = 1.5,
-    atr_window: int = 12,
-    window_pivot: int = 80,
-    rsi_window: int = 10,
-    rsi_window2: int = 20,
-    rsi_window3: int = 30,
-    ema_window: int = 12,
-    ema_window2: int = 24,
-    ema_window3: int = 36,
-    macd_short_window: int = 12,
-    macd_long_window: int = 26,
-    macd_signal_window: int = 9,
-    kama_pow1: int = 2,
-    kama_pow2: int = 30,
-    rsi_buy_limit: int = 40,
-    rsi_sell_limit: int = 60,
-    macd_buy_limit: float = -0.4,
-    macd_sell_limit: float = 0.4,
-    num_cond: int = 1,
-    stop_loss: int = 99,
-    strategia: str = "",
-    market_data: dict = None,
-    # din_macd_div: float = 1.2, modello = None
+    market_data=None,
 ):
-    """
-    Scarica le candele di 'asset' con intervallo 'interval' (tramite una funzione
-    esterna get_market_data), calcola il SAR con i parametri 'step' e 'max_step',
-    identifica segnali di acquisto/vendita, simula le operazioni in base al 'wallet'
-    iniziale e restituisce un grafico Plotly con candlestick, SAR e segnali,
-    oltre al DataFrame con tutte le operazioni, decurtando una commissione
-    su ogni BUY e SELL (fee_percent).
+    """Scarica le candele, calcola gli indicatori, esegue la strategia e costruisce il grafico.
 
-    Parameters
-    ----------
-    asset : str
-        Nome dell'asset (es. "BTCUSDT").
-    interval : str
-        Intervallo di tempo delle candele (es. "1h", "15m", ecc.).
-    wallet : float
-        Quantità di USDC/USDT a disposizione per le operazioni di trading.
-    step : float
-        Passo (step) per il calcolo del SAR (param. 'step' in PSARIndicator).
-    max_step : float
-        Valore massimo di step (param. 'max_step' in PSARIndicator).
-    time_hours: int, optional
-        tempo in ore che si vuole scaricare
-    fee_percent : float, optional
-        Percentuale di commissione per operazione (default 1.0, cioè 1%).
+    Restituisce `(figura, operazioni, ore effettive)`.
 
-    Returns
-    -------
-    fig : plotly.graph_objects.Figure
-        Il grafico con candlestick, SAR e segnali di acquisto/vendita.
-    trades_df : pandas.DataFrame
-        Un DataFrame con tutte le operazioni effettuate, incluse informazioni
-        su buy_time, sell_time, profit, volatilità del periodo, ecc.
+    `valori` sono i parametri letti dalla barra laterale, con i nomi delle costanti di `config`.
+    Prima erano una trentina di argomenti nominali, uno per widget: aggiungere una strategia
+    voleva dire allungare la firma, il punto di chiamata e la catena di `if` qui sotto. Ora la
+    corrispondenza fra strategia, parametri e indicatori sta in `panels.py`, e questa funzione non
+    sa piu' quali strategie esistono.
+
+    Chi non compare in `valori` prende il valore iniziale: la barra laterale mostra solo i
+    parametri della strategia scelta, quindi gli altri non hanno un widget da cui arrivare.
     """
+    valori = {**panels.valori_predefiniti(), **valori}
 
     # ======================================
     # Scarica i dati di mercato e calcola il SAR
@@ -123,7 +68,7 @@ def trading_analysis(
     price_high = df["High"]
     price_low = df["Low"]
     # Trova gli indici dei massimi e minimi relativi
-    order = int(window_pivot / 2)
+    order = int(valori["PIVOT_WINDOW"] / 2)
     max_idx = argrelextrema(price_high.values, np.greater, order=order)[0]
     min_idx = argrelextrema(price_low.values, np.less, order=order)[0]
     # Inizializza gli array per massimi e minimi
@@ -142,104 +87,36 @@ def trading_analysis(
 
     df = add_technical_indicator(
         df,
-        step=step,
-        max_step=max_step,
-        rsi_window=rsi_window,
-        rsi_window2=rsi_window2,
-        rsi_window3=rsi_window3,
-        ema_window=ema_window,
-        ema_window2=ema_window2,
-        ema_window3=ema_window3,
-        macd_long_window=macd_long_window,
-        macd_short_window=macd_short_window,
-        macd_signal_window=macd_signal_window,
-        atr_window=atr_window,
-        atr_multiplier=atr_multiplier,
-        kama_pow1=kama_pow1,
-        kama_pow2=kama_pow2,
+        step=config.PSAR_STEP,
+        max_step=config.PSAR_MAX_STEP,
+        rsi_window=int(valori["RSI_SHORT"]),
+        rsi_window2=int(valori["RSI_MEDIUM"]),
+        rsi_window3=int(valori["RSI_LONG"]),
+        ema_window=int(valori["EMA_SHORT"]),
+        ema_window2=int(valori["EMA_MEDIUM"]),
+        ema_window3=int(valori["EMA_LONG"]),
+        atr_window=int(valori["ATR_WINDOW"]),
+        atr_multiplier=float(valori["ATR_MULTIPLIER"]),
+        kama_pow1=int(valori["KAMA_POW1"]),
+        kama_pow2=int(valori["KAMA_POW2"]),
     )
 
     # ======================================
-    # Identificazione dei segnali di acquisto e vendita in base alla strategia
-    buy_signals = []
-    sell_signals = []
-
-    if strategia == "ATR Bands" or strategia == "Dinamic ATR Bands":
-        buy_signals, sell_signals = atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
-
-    if strategia == "Close ATR" or strategia == "Dinamic Close ATR":
-        buy_signals, sell_signals = close_atr_buy_sell_simulation(df=df, stop_loss_percent=stop_loss)
-
-    if strategia == "Buy/Sell Limits":
-        buy_signals, sell_signals = buy_sell_limits_simulation(
-            df=df,
-            macd_buy_limit=macd_buy_limit,
-            macd_sell_limit=macd_sell_limit,
-            rsi_buy_limit=rsi_buy_limit,
-            rsi_sell_limit=rsi_sell_limit,
-            num_cond=num_cond,
-        )
-
-    if strategia == "Close Buy/Sell Limits":
-        buy_signals, sell_signals = buy_sell_limits_close_simulation(
-            df=df,
-            macd_buy_limit=macd_buy_limit,
-            macd_sell_limit=macd_sell_limit,
-            rsi_buy_limit=rsi_buy_limit,
-            rsi_sell_limit=rsi_sell_limit,
-            num_cond=num_cond,
-            stop_loss_percent=stop_loss,
-        )
-
-    if strategia == "ATR Live Trade":
-        buy_signals, sell_signals = simulate_candles(
-            raw_df=df,
-            atr_window=atr_window,
-            atr_multiplier=atr_multiplier,
-            step=step,
-            max_step=max_step,
-            stop_loss_percent=stop_loss,
-        )
-
-    if strategia == "Close EMA Crossover":
-        buy_signals, sell_signals = close_ema_crossover_simulation(df=df)
-
-    if strategia == "Close Bullish EMA":
-        buy_signals, sell_signals = close_bullish_ema_simulation(
-            df=df, rsi_buy_limit=rsi_buy_limit, rsi_sell_limit=rsi_sell_limit
-        )
-
-    if strategia == "Close RSI Reverse":
-        buy_signals, sell_signals = close_rsi_buy_sell_limits_simulation(df=df)
-
-    if strategia == "Supertrend":
-        buy_signals, sell_signals = supertrend_simulation(df=df)
-
-    if strategia == "Trend Zones":
-        buy_signals, sell_signals = trend_zone_simulation(df=df)
-
-    if strategia == "TP/SL with ATR":
-        buy_signals, sell_signals = tp_sl_simulation(df=df)
-
-    if strategia == "Green Candles":
-        buy_signals, sell_signals = green_candles_simulation(df=df)
-
-    if strategia == "AI Model":
-        buy_signals, sell_signals = ai_model_simulation(df=df, model=st.session_state["model"])
-
-        # buy_signals.append((df[df['Prediction'] == 1].index, df[df['Prediction'] == 1]['Close']))
-        # sell_signals.append((df[df['Prediction'] == 2].index, df[df['Prediction'] == 2]['Close']))
-
-    # ======================================
-    # Simulazione di trading con commissioni
-    if strategia == "Close MACD Retest":  # or  strategia == "Trend Zones"
-        operations = simulate_trading_with_commisions_multiple_buy(
-            wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
-        )
+    # La strategia, presa dal registro invece che da una catena di confronti su stringhe.
+    # Era quella catena a far divergere il menu dal codice: `"Supetrend"` scritto male non
+    # eseguiva niente e nessuno se ne accorgeva, perche' una stringa che non corrisponde a nulla
+    # non e' un errore. Ora una voce senza riga nel registro non arriva nemmeno al menu, e un
+    # test lo verifica.
+    cache = ExtraCache(df)
+    voce = panels.STRATEGIE.get(strategia)
+    if voce is None:
+        buy_signals, sell_signals = [], []
     else:
-        operations = simulate_trading_with_commisions(
-            wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
-        )
+        buy_signals, sell_signals = voce.esegui(df, cache, valori)
+
+    operations = simulate_trading_with_commisions(
+        wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
+    )
 
     # ======================================
     # 4. Creazione del grafico
@@ -435,7 +312,7 @@ def trading_analysis(
         fig.add_trace(
             go.Scatter(
                 x=[df.index.min(), df.index.max()],
-                y=[rsi_sell_limit, rsi_sell_limit],
+                y=[valori["RSI_SELL_LIMIT"]] * 2,
                 mode="lines",
                 line=dict(color="red", width=1, dash="dash"),
                 name="Sell Limit",
@@ -446,7 +323,7 @@ def trading_analysis(
         fig.add_trace(
             go.Scatter(
                 x=[df.index.min(), df.index.max()],
-                y=[rsi_buy_limit, rsi_buy_limit],
+                y=[valori["RSI_BUY_LIMIT"]] * 2,
                 mode="lines",
                 line=dict(color="green", width=1, dash="dash"),
                 name="Buy Limit",
@@ -522,151 +399,114 @@ def trading_analysis(
 
 
 if __name__ == "__main__":
-    # ------------------------------
-    # Configura il titolo della pagina e il logo
     st.set_page_config(
-        page_title="CryptoFarm Simulator",  # Titolo della scheda del browser
-        page_icon="📈",  # Icona (grafico che sale, simbolico per un mercato finanziario)
-        layout="wide",  # Layout: "centered" o "wide"
-        initial_sidebar_state="expanded",  # Stato iniziale della sidebar: "expanded", "collapsed", "auto"
+        page_title="CryptoFarm Simulator",
+        page_icon="📈",
+        layout="wide",
+        initial_sidebar_state="expanded",
     )
     if "df" not in st.session_state:
         st.session_state["df"] = None
     if "model" not in st.session_state:
-        # load_signal_model trova da solo il formato del modello addestrato (gradient boosting
-        # o rete), cosi' cambiare famiglia di modello non richiede di toccare la dashboard.
+        # `load_signal_model` trova da solo il formato del modello addestrato, cosi' cambiare
+        # famiglia di modello non richiede di toccare la pagina.
         st.session_state["model"] = load_signal_model()
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
-    st.sidebar.title("Market parameters")
+
+    # --- Mercato ------------------------------------------------------------------------------
+    st.sidebar.header("Mercato")
     col1, col2 = st.sidebar.columns(2)
-    with col1:
-        asset = st.text_input(label="Asset", placeholder="es. BTC, ETH, XRP...", max_chars=8, value=config.ASSET)
-        time_hours = st.number_input(label="Time Hours", **config.TIME_HOURS)
-
-    with col2:
-        currency = st.text_input(
-            label="Currency", placeholder="es. USDC, USDT, EUR...", max_chars=8, value=config.CURRENCY
-        )
-        interval = st.selectbox(label="Candle Interval", options=config.INTERVALS, index=config.INTERVAL_INDEX)
-
+    asset = col1.text_input(label="Asset", placeholder="es. BTC, ETH, XRP...", max_chars=8, value=config.ASSET)
+    currency = col2.text_input(label="Valuta", placeholder="es. USDC, USDT, EUR...", max_chars=8, value=config.CURRENCY)
+    interval = col1.selectbox(label="Intervallo", options=config.INTERVALS, index=config.INTERVAL_INDEX)
+    time_hours = col2.number_input(label="Ore di storico", **config.TIME_HOURS)
     symbol = asset + currency
-    wallet = st.sidebar.number_input(label=f"Wallet ({currency})", **config.WALLET)
-    st.sidebar.title("Indicators parameters")
-    strategia = st.sidebar.selectbox(
-        label="Strategia",
-        options=config.STRATEGIES,
-        index=0,
-    )
-    if st.sidebar.button("SIMULATE"):
+    wallet = st.sidebar.number_input(label=f"Capitale ({currency})", **config.WALLET)
+
+    if st.sidebar.button("SCARICA CANDELE", use_container_width=True, type="primary"):
         st.session_state["df"], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
 
-    col1, col2 = st.sidebar.columns(2)
+    # --- Strategia ----------------------------------------------------------------------------
+    st.sidebar.header("Strategia")
+    strategia = st.sidebar.selectbox(
+        label="Strategia", options=config.STRATEGIES, index=0, label_visibility="collapsed"
+    )
+    voce = panels.STRATEGIE.get(strategia)
+    if voce is not None and voce.note:
+        st.sidebar.caption(voce.note)
+    elif voce is None:
+        st.sidebar.caption("Nessuna strategia: la pagina mostra tutti gli indicatori disponibili.")
 
-    # step = col1.number_input(label="PSAR Step", min_value=0.001, max_value=1.000,
-    #                          value=0.01, step=0.001, format="%.3f")
-    # max_step = col2.number_input(label="PSAR Max Step", min_value=0.01, max_value=1.0, value=0.4, step=0.01)
-    atr_multiplier = col1.number_input(label="ATR Multiplier", **config.ATR_MULTIPLIER.widget)
-    atr_window = col2.number_input(label="ATR Window", **config.ATR_WINDOW.widget)
+    # --- Parametri, solo quelli che servono ---------------------------------------------------
+    # I widget nascono da `panels.gruppi_di`: cambiando strategia cambiano i riquadri, e un
+    # parametro che la strategia scelta non usa non compare. Chi non ha widget resta al suo valore
+    # iniziale, che e' cio' che `trading_analysis` usa per gli indicatori non mostrati.
+    st.sidebar.header("Parametri")
+    valori: dict = {}
+    for titolo, nomi in panels.gruppi_di(strategia):
+        with st.sidebar.expander(titolo, expanded=True):
+            colonne = st.columns(2)
+            for posizione, nome in enumerate(nomi):
+                valori[nome] = colonne[posizione % 2].number_input(
+                    label=panels.ETICHETTE[nome], key=f"par_{nome}", **getattr(config, nome).widget
+                )
 
-    col1, col2, col3 = st.sidebar.columns(3)
-    rsi_window = col1.number_input(label="RSI Short", **config.RSI_SHORT.widget)
-    rsi_window2 = col2.number_input(label="Medium", **config.RSI_MEDIUM.widget)
-    rsi_window3 = col3.number_input(label="Long", **config.RSI_LONG.widget)
+    if strategia == "Squeeze Breakout":
+        valori["CONFIRM_VOLUME"] = st.sidebar.checkbox("Richiedi conferma dal volume", value=config.CONFIRM_VOLUME)
+    if strategia == "Ichimoku Trend":
+        valori["REQUIRE_CLOUD"] = st.sidebar.checkbox("Richiedi conferma dalla nuvola", value=config.REQUIRE_CLOUD)
+    valori["MODELLO"] = st.session_state["model"]
 
-    ema_window = col1.number_input(label="EMA Short", **config.EMA_SHORT.widget)
-    ema_window2 = col2.number_input(label="Medium", **config.EMA_MEDIUM.widget)
-    ema_window3 = col3.number_input(label="Long", **config.EMA_LONG.widget)
-
-    # macd_short_window = col1.number_input(label="MACD Short", min_value=0, max_value=500, value=12, step=1)
-    # macd_long_window = col2.number_input(label="Long", min_value=0, max_value=500, value=26, step=1)
-    # macd_signal_window = col3.number_input(label="Signal", min_value=0, max_value=500, value=9, step=1)
-
-    col1, col2 = st.sidebar.columns(2)
-    kama_pow1 = col1.number_input(label="KAMA Pow 1", **config.KAMA_POW1.widget)
-    kama_pow2 = col2.number_input(label="Pow 2", **config.KAMA_POW2.widget)
-    rsi_buy_limit = col1.number_input(label="RSI Buy limit", **config.RSI_BUY_LIMIT.widget)
-    rsi_sell_limit = col2.number_input(label="RSI Sell limit", **config.RSI_SELL_LIMIT.widget)
-
-    # macd_buy_limit = col1.number_input(label="MACD Buy Limit", min_value=-10.0, max_value=10.0, value=-2.5,
-    # value=-0.66,
-    #                                    step=0.01)
-    # macd_sell_limit = col2.number_input(label="MACD Sell Limit", min_value=-10.0, max_value=10.0, value=2.5,
-    # value=0.66,
-    #                                    step=0.01)
-    # din_macd_div = col1.number_input(label="ATR Dividend", min_value=-10.0, max_value=10.0, value=1.2,
-    #                                  step=0.1)
-
-    stop_loss = col2.number_input(label="Stop Loss %", **config.STOP_LOSS_PERCENT.widget)
-
-    num_cond = col1.number_input(label="Numero di condizioni", **config.NUM_CONDITIONS.widget)
-    window_pivot = col2.number_input(label="Min-Max Window", **config.PIVOT_WINDOW.widget)
-
-    if st.session_state["df"] is not None:
-        if st.sidebar.button("SAVE DATA"):
+    # --- Dati e visualizzazione ---------------------------------------------------------------
+    st.sidebar.header("Dati")
+    show_graph = st.sidebar.checkbox(label="Mostra il grafico", value=config.SHOW_GRAPHS)
+    with st.sidebar.expander("Altre sorgenti", expanded=False):
+        csv_file = st.text_input(label="File CSV", value=config.CSV_FILE)
+        if st.button("Leggi dal CSV", use_container_width=True):
+            letto = pd.read_csv(csv_file)
+            letto.set_index("Open time", inplace=True)
+            st.session_state["df"] = letto[["Open", "High", "Low", "Close", "Volume"]].astype(float)
+        col1, col2 = st.columns(2)
+        start_date = col1.date_input(label="Da")
+        end_date = col2.date_input(label="A")
+        if st.button("Scarica per date", use_container_width=True):
+            st.session_state["df"], _ = get_market_data_between_dates(
+                asset=symbol, interval=interval, start_date=start_date, end_date=end_date
+            )
+        if st.session_state["df"] is not None and st.button("Mostra la tabella", use_container_width=True):
             st.write(st.session_state["df"])
 
-    csv_file = st.sidebar.text_input(label="CSV File", value=config.CSV_FILE)
-    if st.sidebar.button("Read from CSV"):
-        st.session_state["df"] = pd.read_csv(csv_file)
-        st.session_state["df"].set_index("Open time", inplace=True)
-        # Mantieni solo le colonne essenziali, converti a float
-        st.session_state["df"] = st.session_state["df"][["Open", "High", "Low", "Close", "Volume"]].astype(float)
-
-    show_graph = st.sidebar.checkbox(label="Show Graphs", value=config.SHOW_GRAPHS)
-
-    if st.session_state["df"] is not None:
+    # --- Risultato ----------------------------------------------------------------------------
+    if st.session_state["df"] is None:
+        text_placeholder.info("Scarica le candele per cominciare.")
+    else:
         fig, trades_df, actual_hours = trading_analysis(
             asset=symbol,
             interval=interval,
-            wallet=wallet,  # Wallet iniziale
-            # step=step,
-            # max_step=max_step,
-            time_hours=time_hours,
-            fee_percent=0.1,  # %
-            atr_multiplier=atr_multiplier,
-            atr_window=atr_window,
-            window_pivot=window_pivot,
-            rsi_window=rsi_window,
-            rsi_window2=rsi_window2,
-            rsi_window3=rsi_window3,
-            ema_window=ema_window,
-            ema_window2=ema_window2,
-            ema_window3=ema_window3,
-            # macd_short_window=macd_short_window, macd_long_window=macd_long_window,
-            # macd_signal_window=macd_signal_window,
-            kama_pow1=kama_pow1,
-            kama_pow2=kama_pow2,
-            rsi_buy_limit=rsi_buy_limit,
-            rsi_sell_limit=rsi_sell_limit,  # OK
-            # macd_buy_limit=macd_buy_limit, macd_sell_limit=macd_sell_limit,  # NO, DA TOGLIERE
-            num_cond=num_cond,
-            stop_loss=stop_loss,
+            wallet=wallet,
+            valori=valori,
             strategia=strategia,
-            # din_macd_div=din_macd_div,
+            time_hours=time_hours,
+            fee_percent=0.1,
             market_data=st.session_state["df"],
         )
-        text_placeholder.subheader("Operations Report")
-
-        if not trades_df.empty:
-            # text_placeholder.write(trades_df)
-            total_profit = trades_df["Profit"].sum()
-            num_trades = len(trades_df)
-            profitable_trades = trades_df[trades_df["Profit"] > 0]
-            num_profitable = len(profitable_trades)
-            win_rate = (num_profitable / num_trades * 100) if num_trades > 0 else 0.0
-            text_placeholder.write(f"Total profit: {total_profit:.2f} {currency}, Winrate: {win_rate:.2f}%")
-        else:
-            text_placeholder.write("No operation performed.")
+        with text_placeholder.container():
+            st.subheader("Operazioni")
+            if trades_df.empty:
+                st.info("Nessuna operazione con questi parametri.")
+            else:
+                profitto = trades_df["Profit"].sum()
+                in_utile = len(trades_df[trades_df["Profit"] > 0])
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Profitto totale", f"{profitto:.2f} {currency}")
+                col2.metric("Operazioni", f"{len(trades_df)}")
+                col3.metric("Quota in utile", f"{in_utile / len(trades_df) * 100:.1f}%")
+            if strategia in panels.NUOVE_SENZA_MANTENIMENTO:
+                st.caption(
+                    "Il motore della pagina non addebita il costo di mantenimento giornaliero e non "
+                    "conosce la leva: questi numeri sono piu' ottimisti di quelli di `reports/lab_*.csv`."
+                )
         if show_graph:
             fig_placeholder.plotly_chart(fig, use_container_width=True)
-
-        col1, col2 = st.sidebar.columns(2)
-        start_date = col1.date_input(label="Start Date")
-        end_date = col2.date_input(label="End Date")
-        if st.sidebar.button("Get Data from Dates"):
-            data, _ = get_market_data_between_dates(
-                asset=symbol, interval=interval, start_date=start_date, end_date=end_date
-            )
-            st.write(data)
