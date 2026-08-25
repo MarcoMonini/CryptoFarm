@@ -32,6 +32,11 @@ sono bande, le bande sono arancio dove non c'e' un canale -- perche' due famigli
 compaiono mai nella stessa vista possono condividere una tinta senza ambiguita'. Verde e rosso
 restano riservati allo stato (candele, acquisti, vendite) e non sono mai il colore di un
 indicatore.
+
+**L'acquamarina vive solo nei pannelli.** Sopra le candele e' troppo vicina al verde del corpo
+rialzista: una linea di indicatore e una candela in salita si leggono come la stessa cosa. Gli
+overlay usano quindi solo blu e arancio, e il terzo slot resta agli oscillatori, che stanno nel
+loro riquadro dove le candele non ci sono. Un test lo tiene fermo.
 """
 
 from __future__ import annotations
@@ -160,7 +165,7 @@ INDICATORI: dict[str, Indicatore] = {
         parametri=(),
         pannello=None,
         serie=_colonne("PSAR"),
-        tracce=(Traccia("PSAR", "PSAR", ACQUA, modo="markers", simbolo="circle", larghezza=0.0),),
+        tracce=(Traccia("PSAR", "PSAR", BLU, modo="markers", simbolo="circle", larghezza=0.0),),
     ),
     "estremi": Indicatore(
         # Non e' letto da nessuna strategia: e' il riferimento visivo dei massimi e minimi
@@ -274,8 +279,8 @@ INDICATORI: dict[str, Indicatore] = {
         tracce=(
             Traccia("tenkan", "Tenkan", BLU, larghezza=1.5),
             Traccia("kijun", "Kijun", ARANCIO, larghezza=1.5),
-            Traccia("span_a", "Nuvola A", ACQUA, tratteggio="dot", larghezza=1.0),
-            Traccia("span_b", "Nuvola B", ACQUA, tratteggio="dot", larghezza=1.0),
+            Traccia("span_a", "Nuvola A", BLU, tratteggio="dot", larghezza=1.0),
+            Traccia("span_b", "Nuvola B", ARANCIO, tratteggio="dot", larghezza=1.0),
         ),
     ),
     "bande_kama": Indicatore(
@@ -541,6 +546,13 @@ STRATEGIE: dict[str, Strategia] = {
 
 VUOTA = "-"  # la voce che non seleziona nessuna strategia: si mostra tutto
 
+# Nella panoramica senza strategia questi due si tolgono, perche' sarebbero doppioni visivi:
+# `medie_trend` disegna due delle tre linee di `medie`, e `bande_kama` ha la stessa forma di
+# `bande_atr` con finestra e moltiplicatore diversi. Mostrarli tutti metteva in legenda due
+# "EMA corta" e due "Banda superiore", cioe' due etichette identiche su linee diverse -- che e'
+# peggio di un'informazione mancante, perche' sembra un errore di lettura di chi guarda.
+PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama")
+
 
 def valori_predefiniti() -> dict:
     """Il valore iniziale di ogni parametro noto, cioe' cosa vede la pagina prima che si tocchi
@@ -559,7 +571,7 @@ def valori_predefiniti() -> dict:
 def indicatori_di(strategia: str) -> tuple[str, ...]:
     """Gli indicatori da mostrare. Senza strategia selezionata si mostra tutto, come richiesto."""
     if strategia not in STRATEGIE:
-        return tuple(INDICATORI)
+        return tuple(chiave for chiave in INDICATORI if chiave not in PANORAMICA_ESCLUSI)
     return STRATEGIE[strategia].indicatori
 
 

@@ -113,8 +113,18 @@ def test_un_indicatore_con_pannello_disegna_qualcosa(chiave: str) -> None:
 
 
 def test_senza_strategia_si_mostra_tutto() -> None:
-    assert panels.indicatori_di(panels.VUOTA) == tuple(panels.INDICATORI)
+    mostrati = panels.indicatori_di(panels.VUOTA)
+    assert set(mostrati) == set(panels.INDICATORI) - set(panels.PANORAMICA_ESCLUSI)
     assert panels.indicatori_di("Trend Zones") == ("medie_trend",)
+
+
+def test_la_panoramica_non_ha_due_voci_di_legenda_uguali() -> None:
+    """Due etichette identiche su linee diverse si leggono come un errore, non come ricchezza."""
+    nomi = [
+        traccia.nome for chiave in panels.indicatori_di(panels.VUOTA) for traccia in panels.INDICATORI[chiave].tracce
+    ]
+    doppi = {nome for nome in nomi if nomi.count(nome) > 1}
+    assert not doppi, f"nomi ripetuti nella panoramica: {sorted(doppi)}"
 
 
 def test_i_parametri_non_si_ripetono_e_includono_le_dipendenze() -> None:
@@ -244,3 +254,77 @@ def test_la_pagina_gira_per_ogni_voce_del_menu(strategia: str, frame_laterale: p
     )
     assert figura is not None
     assert list(operazioni.columns) if not operazioni.empty else True
+
+
+@pytest.mark.parametrize("strategia", sorted(panels.STRATEGIE))
+def test_il_grafico_non_mostra_indicatori_che_la_strategia_non_usa(
+    strategia: str, frame_laterale: pd.DataFrame
+) -> None:
+    """E' la richiesta, verificata sulla figura e non a occhio.
+
+    Non basta che le tracce giuste ci siano: devono mancare quelle degli altri indicatori. Il modo
+    piu' facile di sbagliare questa pagina e' lasciare una traccia fuori dal registro, dove nessuno
+    la nota perche' una linea in piu' sembra solo un grafico ricco.
+    """
+    if strategia == "AI Model":
+        pytest.skip("richiede un modello addestrato")
+    from cryptofarm.trading.simulator import trading_analysis
+
+    figura, _, _ = trading_analysis(
+        asset="TEST",
+        interval="1h",
+        wallet=100.0,
+        valori={},
+        strategia=strategia,
+        show=True,
+        market_data=frame_laterale[["Open", "High", "Low", "Close", "Volume"]],
+    )
+    disegnate = {traccia.name for traccia in figura.data}
+    usati = set(panels.indicatori_di(strategia))
+
+    for chiave, indicatore in panels.INDICATORI.items():
+        if chiave in usati:
+            continue
+        for traccia in indicatore.tracce:
+            # Un nome puo' essere condiviso da due indicatori (le bande si chiamano cosi' in due
+            # famiglie): si conta come intruso solo se nessun indicatore usato lo produce.
+            if any(t.nome == traccia.nome for c in usati for t in panels.INDICATORI[c].tracce):
+                continue
+            assert traccia.nome not in disegnate, f"{strategia}: '{traccia.nome}' viene da {chiave}, che non usa"
+
+
+@pytest.mark.parametrize("strategia", [panels.VUOTA, *sorted(panels.STRATEGIE)])
+def test_il_numero_di_riquadri_segue_gli_oscillatori_usati(strategia: str, frame_laterale: pd.DataFrame) -> None:
+    if strategia == "AI Model":
+        pytest.skip("richiede un modello addestrato")
+    from cryptofarm.trading.simulator import trading_analysis
+
+    figura, _, _ = trading_analysis(
+        asset="TEST",
+        interval="1h",
+        wallet=100.0,
+        valori={},
+        strategia=strategia,
+        show=True,
+        market_data=frame_laterale[["Open", "High", "Low", "Close", "Volume"]],
+    )
+    attesi = 1 + len(panels.pannelli_di(strategia))
+    assi = {traccia.yaxis or "y" for traccia in figura.data}
+    assert len(assi) == attesi, f"{strategia}: {len(assi)} riquadri invece di {attesi}"
+
+
+def test_gli_overlay_non_usano_l_acquamarina() -> None:
+    """Sopra le candele l'acquamarina si confonde con il corpo rialzista.
+
+    E' un vincolo che si vede solo guardando la figura renderizzata, non leggendo il codice: il
+    validatore approva la coppia, perche' non sa che una delle due tinte e' un corpo pieno che
+    occupa meta' del riquadro. Gli overlay restano su blu e arancio.
+    """
+    for chiave, indicatore in panels.INDICATORI.items():
+        if indicatore.pannello is not None:
+            continue
+        for traccia in indicatore.tracce:
+            assert traccia.colore in {
+                panels.BLU,
+                panels.ARANCIO,
+            }, f"{chiave}: '{traccia.nome}' e' acquamarina sopra le candele"

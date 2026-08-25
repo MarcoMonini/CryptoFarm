@@ -119,252 +119,142 @@ def trading_analysis(
     )
 
     # ======================================
-    # 4. Creazione del grafico
-    rows = 2
-    candlestick_height_px = 400
-    indicators_height_px = candlestick_height_px / 2
-    total_height = candlestick_height_px + ((rows - 1) * indicators_height_px)
-    nominal_height = 1 / (rows + 1)
-    candle_height = 2 * nominal_height
-    row_heights = [candle_height] + [nominal_height] * (rows - 1)
+    # Il grafico, costruito da `panels` invece che da un elenco fisso.
+    #
+    # Prima erano due riquadri sempre uguali e una dozzina di tracce sempre presenti: chi guardava
+    # "Trend Zones" vedeva tre RSI, uno stocastico e un TSI che quella strategia non tocca, e
+    # doveva sapere a memoria quali linee contassero. Ora la figura ha un riquadro per ogni
+    # oscillatore che la strategia usa davvero, e sulle candele solo i suoi overlay.
+    indicatori = panels.indicatori_di(strategia)
+    pannelli = panels.pannelli_di(strategia)
+    riga_di = {titolo: numero for numero, titolo in enumerate(pannelli, start=2)}
+
+    ALTEZZA_CANDELE = 460
+    ALTEZZA_PANNELLO = 170
+    righe = 1 + len(pannelli)
     fig = make_subplots(
-        rows=rows,
+        rows=righe,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.02,
-        row_heights=row_heights,
-        subplot_titles=(
-            "Candlestick",
-            "True and Relative Strength Index and Stochastic (TSI / RSI / STOCH)",
-        ),
+        vertical_spacing=0.04 if righe > 1 else 0.0,
+        row_heights=[ALTEZZA_CANDELE] + [ALTEZZA_PANNELLO] * len(pannelli),
+        subplot_titles=("", *pannelli),
     )
+
     if show:
-        trend_shapes = identify_trend_zones(df=df)
-        index = 1
-        # Candele (candlestick)
         fig.add_trace(
             go.Candlestick(
-                x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name=f"{asset}"
-            ),
-            row=index,
-            col=1,
-        )
-
-        # Punti SAR (marker rossi)
-        # fig.add_trace(go.Scatter(
-        #     x=df.index,
-        #     y=df['PSAR'],
-        #     mode='markers',
-        #     marker=dict(size=2, color='yellow', symbol='circle'),
-        #     name='PSAR'
-        # ),
-        #     row=index, col=1
-        # )
-
-        # EMA SHORT
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["EMA20"], mode="lines", line=dict(color="Green", width=1), name="EMA SHORT"),
-            row=index,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["EMA50"], mode="lines", line=dict(color="purple", width=1), name="EMA MED"),
-            row=index,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["EMA100"], mode="lines", line=dict(color="coral", width=1), name="EMA LONG"),
-            row=index,
-            col=1,
-        )
-
-        # KAMA
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["KAMA"], mode="lines", line=dict(color="yellow", width=1), name="KAMA"),
-            row=index,
-            col=1,
-        )
-
-        # Rolling ATR Bands
-        fig.add_trace(
-            go.Scatter(
                 x=df.index,
-                y=df["Upper_Band"],
-                mode="lines",
-                line=dict(color="yellow", width=1, dash="dash"),
-                name="Upper ATR",
+                open=df["Open"],
+                high=df["High"],
+                low=df["Low"],
+                close=df["Close"],
+                name=asset,
+                increasing_line_color=panels.RIALZO,
+                decreasing_line_color=panels.RIBASSO,
+                increasing_fillcolor=panels.RIALZO,
+                decreasing_fillcolor=panels.RIBASSO,
+                line=dict(width=1),
             ),
-            row=index,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=df.index,
-                y=df["Lower_Band"],
-                mode="lines",
-                line=dict(color="yellow", width=1, dash="dash"),
-                name="Lower ATR",
-            ),
-            row=index,
+            row=1,
             col=1,
         )
 
-        # Massimi relativi
-        if rel_max:
-            max_times, max_prices = zip(*rel_max)
-            fig.add_trace(
-                go.Scatter(
-                    x=max_times,
-                    y=max_prices,
-                    mode="markers",
-                    marker=dict(size=10, color="red", symbol="square-open"),
-                    name="Local Max",
-                ),
-                row=index,
-                col=1,
-            )
-        # Minimi relativi
-        if rel_min:
-            min_times, min_prices = zip(*rel_min)
-            fig.add_trace(
-                go.Scatter(
-                    x=min_times,
-                    y=min_prices,
-                    mode="markers",
-                    marker=dict(size=10, color="green", symbol="square-open"),
-                    name="Local Min",
-                ),
-                row=index,
-                col=1,
-            )
+        for chiave in indicatori:
+            indicatore = panels.INDICATORI[chiave]
+            riga = 1 if indicatore.pannello is None else riga_di[indicatore.pannello]
+            calcolate = indicatore.serie(df, cache, valori)
+            for traccia in indicatore.tracce:
+                # Una serie puo' mancare per scelta: la media di regime a finestra zero e' spenta,
+                # e disegnarla come linea vuota metterebbe in legenda un indicatore inattivo.
+                if traccia.serie not in calcolate:
+                    continue
+                fig.add_trace(
+                    go.Scatter(
+                        x=df.index,
+                        y=calcolate[traccia.serie],
+                        mode=traccia.modo,
+                        name=traccia.nome,
+                        legendgroup=chiave,
+                        line=dict(color=traccia.colore, width=traccia.larghezza, dash=traccia.tratteggio),
+                        marker=dict(size=3, color=traccia.colore, symbol=traccia.simbolo),
+                    ),
+                    row=riga,
+                    col=1,
+                )
 
-        # Segnali di acquisto
-        if buy_signals:
-            buy_times, buy_prices = zip(*buy_signals)
-            fig.add_trace(
-                go.Scatter(
-                    x=buy_times,
-                    y=buy_prices,
-                    mode="markers",
-                    marker=dict(size=14, color="green", symbol="triangle-up"),
-                    name="Buy Signal",
-                ),
-                row=index,
-                col=1,
-            )
+        if "estremi" in indicatori:
+            for punti, etichetta, simbolo in (
+                (rel_max, "Massimi relativi", "triangle-down-open"),
+                (rel_min, "Minimi relativi", "triangle-up-open"),
+            ):
+                fig.add_trace(
+                    go.Scatter(
+                        x=[quando for quando, _ in punti],
+                        y=[prezzo for _, prezzo in punti],
+                        mode="markers",
+                        marker=dict(size=9, color=panels.ACQUA, symbol=simbolo),
+                        name=etichetta,
+                        legendgroup="estremi",
+                    ),
+                    row=1,
+                    col=1,
+                )
 
-        # Segnali di vendita
-        if sell_signals:
-            sell_times, sell_prices = zip(*sell_signals)
-            fig.add_trace(
-                go.Scatter(
-                    x=sell_times,
-                    y=sell_prices,
-                    mode="markers",
-                    marker=dict(size=14, color="red", symbol="triangle-down"),
-                    name="Sell Signal",
-                ),
-                row=index,
-                col=1,
-            )
+        # Le soglie dell'RSI si disegnano solo dove significano qualcosa: sono i livelli su cui la
+        # strategia decide, non una decorazione del pannello.
+        propri = panels.STRATEGIE[strategia].parametri if strategia in panels.STRATEGIE else ()
+        if "rsi" in indicatori and "RSI_BUY_LIMIT" in propri:
+            for nome_parametro, etichetta, colore in (
+                ("RSI_SELL_LIMIT", "Soglia di vendita", panels.RIBASSO),
+                ("RSI_BUY_LIMIT", "Soglia di acquisto", panels.RIALZO),
+            ):
+                fig.add_trace(
+                    go.Scatter(
+                        x=[df.index.min(), df.index.max()],
+                        y=[valori[nome_parametro]] * 2,
+                        mode="lines",
+                        line=dict(color=colore, width=1, dash="dot"),
+                        name=etichetta,
+                        legendgroup="soglie",
+                    ),
+                    row=riga_di["RSI"],
+                    col=1,
+                )
 
-        # STOCASTICO
-        index += 1
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["STOCH"], mode="lines", line=dict(color="darkblue", width=1), name="STOCH"),
-            row=index,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["STOCH_S"], mode="lines", line=dict(color="darkcyan", width=1), name="STOCH S"),
-            row=index,
-            col=1,
-        )
+        for punti, etichetta, simbolo, colore in (
+            (buy_signals, "Acquisto", "triangle-up", panels.RIALZO),
+            (sell_signals, "Vendita", "triangle-down", panels.RIBASSO),
+        ):
+            if punti:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[quando for quando, _ in punti],
+                        y=[prezzo for _, prezzo in punti],
+                        mode="markers",
+                        marker=dict(size=13, color=colore, symbol=simbolo, line=dict(width=1, color="#1a1a19")),
+                        name=etichetta,
+                        legendgroup="segnali",
+                    ),
+                    row=1,
+                    col=1,
+                )
 
-        # TSI
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["TSI"], mode="lines", line=dict(color="yellow", width=1), name="TSI"),
-            row=index,
-            col=1,
-        )
-
-        # RSI
-        # fig.add_trace(go.Scatter(
-        #     x=df.index, y=df['RSI_S'], mode='lines',
-        #     line=dict(color='orange', width=1),
-        #     name='RSI SMOOTH'
-        # ), row=index, col=1)
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["RSI"], mode="lines", line=dict(color="salmon", width=1), name="RSI SHORT"),
-            row=index,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["RSI2"], mode="lines", line=dict(color="pink", width=1), name="RSI MED"),
-            row=index,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["RSI3"], mode="lines", line=dict(color="purple", width=1), name="RSI LONG"),
-            row=index,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=[df.index.min(), df.index.max()],
-                y=[valori["RSI_SELL_LIMIT"]] * 2,
-                mode="lines",
-                line=dict(color="red", width=1, dash="dash"),
-                name="Sell Limit",
-            ),
-            row=index,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=[df.index.min(), df.index.max()],
-                y=[valori["RSI_BUY_LIMIT"]] * 2,
-                mode="lines",
-                line=dict(color="green", width=1, dash="dash"),
-                name="Buy Limit",
-            ),
-            row=index,
-            col=1,
-        )
-
-        # MACD
-        # index += 1
-        # fig.add_trace(go.Scatter(
-        #     x=df.index, y=df['MACD_L'], mode='lines',
-        #     line=dict(color='fuchsia', width=1, dash='dot'),
-        #     name='MACD Line'
-        # ), row=index, col=1)
-        # fig.add_trace(go.Scatter(
-        #     x=df.index, y=df['MACD_S'], mode='lines',
-        #     line=dict(color='blue', width=1, dash='dot'),
-        #     name='MACD Signal'
-        # ), row=index, col=1)
-        # fig.add_trace(go.Bar(
-        #     x=df.index, y=df['MACD'], name='MACD',
-        #     marker=dict(color='lightyellow')
-        # ), row=index, col=1
-        # )
-        #
-        # fig.add_trace(go.Scatter(
-        #     x=[df.index.min(), df.index.max()], y=[macd_buy_limit, macd_buy_limit], mode='lines',
-        #     line=dict(color='green', width=1, dash='dash'),
-        #     name='Buy Limit'
-        # ), row=index, col=1
-        # )
-        # fig.add_trace(go.Scatter(
-        #     x=[df.index.min(), df.index.max()], y=[macd_sell_limit, macd_sell_limit], mode='lines',
-        #     line=dict(color='red', width=1, dash='dash'),
-        #     name='Sell Limit'
-        # ), row=index, col=1)
+        # Le fasce di trend leggono EMA20 ed EMA100: si mostrano dove quelle due ci sono davvero.
+        fasce = identify_trend_zones(df=df) if "medie_trend" in indicatori else []
 
         fig.update_layout(
-            template="plotly_dark", xaxis_rangeslider_visible=False, height=total_height, shapes=trend_shapes
+            template="plotly_dark",
+            xaxis_rangeslider_visible=False,
+            height=ALTEZZA_CANDELE + ALTEZZA_PANNELLO * len(pannelli) + 80,
+            shapes=fasce,
+            margin=dict(l=8, r=8, t=28, b=8),
+            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0, font=dict(size=11)),
+            hovermode="x unified",
         )
+        # Griglia e assi in secondo piano: le linee dei dati devono essere la cosa piu' evidente.
+        fig.update_xaxes(showgrid=False, showspikes=True, spikemode="across", spikethickness=1)
+        fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)", zeroline=False)
 
     # ======================================
     # Creazione del DataFrame finale con le operazioni
