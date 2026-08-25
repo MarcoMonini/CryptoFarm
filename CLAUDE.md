@@ -222,8 +222,13 @@ Il deploy pubblico sta in `render.yaml` (piano gratuito, regione `frankfurt`). T
 non si vedono dal codice: il servizio deve legarsi a **`$PORT`** su `0.0.0.0` (il comando
 dell'immagine usa `${PORT:-8501}`); Binance blocca gli IP statunitensi su `api.binance.com`, da cui
 il simulatore prende le candele, quindi la regione non è un dettaglio; il piano gratuito non ha
-dischi persistenti, e con `models/*.joblib` gitignorato online girano le strategie classiche mentre
-la voce "AI Model" segnala l'artefatto mancante.
+dischi persistenti, e con `models/*.joblib` gitignorato online girano le strategie classiche.
+
+Il modello è **opzionale** per la pagina: gli artefatti sono gitignorati, quindi un clone del
+repository e l'immagine in produzione non ne hanno. `simulator.available_strategies` toglie la voce
+`config.AI_STRATEGY` dal menu quando `active_model_name()` non trova niente, e il caricamento
+all'avvio è condizionato allo stesso controllo. Chi tocca quel punto tenga presente che prima il
+`load_signal_model()` era incondizionato e faceva cadere l'intera pagina, non solo quella strategia.
 
 I quattro `@st.cache_data` di `trading/` hanno `ttl`/`max_entries` per una ragione operativa: i
 parametri arrivano dai widget, quindi la cardinalità la decide chi muove gli slider, e senza tetto

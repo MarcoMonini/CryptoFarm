@@ -8,6 +8,7 @@ from plotly.subplots import make_subplots
 from scipy.signal import argrelextrema
 
 from cryptofarm.ml.trainer import (
+    active_model_name,
     load_signal_model,
 )
 from cryptofarm.paths import MODELS_DIR
@@ -25,6 +26,29 @@ from cryptofarm.trading.strategies import identify_trend_zones
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 MODEL_PATH = str(MODELS_DIR / "signal_model.joblib")
+
+
+def modello_di_sessione():
+    """Il modello con cui parte la pagina, oppure `None` se non ne e' stato addestrato nessuno.
+
+    E' una funzione e non una riga dentro `__main__` perche' e' proprio quella riga ad aver
+    mandato in errore il servizio in produzione: `load_signal_model()` chiamata senza condizione
+    solleva `FileNotFoundError`, e la pagina non si apriva affatto -- non solo la strategia che il
+    modello lo usa. I pezzi erano coperti da test, l'assemblaggio no, e il guasto e' passato di li'.
+    """
+    return load_signal_model() if active_model_name() else None
+
+
+def available_strategies(model) -> list[str]:
+    """Le voci offerte dal menu delle strategie.
+
+    Senza un modello addestrato la strategia AI non e' selezionabile: Streamlit non sa
+    disabilitare una singola voce di un selectbox, quindi l'unico modo per non renderla
+    selezionabile e' non metterla in elenco.
+    """
+    if model is not None:
+        return list(config.STRATEGIES)
+    return [name for name in config.STRATEGIES if name != config.AI_STRATEGY]
 
 
 def trading_analysis(
@@ -112,6 +136,13 @@ def trading_analysis(
     if voce is None:
         buy_signals, sell_signals = [], []
     else:
+        if strategia == config.AI_STRATEGY and valori.get("MODELLO") is None:
+            # Il menu non offre la voce quando manca l'artefatto, ma `trading_analysis` e'
+            # chiamabile anche da fuori: meglio fermarsi con un messaggio che con un traceback.
+            st.error(
+                f"Nessun modello addestrato in {MODELS_DIR}: la strategia «{config.AI_STRATEGY}» non e' disponibile."
+            )
+            st.stop()
         buy_signals, sell_signals = voce.esegui(df, cache, valori)
 
     operations = simulate_trading_with_commisions(
@@ -298,9 +329,13 @@ if __name__ == "__main__":
     if "df" not in st.session_state:
         st.session_state["df"] = None
     if "model" not in st.session_state:
-        # `load_signal_model` trova da solo il formato del modello addestrato, cosi' cambiare
-        # famiglia di modello non richiede di toccare la pagina.
-        st.session_state["model"] = load_signal_model()
+        # Il modello e' opzionale: un clone del repository non ne ha (gli artefatti sono
+        # gitignorati) e nemmeno l'immagine che va in produzione. Senza, la pagina serve
+        # comunque tutte le strategie classiche, che dal modello non dipendono.
+        #
+        # `active_model_name` risponde senza sollevare; `load_signal_model` trova da solo il
+        # formato dell'artefatto, cosi' cambiare famiglia di modello non tocca la dashboard.
+        st.session_state["model"] = modello_di_sessione()
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
@@ -321,8 +356,16 @@ if __name__ == "__main__":
     # --- Strategia ----------------------------------------------------------------------------
     st.sidebar.header("Strategia")
     strategia = st.sidebar.selectbox(
-        label="Strategia", options=config.STRATEGIES, index=0, label_visibility="collapsed"
+        label="Strategia",
+        options=available_strategies(st.session_state["model"]),
+        index=0,
+        label_visibility="collapsed",
     )
+    if st.session_state["model"] is None:
+        st.sidebar.caption(
+            f"«{config.AI_STRATEGY}» non e' in elenco: nessun modello in `{MODELS_DIR}`. "
+            "Addestrane uno con `python -m cryptofarm.ml.trainer`."
+        )
     voce = panels.STRATEGIE.get(strategia)
     if voce is not None and voce.note:
         st.sidebar.caption(voce.note)
