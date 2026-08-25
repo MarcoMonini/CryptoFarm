@@ -244,6 +244,22 @@ configurazione di esecuzione dell'IDE.
 
 `.streamlit/config.toml` imposta il tema scuro.
 
+### Plugin di Claude Code
+
+`.claude/settings.json` è tracciato e dichiara tre marketplace con i plugin abilitati per il
+progetto: `ponytail`, `agent-skills` (raccolte di skill generaliste) e tre plugin di
+`anthropics/financial-services` — `financial-analysis`, `equity-research`, `market-researcher` —
+scelti perché il lavoro qui è di analisi finanziaria quantitativa.
+
+Ogni marketplace è **agganciato a un commit** (`ref`, SHA a 40 caratteri): è l'unico modo di fissare
+le versioni dei plugin, perché `enabledPlugins` accetta solo un booleano e la versione la dichiara
+il manifesto del marketplace. Al momento dell'aggancio: ponytail 4.9.0, agent-skills 0.6.7,
+financial-analysis 0.1.1, equity-research 0.1.2, market-researcher 0.1.1. Per aggiornarli si sposta
+il `ref` su un commit più recente, deliberatamente — non succede da solo.
+
+Le skill dei plugin sono disponibili dalla sessione successiva all'installazione, non da quella in
+cui si modifica il file.
+
 ## Archived
 
 - `backup/unused/` — moduli rimossi da `src/` perché nessuno li importava (dashboard live, bot a due

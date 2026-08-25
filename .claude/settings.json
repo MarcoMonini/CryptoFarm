@@ -1,0 +1,32 @@
+{
+  "extraKnownMarketplaces": {
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail",
+        "ref": "2ed6c52c9d7e5e56942508591085fd45dea277d3"
+      }
+    },
+    "addy-agent-skills": {
+      "source": {
+        "source": "github",
+        "repo": "addyosmani/agent-skills",
+        "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d"
+      }
+    },
+    "claude-for-financial-services": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/financial-services",
+        "ref": "69cbc81467a5dced793eee03dec4658aa24ef856"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "ponytail@ponytail": true,
+    "agent-skills@addy-agent-skills": true,
+    "financial-analysis@claude-for-financial-services": true,
+    "equity-research@claude-for-financial-services": true,
+    "market-researcher@claude-for-financial-services": true
+  }
+}
