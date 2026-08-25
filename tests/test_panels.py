@@ -16,7 +16,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cryptofarm.trading import config, indicators, panels
+from cryptofarm.trading import config, indicators, panels, strategies_ls
+from cryptofarm.trading.indicators_extra import ExtraCache
+from cryptofarm.trading.pnl import simulate_positions, simulate_trading_with_commisions
 
 
 @pytest.fixture(scope="module")
@@ -35,6 +37,34 @@ def frame() -> pd.DataFrame:
             "Volume": generatore.uniform(10, 900, 600),
         },
         index=pd.date_range("2024-01-01", periods=600, freq="1h", name="Open time"),
+    )
+    return indicators.add_technical_indicator(grezzo)
+
+
+@pytest.fixture(scope="module")
+def frame_laterale() -> pd.DataFrame:
+    """Mercato che oscilla senza andare da nessuna parte: ADX basso.
+
+    Serve alla strategia di ritorno alla media, che entra solo quando l'ADX dice che un trend non
+    c'e'. Sulla passeggiata casuale in trend non produce operazioni, e il confronto fra i due
+    motori resterebbe non verificato proprio dove serve.
+    """
+    generatore = np.random.default_rng(3)
+    passi = np.arange(1_200)
+    # Il rumore non e' decorativo: una sinusoide liscia ha ADX mediano 51, perche' per l'ADX
+    # un'oscillazione regolare e' un trend fortissimo. Con il rumore scende a 22 e la strategia
+    # trova le barre di intervallo che cerca.
+    chiusure = 30_000 + 900 * np.sin(passi / 9.0) + generatore.normal(0, 250, passi.size)
+    aperture = np.concatenate([[chiusure[0]], chiusure[:-1]])
+    grezzo = pd.DataFrame(
+        {
+            "Open": aperture,
+            "High": np.maximum(aperture, chiusure) + 60,
+            "Low": np.minimum(aperture, chiusure) - 60,
+            "Close": chiusure,
+            "Volume": np.full(passi.size, 500.0),
+        },
+        index=pd.date_range("2024-01-01", periods=passi.size, freq="1h", name="Open time"),
     )
     return indicators.add_technical_indicator(grezzo)
 
@@ -68,7 +98,7 @@ def test_ogni_strategia_riferisce_indicatori_e_parametri_esistenti(nome: str) ->
 def test_le_serie_dichiarate_esistono_davvero_nel_frame(chiave: str, frame: pd.DataFrame) -> None:
     """E' il controllo che intercetta un nome di colonna sbagliato, come la vecchia `EMA200`."""
     indicatore = panels.INDICATORI[chiave]
-    prodotte = indicatore.serie(frame)
+    prodotte = indicatore.serie(frame, ExtraCache(frame), panels.valori_predefiniti())
     for traccia in indicatore.tracce:
         assert traccia.serie in prodotte, f"{chiave}: la traccia '{traccia.nome}' non ha la serie {traccia.serie}"
         assert prodotte[traccia.serie].notna().any(), f"{chiave}: la serie {traccia.serie} e' tutta vuota"
@@ -101,3 +131,60 @@ def test_i_colori_degli_indicatori_non_sono_quelli_di_stato() -> None:
     for chiave, indicatore in panels.INDICATORI.items():
         for traccia in indicatore.tracce:
             assert traccia.colore not in stato, f"{chiave}: '{traccia.nome}' usa un colore di stato"
+
+
+# -------------------------------------------------------------------------------------------------
+# L'adattatore fra i due motori
+# -------------------------------------------------------------------------------------------------
+
+NUOVE = ("Donchian Breakout", "Squeeze Breakout", "Trend Pullback", "Ichimoku Trend", "Band Reversion")
+
+
+@pytest.mark.parametrize("nome", NUOVE)
+def test_le_strategie_nuove_nella_pagina_non_vanno_mai_corte(nome: str, frame: pd.DataFrame) -> None:
+    """La pagina le chiama con `allow_short=False`: il verso corto e' misurato in perdita."""
+    eventi = strategies_ls.STRATEGIES[_funzione(nome)](frame, ExtraCache(frame), allow_short=False)
+    assert all(obiettivo >= 0 for _, _, obiettivo in eventi)
+
+
+@pytest.mark.parametrize("nome", NUOVE)
+def test_la_conversione_in_due_liste_conserva_le_operazioni(
+    nome: str, frame: pd.DataFrame, frame_laterale: pd.DataFrame
+) -> None:
+    """Le stesse operazioni, agli stessi prezzi, dei due motori.
+
+    Il formato a due liste accoppia per indice, quindi la conversione regge solo se gli eventi si
+    alternano ingresso/uscita -- vero senza il verso corto, falso con. Il controllo e' diretto:
+    stesse operazioni di `simulate_positions`, e a commissioni nulle anche lo stesso capitale.
+    """
+    valori = panels.valori_predefiniti()
+    for candele in (frame, frame_laterale):
+        cache = ExtraCache(candele)
+        eventi = strategies_ls.STRATEGIES[_funzione(nome)](candele, cache, allow_short=False)
+        if len(eventi) >= 4:
+            break
+    else:
+        pytest.fail(f"{nome} non produce operazioni in nessuno dei due scenari: il confronto sarebbe vuoto")
+
+    acquisti, uscite = panels.STRATEGIE[nome].esegui(candele, cache, valori)
+    a_posizioni = simulate_positions(eventi, wallet=100, fee_percent=0.0, carry_daily_percent=0.0)
+    a_segnali = simulate_trading_with_commisions(acquisti, uscite, wallet=100, fee_percent=0.0)
+
+    assert [(o["Buy_Time"], o["Sell_Time"]) for o in a_segnali] == [
+        (o["Buy_Time"], o["Sell_Time"]) for o in a_posizioni
+    ]
+    assert [(o["Buy_Price"], o["Sell_Price"]) for o in a_segnali] == [
+        (o["Buy_Price"], o["Sell_Price"]) for o in a_posizioni
+    ]
+    assert a_segnali[-1]["Wallet_After"] == pytest.approx(a_posizioni[-1]["Wallet_After"], rel=1e-9)
+
+
+def _funzione(voce_di_menu: str) -> str:
+    """Dalla voce del menu al nome in `strategies_ls.STRATEGIES`."""
+    return {
+        "Donchian Breakout": "donchian_breakout",
+        "Squeeze Breakout": "squeeze_breakout",
+        "Trend Pullback": "trend_pullback",
+        "Ichimoku Trend": "ichimoku_trend",
+        "Band Reversion": "band_reversion_gated",
+    }[voce_di_menu]
