@@ -1,152 +1,242 @@
-# Handoff — CryptoFarm, strategia a 3 stati (BUY/SELL/HOLD)
+# Handoff — CryptoFarm
 
-Data: 2026-08-21. Branch: **`ai-labeling-rewrite`** (34 commit avanti su `main`, mai fatto merge).
-Repo: `/Users/marcomonini/PycharmProjects/CryptoFarm`.
+Data: **2026-08-24**. Branch di lavoro: **`claude/trading-strategies-performance-fb39oc`**
+(3 commit sopra `main`: `d82b3db`, `8f4ccd8`, `61603cc`).
+Il branch precedente `ai-labeling-rewrite` (pipeline ML a 3 stati) e' **chiuso con esito negativo**
+e non e' mai stato unito: vedi `.claude/docs/strategy.md` §10-13 e la sezione "Il filone ML" qui
+sotto.
 
 ## Non duplicare: leggi prima questi
 
 | documento | cosa contiene |
 |---|---|
-| `.claude/docs/strategy.md` | **fonte di verità delle decisioni.** Analisi completa, misure, piano a fasi con gate, risultati dell'implementazione precedente (§8bis). Ha una tabella di revisione in testa che elenca le correzioni già fatte. |
-| `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente |
-| `git log main..HEAD` | i messaggi di commit spiegano il *perché* di ogni scelta, inclusi i bug trovati e come |
-| `.claude/docs/sessione-2026-08-21.md` | chiusura della sessione del 20–21 agosto: cosa era in sospeso (niente), come far girare la politica nel simulatore e con quali avvertenze, skill consigliate al prossimo agente |
+| `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render |
+| `.claude/docs/backtest-strategie.md` | **le strategie del simulatore misurate su nove anni.** 3.129 configurazioni, sensibilita' ai parametri, tenuta fuori campione, quattro difetti del codice trovati misurando (§8, ora corretti) |
+| `.claude/docs/strategie-nuove.md` | **lo stato piu' recente del filone trading.** Le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
+| `.claude/docs/strategy.md` | fonte di verita' delle decisioni sul **filone ML** (etichettatura, feature, modello, validazione). Chiuso in negativo, ma le trappole valgono ancora |
+| `git log main..HEAD` | i messaggi di commit spiegano il *perche'* di ogni scelta e i bug trovati |
 
-Non riassumere quei contenuti: sono già scritti e aggiornati.
+Non riassumere quei contenuti: sono gia' scritti e aggiornati.
 
-## Stato del lavoro corrente
+---
 
-L'utente ha **cambiato strategia** con un prompt dettagliato (modello a 3 classi BUY/SELL/HOLD
-condizionato sullo stato della posizione, con mascheramento delle azioni non valide a inferenza).
-L'ordine di lavoro che ha dato è in 5 punti, con l'istruzione esplicita:
+## Stato del lavoro corrente: il filone trading
 
-> "1. Etichettatura + distribuzione delle classi e dei ritardi di conferma → **fermati e mostrami i numeri**"
+Due sessioni consecutive, entrambe concluse e spinte sul branch.
 
-**Tutti e 5 i punti del piano sono stati eseguiti fino in fondo.** Il risultato e' **negativo**, e
-la causa e' nota e misurata. Sta tutto in `.claude/docs/strategy.md` §10–13; qui solo il minimo per
-non ripartire da zero.
+### Sessione 1 — misurare le strategie esistenti (`d82b3db`, `8f4ccd8`)
 
-### Il risultato in una riga
+3.129 configurazioni delle 12 strategie del simulatore, su BTC 2017-2026 a 15m, piu' controlli su
+ETH e su altri intervalli. Risultato: **a 15 minuti quasi tutto perde**, e la frequenza operativa
+spiega quasi tutto (le strategie che fanno migliaia di operazioni l'anno pagano in commissioni piu'
+del margine per operazione). Fuori campione crolla anche cio' che in campione sembrava solido.
+Script conservati: `scripts/strategy_sweep.py`, `scripts/sweep_report.py`, `scripts/strategy_focus.py`.
+Tabelle: `reports/*_15m*.csv`.
 
-Entrare alla conferma di un minimo e uscire alla conferma di un massimo cattura **zero in media**,
-su tutti e 15 i simboli, a ogni soglia, **prima** dei costi (§13). La conferma si paga due volte e
-la gamba mediana ne vale 1,76–2,05. Nessuna scelta di modello, feature o iperparametro lo cambia.
+### Sessione 2 — correzioni, dataset nuovo, strategie nuove, short (`61603cc`)
 
-Di conseguenza: 0 split CPCV in utile su 15 in entrambe le bande di frequenza, edge lordo sotto il
-costo **anche in-sample**, e il vantaggio degli ingressi del modello misurato con un'uscita
-eseguibile e' −0,004% (§12.4).
+**Le quattro correzioni** chieste dall'utente, tutte applicate e misurate:
 
-### Cosa NON rifare
+| difetto | correzione | effetto |
+|---|---|---|
+| voce di menu `"Supetrend"` ≠ dispatch `"Supertrend"` | stringa corretta in `config.STRATEGIES` | la voce esegue: +450% a 4h nella migliore configurazione |
+| `"ATR Bands"` aveva il ramo di dispatch ma nessuna voce di menu | voce aggiunta | selezionabile: +678% a 4h |
+| stop loss di `buy_sell_limits_close_simulation` commentato | ripristinato | inerte al default 99%, attivo ai valori operativi |
+| `EMA200` era l'EMA **dell'apertura** sulla finestra corta, e Trend Zones la confrontava con `EMA20` (una media con se stessa) | colonna eliminata, le tre funzioni leggono `EMA100` | Trend Zones 4h da **−21,9% a +309,3%**, da 202 a 10,6 operazioni/anno |
 
-- Non ritarare la soglia di decisione: misurato, non aiuta (§12.6).
-- `capture` e' stata esplorata solo fino a 0,40 (`OPERATING_CAPTURES` in `scripts/analysis.py`).
-  L'opzione 1 di §10.4 era portarla a 0,85, e **non e' mai stata misurata**: la voce precedente
-  la dava per esclusa citando §12.6 e §12.5, ma §12.6 misura la soglia di decisione e §12.5 si
-  limita a constatare che la correzione di §10.4 e' applicata. Resta aperta.
-- Non aggiungere iterazioni DAgger: funziona (disaccordo 13–19%, 913.000 righe raccolte) ma
-  corregge un problema che non e' quello che abbiamo.
-- Non provare un'architettura diversa: l'in-sample e' gia' sotto il costo, non e' overfitting.
-- Non fidarsi di un'attribuzione con uscita "perfetta": e' il modo di non pagare la seconda soglia
-  e fa sembrare informativi ingressi che non lo sono. Usare sempre la colonna causale
-  (`confirmed_reversal_rows`) e il controllo con ingressi casuali.
+Il golden master e' stato rigenerato **una volta sola** e il diff verificato voce per voce: 17 voci,
+tutte di `add_technical_indicator` e delle tre funzioni che leggevano `EMA200`, sui quattro scenari.
 
-### La sola direzione aperta (§13.4)
+**Il dataset e' cambiato**: non piu' 2017-2026 ma **2021-01-01 → oggi**, perche' i due cicli sono
+mercati diversi (BTC 2017-2020: +2.803%, CAGR 132%, Sharpe 1,44 — 2021-2026: +166%, CAGR 19%,
+Sharpe 0,59) e **i parametri non passano dall'uno all'altro**: scegliendo sul ciclo vecchio e
+misurando sul nuovo, quattro strategie su cinque vanno in perdita.
 
-> Alla barra di conferma di un minimo, prevedere se **questa** gamba superera' `2 x soglia + costo`.
+**Cinque strategie nuove** in `trading/strategies_ls.py`, su sette indicatori mai usati prima
+(ADX, Donchian, Bollinger, Keltner, StochRSI, OBV/MFI, Ichimoku): `donchian_breakout`,
+`squeeze_breakout`, `trend_pullback`, `ichimoku_trend`, `band_reversion_gated`.
 
-Classificazione binaria su ~10 eventi al giorno per simbolo invece di una politica per barra su
-487.000 barre, positivi al 33–35% per costruzione, target su quantita' interamente causali. E' la
-prima formulazione in cui il vincolo economico sta **dentro** il target. Costa un'ora di calcolo.
-Le feature sono le stesse che hanno gia' fallito due volte, quindi non e' garantita: e' solo
-l'unica rimasta che sia economica da provare.
+**Il verso corto e' simulabile**: `pnl.simulate_positions` prende cambi di posizione
+`(tempo, prezzo, +1|0|−1)` — il formato a due liste di segnali non sa esprimere l'inversione
+diretta — con commissione su entrambe le gambe, costo di mantenimento giornaliero (funding, 0,03%),
+leva e liquidazione a capitale zero.
 
-Dopo di quella restano le leve di §3.2 e §6.2, in quest'ordine: dati di **microstruttura**
-(`aggTrades`) — l'unica informazione che il modello non ha mai avuto — e il **modello di
-riempimento maker** (Fase 0.3), senza il quale nessun numero in modalita' maker e' verificabile.
+### I risultati, senza addolcirli
 
-### Codice nuovo di questa sessione
+- **Le storiche corrette battono le nuove in campione** (Close ATR +575% a 1d contro +120% della
+  migliore nuova), ma su griglie 100 volte piu' grandi: la colonna onesta e' la mediana.
+- **Fuori campione (scelta 2021-2023, resa 2024-2026) nessuna strategia, di nessuna famiglia, batte
+  il possesso passivo.** La sola nuova con segno positivo e' `band_reversion_gated` (+11,1%).
+- **Il vantaggio reale e' sul rischio, non sul rendimento**: `band_reversion_gated` fa +84% con 22%
+  di drawdown contro +166% con 76,5%; **a leva 2 diventa +196% con DD 41%**, cioe' batte il possesso
+  passivo su entrambi gli assi (in campione).
+- **Lo short toglie invece di aggiungere**: la mediana peggiora in tutte e cinque le strategie
+  (donchian −22% → −57%; ichimoku +15% → −25%), migliora solo nel 2,6-23,6% delle coppie, e paga
+  solo nel 2022. L'unica eccezione e' il ritorno alla media, dove il corto ha win rate 52,3%.
+- **Le ablazioni** dicono che ogni filtro nuovo migliora la mediana e riduce le operazioni; l'unico
+  ininfluente e' l'ADX come soglia minima nella rottura di canale.
+
+### Cosa resta aperto
+
+**SOL e BNB non sono stati misurati.** L'utente li aveva chiesti esplicitamente. Non e' una scelta:
+in ambiente remoto l'egress verso *ogni* exchange e aggregatore risponde 403 sul CONNECT (Binance,
+Bybit, Kraken, Coinbase, Kucoin, MEXC, Gate, CoinGecko, CryptoCompare, Messari, Yahoo, Kaggle,
+HuggingFace), e nessun repository pubblico raggiungibile ha candele intraday recenti di quei due
+asset. Il codice li supporta gia'. **In locale bastano:**
+
+```bash
+python -m cryptofarm.data.klines --update --symbols BTCUSDT ETHUSDT SOLUSDT BNBUSDT
+for s in BTCUSDT ETHUSDT SOLUSDT BNBUSDT; do
+  python -m scripts.strategy_lab --all --symbol $s --interval 1d --since 2021-01-01
+  python -m scripts.lab_report --symbol $s --interval 1d
+done
+```
+
+Le conclusioni su regimi e verso corto valgono per **un asset e un ciclo** finche' quello non gira.
+
+**Rimisurare `donchian_breakout` e `squeeze_breakout`.** Lo stop a trailing e' stato corretto
+(vedi le trappole sotto e `.claude/docs/strategie-nuove.md` §8): le loro righe in §6 e i
+`reports/lab_*.csv` sono precedenti alla correzione. Servono le stesse candele del punto sopra,
+quindi le due cose si fanno insieme. Le altre tre strategie non sono toccate.
+
+### La pagina, rifatta attorno al registro
+
+Il simulatore mostrava sempre tutto: quindici parametri nella barra laterale e una dozzina di
+tracce, uguali per ogni strategia. Ora `trading/panels.py` tiene la mappa strategia → indicatori →
+parametri → tracce, e la pagina la legge: si vede solo cio' che la strategia scelta usa davvero, e
+tutto solo quando non ne e' selezionata nessuna. `trading_analysis` e' passata da trenta argomenti
+nominali a un dizionario, la catena di `if strategia == ...` non c'e' piu', e `simulator.py` da 672
+a 402 righe.
+
+Le cinque strategie nuove sono nel menu, **sempre e solo lunghe**: il verso corto e' misurato in
+perdita. Passano dal motore classico tramite un adattatore da cambi di posizione a due liste,
+esatto senza il verso corto e verificato contro `simulate_positions`. **I loro numeri nella pagina
+sono piu' ottimisti di `reports/lab_*.csv`**, perche' quel motore non addebita il funding e non
+conosce la leva: la pagina lo dice accanto al risultato.
+
+Trappole trovate guardando la figura renderizzata, non il codice: l'acquamarina sopra le candele si
+confonde con il corpo rialzista (il validatore di palette approva la coppia, perche' non sa che una
+delle due e' un corpo pieno), e la panoramica metteva in legenda due "EMA corta" e due "Banda
+superiore". Entrambe fissate da un test.
+
+### Codice nuovo del filone trading
 
 | file | cosa |
 |---|---|
-| `data/klines.py` | `clip_wicks` / `wick_outliers`, applicati dentro `load_klines` (`clip=False` nel percorso di aggiornamento). Lo store su disco resta grezzo |
-| `ml/directional_change.py` | finestra di `soft_labels` spostata alla barra di conferma; `confirmed_reversal_rows` (uscita causale) |
-| `ml/policy.py` | stato della posizione, mascheramento delle azioni, randomizzazione dell'ingresso |
-| `ml/dagger.py` | rollout con episodi batchati che non attraversano i confini fra simboli |
-| `ml/policy_trainer.py` | dataset, DAgger, CPCV, holdout, attribuzione ingresso/uscita |
-| `scripts/analysis.py` | `pivot_delays`, `pivot_labels`, `operating_points`, `confirmation_tax` |
-| `ml/signals.py` + `trading/simulator.py` | `policy_signals`: la politica gira nel simulatore (commit `bacd384`). `load_signal_model` prova `policy_model` per primo, poi `meta_model`, poi `signal_model` |
+| `trading/indicators_extra.py` | `ExtraParams` + `ExtraCache`: ADX, EMA, ATR, KAMA, Donchian, Bollinger, Keltner, StochRSI, MFI, pendenza OBV, Ichimoku, memoizzati per parametro. **Donchian e' shiftato di una barra** (`.shift(1)`): senza, il canale contiene la barra che lo rompe |
+| `trading/strategies_ls.py` | le cinque strategie nuove, tutte con `allow_short`; restituiscono cambi di posizione, non due liste |
+| `trading/pnl.py` | `simulate_positions` accanto a `simulate_trading_with_commisions`. `CARRY_DAILY_PERCENT = 0.03` |
+| `scripts/strategy_lab.py` | griglie delle nuove (592 configurazioni), `ProcessPoolExecutor` con candele ereditate per fork, metriche short-aware (`n_long`/`n_short`, contributo per lato) |
+| `scripts/lab_report.py` | panoramica, effetto short appaiato, ablazioni, trasferimento fra dataset, fuori campione con finestre configurabili, classifica storiche vs nuove, leva e costi |
+| `tests/test_long_short.py` | 14 test: simmetria long/short, costi su entrambe le gambe e nel tempo, leva e azzeramento, eventi ignorati dopo la liquidazione, **no look-ahead** (serie troncata → eventi identici) e "long-only non va mai corto", parametrizzati sulle cinque strategie |
 
-`models/policy_model.*` e' una copia di `policy_alta.*`: e' quello che il simulatore carica.
-Spostarlo altrove fa tornare in uso `meta_model`. Attenzione a due cose leggendo il grafico: il
-simulatore applica **0,1% per lato** contro lo 0,08% andata-e-ritorno maker assunto in §12, e il
-modello e' addestrato su **5m** mentre il simulatore gira anche su 15m.
+`tests/test_simulator_golden.py` copre ora anche `simulate_positions` (una sequenza con inversione
+diretta lungo→corto).
 
-`models/policy_alta.*` e `policy_bassa.*` sono i due modelli addestrati, con i rapporti JSON
-completi (CPCV per split, sweep della soglia, attribuzione). Non sono tracciati.
+Tabelle prodotte: `reports/lab_*.csv` (panoramica, effetto short, ablazioni, classifica, fuori
+campione, leva e costi; suffissi `_1d`, `_4h`, `_4h_ciclo2017`, `_ETHUSD_4h`).
+
+---
+
+## Il filone ML, in breve
+
+Chiuso in negativo e **non va riaperto senza leggere `strategy.md` §10-13**. In una riga: entrare
+alla conferma di un minimo e uscire alla conferma di un massimo cattura **zero in media**, su tutti
+e 15 i simboli, a ogni soglia, *prima* dei costi. La conferma si paga due volte e la gamba mediana
+ne vale 1,76-2,05. Nessuna scelta di modello, feature o iperparametro lo cambia.
+
+Cosa **non** rifare: ritarare la soglia di decisione (§12.6), aggiungere iterazioni DAgger (funziona
+ma cura un altro problema), provare un'architettura diversa (l'in-sample e' gia' sotto il costo,
+non e' overfitting), fidarsi di un'attribuzione con uscita "perfetta" (usare `confirmed_reversal_rows`
+e il controllo con ingressi casuali).
+
+Restano aperte, in quest'ordine: `capture` oltre 0,40 (mai misurata fino a 0,85); la formulazione
+di §13.4 (alla barra di conferma, prevedere se *questa* gamba superera' `2 × soglia + costo`); poi
+i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0.3).
+
+---
 
 ## Cose che non stanno nei documenti e servono subito
 
-- **Usa `.venv312/bin/python`.** Il `.venv` preesistente è Python 3.9 senza `scikit-learn` e il
-  progetto richiede ≥3.12. `.venv312` è gitignorato e ha tutto (`pip install -e ".[dev]"`).
-- **`market_data/`** contiene 11.770.246 candele 5m su 15 simboli (298 MB, gitignorato).
-  15m/30m/1h si derivano per aggregazione. Rigenerabile con
-  `python -m cryptofarm.data.klines --update` (~minuti, dump CDN paralleli).
-- **`analysis_cache/`** è popolata (gitignorata). Si legge da riga di comando:
-  `python -m scripts.analysis --help` elenca le misure. La pagina Streamlit che la visualizzava è
-  in `backup/unused/app/analysis_dashboard.py`.
-- **`models/*.joblib` e `*.json` non sono tracciati** (`models/.gitignore`, esteso nel 2026-08:
-  prima elencava solo `*.keras` e i `.joblib` erano finiti nel repository). `meta_model.*` è il modello
-  della strategia *precedente* (meta-labeling su eventi CUSUM) — non cancellarlo, il simulatore
-  lo carica ancora tramite `load_signal_model()`.
-- **Gli script di misura della sessione stavano nella scratchpad ed è effimera.** Quelli salvati
-  sono in `scripts/analysis.py`. La tabella "Riproducibilità" in fondo a `strategy.md` è stata
-  **corretta**: ora distingue le misure conservate in `scripts/analysis.py` da quelle prodotte da
-  script effimeri e non più rieseguibili, elencate esplicitamente come debito.
-- 10 rilievi `ruff` in `trading/simulator.py`, `app/live_bot*.py`, `app/grid_results_viewer.py`
-  sono **pre-esistenti** e non vanno confusi con regressioni.
+- **Usa `.venv312/bin/python`.** Il `.venv` preesistente e' Python 3.9 senza `scikit-learn`; il
+  progetto richiede ≥3.12. Installazione normale: `pip install -e ".[app,data,dev]"`.
+- **Rete bloccata in sessione remota.** Nessun exchange e nessun aggregatore e' raggiungibile
+  (403 sul CONNECT del proxy); anche la *search API* di GitHub e' negata perche' la sessione e'
+  legata ai suoi repository. Restano raggiungibili PyPI, i contenuti dei repository configurati e
+  gli asset di release. Non perdere tempo a riprovare host nuovi: e' gia' stato fatto in modo
+  esaustivo.
+- **`market_data/` in questo ambiente contiene solo due file** (55 MB, gitignorato):
+  `BTCUSD-5m.parquet` (1.540.397 candele, 2012-01-01 → oggi, fonte Bitstamp) e
+  `ETHUSD-5m.parquet` (342.929 candele, 2016-03 → 2019-12, fonte Bitfinex). ETH **non copre il
+  ciclo recente**: e' per questo che il controllo su un secondo asset e' stato fatto sul ciclo
+  2017-2019 e non sul 2021-2026. Sulla macchina dell'utente lo store Binance e' molto piu' ampio
+  (15 simboli, ~11,8 milioni di candele 5m).
+- **`models/*.joblib` e `*.json` non sono tracciati** (`models/.gitignore`, esteso nel 2026-08).
+  `meta_model.*` e' il modello della strategia precedente: non cancellarlo, `load_signal_model()`
+  lo carica ancora. `MODEL_PRECEDENCE` e `active_model_name()` sono l'unica fonte di verita'.
+- **Test: 430 in 15 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
+  entrambi i job su ogni PR.
+- Le due misure lunghe (`strategy_sweep`, `strategy_lab`) impiegano decine di minuti: farle partire
+  in background e attendere con un ciclo di controllo, mai con `sleep` in catena.
 
 ## Regole di ingaggio stabilite dall'utente
 
 - Prima di modifiche strutturali: piano scritto, poi conferma. (Sospeso quando l'utente dice
   esplicitamente "procedi con l'implementazione".)
-- **Ogni numero va misurato sui dati del progetto, mai stimato né ripreso dai prompt.** L'utente
+- **Ogni numero va misurato sui dati del progetto, mai stimato ne' ripreso dai prompt.** L'utente
   ha ripetuto: *"se una misura contraddice una tesi del prompt, riportalo — preferisco una
-  strategia corretta a una che conferma quello che ho chiesto."* È già successo più volte e va
-  fatto senza addolcire.
-- Controlli a cascata su ogni risultato, e sospetto verso i risultati troppo buoni. Nella sessione
-  precedente il test di permutazione ha rivelato che ~1/3 dell'edge apparente non veniva dalle
-  etichette; l'edge riportato va corretto per quel controllo.
+  strategia corretta a una che conferma quello che ho chiesto."* E' successo di nuovo in questa
+  sessione (lo short, che l'utente si aspettava raddoppiasse le occasioni, e' misurato in perdita)
+  e va detto senza addolcire.
+- Controlli a cascata su ogni risultato, e sospetto verso i risultati troppo buoni.
 - Commit incrementali con riepilogo dopo ogni blocco.
+- I deliverable finali vanno anche pubblicati come artifact leggibile, oltre che scritti nel repo.
 
-## Trappole già incontrate su questo tipo di codice
+## Trappole gia' incontrate
 
-- **Pivot retrospettivi**: usare `extreme_bar` invece di `confirm_bar` in una feature è look-ahead.
-  Misurato in `.claude/docs/strategy.md` §7.1: ritardo mediano 1–8 barre ma p99 fino a 101, ed è massimo
-  proprio sui movimenti ampi.
-- **Etichette sovrapposte**: `t_exit` qui è il pivot successivo confermato, quindi orizzonte
-  **variabile e potenzialmente lungo**. L'embargo va dimensionato sul percentile alto, non sulla
-  mediana. `ml/validation.py` ha già `PurgedKFold`, `CombinatorialPurgedCV`, `sample_uniqueness`,
-  PBO e Deflated Sharpe.
-- **Rolling non causali**: `labeling.py` usa di proposito `[::-1].rolling(...)[::-1]` per guardare
-  avanti. Corretto lì, disastroso altrove.
-- Nella sessione precedente due difetti del target hanno **invertito il segno** dei risultati
-  (addestrare sugli ordini non riempiti; classificatore binario cieco alle magnitudini). Il
-  commit `7ebb2e0` li spiega — vale la pena rileggerlo prima di definire il nuovo target.
+**Sul simulatore e i backtest**
+
+- **Look-ahead nei canali**: un massimo mobile che include la barra corrente rende la rottura
+  impossibile da mancare. `indicators_extra` shifta Donchian; il test `test_no_look_ahead` verifica
+  che troncare la serie non cambi gli eventi gia' emessi.
+- **Look-ahead *dentro* la barra**: uno stop a trailing costruito con il massimo e l'ATR della
+  barra su cui viene testato assume che dentro quella barra l'estremo favorevole arrivi per primo.
+  **`test_no_look_ahead` non lo vede**, perche' tronca la serie *fra* le barre e la barra che
+  scatena l'evento resta identica: serve il controllo che perturba il massimo della sola barra
+  dell'uscita (`test_trailing_stop_ignores_the_high_of_its_own_bar`). Lo stop va calcolato su dati
+  chiusi a `i-1`.
+- **`ta` riempie, non lascia NaN.** `IchimokuIndicator(visual=True)` costruisce span B con
+  `min_periods=0` e riempie le prime `slow` righe dello shift con la media dell'**intera** serie:
+  span B non e' mai NaN, nessuna guardia lo intercetta, e quel riempimento e' look-ahead. In
+  `ichimoku_trend` la protezione e' `start = slow + span + 2`, e non va abbassata.
+- **Il golden master accetta qualunque differenza** se lo si rigenera. Rigenerare solo dopo aver
+  verificato a mano la differenza, e controllare che il diff contenga solo le righe attese.
+- **Gli scenari del golden non sono intercambiabili**: `close_ema_crossover_simulation` pretende tre
+  incroci in sequenza, `close_bullish_ema_simulation` solo il laterale. Togliere uno scenario scopre
+  delle strategie.
+- **`indicators._atr_ema` replica `ta` 0.11 riga per riga.** Se si tocca, va riverificato contro
+  `ta`: una divergenza silenziosa sposta ogni segnale.
+- **Le funzioni decorate con `@st.cache_data` si chiamano con `.__wrapped__`** fuori da Streamlit.
+- **Il massimo su una griglia non e' un risultato**: va sempre letto con la mediana e con la quota
+  di configurazioni in utile accanto.
+
+**Sulla pipeline ML**
+
+- **Pivot retrospettivi**: usare `extreme_bar` invece di `confirm_bar` in una feature e' look-ahead
+  (`strategy.md` §7.1: ritardo mediano 1-8 barre, p99 fino a 101, massimo proprio sui movimenti ampi).
+- **Etichette sovrapposte**: `t_exit` e' il pivot successivo confermato, orizzonte variabile e
+  potenzialmente lungo. L'embargo va dimensionato sul percentile alto.
+- **Rolling non causali**: `labeling.py` usa `[::-1].rolling(...)[::-1]` di proposito. Corretto li',
+  disastroso altrove.
+- Due difetti del target hanno gia' **invertito il segno** dei risultati una volta (commit `7ebb2e0`).
 
 ## Suggested skills
 
-Il prossimo agente dovrebbe invocare via Skill tool:
+- **`tdd`** — per qualunque estensione del motore di posizioni o delle strategie: i bug piu' costosi
+  di entrambe le sessioni sono stati trovati dai test.
+- **`diagnosing-bugs`** — quando una misura non torna.
+- **`dataviz`** — prima di aggiungere grafici al simulatore.
+- **`artifact-design`** — l'utente si aspetta un report visuale a chiusura di ogni blocco di misure.
 
-- **`tdd`** — per i punti 3–4 del prompt (feature di posizione, randomizzazione dello stato,
-  DAgger). Sono tutti casi in cui il test scritto prima chiarisce cosa deve valere; i bug più
-  costosi di questa sessione sono stati trovati proprio dai test.
-- **`diagnosing-bugs`** — quando una misura non torna. È già servito: il rilevatore di pivot non
-  trovava nessun estremo perché con direzione indecisa entrambi i rami si eseguivano.
-- **`dataviz`** — prima di aggiungere grafici (al simulatore, o ripescando
-  `backup/unused/app/analysis_dashboard.py`), per mantenere coerenza con le tavolozze e le
-  convenzioni già in uso.
-- **`artifact-design`** — solo se l'utente chiede un report visuale pubblicabile; i deliverable
-  finora sono file nel repo.
-
-Non serve `research` (non ci sono fonti esterne da consultare) né `codebase-design` (la struttura
-a moduli è già decisa e documentata in `.claude/docs/strategy.md` §8).
+Non serve `research` (nessuna fonte esterna raggiungibile) ne' `codebase-design` (la struttura a
+moduli e' decisa e documentata).

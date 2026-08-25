@@ -1,0 +1,17 @@
+famiglia,strategia,rendimento_%,sharpe,max_drawdown_%,trade_per_anno,mediana_griglia_%,in_utile_%,verso
+storica,Close ATR,575.4,1.25,25.5,3.4,20.5,70.6,solo long
+storica,Close Buy/Sell Limits,334.7,0.86,59.3,3.9,25.0,71.6,solo long
+storica,TP/SL with ATR,288.3,0.87,54.3,2.8,87.6,82.1,solo long
+storica,ATR Live Trade,220.3,1.1,24.2,4.3,-30.8,42.9,solo long
+storica,Close RSI Reverse,213.9,0.74,44.0,17.7,46.3,91.3,solo long
+storica,ATR Bands,211.7,0.67,61.4,5.5,33.1,78.2,solo long
+storica,Close EMA Crossover,150.8,0.65,48.9,4.1,95.5,100.0,solo long
+storica,Green Candles,149.8,0.62,58.9,15.8,149.8,100.0,solo long
+storica,Close Bullish EMA,145.5,0.99,20.7,2.3,16.1,69.9,solo long
+storica,Supertrend,143.1,0.69,30.3,3.0,13.6,59.5,solo long
+nuova,squeeze_breakout,120.3,0.59,55.6,3.4,-34.0,19.8,solo long
+nuova,ichimoku_trend,105.7,0.58,32.8,7.3,11.7,75.0,long+short
+nuova,trend_pullback,88.7,0.5,37.4,26.8,-24.2,29.2,long+short
+nuova,band_reversion_gated,83.6,0.78,22.1,4.4,-7.0,43.6,long+short
+nuova,donchian_breakout,62.5,0.45,42.2,3.2,-25.4,15.6,solo long
+storica,Trend Zones,60.2,0.42,49.9,2.7,60.2,100.0,solo long

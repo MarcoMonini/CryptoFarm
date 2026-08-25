@@ -142,3 +142,94 @@ def simulate_trading_with_commisions_multiple_buy(
             s += 1
 
     return operations
+
+
+# -------------------------------------------------------------------------------------------------
+# Posizioni con verso: long, flat, short
+# -------------------------------------------------------------------------------------------------
+
+# Costo di mantenimento giornaliero della posizione, in percentuale del nozionale. Su un conto
+# spot non esiste; su un perpetuo e' il funding, che su Binance oscilla attorno allo 0,01% ogni
+# otto ore -- 0,03% al giorno -- e che qui viene addebitato **a entrambi i versi**. Nella realta'
+# il funding e' un trasferimento: chi sta dalla parte giusta lo incassa. Addebitarlo sempre e' la
+# scelta prudente, ed evita di far dipendere il risultato di una strategia da una previsione sul
+# segno del funding.
+CARRY_DAILY_PERCENT = 0.03
+
+
+def simulate_positions(
+    events: list,
+    wallet: float = 100,
+    fee_percent: float = 0.1,
+    carry_daily_percent: float = CARRY_DAILY_PERCENT,
+    leverage: float = 1.0,
+) -> list:
+    """Da una sequenza di cambi di posizione alle operazioni chiuse, con il verso.
+
+    `events` e' una lista di `(timestamp, prezzo, obiettivo)` con obiettivo in `{+1, 0, -1}`:
+    lungo, fuori, corto. Ogni elemento e' un **cambio** di stato, non uno stato ripetuto.
+
+    Perche' non bastava `simulate_trading_with_commisions`: quella accoppia due liste separate per
+    indice e conosce un solo verso. Una strategia che inverte la posizione -- da lungo a corto
+    senza passare per il flat -- non e' rappresentabile in quel formato, e la vendita allo scoperto
+    nemmeno.
+
+    Convenzioni, tutte a leva 1:
+
+    - il nozionale di ogni operazione e' il capitale disponibile moltiplicato per `leverage`
+      (a leva 1, tutto il capitale, come nel simulatore storico). La leva serve a confrontare
+      strategie con drawdown molto diversi: una che rende meta' del possesso passivo con un quarto
+      del drawdown, portata a leva due, rende quanto il possesso passivo con meta' del suo rischio.
+      Commissioni e mantenimento si pagano sul nozionale, quindi crescono con la leva;
+    - la commissione si paga su entrambe le gambe, calcolata sul nozionale scambiato (all'uscita il
+      nozionale e' cambiato con il prezzo);
+    - il costo di mantenimento e' proporzionale ai giorni di posizione aperta;
+    - se il capitale arriva a zero la simulazione si ferma: a leva 1 uno short viene azzerato
+      quando il prezzo raddoppia, a leva 3 basta un movimento contrario di un terzo. Il conto non
+      va sotto zero e la simulazione non prosegue: e' la liquidazione.
+
+    La liquidazione qui e' valutata **alla chiusura dell'operazione**, non barra per barra: una
+    posizione che va sotto zero a meta' corsa e torna sopra non viene liquidata come lo sarebbe
+    davvero. E' un limite noto, e conta solo a leve alte.
+    """
+    operations = []
+    fee = fee_percent / 100.0
+    carry = carry_daily_percent / 100.0
+    position = 0
+    entry_price = 0.0
+    entry_time = None
+    notional = 0.0
+
+    for timestamp, price, target in events:
+        price = float(price)
+        if target == position:
+            continue
+        if position != 0:
+            days = (timestamp - entry_time).total_seconds() / 86400.0
+            direction = 1 if position > 0 else -1
+            gross = notional * direction * (price - entry_price) / entry_price
+            fees = fee * notional * (1 + price / entry_price)
+            carrying = carry * notional * days
+            profit = gross - fees - carrying
+            wallet = max(0.0, wallet + profit)
+            operations.append(
+                {
+                    "Side": "long" if direction > 0 else "short",
+                    "Buy_Time": entry_time,
+                    "Buy_Price": entry_price,
+                    "Sell_Time": timestamp,
+                    "Sell_Price": price,
+                    "Quantity": notional / entry_price,
+                    "Profit": profit,
+                    "Wallet_After": wallet,
+                }
+            )
+            position = 0
+            if wallet <= 0:
+                break
+        if target != 0:
+            position = target
+            entry_price = price
+            entry_time = timestamp
+            notional = wallet * leverage
+    return operations

@@ -130,6 +130,7 @@ KEYS = [
     "simulate_candles",
     "simulate_trading_with_commisions",
     "simulate_trading_with_commisions_multiple_buy",
+    "simulate_positions",
     *(
         f"{scenario}/{name}"
         for scenario in SCENARIOS
@@ -190,6 +191,18 @@ def build_snapshot() -> dict:
             for operation in operations
         ]
 
+    # Il motore a due versi: gli stessi segnali riscritti come cambi di posizione, piu'
+    # un'inversione diretta da lungo a corto, che nel formato a due liste non e' esprimibile.
+    events = [(time, price, 1) for time, price in buy[:20]]
+    events += [(time, price, 0) for time, price in sell[:20]]
+    events.sort(key=lambda event: event[0])
+    if len(events) > 4:
+        events[3] = (events[3][0], events[3][1], -1)
+    snapshot["simulate_positions"] = [
+        {k: (round(float(v), 8) if isinstance(v, (int, float)) else str(v)) for k, v in operation.items()}
+        for operation in pnl.simulate_positions(events, wallet=100, fee_percent=0.05)
+    ]
+
     return snapshot
 
 
@@ -234,3 +247,44 @@ def test_snapshot_covers_every_public_function(golden):
 @pytest.mark.parametrize("key", KEYS)
 def test_behaviour_unchanged(golden, current, key):
     assert current[key] == golden[key]
+
+
+# -------------------------------------------------------------------------------------------------
+# Lo stop loss di `buy_sell_limits_close_simulation`, che il golden master non esercita
+# -------------------------------------------------------------------------------------------------
+# Il ramo e' stato ripristinato da codice commentato, ma al default `stop_loss_percent=99` e'
+# inerte: la voce del golden per questa funzione non e' cambiata quando e' stato riacceso, che e'
+# la prova che nessuno scenario lo esegue. Qui si guarda proprio quel ramo, a una soglia operativa.
+
+
+def _limits_frame(closes: list[float], rsi: list[float]) -> pd.DataFrame:
+    """Le sole quattro colonne che la strategia legge. Le bande stanno larghe di proposito, cosi'
+    l'unico ingresso possibile e' l'RSI e l'unica uscita possibile lo stop."""
+    return pd.DataFrame(
+        {
+            "Close": closes,
+            "RSI": rsi,
+            "Lower_Band": [close * 0.5 for close in closes],
+            "Upper_Band": [close * 2.0 for close in closes],
+        },
+        index=pd.date_range("2024-01-01", periods=len(closes), freq="1h", name="Open time"),
+    )
+
+
+def test_stop_loss_esce_alla_prima_chiusura_sotto_la_soglia():
+    frame = _limits_frame([100.0, 100.0, 98.0, 94.0, 90.0], [50.0, 20.0, 50.0, 50.0, 50.0])
+    buys, sells = strategies.buy_sell_limits_close_simulation(frame, stop_loss_percent=5.0)
+
+    assert buys == [(frame.index[1], 100.0)]
+    # Stop a 95: la barra a 98 non basta, quella a 94 si', e dopo l'uscita non se ne aggiungono altre.
+    assert sells == [(frame.index[3], 94.0)]
+
+
+def test_stop_loss_al_default_resta_inerte():
+    """Il default 99% mette lo stop a un centesimo del prezzo: la strategia si comporta come prima
+    del ripristino. E' cio' che rende il golden master invariato, e va tenuto fermo."""
+    frame = _limits_frame([100.0, 100.0, 98.0, 94.0, 90.0], [50.0, 20.0, 50.0, 50.0, 50.0])
+    buys, sells = strategies.buy_sell_limits_close_simulation(frame)
+
+    assert buys == [(frame.index[1], 100.0)]
+    assert sells == []

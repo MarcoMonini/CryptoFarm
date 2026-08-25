@@ -9,6 +9,10 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
 - `.claude/docs/strategy.md` — fonte di verità delle decisioni su labeling, feature, modello e
   validazione, con le misure che le giustificano. Da aggiornare in luogo quando si decide qualcosa.
 - `.claude/docs/HANDOFF.md` — stato corrente del lavoro e trappole ambientali per chi riprende.
+- `.claude/docs/backtest-strategie.md` — le strategie a indicatori misurate su nove anni: 3.129
+  configurazioni, sensibilità ai parametri, tenuta fuori campione, difetti trovati misurando.
+- `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
+  2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
 - `.claude/docs/INDEX.md` — ordine di lettura consigliato.
 
 Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
@@ -42,8 +46,12 @@ src/cryptofarm/
 └── trading/
     ├── market_data.py    scarico puntuale da Binance per la pagina Streamlit
     ├── indicators.py     indicatori + il nucleo numpy ATR/EMA
+    ├── indicators_extra.py  ADX, Donchian, Bollinger/Keltner, StochRSI, OBV/MFI, Ichimoku
+    ├── panels.py         il registro: quale strategia usa quali indicatori e quali parametri
     ├── strategies.py     da candele con indicatori a (buy_signals, sell_signals)
-    ├── pnl.py            da segnali a operazioni, commissioni incluse
+    ├── strategies_ls.py  strategie a due versi: da candele a cambi di posizione (+1/0/-1)
+    ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
+    │                     e `simulate_positions` (long/short, con leva e costo di mantenimento)
     ├── config.py         valori di partenza dei widget della pagina
     ├── simulator.py      la pagina Streamlit: `trading_analysis` + layout
     └── live_bot.py       bot headless che piazza ordini veri
@@ -68,11 +76,23 @@ streamlit run src/cryptofarm/trading/simulator.py
 # Misure di strategy.md
 .venv312/bin/python -m scripts.analysis
 
+# Backtest delle strategie a indicatori su tutto lo storico (vedi .claude/docs/backtest-strategie.md)
+.venv312/bin/python -m scripts.strategy_sweep --all --interval 15m   # griglie di parametri
+.venv312/bin/python -m scripts.sweep_report --interval 15m           # tabelle in reports/
+.venv312/bin/python -m scripts.strategy_focus --top 3                # commissioni e intervalli
+
+# Strategie a due versi, long e short (vedi .claude/docs/strategie-nuove.md)
+.venv312/bin/python -m scripts.strategy_lab --all --interval 1d --since 2021-01-01
+.venv312/bin/python -m scripts.lab_report --symbol BTCUSD --interval 1d
+
+# Store delle candele da fonte alternativa, dove data.binance.vision non è raggiungibile
+.venv312/bin/python -m scripts.import_candles --source /percorso/al/clone
+
 # Bot live — piazza ordini veri, richiede le variabili d'ambiente (vedi .env.example)
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (188 test in 12 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (430 test in 15 file). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -86,7 +106,9 @@ ri-esportazione**: chi serve una strategia la importa dal modulo che la contiene
   `Open, High, Low, Close, Volume`.
 - Le funzioni in `strategies.py` restituiscono `(buy_signals, sell_signals)`, liste di
   `(timestamp, prezzo)`, che `trading_analysis` passa a `pnl.simulate_trading_with_commisions` o
-  `simulate_trading_with_commisions_multiple_buy`.
+  `simulate_trading_with_commisions_multiple_buy`. Quelle in `strategies_ls.py` restituiscono invece
+  cambi di posizione `(timestamp, prezzo, +1|0|-1)` per `pnl.simulate_positions`: è il formato che
+  serve a rappresentare l'inversione diretta e la vendita allo scoperto.
 - Le letture per riga sono in array numpy estratti prima del ciclo, non `df["Col"].iloc[i]`. È da lì
   che viene il grosso della velocità (il simulatore intero: 4295 ms → 125 ms). Mantenere lo stile.
 - `indicators._atr_ema` replica in numpy le formule di `ta` 0.11 riga per riga (seme dell'ATR sulla
@@ -94,16 +116,33 @@ ri-esportazione**: chi serve una strategia la importa dal modulo che la contiene
   **Se si cambia, va riverificato contro `ta`**: è ciò che rende `simulate_candles` 40 volte più
   veloce, e una divergenza silenziosa qui sposta ogni segnale.
 
-### `MACD`: un ramo di dispatch irraggiungibile
+### Il registro di `panels.py`
 
-`add_technical_indicator` calcola di nuovo `PSAR` (era commentato: le strategie "Close ATR" e
-"ATR Live Trade" si rompevano con `KeyError`). Resta commentato il solo `MACD`, letto da
-`buy_sell_limits_simulation`, che quindi solleva `KeyError` appena chiamata.
+La pagina non decide piu' da sola cosa mostrare. `trading/panels.py` tiene, in forma di dati, quali
+indicatori usa ogni strategia, quali parametri servono a ognuno e come si disegnano; `simulator.py`
+lo legge e dispone widget e tracce. Aggiungere una strategia vuol dire aggiungere una riga li' e la
+voce in `config.STRATEGIES` — un test verifica che le due liste coincidano.
 
-**Nessuna voce del menu la raggiunge**: `trading_analysis` la lega alla stringa `"Buy/Sell Limits"`,
-che non è in `config.STRATEGIES`. Lo stesso vale per `"ATR Bands"` e per le varianti `"Dinamic *"`.
-Sono rami morti; la funzione resta perché il codice attorno la documenta, ma per renderla usabile
-servirebbe ripristinare il blocco `MACD` **e** aggiungere la voce al menu.
+Tre cose da sapere prima di toccarlo:
+
+- **La mappa e' verificata a mano.** Uno scan statico delle colonne lette non basta:
+  `close_bullish_ema_simulation` prende le medie con `(df[c].to_numpy() for c in (...))`, uno slice
+  variabile che l'analisi dell'albero sintattico non vede.
+- **Le dipendenze contano piu' dei nomi.** `Upper_Band`/`Lower_Band` sono `KAMA ± moltiplicatore ×
+  ATR` e `KAMA` usa `ema_window`: una strategia a bande dipende da "EMA Short" anche se di medie non
+  ne disegna nessuna.
+- **I colori sono tre**, blu/arancio/acquamarina: le uniche che passano tutte le coppie del
+  validatore su superficie scura. Il quarto slot contro l'arancio scende a 4,8 di ΔE per
+  deuteranopia. L'acquamarina non si usa sopra le candele, dove si confonde con il corpo rialzista.
+  Verde e rosso restano allo stato. Tre test tengono ferme queste regole.
+
+### Funzioni di `strategies.py` che il menu non raggiunge
+
+`buy_sell_limits_simulation` legge `MACD`, che resta commentata in `add_technical_indicator`, e
+quindi solleva `KeyError` appena chiamata. `close_rsi_buy_sell_limits_simulation` e'
+irraggiungibile per scelta: misurata su nove anni, e' in perdita totale in tutte le 25
+configurazioni provate. Nessuna delle due sta nel registro, quindi non compare nel menu; restano
+nel modulo perche' il golden master le copre e il codice attorno le documenta.
 
 ### Il golden master
 
@@ -223,6 +262,22 @@ configurazione di esecuzione dell'IDE.
 - Il simulatore e i trainer usano gli endpoint pubblici di Binance e non hanno bisogno di credenziali.
 
 `.streamlit/config.toml` imposta il tema scuro.
+
+### Plugin di Claude Code
+
+`.claude/settings.json` è tracciato e dichiara tre marketplace con i plugin abilitati per il
+progetto: `ponytail`, `agent-skills` (raccolte di skill generaliste) e tre plugin di
+`anthropics/financial-services` — `financial-analysis`, `equity-research`, `market-researcher` —
+scelti perché il lavoro qui è di analisi finanziaria quantitativa.
+
+Ogni marketplace è **agganciato a un commit** (`ref`, SHA a 40 caratteri): è l'unico modo di fissare
+le versioni dei plugin, perché `enabledPlugins` accetta solo un booleano e la versione la dichiara
+il manifesto del marketplace. Al momento dell'aggancio: ponytail 4.9.0, agent-skills 0.6.7,
+financial-analysis 0.1.1, equity-research 0.1.2, market-researcher 0.1.1. Per aggiornarli si sposta
+il `ref` su un commit più recente, deliberatamente — non succede da solo.
+
+Le skill dei plugin sono disponibili dalla sessione successiva all'installazione, non da quella in
+cui si modifica il file.
 
 ## Archived
 

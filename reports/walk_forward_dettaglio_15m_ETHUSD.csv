@@ -1,0 +1,11 @@
+griglia,anno,rendimento_%,n_trade,capitale,configurazione
+close_buy_sell_limits,2019,7.1,8,1.071,"rsi_window=12, rsi_window2=24, rsi_window3=36, ema_window=10, ema_window2=50, ema_window3=200, atr_window=5, atr_multiplier=2.5, kama_pow1=2, kama_pow2=30, rsi_buy_limit=40, rsi_sell_limit=85, num_cond=2"
+close_atr,2019,67.8,14,1.678,"rsi_window=12, rsi_window2=24, rsi_window3=36, ema_window=20, ema_window2=50, ema_window3=200, atr_window=7, atr_multiplier=4.0, kama_pow1=2, kama_pow2=30, stop_loss=99.0"
+atr_bands,2019,-27.1,573,0.729,"rsi_window=12, rsi_window2=24, rsi_window3=36, ema_window=10, ema_window2=50, ema_window3=200, atr_window=20, atr_multiplier=1.6, kama_pow1=2, kama_pow2=30, stop_loss=99.0"
+supertrend,2019,-37.1,204,0.629,"rsi_window=12, rsi_window2=24, rsi_window3=36, ema_window=50, ema_window2=50, ema_window3=200, atr_window=30, atr_multiplier=3.0, kama_pow1=2, kama_pow2=30"
+tp_sl_atr,2019,-3.9,185,0.961,"rsi_window=12, rsi_window2=24, rsi_window3=36, ema_window=50, ema_window2=50, ema_window3=200, atr_window=20, atr_multiplier=3.0, kama_pow1=2, kama_pow2=30"
+close_bullish_ema,2019,-26.1,62,0.739,"rsi_window=12, rsi_window2=24, rsi_window3=36, atr_window=5, atr_multiplier=1.6, kama_pow1=2, kama_pow2=30, rsi_buy_limit=40, rsi_sell_limit=80, ema_triplet=5/20/60"
+close_ema_crossover,2019,20.8,114,1.208,"rsi_window=12, rsi_window2=24, rsi_window3=36, atr_window=5, atr_multiplier=1.6, kama_pow1=2, kama_pow2=30, ema_triplet=20/50/100"
+trend_zones,2019,-82.1,762,0.179,"rsi_window=12, rsi_window2=24, rsi_window3=36, ema_window=200, ema_window2=50, ema_window3=200, atr_window=5, atr_multiplier=1.6, kama_pow1=2, kama_pow2=30"
+close_rsi_reverse,2019,-97.7,1956,0.023,"rsi_window=21, rsi_window2=50, rsi_window3=36, ema_window=10, ema_window2=50, ema_window3=200, atr_window=5, atr_multiplier=1.6, kama_pow1=2, kama_pow2=30"
+green_candles,2019,-94.9,1682,0.051,"rsi_window=12, rsi_window2=24, rsi_window3=36, ema_window=10, ema_window2=50, ema_window3=200, atr_window=5, atr_multiplier=1.6, kama_pow1=2, kama_pow2=30"

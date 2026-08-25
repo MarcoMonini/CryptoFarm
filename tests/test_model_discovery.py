@@ -10,6 +10,7 @@ import json
 import pytest
 
 from cryptofarm.ml import trainer
+from cryptofarm.trading import config
 
 
 @pytest.fixture()
@@ -65,3 +66,17 @@ def test_the_ai_strategy_is_offered_once_a_model_is_loaded():
     from cryptofarm.trading import config, simulator
 
     assert simulator.available_strategies(model=object()) == list(config.STRATEGIES)
+
+
+def test_la_pagina_parte_anche_senza_nessun_modello(models_dir):
+    """La riga di avvio della pagina, non i suoi pezzi.
+
+    `active_model_name` e `available_strategies` erano gia' coperti, ma nessun test toccava il
+    punto in cui la pagina li mette insieme -- ed e' quello che ha mandato in errore il servizio:
+    `load_signal_model()` senza condizione solleva, e la pagina non si apriva affatto.
+    """
+    from cryptofarm.trading.simulator import available_strategies, modello_di_sessione
+
+    modello = modello_di_sessione()
+    assert modello is None
+    assert config.AI_STRATEGY not in available_strategies(modello)
