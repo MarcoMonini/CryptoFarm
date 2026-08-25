@@ -5,9 +5,12 @@ Tre proprieta' da tenere ferme:
 1. **I conti di `simulate_positions`** -- lungo, corto, inversione diretta, commissioni,
    mantenimento e leva -- si verificano a mano su numeri scelti, perche' un errore di segno qui
    non rompe niente: produce solo risultati sbagliati con l'aria di essere giusti.
-2. **Nessuna strategia guarda avanti.** Il controllo e' diretto: si tronca la serie a meta' e i
-   segnali generati sulla parte iniziale devono essere identici a quelli generati sulla serie
-   intera fino a quel punto. Un indicatore centrato o uno `shift` col segno sbagliato lo rompe.
+2. **Nessuna strategia guarda avanti**, e servono due controlli distinti. Fra le barre: si tronca
+   la serie a meta' e i segnali sulla parte iniziale devono essere identici a quelli sulla serie
+   intera fino a quel punto -- un indicatore centrato o uno `shift` col segno sbagliato lo rompe.
+   Dentro la barra la troncatura non vede niente, perche' la barra che scatena l'evento e'
+   identica nelle due versioni: li' si perturba il massimo della sola barra dell'uscita e si
+   pretende che l'uscita non si sposti.
 3. **`allow_short=False` produce solo posizioni lunghe**, e nient'altro cambia.
 """
 

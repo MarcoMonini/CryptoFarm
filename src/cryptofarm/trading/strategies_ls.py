@@ -294,11 +294,15 @@ def ichimoku_trend(
 
     events: list = []
     position = 0
+    # `start` non e' prudenza, e' l'unica protezione che c'e'. `ta` costruisce span B con
+    # `min_periods=0` e riempie le prime `slow` righe dello shift con la media dell'**intera**
+    # serie: span B non e' mai NaN, quindi nessuna guardia lo intercetta, e quel riempimento e'
+    # look-ahead vero. Le righe contaminate stanno tutte sotto `slow + span`. Non abbassarlo.
     start = slow + span + 2
 
     for i in range(start, len(closes)):
         price = closes[i]
-        if np.isnan(tenkan[i]) or np.isnan(kijun[i]) or np.isnan(span_b[i]):
+        if np.isnan(tenkan[i]) or np.isnan(kijun[i]):
             continue
         cross_up = tenkan[i - 1] <= kijun[i - 1] and tenkan[i] > kijun[i]
         cross_down = tenkan[i - 1] >= kijun[i - 1] and tenkan[i] < kijun[i]
