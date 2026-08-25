@@ -38,7 +38,6 @@ _INTERI = {
     "atr_window",
     "bb_window",
     "kc_window",
-    "kc_atr_window",
     "obv_window",
     "kama_window",
     "stochrsi_window",

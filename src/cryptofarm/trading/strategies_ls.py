@@ -45,7 +45,6 @@ from cryptofarm.trading.indicators_extra import ExtraCache
 def _arrays(candles: pd.DataFrame) -> tuple[np.ndarray, ...]:
     return (
         candles.index,
-        candles["Open"].to_numpy(),
         candles["High"].to_numpy(),
         candles["Low"].to_numpy(),
         candles["Close"].to_numpy(),
@@ -72,7 +71,7 @@ def donchian_breakout(
     lunghi, che sono l'unica fonte di guadagno di un sistema di rottura, e taglia presto i falsi
     segnali, che sono la maggioranza.
     """
-    index, _, highs, lows, closes = _arrays(candles)
+    index, highs, lows, closes = _arrays(candles)
     upper, lower = cache.donchian(channel)
     adx = cache.adx(adx_window)
     atr = cache.atr(atr_window)
@@ -144,7 +143,7 @@ def squeeze_breakout(
     alla media delle bande; il volume, se richiesto, deve confermarla (OBV in salita per un lungo).
     L'uscita e' a trailing ATR come sopra.
     """
-    index, _, highs, lows, closes = _arrays(candles)
+    index, highs, lows, closes = _arrays(candles)
     bb_high, bb_low, bb_mid = cache.bollinger(bb_window, bb_dev)
     kc_high, kc_low = cache.keltner(kc_window, atr_window, kc_multiplier)
     atr = cache.atr(atr_window)
@@ -228,7 +227,7 @@ def trend_pullback(
     Lo stop e' fisso a `atr_multiplier` ATR dall'ingresso; l'uscita in guadagno e' il ritorno
     dell'oscillatore in zona opposta, cioe' quando il ritracciamento e' finito.
     """
-    index, _, highs, lows, closes = _arrays(candles)
+    index, highs, lows, closes = _arrays(candles)
     # `regime_ema=0` toglie il filtro di trend e lascia solo l'oscillatore: e' l'ablazione che
     # misura quanto vale il filtro, cioe' la differenza fra questa strategia e "Close ATR".
     regime = cache.ema(regime_ema) if regime_ema else None
@@ -288,7 +287,7 @@ def ichimoku_trend(
     incorporata, gia' pronto e molto usato -- e serve proprio per questo: se una strategia
     costruita apposta non batte Ichimoku preso dal manuale, non vale il lavoro che costa.
     """
-    index, _, _, _, closes = _arrays(candles)
+    index, _, _, closes = _arrays(candles)
     tenkan, kijun, span_a, span_b = cache.ichimoku(fast, slow, span)
     cloud_top = np.maximum(span_a, span_b)
     cloud_bottom = np.minimum(span_a, span_b)
@@ -348,7 +347,7 @@ def band_reversion_gated(
     sopra la banda superiore. `regime_ema=0` lascia entrambi i versi liberi; un valore positivo
     limita i lunghi a sopra la media lunga e i corti a sotto.
     """
-    index, _, highs, lows, closes = _arrays(candles)
+    index, highs, lows, closes = _arrays(candles)
     kama = cache.kama(kama_window)
     atr = cache.atr(atr_window)
     adx = cache.adx(adx_window)

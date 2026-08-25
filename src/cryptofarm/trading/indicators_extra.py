@@ -30,35 +30,12 @@ calcolata ventisei barre fa, come sul grafico.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 import pandas as pd
 from ta.momentum import KAMAIndicator, StochRSIIndicator
 from ta.trend import ADXIndicator, EMAIndicator, IchimokuIndicator
 from ta.volatility import AverageTrueRange, BollingerBands, KeltnerChannel
 from ta.volume import MFIIndicator, OnBalanceVolumeIndicator
-
-
-@dataclass(frozen=True)
-class ExtraParams:
-    """Le finestre degli indicatori nuovi. I default sono quelli classici della letteratura."""
-
-    donchian_window: int = 20
-    adx_window: int = 14
-    atr_window: int = 14
-    regime_ema: int = 200
-    bb_window: int = 20
-    bb_dev: float = 2.0
-    kc_window: int = 20
-    kc_atr_window: int = 10
-    kc_multiplier: float = 1.5
-    stochrsi_window: int = 14
-    stochrsi_smooth: int = 3
-    mfi_window: int = 14
-    ichimoku_fast: int = 9
-    ichimoku_slow: int = 26
-    ichimoku_span: int = 52
 
 
 class ExtraCache:
