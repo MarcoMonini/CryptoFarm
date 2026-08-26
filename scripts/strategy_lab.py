@@ -32,8 +32,8 @@ import pandas as pd
 from cryptofarm.paths import PROJECT_ROOT
 from cryptofarm.trading import strategies_ls as ls
 from cryptofarm.trading.indicators_extra import ExtraCache
-from cryptofarm.trading.pnl import simulate_positions
-from scripts.strategy_sweep import _annualised, _drawdown, load_interval
+from cryptofarm.trading.pnl import annualised, drawdown, simulate_positions
+from scripts.strategy_sweep import load_interval
 
 SYMBOL = "BTCUSD"
 SINCE = "2021-01-01"
@@ -79,7 +79,7 @@ def evaluate(
 ) -> dict:
     closes = candles["Close"].to_numpy()
     equity = bar_equity(candles, operations, wallet)
-    cagr, volatility, sharpe = _annualised(equity, candles.index)
+    cagr, volatility, sharpe = annualised(equity, candles.index)
     result = {
         "n_trade": len(operations),
         "n_long": 0,
@@ -89,8 +89,8 @@ def evaluate(
         "cagr_%": cagr,
         "volatilita_%": volatility,
         "sharpe": sharpe,
-        "max_drawdown_%": _drawdown(equity),
-        "buy_hold_drawdown_%": _drawdown(closes / closes[0] * wallet),
+        "max_drawdown_%": drawdown(equity),
+        "buy_hold_drawdown_%": drawdown(closes / closes[0] * wallet),
         "win_rate_%": float("nan"),
         "win_rate_long_%": float("nan"),
         "win_rate_short_%": float("nan"),

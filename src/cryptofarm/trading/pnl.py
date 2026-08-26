@@ -2,7 +2,17 @@
 
 Estratto da `simulator.py` senza modifiche. Entrambe le funzioni accoppiano i segnali per
 indice: ha senso solo se la strategia li produce alternati, come nota `ai_model_simulation`.
-Restituiscono la lista delle operazioni, non un totale."""
+Restituiscono la lista delle operazioni, non un totale.
+
+In fondo stanno le due misure della **curva del capitale** -- drawdown e metriche annualizzate.
+Vivevano in `scripts/strategy_sweep`, dove le importava anche `strategy_lab`; sono salite qui
+quando e' servita una terza chiamante (`trading/rotation.py`), perche' la terza copia sarebbe
+stata la prima occasione per farle divergere in silenzio."""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
 
 
 def simulate_trading_with_commisions(
@@ -233,3 +243,30 @@ def simulate_positions(
             entry_time = timestamp
             notional = wallet * leverage
     return operations
+
+
+# ---------------------------------------------------------------------------------------------
+# Misure della curva del capitale
+# ---------------------------------------------------------------------------------------------
+
+
+def drawdown(equity: np.ndarray) -> float:
+    """La caduta peggiore dal massimo precedente, in percentuale."""
+    peak = np.maximum.accumulate(equity)
+    return float((1 - equity / peak).max() * 100)
+
+
+def annualised(equity: np.ndarray, index: pd.DatetimeIndex) -> tuple[float, float, float]:
+    """CAGR, volatilita' annualizzata e Sharpe (tasso privo di rischio zero) su rendimenti giornalieri.
+
+    Il ricampionamento a un giorno serve a rendere confrontabili curve nate da barre diverse: senza,
+    lo Sharpe di una strategia a 4h e quello di una a 1d non parlerebbero della stessa grandezza.
+    """
+    years = (index[-1] - index[0]).total_seconds() / (365.25 * 24 * 3600)
+    cagr = ((equity[-1] / equity[0]) ** (1 / years) - 1) * 100 if equity[-1] > 0 and years > 0 else float("nan")
+    daily = pd.Series(equity, index=index).resample("1D").last().dropna().pct_change().dropna()
+    if len(daily) < 2 or daily.std() == 0:
+        return cagr, float("nan"), float("nan")
+    volatility = float(daily.std() * np.sqrt(365) * 100)
+    sharpe = float(daily.mean() / daily.std() * np.sqrt(365))
+    return cagr, volatility, sharpe

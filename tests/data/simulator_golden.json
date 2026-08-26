@@ -1,4 +1,9 @@
 {
+  "annualised": [
+    37.83651302,
+    37.08236225,
+    1.05015012
+  ],
   "calculate_latest_indicators": {
     "Close": [
       2435.803229,
@@ -1003,6 +1008,7 @@
       ]
     }
   },
+  "drawdown": 29.00956879,
   "interval_to_minutes": {
     "15m": 15,
     "1d": 0,

@@ -21,13 +21,15 @@ Due varianti del filtro di regime, perche' la differenza e' il punto:
   interruttore **unico per tutto il portafoglio**: in cripto la correlazione fra asset in caduta
   va a uno, quindi selezionare il migliore fra quindici che scendono non protegge da niente.
 
-Nessun look-ahead: la classifica alla barra `t` usa solo chiusure fino a `t` incluse, la posizione
-si prende alla chiusura di `t` e il rendimento e' quello da `t` al ribilanciamento successivo --
-la stessa convenzione del resto del repository.
+**Il meccanismo sta in `cryptofarm.trading.rotation`**, non qui: lo usa anche la pagina Streamlit,
+e il pacchetto non puo' dipendere da `scripts/`. Qui restano le griglie, il fuori campione, le
+coppie e il controllo -- cioe' l'esperimento, non la strategia.
 
     python -m scripts.cross_section --universe majors --interval 1d
     python -m scripts.cross_section --grid --interval 1d
     python -m scripts.cross_section --pairs
+
+Le proprieta' del motore sono verificate in `tests/test_rotation.py`, che la CI esegue.
 """
 
 from __future__ import annotations
@@ -35,178 +37,15 @@ from __future__ import annotations
 import argparse
 import itertools
 
-import numpy as np
 import pandas as pd
 
-from cryptofarm.data.klines import load_klines
 from cryptofarm.paths import PROJECT_ROOT
-from scripts.strategy_sweep import _annualised, _drawdown
+from cryptofarm.trading import rotation
+from cryptofarm.trading.rotation import FEE_PERCENT, MAJORS, backtest, benchmarks, load_universe
 
-# I cinque ad alta capitalizzazione del mandato, e l'universo largo dello store.
-MAJORS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT"]
-WIDE = MAJORS + [
-    "ADAUSDT",
-    "DOGEUSDT",
-    "AVAXUSDT",
-    "LINKUSDT",
-    "DOTUSDT",
-    "LTCUSDT",
-    "TRXUSDT",
-    "ATOMUSDT",
-    "NEARUSDT",
-    "UNIUSDT",
-]
-UNIVERSES = {"majors": MAJORS, "wide": WIDE, "btc_eth": ["BTCUSDT", "ETHUSDT"]}
-
+UNIVERSES = rotation.UNIVERSI
 SINCE = "2021-01-01"
-WALLET = 100.0
-# A pronti si paga il listino taker di Binance, non quello dei perpetui: 0,1% per gamba.
-FEE_PERCENT = 0.1
 OUTPUT_DIR = PROJECT_ROOT / "reports"
-
-
-def load_universe(symbols: list[str], interval: str, since: str, until: str | None = None) -> pd.DataFrame:
-    """Chiusure allineate su un indice comune. Le celle prima del listing restano NaN, non zero."""
-    closes = {}
-    for symbol in symbols:
-        candles = load_klines(symbol, interval)
-        if candles.empty:
-            continue
-        closes[symbol] = candles["Close"]
-    frame = pd.DataFrame(closes).sort_index()
-    frame = frame[frame.index >= since]
-    if until:
-        frame = frame[frame.index < until]
-    return frame
-
-
-def _rebalance_rows(index: pd.DatetimeIndex, every: int) -> np.ndarray:
-    """Le righe su cui si ribilancia. `every` e' in barre, non in giorni."""
-    return np.arange(0, len(index), every)
-
-
-def backtest(
-    closes: pd.DataFrame,
-    lookback: int,
-    top: int,
-    every: int,
-    fee: float = FEE_PERCENT,
-    regime: str = "none",
-    regime_window: int = 50,
-    skip: int = 0,
-) -> dict:
-    """Rotazione a peso uguale sui primi `top` per forza relativa.
-
-    `skip` salta le ultime barre nel calcolo del momento (il classico 12-1 delle azioni serve a
-    evitare l'inversione di breve). `regime` spegne tutto il portafoglio, non i singoli asset.
-    """
-    prices = closes.to_numpy(dtype=float)
-    n_bars, n_assets = prices.shape
-    if n_bars <= lookback + skip + 2:
-        raise SystemExit("finestra troppo corta per questo lookback")
-
-    # Momento causale: rendimento fra `t-lookback-skip` e `t-skip`, entrambi noti alla barra t.
-    momentum = np.full_like(prices, np.nan)
-    start = prices[: n_bars - lookback - skip]
-    end = prices[lookback : n_bars - skip]
-    momentum[lookback + skip :] = end / start - 1.0
-
-    gate = np.ones(n_bars, dtype=bool)
-    if regime == "btc":
-        btc = closes["BTCUSDT"].to_numpy(dtype=float)
-        mean = pd.Series(btc).rolling(regime_window).mean().to_numpy()
-        gate = btc > mean
-        gate[np.isnan(mean)] = False
-
-    rebalances = _rebalance_rows(closes.index, every)
-    equity = np.full(n_bars, WALLET, dtype=float)
-    # Si contabilizza in **valore per asset**, non in pesi normalizzati: il portafoglio puo' stare
-    # parzialmente in contanti (meno di `top` asset con forza positiva), e una normalizzazione a
-    # somma uno cancellerebbe quella quota invece di tenerla ferma.
-    holdings = np.zeros(n_assets)
-    cash = WALLET
-    turnover_total = 0.0
-    n_rebalances = 0
-    holdings_log: list[tuple[pd.Timestamp, tuple[str, ...]]] = []
-
-    for start_row, next_row in zip(rebalances, list(rebalances[1:]) + [n_bars - 1]):
-        row = start_row
-        value = cash + holdings.sum()
-        scores = momentum[row]
-        eligible = np.where(~np.isnan(scores) & ~np.isnan(prices[row]))[0]
-        target = np.zeros(n_assets)
-        if gate[row] and len(eligible) >= top:
-            chosen = eligible[np.argsort(scores[eligible])[::-1][:top]]
-            # Forza relativa **negativa non si compra**: essere il meno peggio di un mercato che
-            # scende non e' un segnale. La quota resta 1/top, quindi cio' che si scarta va in
-            # contanti invece di concentrarsi su chi resta -- degradare verso il contante, non
-            # verso una scommessa piu' grossa.
-            chosen = chosen[scores[chosen] > 0]
-            target[chosen] = value / top
-
-        traded = float(np.abs(target - holdings).sum())
-        cost = traded * fee / 100.0
-        turnover_total += traded / value if value > 0 else 0.0
-        if traded > 0:
-            n_rebalances += 1
-            holdings_log.append((closes.index[row], tuple(closes.columns[i] for i in np.where(target > 0)[0])))
-        holdings = target
-        cash = value - holdings.sum() - cost
-
-        # Segnatura a mercato barra per barra fino al prossimo ribilanciamento.
-        held = np.where(holdings > 0)[0]
-        base = prices[row]
-        for step in range(row, next_row + 1):
-            grown = float(np.nansum(holdings[held] * prices[step][held] / base[held])) if len(held) else 0.0
-            equity[step] = cash + grown
-        if len(held):
-            holdings[held] = holdings[held] * prices[next_row][held] / base[held]
-
-    cagr, volatility, sharpe = _annualised(equity, closes.index)
-    years = (closes.index[-1] - closes.index[0]).days / 365.25
-    return {
-        "rendimento_%": round((equity[-1] / WALLET - 1) * 100, 1),
-        "CAGR_%": round(cagr, 1),
-        "Sharpe": round(sharpe, 2),
-        "drawdown_%": round(_drawdown(equity), 1),
-        "ribilanciamenti": n_rebalances,
-        "turnover_annuo": round(turnover_total / max(years, 1e-9), 1),
-        "_equity": equity,
-        "_holdings": holdings_log,
-    }
-
-
-def benchmarks(closes: pd.DataFrame) -> dict[str, dict]:
-    """Possesso passivo di BTC e dell'universo a peso uguale ribilanciato mai (comprare e tenere)."""
-    out = {}
-    btc = closes["BTCUSDT"].to_numpy(dtype=float)
-    equity = WALLET * btc / btc[0]
-    cagr, _, sharpe = _annualised(equity, closes.index)
-    out["BTC comprare e tenere"] = {
-        "rendimento_%": round((equity[-1] / WALLET - 1) * 100, 1),
-        "CAGR_%": round(cagr, 1),
-        "Sharpe": round(sharpe, 2),
-        "drawdown_%": round(_drawdown(equity), 1),
-        "ribilanciamenti": 0,
-        "turnover_annuo": 0.0,
-    }
-    # Peso uguale su cio' che esiste alla prima barra, poi lasciato correre.
-    prices = closes.to_numpy(dtype=float)
-    first = prices[0]
-    live = ~np.isnan(first)
-    weights = live / live.sum()
-    equity = WALLET * np.nansum(weights * prices / first, axis=1)
-    cagr, _, sharpe = _annualised(equity, closes.index)
-    out["universo a peso uguale"] = {
-        "rendimento_%": round((equity[-1] / WALLET - 1) * 100, 1),
-        "CAGR_%": round(cagr, 1),
-        "Sharpe": round(sharpe, 2),
-        "drawdown_%": round(_drawdown(equity), 1),
-        "ribilanciamenti": 0,
-        "turnover_annuo": 0.0,
-    }
-    return out
-
 
 GRID = {
     "lookback": [10, 20, 30, 60, 90],
@@ -262,12 +101,7 @@ def main() -> None:
     parser.add_argument("--every", type=int, default=7)
     parser.add_argument("--regime", default="none", choices=["none", "btc"])
     parser.add_argument("--save", default="")
-    parser.add_argument("--selfcheck", action="store_true")
     args = parser.parse_args()
-
-    if args.selfcheck:
-        selfcheck()
-        return
 
     if args.pairs:
         pairs_report(args)
@@ -392,50 +226,6 @@ def pairs_report(args) -> None:
     if args.save:
         OUTPUT_DIR.mkdir(exist_ok=True)
         table.to_csv(OUTPUT_DIR / f"{args.save}.csv", index=False)
-
-
-def selfcheck() -> None:
-    """Il minimo che fallisce se la contabilita' si rompe. `--selfcheck` per eseguirlo."""
-    index = pd.date_range("2021-01-01", periods=120, freq="1D")
-
-    # 1. Prezzi fermi, nessuna commissione: il capitale non si muove e non si compra nulla
-    #    (momento zero non e' > 0).
-    flat = pd.DataFrame({"BTCUSDT": 100.0, "ETHUSDT": 100.0}, index=index)
-    result = backtest(flat, lookback=10, top=1, every=5, fee=0.0)
-    assert abs(result["rendimento_%"]) < 1e-9, result["rendimento_%"]
-    assert result["ribilanciamenti"] == 0, result["ribilanciamenti"]
-
-    # 2. Un solo asset che sale del 100%, comprato appena il momento diventa positivo:
-    #    il risultato e' il rendimento dal momento dell'acquisto, non da inizio serie.
-    ramp = pd.DataFrame({"BTCUSDT": np.linspace(100.0, 200.0, 120)}, index=index)
-    bought_at = ramp["BTCUSDT"].iloc[10]  # prima barra con momento definito e positivo
-    expected = (200.0 / bought_at - 1) * 100
-    result = backtest(ramp, lookback=10, top=1, every=5, fee=0.0)
-    assert abs(result["rendimento_%"] - round(expected, 1)) < 0.2, (result["rendimento_%"], expected)
-
-    # 3. La commissione toglie, e toglie in proporzione al giro d'affari.
-    free = backtest(ramp, lookback=10, top=1, every=5, fee=0.0)["rendimento_%"]
-    paid = backtest(ramp, lookback=10, top=1, every=5, fee=0.5)["rendimento_%"]
-    assert paid < free, (paid, free)
-
-    # 4. Contanti parziali: due asset, `top=2`, ma uno solo con momento positivo. Meta' capitale
-    #    resta ferma invece di sparire -- e' il difetto che la prima versione aveva.
-    mixed = pd.DataFrame(
-        {"BTCUSDT": np.linspace(100.0, 200.0, 120), "ETHUSDT": np.linspace(100.0, 50.0, 120)},
-        index=index,
-    )
-    half = backtest(mixed, lookback=10, top=2, every=5, fee=0.0)["rendimento_%"]
-    full = backtest(mixed, lookback=10, top=1, every=5, fee=0.0)["rendimento_%"]
-    # Con la contabilita' a pesi normalizzati la quota in contanti spariva a ogni ribilanciamento
-    # e questo valeva −100%. Deve stare fra zero e l'investimento pieno, non sotto.
-    assert 0 < half < full, (half, full)
-
-    # 5. Nessun look-ahead: troncare la serie non cambia le rotazioni gia' decise.
-    full = backtest(mixed, lookback=10, top=1, every=5, fee=0.0)["_holdings"]
-    cut = backtest(mixed.iloc[:80], lookback=10, top=1, every=5, fee=0.0)["_holdings"]
-    assert full[: len(cut)] == cut, (full[: len(cut)], cut)
-
-    print("selfcheck: ok")
 
 
 if __name__ == "__main__":
