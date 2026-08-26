@@ -43,24 +43,24 @@ WALLET = {"value": 100, "min_value": 0, "step": 1}
 # `trading_analysis`, e perche' la pagina lo toglie dalle opzioni quando manca il modello.
 AI_STRATEGY = "AI Model"
 
+# Il menu e' stato potato sulle misure di `.claude/docs/ricerca-quant-ml.md` §2: scelta della
+# configurazione sul 2021-2023, resa sul 2024-2026, su BTC/ETH/SOL/XRP/BNB a 1d e 4h. Restano le
+# voci che fuori campione hanno mediana positiva o almeno due celle su dieci sopra il possesso
+# passivo. Le sette tolte -- Close Buy/Sell Limits, Close ATR, Close Bullish EMA, Green Candles,
+# ATR Live Trade, Trend Pullback, Band Reversion -- restano in `strategies.py` e nel golden master:
+# sono uscite dal menu, non dal repository, e la misura si rifa' con `scripts/strategy_sweep`.
 STRATEGIES = [
     "-",
-    "Close Buy/Sell Limits",
-    "Close ATR",
     "ATR Bands",
-    "Close Bullish EMA",
-    "Close EMA Crossover",
-    "Supertrend",
     "Trend Zones",
+    "Close EMA Crossover",
+    "Close RSI Reverse",
+    "Supertrend",
     "TP/SL with ATR",
-    "Green Candles",
-    "ATR Live Trade",
     AI_STRATEGY,
-    "Donchian Breakout",
-    "Squeeze Breakout",
-    "Trend Pullback",
     "Ichimoku Trend",
-    "Band Reversion",
+    "Squeeze Breakout",
+    "Donchian Breakout",
 ]
 
 # Indicatori

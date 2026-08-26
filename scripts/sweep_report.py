@@ -71,29 +71,41 @@ def _fold_triplet(name: str, frame: pd.DataFrame) -> pd.DataFrame:
     return folded.drop(columns=columns)
 
 
-def _stem(name: str, interval: str, symbol: str) -> str:
-    """Il simbolo di riferimento non entra nel nome dei file: cosi' li ha scritti lo sweep."""
-    return f"{name}_{interval}" if symbol == SYMBOL else f"{name}_{interval}_{symbol}"
+def _stem(name: str, interval: str, symbol: str, suffix: str = "") -> str:
+    """Ricostruisce il nome che `strategy_sweep.save` ha scritto, `--suffix` compreso.
+
+    Il simbolo di riferimento non entra nel nome; il suffisso sì, sempre, ed e' il motivo per cui
+    questo parametro esiste: senza, uno sweep lanciato con `--suffix` produceva file che questo
+    modulo non trovava mai.
+    """
+    stem = f"{name}_{interval}" if symbol == SYMBOL else f"{name}_{interval}_{symbol}"
+    return stem + suffix
 
 
 def load_sweeps(
-    interval: str = "15m", grids: list[str] | None = None, fold: bool = True, symbol: str = SYMBOL
+    interval: str = "15m",
+    grids: list[str] | None = None,
+    fold: bool = True,
+    symbol: str = SYMBOL,
+    suffix: str = "",
 ) -> dict[str, pd.DataFrame]:
     """`fold=False` restituisce le colonne come le ha scritte lo sweep: serve a chi deve
     ricostruire una configurazione per rieseguirla, non a chi la legge."""
     frames = {}
     for name in grids or GRIDS:
-        path = OUTPUT_DIR / f"{_stem(name, interval, symbol)}.parquet"
+        path = OUTPUT_DIR / f"{_stem(name, interval, symbol, suffix)}.parquet"
         if path.exists():
             frame = pd.read_parquet(path)
             frames[name] = _fold_triplet(name, frame) if fold else frame
     return frames
 
 
-def load_yearly(interval: str = "15m", grids: list[str] | None = None, symbol: str = SYMBOL) -> dict[str, pd.DataFrame]:
+def load_yearly(
+    interval: str = "15m", grids: list[str] | None = None, symbol: str = SYMBOL, suffix: str = ""
+) -> dict[str, pd.DataFrame]:
     frames = {}
     for name in grids or GRIDS:
-        path = OUTPUT_DIR / f"{_stem(name, interval, symbol)}_annuale.parquet"
+        path = OUTPUT_DIR / f"{_stem(name, interval, symbol, suffix)}_annuale.parquet"
         if path.exists():
             frames[name] = _fold_triplet(name, pd.read_parquet(path))
     return frames
@@ -413,10 +425,10 @@ def main() -> None:
     parser.add_argument("--no-save", action="store_true")
     args = parser.parse_args()
 
-    sweeps = load_sweeps(args.interval, symbol=args.symbol)
-    yearly = load_yearly(args.interval, symbol=args.symbol)
+    sweeps = load_sweeps(args.interval, symbol=args.symbol, suffix=args.suffix)
+    yearly = load_yearly(args.interval, symbol=args.symbol, suffix=args.suffix)
     if not sweeps:
-        raise SystemExit(f"nessuno sweep in {OUTPUT_DIR} per {args.symbol} {args.interval}")
+        raise SystemExit(f"nessuno sweep in {OUTPUT_DIR} per {args.symbol} {args.interval}{args.suffix or ''}")
     etichetta = args.interval if args.symbol == SYMBOL else f"{args.interval}_{args.symbol}"
 
     tabelle = {

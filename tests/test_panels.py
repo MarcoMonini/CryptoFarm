@@ -133,8 +133,8 @@ def test_la_panoramica_non_ha_due_voci_di_legenda_uguali() -> None:
 
 
 def test_i_parametri_non_si_ripetono_e_includono_le_dipendenze() -> None:
-    """`Close ATR` non disegna medie, ma le sue bande dipendono da EMA Short via KAMA."""
-    parametri = panels.parametri_di("Close ATR")
+    """`ATR Bands` non disegna medie, ma le sue bande dipendono da EMA Short via KAMA."""
+    parametri = panels.parametri_di("ATR Bands")
     assert len(parametri) == len(set(parametri))
     assert "EMA_SHORT" in parametri
     assert "RSI_SHORT" not in parametri
@@ -152,7 +152,7 @@ def test_i_colori_degli_indicatori_non_sono_quelli_di_stato() -> None:
 # L'adattatore fra i due motori
 # -------------------------------------------------------------------------------------------------
 
-NUOVE = ("Donchian Breakout", "Squeeze Breakout", "Trend Pullback", "Ichimoku Trend", "Band Reversion")
+NUOVE = ("Donchian Breakout", "Squeeze Breakout", "Ichimoku Trend")
 
 
 @pytest.mark.parametrize("nome", NUOVE)

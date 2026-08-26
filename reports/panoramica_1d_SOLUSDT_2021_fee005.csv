@@ -1,0 +1,12 @@
+griglia,strategia,configurazioni,con_meno_di_30_trade,buy_hold_%,migliore_%,mediana_%,peggiore_%,in_utile_%,batte_bh_%,sharpe_migliore,trade_mediani_anno,dd_del_migliore_%
+supertrend,Supertrend,126,102,4346.0,6782.2,1496.9,411.5,100.0,8.3,1.42,7,65.0
+tp_sl_atr,TP/SL with ATR,126,68,4346.0,6258.7,838.4,-5.3,98.3,15.5,1.45,8,68.4
+close_bullish_ema,Close Bullish EMA,420,420,4346.0,3004.6,11.3,-85.5,55.2,0.0,1.13,1,96.3
+close_rsi_reverse,Close RSI Reverse,25,2,4346.0,2583.2,908.8,30.2,100.0,0.0,1.17,26,56.7
+close_ema_crossover,Close EMA Crossover,7,7,4346.0,2306.0,193.6,99.0,100.0,0.0,1.16,1,71.6
+trend_zones,Trend Zones,6,6,4346.0,1870.0,1169.2,0.0,83.3,0.0,1.16,0,69.4
+green_candles,Green Candles,1,0,4346.0,1778.1,1778.1,1778.1,100.0,0.0,1.04,13,70.0
+atr_bands,ATR Bands,168,122,4346.0,900.8,135.9,-57.7,82.6,0.0,1.02,7,54.5
+close_buy_sell_limits,Close Buy/Sell Limits,1728,1636,4346.0,97.4,-47.2,-87.0,17.4,0.0,0.49,6,74.2
+close_atr,Close ATR,504,437,4346.0,31.5,-36.4,-76.5,7.5,0.0,0.45,6,67.9
+atr_live_trade,ATR Live Trade,18,16,4346.0,-28.7,-47.8,-66.9,0.0,0.0,0.31,6,92.2

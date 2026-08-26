@@ -27,6 +27,7 @@ from cryptofarm.trading.indicators import add_technical_indicator
 from cryptofarm.trading.pnl import simulate_trading_with_commisions
 from cryptofarm.trading.simulator import trading_analysis
 from scripts.strategy_sweep import (
+    GRIDS,
     PSAR_MAX_STEP,
     PSAR_STEP,
     Indicators,
@@ -139,18 +140,30 @@ def test_evaluate_counts_the_final_wallet(candles: pd.DataFrame) -> None:
     assert 0 < metrics["esposizione_%"] < 100
 
 
-@pytest.mark.parametrize(
-    "strategia, params",
-    [
-        ("Close ATR", {"stop_loss": 99.0}),
-        ("Close ATR", {"stop_loss": 5.0}),
-        ("Close Buy/Sell Limits", {"rsi_buy_limit": 30, "rsi_sell_limit": 70, "num_cond": 1}),
-        ("Close Bullish EMA", {"rsi_buy_limit": 50, "rsi_sell_limit": 70}),
-        ("TP/SL with ATR", {}),
-        ("Green Candles", {}),
-        ("Trend Zones", {}),
-    ],
-)
+# I casi non sono elencati a mano: sono l'intersezione fra il menu della pagina e le griglie dello
+# sweep, calcolata all'import. Elencandoli, potare il menu lasciava qui dentro nomi che la pagina
+# non sa piu' eseguire, e il test falliva con "0 operazioni" invece di dire che la voce non c'e'
+# piu'. Cosi' la copertura segue il menu da sola, in entrambe le direzioni.
+STRATEGIE_DELLO_SWEEP = {grid["strategy"] for grid in GRIDS.values()}
+PARAMETRI_EXTRA = {
+    # L'unica voce rimasta con un parametro proprio che valga la pena muovere: lo stop inerte al
+    # 99% e lo stop stretto sono due percorsi diversi dentro la stessa funzione.
+    "ATR Bands": [{"stop_loss": 99.0}, {"stop_loss": 5.0}],
+}
+CASI_DI_PARITA = [
+    (voce, params)
+    for voce in config.STRATEGIES
+    if voce in STRATEGIE_DELLO_SWEEP
+    for params in PARAMETRI_EXTRA.get(voce, [{}])
+]
+
+
+def test_ci_sono_casi_di_parita_da_verificare() -> None:
+    """Se il menu e le griglie smettessero di intersecarsi, il test sopra passerebbe a vuoto."""
+    assert len(CASI_DI_PARITA) >= 5, CASI_DI_PARITA
+
+
+@pytest.mark.parametrize("strategia, params", CASI_DI_PARITA)
 def test_sweep_matches_the_page(candles: pd.DataFrame, strategia: str, params: dict) -> None:
     """Le stesse operazioni che `trading_analysis` scriverebbe nella tabella della pagina."""
     indicators = Indicators()

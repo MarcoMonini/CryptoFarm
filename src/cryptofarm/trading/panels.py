@@ -371,39 +371,20 @@ def _solo_lunghe(eventi: list) -> tuple[list, list]:
 # nessuno: "Green Candles" guarda solo la forma delle candele, "AI Model" chiede al modello.
 
 STRATEGIE: dict[str, Strategia] = {
-    "Close Buy/Sell Limits": Strategia(
-        indicatori=("bande_atr", "rsi"),
-        parametri=("RSI_BUY_LIMIT", "RSI_SELL_LIMIT", "NUM_CONDITIONS", "STOP_LOSS_PERCENT"),
-        esegui=lambda df, cache, v: strategies.buy_sell_limits_close_simulation(
-            df=df,
-            rsi_buy_limit=v["RSI_BUY_LIMIT"],
-            rsi_sell_limit=v["RSI_SELL_LIMIT"],
-            num_cond=v["NUM_CONDITIONS"],
-            stop_loss_percent=v["STOP_LOSS_PERCENT"],
-        ),
-    ),
-    "Close ATR": Strategia(
-        indicatori=("bande_atr", "psar"),
-        parametri=("STOP_LOSS_PERCENT",),
-        esegui=lambda df, cache, v: strategies.close_atr_buy_sell_simulation(
-            df=df, stop_loss_percent=v["STOP_LOSS_PERCENT"]
-        ),
-    ),
     "ATR Bands": Strategia(
         indicatori=("bande_atr", "psar"),
         parametri=("STOP_LOSS_PERCENT",),
         esegui=lambda df, cache, v: strategies.atr_buy_sell_simulation(df=df, stop_loss_percent=v["STOP_LOSS_PERCENT"]),
-    ),
-    "Close Bullish EMA": Strategia(
-        indicatori=("medie", "rsi"),
-        parametri=("RSI_BUY_LIMIT", "RSI_SELL_LIMIT"),
-        esegui=lambda df, cache, v: strategies.close_bullish_ema_simulation(
-            df=df, rsi_buy_limit=v["RSI_BUY_LIMIT"], rsi_sell_limit=v["RSI_SELL_LIMIT"]
-        ),
+        note="Best out of sample across the five assets: 7 of 10 cells beat buy and hold.",
     ),
     "Close EMA Crossover": Strategia(
         indicatori=("medie",),
         esegui=lambda df, cache, v: strategies.close_ema_crossover_simulation(df=df),
+    ),
+    "Close RSI Reverse": Strategia(
+        indicatori=("rsi",),
+        esegui=lambda df, cache, v: strategies.close_rsi_buy_sell_limits_simulation(df=df),
+        note="Fast/mid RSI crossover. Daily bars only: at 4h it makes 160 trades a year and loses.",
     ),
     "Supertrend": Strategia(
         indicatori=("bande_atr",),
@@ -416,22 +397,6 @@ STRATEGIE: dict[str, Strategia] = {
     "TP/SL with ATR": Strategia(
         indicatori=("bande_atr",),
         esegui=lambda df, cache, v: strategies.tp_sl_simulation(df=df),
-    ),
-    "Green Candles": Strategia(
-        indicatori=(),
-        esegui=lambda df, cache, v: strategies.green_candles_simulation(df=df),
-        note="Reads candle shape only: no indicators.",
-    ),
-    "ATR Live Trade": Strategia(
-        indicatori=("bande_atr", "psar"),
-        parametri=("ATR_WINDOW", "ATR_MULTIPLIER", "STOP_LOSS_PERCENT"),
-        esegui=lambda df, cache, v: strategies.simulate_candles(
-            raw_df=df,
-            atr_window=v["ATR_WINDOW"],
-            atr_multiplier=v["ATR_MULTIPLIER"],
-            stop_loss_percent=v["STOP_LOSS_PERCENT"],
-        ),
-        note="Recomputes the PSAR itself from the raw candles.",
     ),
     "AI Model": Strategia(
         indicatori=(),
@@ -484,33 +449,6 @@ STRATEGIE: dict[str, Strategia] = {
         ),
         note="Enters when the Bollinger bands expand out of the Keltner channel.",
     ),
-    "Trend Pullback": Strategia(
-        indicatori=("media_regime", "stochrsi"),
-        parametri=(
-            "REGIME_EMA",
-            "STOCHRSI_WINDOW",
-            "STOCHRSI_SMOOTH",
-            "STOCH_OVERSOLD",
-            "STOCH_OVERBOUGHT",
-            "TRAIL_ATR_WINDOW",
-            "PULLBACK_ATR_MULT",
-        ),
-        esegui=lambda df, cache, v: _solo_lunghe(
-            strategies_ls.trend_pullback(
-                df,
-                cache,
-                regime_ema=int(v["REGIME_EMA"]),
-                stochrsi_window=int(v["STOCHRSI_WINDOW"]),
-                stochrsi_smooth=int(v["STOCHRSI_SMOOTH"]),
-                oversold=float(v["STOCH_OVERSOLD"]),
-                overbought=float(v["STOCH_OVERBOUGHT"]),
-                atr_window=int(v["TRAIL_ATR_WINDOW"]),
-                atr_multiplier=float(v["PULLBACK_ATR_MULT"]),
-                allow_short=False,
-            )
-        ),
-        note="Buys the pullback, but only above the slow average.",
-    ),
     "Ichimoku Trend": Strategia(
         indicatori=("ichimoku",),
         parametri=("ICHIMOKU_FAST", "ICHIMOKU_SLOW", "ICHIMOKU_SPAN"),
@@ -526,36 +464,6 @@ STRATEGIE: dict[str, Strategia] = {
             )
         ),
         note="The textbook trend system, kept as a benchmark.",
-    ),
-    "Band Reversion": Strategia(
-        indicatori=("bande_kama", "adx"),
-        parametri=(
-            "REVERSION_KAMA_WINDOW",
-            "TRAIL_ATR_WINDOW",
-            "REVERSION_BAND_MULT",
-            "ADX_WINDOW",
-            "ADX_MAX",
-            "REVERSION_STOP_MULT",
-            "REVERSION_REGIME_EMA",
-        ),
-        esegui=lambda df, cache, v: _solo_lunghe(
-            strategies_ls.band_reversion_gated(
-                df,
-                cache,
-                kama_window=int(v["REVERSION_KAMA_WINDOW"]),
-                atr_window=int(v["TRAIL_ATR_WINDOW"]),
-                band_multiplier=float(v["REVERSION_BAND_MULT"]),
-                adx_window=int(v["ADX_WINDOW"]),
-                adx_max=float(v["ADX_MAX"]),
-                stop_multiplier=float(v["REVERSION_STOP_MULT"]),
-                regime_ema=int(v["REVERSION_REGIME_EMA"]),
-                allow_short=False,
-            )
-        ),
-        note=(
-            "Mean reversion, but only while the ADX says there is no trend. The regime filter is "
-            "off by default, as it was when measured, and then no average is drawn."
-        ),
     ),
 }
 
@@ -677,15 +585,13 @@ ETICHETTE: dict[str, str] = {
 
 SOGLIE = "Strategy thresholds"
 
-# Le cinque strategie che nella pagina passano dal motore classico: quello non addebita il costo di
+# Le strategie che nella pagina passano dal motore classico: quello non addebita il costo di
 # mantenimento e non conosce la leva, quindi i loro numeri qui sono piu' ottimisti di quelli
 # misurati. La pagina lo dice accanto al risultato invece di lasciarlo scoprire per confronto.
 NUOVE_SENZA_MANTENIMENTO = (
     "Donchian Breakout",
     "Squeeze Breakout",
-    "Trend Pullback",
     "Ichimoku Trend",
-    "Band Reversion",
 )
 
 
