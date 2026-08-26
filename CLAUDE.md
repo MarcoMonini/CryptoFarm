@@ -52,8 +52,9 @@ src/cryptofarm/
     ├── strategies_ls.py  strategie a due versi: da candele a cambi di posizione (+1/0/-1)
     ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
     │                     e `simulate_positions` (long/short, con leva e costo di mantenimento)
+    ├── rotation.py       rotazione trasversale: sceglie *quale* asset, non *quando*
     ├── config.py         valori di partenza dei widget della pagina
-    ├── simulator.py      la pagina Streamlit: `trading_analysis` + layout
+    ├── simulator.py      la pagina Streamlit: due viste, `trading_analysis` + `rotation_page`
     └── live_bot.py       bot headless che piazza ordini veri
 scripts/analysis.py       misure da riga di comando che producono i numeri di strategy.md
 ```
@@ -76,6 +77,10 @@ streamlit run src/cryptofarm/trading/simulator.py
 # Misure di strategy.md
 .venv312/bin/python -m scripts.analysis
 
+# Rotazione trasversale e filtro meta (vedi .claude/docs/ricerca-quant-ml.md)
+.venv312/bin/python -m scripts.cross_section --universe majors --interval 1d --grid
+.venv312/bin/python -m scripts.meta_gate --strategy donchian_breakout --interval 4h --oos 2024-01-01
+
 # Backtest delle strategie a indicatori su tutto lo storico (vedi .claude/docs/backtest-strategie.md)
 .venv312/bin/python -m scripts.strategy_sweep --all --interval 15m   # griglie di parametri
 .venv312/bin/python -m scripts.sweep_report --interval 15m           # tabelle in reports/
@@ -92,7 +97,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (430 test in 15 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (517 test in 18 file). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -115,6 +120,28 @@ ri-esportazione**: chi serve una strategia la importa dal modulo che la contiene
   media dei primi `window` true range, poi Wilder; EMA come `ewm(span, adjust=False)`).
   **Se si cambia, va riverificato contro `ta`**: è ciò che rende `simulate_candles` 40 volte più
   veloce, e una divergenza silenziosa qui sposta ogni segnale.
+
+### Le due viste
+
+La pagina ha un interruttore in cima alla barra laterale (`config.ROTATION_MODES`), e le due voci
+non sono due strategie ma **due domande diverse**:
+
+- **Single asset** — `trading_analysis`: carica un simbolo dall'exchange e ci esegue sopra una
+  strategia del menu. Sceglie *quando* stare dentro.
+- **Cross-asset rotation** — `rotation_page` su `trading/rotation.py`: carica l'universo **dallo
+  store locale**, lo ordina per forza relativa e tiene i primi. Sceglie *quale*.
+
+Tre conseguenze da conoscere prima di toccarle:
+
+- **la rotazione non usa la rete.** Legge `market_data/`, quindi in produzione (nessun disco
+  persistente) non ha dati e lo dice, invece di provare quindici scarichi. Un test lo verifica;
+- **i valori iniziali sono centrali, non ottimi.** La correlazione fra resa in stima e resa in
+  verifica sulle prime dieci configurazioni e' **-0,69**: cercare il massimo in campione trasferisce
+  peggio che prendere una configurazione a caso. Chi li cambia in "quelli che rendono di piu' nel
+  grafico" sta facendo esattamente l'errore misurato;
+- **il riferimento da battere e' l'universo a peso uguale, non BTC.** Porta la stessa distorsione da
+  sopravvivenza della rotazione, quindi il confronto isola cio' che la rotazione aggiunge. Contro
+  BTC la rotazione vince nel 95,6% delle configurazioni; contro l'universo, nel 44,4%.
 
 ### Il registro di `panels.py`
 
@@ -139,16 +166,31 @@ Tre cose da sapere prima di toccarlo:
 ### Funzioni di `strategies.py` che il menu non raggiunge
 
 `buy_sell_limits_simulation` legge `MACD`, che resta commentata in `add_technical_indicator`, e
-quindi solleva `KeyError` appena chiamata. `close_rsi_buy_sell_limits_simulation` e'
-irraggiungibile per scelta: misurata su nove anni, e' in perdita totale in tutte le 25
-configurazioni provate. Nessuna delle due sta nel registro, quindi non compare nel menu; restano
-nel modulo perche' il golden master le copre e il codice attorno le documenta.
+quindi solleva `KeyError` appena chiamata: e' l'unica esclusa perche' rotta.
+
+Le altre sette sono **uscite dal menu misurando** (2026-08-26, `.claude/docs/ricerca-quant-ml.md`
+§2): Close Buy/Sell Limits, Close ATR, Close Bullish EMA, Green Candles, ATR Live Trade, Trend
+Pullback, Band Reversion. Restano nel modulo e nel golden master -- la misura si rifa' con
+`scripts/strategy_sweep` -- ma non sono selezionabili.
+
+**`close_rsi_buy_sell_limits_simulation` e' invece rientrata** ("Close RSI Reverse"). La ragione
+per cui era esclusa -- "in perdita totale in tutte le 25 configurazioni provate" -- vale a 15
+minuti e non a scala giornaliera: a 1d fa 24-27 operazioni l'anno, mediana positiva su tutti e
+cinque i simboli e 72-92% di configurazioni in utile; a 4h ne fa 160 l'anno e su BTC perde il
+45,8%. E' il caso piu' netto della regola gia' nota, che la frequenza operativa spiega quasi tutto:
+**una strategia esclusa su un intervallo non e' esclusa su tutti**.
 
 ### Il golden master
 
 `tests/test_simulator_golden.py` fissa il comportamento di 21 funzioni su quattro scenari di mercato
-sintetici, confrontandolo con `tests/data/simulator_golden.json`. Serve perché il simulatore non ha
-altri test: **prima di toccarlo, questo deve passare; dopo, deve passare ancora senza rigenerarlo**.
+sintetici, confrontandolo con `tests/data/simulator_golden.json`. Copre il **comportamento delle
+funzioni**: **prima di toccarlo, questo deve passare; dopo, deve passare ancora senza rigenerarlo**.
+
+L'**assemblaggio** invece lo copre `tests/test_simulator_page.py`, che esegue la pagina con
+`streamlit.testing.v1.AppTest`. E' il livello da cui e' passato il guasto che tolse il simulatore
+dalla produzione: ogni funzione aveva i suoi test e passavano tutti, mentre `load_signal_model()`
+chiamata senza condizione dentro `__main__` impediva alla pagina di aprirsi. Copre anche la
+degradazione senza store delle candele, che e' la condizione in cui gira il servizio pubblico.
 
 Rigenerare (`SIMULATOR_GOLDEN_REGEN=1 pytest tests/test_simulator_golden.py`) **accetta qualunque
 differenza di comportamento**. Farlo solo dopo aver verificato a mano che la differenza sia voluta, e

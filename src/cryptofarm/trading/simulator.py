@@ -12,7 +12,7 @@ from cryptofarm.ml.trainer import (
     load_signal_model,
 )
 from cryptofarm.paths import MODELS_DIR
-from cryptofarm.trading import config, panels
+from cryptofarm.trading import config, panels, rotation
 from cryptofarm.trading.indicators import add_technical_indicator
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.market_data import (
@@ -317,6 +317,152 @@ def trading_analysis(
     return fig, trades_df, actual_hours
 
 
+# -------------------------------------------------------------------------------------------------
+# La seconda vista: rotazione fra asset
+# -------------------------------------------------------------------------------------------------
+# Non e' una voce del menu, e' un'altra pagina. Il menu sceglie *quando* stare in un asset; qui si
+# sceglie *quale* fra piu' asset, e la domanda non e' esprimibile in `trading_analysis`, che carica
+# un simbolo solo. I due riferimenti -- BTC tenuto fermo e l'universo a peso uguale tenuto fermo --
+# sono disegnati sempre: il secondo e' quello che conta, perche' porta la stessa distorsione da
+# sopravvivenza della rotazione.
+
+
+@st.cache_data(ttl=3600, max_entries=8)
+def universo_di_sessione(symbols: tuple[str, ...], interval: str, since: str) -> pd.DataFrame:
+    """Le chiusure dell'universo, dallo store locale delle candele.
+
+    Il tetto sulle voci c'e' per la stessa ragione degli altri quattro della cartella: i parametri
+    arrivano dai widget, quindi la cardinalita' la decide chi muove i controlli.
+
+    **Legge lo store, non la rete.** In produzione `market_data/` e' vuota (il piano non ha dischi
+    persistenti), quindi la vista si spegne da sola invece di provare quindici scarichi.
+    """
+    return rotation.load_universe(list(symbols), interval, since)
+
+
+def rotation_analysis(closes: pd.DataFrame, parametri: dict) -> tuple[go.Figure, dict, dict]:
+    """La curva del capitale della rotazione contro i due riferimenti, piu' le metriche."""
+    esito = rotation.backtest(
+        closes,
+        lookback=int(parametri["lookback"]),
+        top=int(parametri["top"]),
+        every=int(parametri["every"]),
+        fee=float(parametri["fee"]),
+        regime="btc" if parametri["regime"] else "none",
+    )
+    riferimenti = rotation.benchmarks(closes)
+
+    fig = go.Figure()
+    # Il capitale della rotazione e' l'unica linea che il lettore deve seguire: prende l'arancio,
+    # i riferimenti restano blu, nella rampa chiaro/scuro che il registro usa per le serie
+    # ordinate. Verde e rosso restano allo stato, come ovunque nella pagina.
+    for nome, curva, colore, tratteggio in (
+        ("BTC buy and hold", riferimenti.get("BTC comprare e tenere", {}).get("_equity"), panels.BLU_CHIARO, "dot"),
+        ("Equal-weight universe", riferimenti["universo a peso uguale"]["_equity"], panels.BLU_SCURO, "dash"),
+        ("Rotation", esito["_equity"], panels.ARANCIO, None),
+    ):
+        if curva is None:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=closes.index,
+                y=curva,
+                name=nome,
+                mode="lines",
+                line={"color": colore, "width": 2.6 if tratteggio is None else 1.6, "dash": tratteggio},
+            )
+        )
+    fig.update_layout(
+        title="Capital, rebased to 100",
+        template="plotly_dark",
+        height=520,
+        hovermode="x unified",
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
+    )
+    fig.update_yaxes(type="log", title="Capital (log)")
+    return fig, esito, riferimenti
+
+
+def rotation_page(text_placeholder, fig_placeholder) -> None:
+    """La barra laterale e il corpo della vista di rotazione."""
+    st.sidebar.header("Universe")
+    universo = st.sidebar.selectbox(label="Assets", options=config.ROTATION_UNIVERSES, index=0)
+    interval = st.sidebar.selectbox(label="Candle interval", options=config.ROTATION_INTERVALS, index=1)
+    since = st.sidebar.text_input(label="From", value=config.ROTATION_SINCE)
+    if universo == "wide":
+        st.sidebar.caption(
+            "Measured: widening the universe **hurts**. Out of sample the median goes from +62% "
+            "on the five majors to −0.9% on fifteen. It is here as the control that shows it."
+        )
+
+    st.sidebar.header("Rotation")
+    parametri = {
+        "lookback": st.sidebar.number_input(label="Lookback (bars)", **config.ROTATION_LOOKBACK.widget),
+        "top": st.sidebar.number_input(label="Assets held", **config.ROTATION_TOP.widget),
+        "every": st.sidebar.number_input(label="Rebalance every (bars)", **config.ROTATION_EVERY.widget),
+        "fee": st.sidebar.number_input(label="Fee per leg %", **config.ROTATION_FEE.widget),
+        "regime": st.sidebar.checkbox("Cash out when BTC is below its 50-bar average", value=True),
+    }
+    st.sidebar.caption(
+        "These defaults are the **central** values, not a grid optimum. Picking the best "
+        "in-sample configuration transfers worse than picking one at random (ρ = −0.69)."
+    )
+
+    closes = universo_di_sessione(tuple(rotation.UNIVERSI[universo]), interval, since)
+    if closes.empty or closes.shape[1] < 2:
+        text_placeholder.warning(
+            "The candle store is empty or holds fewer than two assets. This view reads "
+            "`market_data/`, not the exchange: fill it with "
+            "`python -m cryptofarm.data.klines --update`."
+        )
+        return
+
+    try:
+        fig, esito, riferimenti = rotation_analysis(closes, parametri)
+    except ValueError as errore:
+        text_placeholder.warning(str(errore))
+        return
+
+    with text_placeholder.container():
+        st.subheader("Rotation vs holding")
+        colonne = st.columns(4)
+        colonne[0].metric("Rotation", f"{esito['rendimento_%']:.1f}%", f"Sharpe {esito['Sharpe']:.2f}")
+        universo_fermo = riferimenti["universo a peso uguale"]
+        colonne[1].metric(
+            "Equal-weight universe",
+            f"{universo_fermo['rendimento_%']:.1f}%",
+            f"Sharpe {universo_fermo['Sharpe']:.2f}",
+        )
+        btc_fermo = riferimenti.get("BTC comprare e tenere")
+        if btc_fermo:
+            colonne[2].metric(
+                "BTC buy and hold",
+                f"{btc_fermo['rendimento_%']:.1f}%",
+                f"Sharpe {btc_fermo['Sharpe']:.2f}",
+            )
+        colonne[3].metric(
+            "Max drawdown",
+            f"{esito['drawdown_%']:.1f}%",
+            f"{esito['drawdown_%'] - universo_fermo['drawdown_%']:+.1f} pts vs universe",
+            delta_color="inverse",
+        )
+        st.caption(
+            f"{esito['ribilanciamenti']} rebalances, turnover {esito['turnover_annuo']:.1f}× a year. "
+            "The number to beat is the equal-weight universe, not BTC: it carries the same "
+            "survivorship bias as the rotation, so the comparison isolates what the rotation adds."
+        )
+
+        if esito["_holdings"]:
+            recenti = pd.DataFrame(
+                [{"When": quando, "Held": ", ".join(nomi) or "cash"} for quando, nomi in esito["_holdings"][-8:]]
+            )
+            st.dataframe(recenti, use_container_width=True, hide_index=True)
+        else:
+            st.info("No asset ever had positive relative strength here: the portfolio stayed in cash.")
+
+    fig_placeholder.plotly_chart(fig, use_container_width=True)
+
+
 if __name__ == "__main__":
     st.set_page_config(
         page_title="CryptoFarm Simulator",
@@ -337,6 +483,16 @@ if __name__ == "__main__":
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
+
+    # --- Quale delle due viste ----------------------------------------------------------------
+    # Non e' una strategia in piu' nel menu: e' un'altra domanda. Il menu sceglie *quando* stare
+    # dentro un asset, la rotazione sceglie *quale* fra piu' asset, e le due non condividono ne'
+    # i dati (una carica un simbolo, l'altra l'universo) ne' i controlli.
+    modalita = st.sidebar.radio("View", options=config.ROTATION_MODES, index=0, horizontal=True)
+
+    if modalita == config.ROTATION_MODES[1]:
+        rotation_page(text_placeholder, fig_placeholder)
+        st.stop()
 
     # --- Mercato ------------------------------------------------------------------------------
     st.sidebar.header("Market")

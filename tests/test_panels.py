@@ -342,9 +342,13 @@ def test_gli_overlay_non_usano_l_acquamarina() -> None:
 
 # Parole che in inglese non esistono: bastano a intercettare un'etichetta rimasta in italiano,
 # senza pretendere di riconoscere una lingua.
+# "per" era in questo elenco e ne e' uscito: e' anche una preposizione inglese comune nelle
+# etichette tecniche ("fee per leg", "trades per year"), quindi segnalava testo gia' inglese. Le
+# altre spie restano perche' in inglese non compaiono; il costo del falso positivo qui e' alto,
+# perche' spinge a scrivere l'etichetta peggio pur di far passare il test.
 SPIE = re.compile(
     r"\b(della|dello|delle|degli|nessun\w*|quando|viene|perche|soltanto|oppure|invece|questo|"
-    r"questa|sono|dalla|nella|senza|solo|con|per|il|lo|gli|una|un'|non|piu')\b|[àèéìòù]",
+    r"questa|sono|dalla|nella|senza|solo|con|il|lo|gli|una|un'|non|piu')\b|[àèéìòù]",
     re.IGNORECASE,
 )
 

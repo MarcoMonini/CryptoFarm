@@ -129,6 +129,20 @@ PSAR_MAX_STEP = 0.4
 CONFIRM_VOLUME = True
 REQUIRE_CLOUD = True
 
+# --- Rotazione trasversale ---------------------------------------------------------------------
+# La seconda vista della pagina. I valori iniziali sono quelli **centrali** raccomandati da
+# `.claude/docs/ricerca-quant-ml.md` §7, non l'ottimo di una griglia: la correlazione fra resa in
+# stima e resa in verifica sulle prime dieci configurazioni e' -0,69, quindi cercare il massimo in
+# campione e' peggio che prendere una configurazione qualunque.
+ROTATION_MODES = ["Single asset", "Cross-asset rotation"]
+ROTATION_UNIVERSES = ["majors", "wide"]
+ROTATION_INTERVALS = ["4h", "1d"]
+ROTATION_SINCE = "2021-01-01"
+ROTATION_LOOKBACK = Param(20, 5, 200, 1)
+ROTATION_TOP = Param(2, 1, 10, 1)
+ROTATION_EVERY = Param(7, 1, 60, 1)
+ROTATION_FEE = Param(0.1, 0.0, 1.0, 0.01)
+
 # Percorso del CSV storico, specifico della macchina: si passa da variabile d'ambiente.
 CSV_FILE = os.environ.get("MARKET_DATA_CSV", "")
 SHOW_GRAPHS = True
