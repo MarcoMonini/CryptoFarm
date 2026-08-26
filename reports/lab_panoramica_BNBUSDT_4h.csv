@@ -1,0 +1,6 @@
+strategia,intervallo,configurazioni,buy_hold_%,migliore_%,mediana_%,in_utile_%,batte_bh_%,sharpe_migliore,dd_del_migliore_%,trade_anno_mediani
+band_reversion_gated,4h,63,1531.6,118.3,-20.1,25.4,0.0,0.75,29.1,10.8
+donchian_breakout,4h,256,1531.6,1085.8,270.1,95.3,0.0,1.12,37.1,15.9
+ichimoku_trend,4h,12,1531.6,1792.1,950.7,91.7,16.7,1.15,41.0,44.8
+squeeze_breakout,4h,108,1531.6,462.7,-5.8,43.5,0.0,0.79,54.9,24.0
+trend_pullback,4h,72,1531.6,105.8,-25.4,25.0,0.0,0.51,47.2,69.9

@@ -252,7 +252,10 @@ def _cache(symbol: str, interval: str) -> ExtraCache:
 
 
 def _run_batch(job: tuple) -> tuple[list[dict], list[dict]]:
-    name, symbol, interval, batch, fee, carry = job
+    name, symbol, interval, batch, fee, carry, since, until = job
+    # macOS avvia i worker con `spawn`, non `fork`: i globali riempiti dal padre non arrivano.
+    # `prepare` e' idempotente, quindi sotto fork questa riga non costa nulla.
+    prepare(symbol, interval, since, until)
     candles = _CANDLES[(symbol, interval)]
     cache = _cache(symbol, interval)
     strategy = ls.STRATEGIES[name]
@@ -293,7 +296,7 @@ def run_grid(
     todo = param_list if param_list is not None else cells(name)
     size = max(1, len(todo) // (workers * 2) + 1)
     batches = [todo[start : start + size] for start in range(0, len(todo), size)]
-    jobs = [(name, symbol, interval, batch, fee, carry) for batch in batches]
+    jobs = [(name, symbol, interval, batch, fee, carry, since, until) for batch in batches]
 
     started = time.time()
     rows, yearly = [], []

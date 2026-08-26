@@ -479,7 +479,9 @@ def prepare(interval: str, since: str = SINCE, until: str | None = None, symbol:
 
 def _run_group(job: tuple[str, str, str, Indicators, list[dict], float]) -> tuple[list[dict], list[dict]]:
     """Una tabella di indicatori e tutte le configurazioni di strategia che ci girano sopra."""
-    symbol, interval, strategy, indicators, param_list, fee = job
+    symbol, interval, strategy, indicators, param_list, fee, since, until = job
+    # macOS avvia i worker con `spawn`, non `fork`: i globali riempiti dal padre non arrivano.
+    prepare(interval, since, until, symbol)
     candles = _CANDLES[(symbol, interval)]
     cache = _ColumnCache(candles, _PSAR[(symbol, interval)])
     df = indicator_frame(cache, indicators)
@@ -527,7 +529,9 @@ def run_cells(
     grouped: dict[Indicators, list[dict]] = {}
     for indicators, params in cells:
         grouped.setdefault(indicators, []).append(params)
-    jobs = [(symbol, interval, strategy, indicators, params, fee) for indicators, params in grouped.items()]
+    jobs = [
+        (symbol, interval, strategy, indicators, params, fee, since, until) for indicators, params in grouped.items()
+    ]
 
     started = time.time()
     rows, yearly = [], []

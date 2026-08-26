@@ -1,0 +1,8 @@
+strategia,filtro,senza_mediana_%,con_mediana_%,senza_in_utile_%,con_in_utile_%,senza_trade_anno,con_trade_anno
+band_reversion_gated,filtro di range (ADX),0.0,0.0,30.6,25.0,1.0,0.0
+band_reversion_gated,filtro di trend,0.0,0.0,30.6,22.2,0.4,0.0
+donchian_breakout,filtro di trend (EMA lunga),19.6,30.2,73.4,85.2,2.8,2.5
+donchian_breakout,filtro ADX,32.0,21.4,90.6,75.5,3.3,2.5
+ichimoku_trend,conferma della nuvola,-32.1,-8.7,16.7,33.3,8.8,3.7
+squeeze_breakout,conferma di volume (OBV),7.0,13.6,57.4,63.0,4.2,3.2
+trend_pullback,filtro di trend (EMA lunga),-11.4,-12.2,44.4,33.3,18.1,9.1

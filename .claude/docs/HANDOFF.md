@@ -13,6 +13,7 @@ sotto.
 | `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render |
 | `.claude/docs/backtest-strategie.md` | **le strategie del simulatore misurate su nove anni.** 3.129 configurazioni, sensibilita' ai parametri, tenuta fuori campione, quattro difetti del codice trovati misurando (§8, ora corretti) |
 | `.claude/docs/strategie-nuove.md` | **lo stato piu' recente del filone trading.** Le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
+| `.claude/docs/ricerca-quant-ml.md` | **il documento piu' recente (2026-08-26), e quello da leggere per primo sui risultati.** Stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
 | `.claude/docs/strategy.md` | fonte di verita' delle decisioni sul **filone ML** (etichettatura, feature, modello, validazione). Chiuso in negativo, ma le trappole valgono ancora |
 | `git log main..HEAD` | i messaggi di commit spiegano il *perche'* di ogni scelta e i bug trovati |
 
@@ -77,6 +78,14 @@ leva e liquidazione a capitale zero.
   ininfluente e' l'ADX come soglia minima nella rottura di canale.
 
 ### Cosa resta aperto
+
+> **Aggiornamento 2026-08-26 — i due punti qui sotto sono chiusi.** Sulla macchina dell'utente lo
+> store ha tutti e 15 i simboli fino al 2026-08-19: SOL e BNB sono stati misurati e
+> `donchian_breakout`/`squeeze_breakout` rimisurate dopo la correzione dello stop a trailing. I
+> risultati stanno in `.claude/docs/ricerca-quant-ml.md` §2, e **due conclusioni di
+> `strategie-nuove.md` non reggono su cinque asset**: `band_reversion_gated` e' negativa su 4 asset
+> su 5, e fuori campione 4h batte 1d. Restano validi i comandi qui sotto, con una correzione
+> necessaria a `strategy_lab`/`strategy_sweep` per il `spawn` di macOS (vedi §8 di quel documento).
 
 **SOL e BNB non sono stati misurati.** L'utente li aveva chiesti esplicitamente. Non e' una scelta:
 in ambiente remoto l'egress verso *ogni* exchange e aggregatore risponde 403 sul CONNECT (Binance,
