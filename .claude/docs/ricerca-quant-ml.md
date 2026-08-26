@@ -595,6 +595,42 @@ quantitativo. Riaprire solo dopo il punto sopra.
 
 ---
 
+## 7bis. Cosa e' stato applicato al simulatore
+
+Le raccomandazioni sopra sono state messe nel codice il 2026-08-26, con questo criterio: **resta
+nel menu chi, fuori campione, ha mediana positiva oppure almeno due celle su dieci sopra il
+possesso passivo.**
+
+**Sette voci tolte.** Trend Pullback (0/10 sopra il passivo, mediana −39,4%), Close ATR (0/10,
+−17,2%), Close Buy/Sell Limits (0/10, −1,8%), Close Bullish EMA (0/5, −2,8%), ATR Live Trade
+(1/10, −26,2%), Band Reversion (negativa su quattro asset su cinque), Green Candles. L'ultima
+merita una riga: batte il passivo in 3 celle su 10, ma le sue **prime dieci configurazioni sono in
+utile allo 0%** — le vittorie vengono da configurazioni che nel resto della griglia perdono, che è
+la firma della fortuna e non di una regola. Tutte restano in `strategies.py` e nel golden master:
+sono uscite dal menu, non dal repository.
+
+**Una voce rimessa: Close RSI Reverse.** Era esclusa *di proposito*, con una ragione scritta —
+«in perdita totale in tutte le 25 configurazioni provate». Quella misura era a **15 minuti**. A
+scala giornaliera la stessa regola fa 24-27 operazioni l'anno, ha mediana positiva su tutti e
+cinque i simboli (da +44,9% a +906,9%) e il 72-92% di configurazioni in utile; a 4 ore ne fa 160
+l'anno e su BTC perde il 45,8%.
+
+> Il vecchio verdetto non era sbagliato: era **legato all'intervallo**, e nessuno lo aveva scritto
+> accanto. È il caso più netto della regola che questi documenti ripetono da tre sessioni — la
+> frequenza operativa spiega quasi tutto — e vale la pena generalizzarlo: **una strategia esclusa
+> su un intervallo non è esclusa su tutti**, e un'esclusione senza l'intervallo accanto è una
+> misura persa.
+
+**Una vista nuova.** La rotazione trasversale è nella pagina come seconda vista
+(`trading/rotation.py` + `simulator.rotation_page`), non come voce di menu: sceglie fra asset,
+mentre il menu sceglie dentro un asset. I valori iniziali sono quelli centrali della §7, la barra
+laterale spiega perché non vanno ottimizzati, e il riferimento disegnato accanto è l'universo a
+peso uguale. Legge lo store locale e non l'exchange, quindi in produzione avvisa invece di
+sollevare.
+
+Quello che **non** è stato messo nella pagina: il filtro meta della §3. Non ha superato il proprio
+controllo, e una vista lo farebbe sembrare un risultato.
+
 ## 8. Riprodurre
 
 ```bash
