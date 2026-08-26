@@ -53,6 +53,7 @@ src/cryptofarm/
     ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
     │                     e `simulate_positions` (long/short, con leva e costo di mantenimento)
     ├── rotation.py       rotazione trasversale: sceglie *quale* asset, non *quando*
+    ├── tuned_defaults.py generato: valori di partenza misurati, per intervallo
     ├── config.py         valori di partenza dei widget della pagina
     ├── simulator.py      la pagina Streamlit: due viste, `trading_analysis` + `rotation_page`
     └── live_bot.py       bot headless che piazza ordini veri
@@ -81,6 +82,9 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m scripts.cross_section --universe majors --interval 1d --grid
 .venv312/bin/python -m scripts.meta_gate --strategy donchian_breakout --interval 4h --oos 2024-01-01
 
+# Valori di partenza misurati per intervallo (rigenera trading/tuned_defaults.py)
+.venv312/bin/python -m scripts.tune_defaults --all-intervals --save
+
 # Backtest delle strategie a indicatori su tutto lo storico (vedi .claude/docs/backtest-strategie.md)
 .venv312/bin/python -m scripts.strategy_sweep --all --interval 15m   # griglie di parametri
 .venv312/bin/python -m scripts.sweep_report --interval 15m           # tabelle in reports/
@@ -97,7 +101,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (517 test in 18 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (695 test in 20 file). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -142,6 +146,44 @@ Tre conseguenze da conoscere prima di toccarle:
 - **il riferimento da battere e' l'universo a peso uguale, non BTC.** Porta la stessa distorsione da
   sopravvivenza della rotazione, quindi il confronto isola cio' che la rotazione aggiunge. Contro
   BTC la rotazione vince nel 95,6% delle configurazioni; contro l'universo, nel 44,4%.
+
+### I valori di partenza dipendono dall'intervallo
+
+`trading/tuned_defaults.py` e' **generato** da `scripts/tune_defaults.py` e non si modifica a mano.
+Tiene, per ognuno dei quattro intervalli misurati (15m, 1h, 4h, 1d), il valore di partenza di ogni
+parametro di ogni strategia del menu.
+
+**Come sono scelti, e perche' non e' il massimo della griglia.** Il massimo e' la cella piu'
+fortunata: su questi dati la scelta del massimo trasferisce peggio della mediana, e sulla rotazione
+la correlazione fra resa in stima e in verifica e' −0,69. Qui si sceglie una coordinata alla volta:
+ogni configurazione riceve il suo **rango percentile dentro il proprio simbolo** (unico modo di
+sommare asset i cui possessi passivi vanno da +134% a +4.346%), e per ogni valore di ogni parametro
+si prende la mediana di quei ranghi su cinque asset. Si adotta il valore migliore **solo se** supera
+due controlli: sposta la mediana dei ranghi di almeno 0,06, e sceglie lo stesso valore anche
+guardando il solo 2021-2023. Chi non li supera tiene il default scritto a mano.
+
+**La mappa `panels.ANCORA_MISURATA`** dice quale misura copre quale intervallo: il menu ne offre
+nove, le griglie ne coprono quattro. E' un dato e non un calcolo, perche' "il piu' vicino" e' gia'
+una decisione (30m sta in mezzo fra 15m e 1h).
+
+Tre cose da sapere prima di toccarlo:
+
+- **la chiave dei widget include l'intervallo** (`par_{nome}_{intervallo}`). Streamlit conserva lo
+  stato di un widget con la stessa chiave: senza, cambiando timeframe i campi restano fermi sui
+  numeri del precedente e il default misurato non compare mai. Il difetto e' invisibile leggendo il
+  codice e non lo vede `AppTest`, che ricostruisce lo stato a ogni run — per questo il test asserisce
+  sulla **chiave**, non sul valore;
+- **le finestre crescono quando le barre si accorciano**, ed e' la lettura meccanica del risultato:
+  la stessa regola vuole un canale di 20 barre a un giorno e di 150 a un'ora per coprire lo stesso
+  tratto di calendario. Un test fissa il verso di quella disuguaglianza;
+- **due parametri non hanno una lettura coerente fra intervalli** e vanno trattati con sospetto:
+  `ATR Bands / atr_multiplier` (3,0 a 15m, 1,6 a 1h, 1,2 a 4h, 3,0 a 1d) e
+  `Donchian Breakout / adx_min`. Sono scelte adottate perche' superano i due controlli su ogni
+  intervallo preso da solo, ma il quadro d'insieme non le sostiene. `tune_defaults` stampa la
+  tabella dell'accordo fra intervalli apposta per renderle visibili.
+
+**Sotto l'ora nessuna misura di questo progetto ha mai trovato qualcosa che batta il possesso
+passivo.** I default a 15m sono i migliori *fra quelli provati*, non buoni.
 
 ### Il registro di `panels.py`
 

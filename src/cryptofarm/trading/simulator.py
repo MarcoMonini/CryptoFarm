@@ -532,20 +532,47 @@ if __name__ == "__main__":
     # I widget nascono da `panels.gruppi_di`: cambiando strategia cambiano i riquadri, e un
     # parametro che la strategia scelta non usa non compare. Chi non ha widget resta al suo valore
     # iniziale, che e' cio' che `trading_analysis` usa per gli indicatori non mostrati.
+    #
+    # I valori iniziali dipendono dall'intervallo, perche' le finestre si contano in **barre**: la
+    # stessa regola vuole un canale di 20 barre a un giorno e di 150 a un'ora per coprire lo stesso
+    # tratto di calendario. La chiave del widget include l'intervallo apposta -- Streamlit conserva
+    # lo stato di un widget con la stessa chiave, quindi senza, cambiando intervallo, i campi
+    # resterebbero fermi sui valori del precedente e il default misurato non comparirebbe mai.
     st.sidebar.header("Parameters")
+    misurati = panels.valori_misurati(strategia, interval)
+    ancora = panels.ancora_di(interval)
+    iniziali = panels.valori_predefiniti(strategia, interval)
     valori: dict = {}
     for titolo, nomi in panels.gruppi_di(strategia):
         with st.sidebar.expander(titolo, expanded=True):
             colonne = st.columns(2)
             for posizione, nome in enumerate(nomi):
+                campo = getattr(config, nome)
+                etichetta = panels.ETICHETTE[nome] + (" ·" if nome in misurati else "")
                 valori[nome] = colonne[posizione % 2].number_input(
-                    label=panels.ETICHETTE[nome], key=f"par_{nome}", **getattr(config, nome).widget
+                    label=etichetta,
+                    key=f"par_{nome}_{interval}",
+                    **{**campo.widget, "value": type(campo.value)(iniziali[nome])},
                 )
 
+    if misurati:
+        st.sidebar.caption(
+            f"· = starting value measured on five assets at {ancora}"
+            + (f" (nearest measured interval to {interval})" if ancora != interval else "")
+            + ". It is the value whose **median rank** is highest, not the one from the "
+            "best-performing configuration — picking that transfers worse than picking at random."
+        )
+    elif ancora:
+        st.sidebar.caption(f"No parameter of this strategy discriminated at {ancora}: the hand-written defaults stand.")
+
     if strategia == "Squeeze Breakout":
-        valori["CONFIRM_VOLUME"] = st.sidebar.checkbox("Require volume confirmation", value=config.CONFIRM_VOLUME)
+        valori["CONFIRM_VOLUME"] = st.sidebar.checkbox(
+            "Require volume confirmation", value=bool(iniziali["CONFIRM_VOLUME"]), key=f"vol_{interval}"
+        )
     if strategia == "Ichimoku Trend":
-        valori["REQUIRE_CLOUD"] = st.sidebar.checkbox("Require cloud confirmation", value=config.REQUIRE_CLOUD)
+        valori["REQUIRE_CLOUD"] = st.sidebar.checkbox(
+            "Require cloud confirmation", value=bool(iniziali["REQUIRE_CLOUD"]), key=f"cloud_{interval}"
+        )
     valori["MODELLO"] = st.session_state["model"]
 
     # --- Dati e visualizzazione ---------------------------------------------------------------

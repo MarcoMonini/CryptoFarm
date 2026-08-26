@@ -60,6 +60,34 @@ def test_la_vista_di_rotazione_confronta_con_i_due_riferimenti(pagina: AppTest) 
     assert {"Rotation", "Equal-weight universe", "BTC buy and hold", "Max drawdown"} <= etichette
 
 
+def test_cambiare_intervallo_ricarica_i_valori_di_partenza(pagina: AppTest) -> None:
+    """Il difetto che questa asserzione previene e' invisibile leggendo il codice.
+
+    Streamlit conserva lo stato di un widget con la stessa chiave: senza l'intervallo dentro la
+    chiave, cambiando timeframe i campi restavano fermi sui numeri del precedente e il default
+    misurato non compariva mai. La pagina sembrava funzionare.
+    """
+    menu = next(box for box in pagina.selectbox if box.label == "Strategy")
+    menu.set_value("Donchian Breakout").run()
+
+    def canale(intervallo: str) -> tuple:
+        """Valore e chiave letti **subito**: gli elementi di `AppTest` si rilegano al run corrente,
+        quindi tenerne uno da parte e confrontarlo dopo un altro `run()` non misura niente."""
+        next(b for b in pagina.selectbox if b.label == "Candle interval").set_value(intervallo).run()
+        campo = next(n for n in pagina.number_input if n.label.startswith("Channel length"))
+        return campo.value, campo.key
+
+    (valore_ora, chiave_ora), (valore_giorno, chiave_giorno) = canale("1h"), canale("1d")
+    assert valore_ora > valore_giorno
+    # L'asserzione che conta e' questa, e va scritta sulla **chiave**: `AppTest` ricostruisce lo
+    # stato a ogni `run()`, quindi il solo confronto fra i valori passa anche con la chiave
+    # sbagliata -- verificato togliendo l'intervallo dalla chiave. In un browser vero no: li' la
+    # sessione sopravvive, lo stato memorizzato vince sul valore iniziale, e i campi resterebbero
+    # fermi sui numeri dell'intervallo precedente.
+    assert chiave_ora != chiave_giorno, "la chiave del widget non porta l'intervallo"
+    assert chiave_ora.endswith("_1h") and chiave_giorno.endswith("_1d")
+
+
 def test_la_vista_di_rotazione_senza_store_avvisa_invece_di_rompersi(monkeypatch) -> None:
     """In produzione `market_data/` e' vuota: il piano non ha dischi persistenti.
 

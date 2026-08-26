@@ -477,10 +477,55 @@ VUOTA = "-"  # la voce che non seleziona nessuna strategia: si mostra tutto
 PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama")
 
 
-def valori_predefiniti() -> dict:
+# Quale misura copre quale intervallo. E' una **decisione**, scritta come dato invece che calcolata:
+# le griglie sono girate su quattro intervalli, la pagina ne offre nove, e dire "il piu' vicino" e'
+# gia' una scelta -- 30m sta in mezzo fra 15m e 1h, e va deciso da che parte cade.
+#
+# Sotto l'ora nessuna misura di questo progetto ha mai trovato qualcosa che batta il possesso
+# passivo: i default a 15m sono i migliori **fra quelli provati**, non buoni. La pagina lo dice.
+ANCORA_MISURATA: dict[str, str] = {
+    "1m": "15m",
+    "3m": "15m",
+    "5m": "15m",
+    "15m": "15m",
+    "30m": "1h",
+    "1h": "1h",
+    "2h": "1h",
+    "4h": "4h",
+    "1d": "1d",
+}
+
+
+def ancora_di(intervallo: str) -> str | None:
+    """L'intervallo misurato che fa da riferimento per quello scelto, o `None` se non ce n'e' uno."""
+    from cryptofarm.trading.tuned_defaults import PER_INTERVALLO
+
+    ancora = ANCORA_MISURATA.get(intervallo)
+    return ancora if ancora in PER_INTERVALLO else None
+
+
+def valori_misurati(strategia: str, intervallo: str) -> dict:
+    """I soli parametri per cui una misura ha scelto un valore diverso da quello di `config`.
+
+    Vuoto quando la strategia non e' stata misurata a quell'intervallo, quando il parametro non
+    discrimina, o quando la scelta non regge sulla meta' dei dati: in tutti e tre i casi resta il
+    default scritto a mano, che e' la scelta prudente.
+    """
+    from cryptofarm.trading.tuned_defaults import PER_INTERVALLO
+
+    ancora = ancora_di(intervallo)
+    return dict(PER_INTERVALLO.get(ancora, {}).get(strategia, {})) if ancora else {}
+
+
+def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
     """Il valore iniziale di ogni parametro noto, cioe' cosa vede la pagina prima che si tocchi
     qualcosa. Serve alla pagina come base su cui scrivere le scelte dei widget, e ai test come
-    contesto per calcolare le serie."""
+    contesto per calcolare le serie.
+
+    Con `strategia` e `intervallo` i valori misurati per quella coppia si sovrappongono a quelli
+    scritti a mano. Senza, si ottengono i default di `config` e basta -- che e' quel che serve ai
+    test e a chi calcola una serie fuori dalla pagina.
+    """
     from cryptofarm.trading import config
 
     valori = {
@@ -488,6 +533,8 @@ def valori_predefiniti() -> dict:
     }
     valori["CONFIRM_VOLUME"] = config.CONFIRM_VOLUME
     valori["REQUIRE_CLOUD"] = config.REQUIRE_CLOUD
+    if strategia and intervallo:
+        valori.update(valori_misurati(strategia, intervallo))
     return valori
 
 
