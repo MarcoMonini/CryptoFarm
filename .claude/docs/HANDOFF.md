@@ -1,7 +1,7 @@
 # Handoff — CryptoFarm
 
 Data: **2026-08-27**. Branch di lavoro: **`claude/ricerca-quant-ml-cinque-asset`**
-(7 commit sopra `main`, mai spinto). Il precedente
+(spinto). Il precedente
 `claude/trading-strategies-performance-fb39oc` e' stato unito in `main` con la PR #7.
 Il branch precedente `ai-labeling-rewrite` (pipeline ML a 3 stati) e' **chiuso con esito negativo**
 e non e' mai stato unito: vedi `.claude/docs/strategy.md` §10-13 e la sezione "Il filone ML" qui
@@ -15,6 +15,7 @@ sotto.
 | `.claude/docs/backtest-strategie.md` | **le strategie del simulatore misurate su nove anni.** 3.129 configurazioni, sensibilita' ai parametri, tenuta fuori campione, quattro difetti del codice trovati misurando (§8, ora corretti) |
 | `.claude/docs/strategie-nuove.md` | **lo stato piu' recente del filone trading.** Le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
 | `.claude/docs/sessione-2026-08-27.md` | **chiusura dell'ultima sessione**: le due decisioni prese con l'utente, le trappole d'ambiente scoperte misurando, i due test che passavano a vuoto e come sono stati corretti, e cosa farei dopo in ordine |
+| `.claude/docs/strategia-confluenza.md` | **il filone piu' recente (2026-08-27): la strategia multi-timeframe a piu' segnali.** Disegno, sei votanti, memoria del segnale, soglia decisa dai piani alti, paniere a capitale condiviso, e le tre cose che scrivendola si sono rivelate diverse dal disegno. **Il codice c'e' e gira; la misura su dati veri no** |
 | `.claude/docs/ricerca-quant-ml.md` | **il documento piu' recente (2026-08-26), e quello da leggere per primo sui risultati.** Stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
 | `.claude/docs/strategy.md` | fonte di verita' delle decisioni sul **filone ML** (etichettatura, feature, modello, validazione). Chiuso in negativo, ma le trappole valgono ancora |
 | `git log main..HEAD` | i messaggi di commit spiegano il *perche'* di ogni scelta e i bug trovati |
@@ -149,6 +150,37 @@ diretta lungo→corto).
 
 Tabelle prodotte: `reports/lab_*.csv` (panoramica, effetto short, ablazioni, classifica, fuori
 campione, leva e costi; suffissi `_1d`, `_4h`, `_4h_ciclo2017`, `_ETHUSD_4h`).
+
+### La confluenza (2026-08-27) — scritta, non misurata
+
+Il filone piu' recente. Il disegno completo sta in
+[`strategia-confluenza.md`](strategia-confluenza.md); qui solo cosa esiste e cosa manca.
+
+| file | cosa |
+|---|---|
+| `trading/mtf.py` | `align_to_lower`: legge la barra lunga **chiusa**, spostandola di un periodo. E' l'unica difesa contro il look-ahead fra intervalli |
+| `trading/live_frames.py` | le barre lunghe *in formazione*, in forma chiusa (`groupby` + `cummax`/`cummin`/`cumsum`). 103 ms per cinque anni e tre intervalli, contro ore del ciclo ingenuo |
+| `trading/voters.py` | `held_state` (eventi → stato tenuto) e `decayed_vote` (stato → voto che sfuma). E' la memoria del segnale, cioe' cio' che rende la confluenza capace di innescare |
+| `trading/confluence.py` | la strategia: sei votanti su quattro piani, punteggio pesato, ampiezza per famiglie, soglia che si muove coi piani alti, uscita a tre condizioni. `stati_dei_votanti` isola la parte cara |
+| `trading/portfolio.py` | un capitale solo su piu' asset, con occasioni perse e concentrazione |
+| `scripts/confluence_lab.py` | il banco: tre griglie, paniere, tre riferimenti, `--selfcheck` che gira senza store |
+| voce «Confluence» nel simulatore | due riquadri (decisione e votanti) e la spiegazione attaccata a ogni marcatore |
+
+**Quello che manca e' la misura**, e serve la macchina con lo store delle candele. Da fare, in
+ordine: `--grid coordinate` su BTCUSDT a 15m (79 celle, e' anche S0 travestito), poi `--grid ampia`
+sui cinque asset, poi `--paniere majors`. I tre riferimenti si stampano da soli.
+
+**Quattro cose gia' sapute che vanno tenute a mente leggendo i risultati:**
+
+1. l'aspettativa dichiarata *prima* e' lo stesso ordine di rendimento del possesso passivo con un
+   drawdown molto minore, **non** un rendimento superiore. Se il risultato fosse molto migliore, la
+   prima ipotesi da verificare e' il look-ahead, non il successo;
+2. il rischio piu' probabile non e' che perda: e' che **operi troppo poco** perche' si possa dire.
+   Il numero di operazioni all'anno va riportato accanto a ogni risultato;
+3. la **necessarieta' per votante** e' nella tabella dei risultati (`nec_*`, `necessarieta_max`).
+   Sopra 0,60 l'insieme e' quel votante travestito, e le metriche parlano di lui;
+4. il conteggio delle prove per `multiplicity.py` e' in testa a ogni CSV prodotto. `ampia` sono
+   4.800 celle: guardarne la migliore e riportarne lo Sharpe senza scontarlo non e' una misura.
 
 ---
 

@@ -1,7 +1,9 @@
 # Confluenza — disegno di una strategia multi-timeframe a più segnali
 
-Ipotesi di lavoro del **2026-08-27**, chiesta dall'utente. Non è ancora misurata: niente qui è un
-risultato. Quello che è già scritto e verificato è il primo stadio, `trading/mtf.py`.
+Ipotesi di lavoro del **2026-08-27**, chiesta dall'utente. **Non è ancora misurata su dati veri:
+niente qui è un risultato.** Il codice però c'è tutto — `trading/confluence.py`,
+`trading/portfolio.py`, la voce nel simulatore e il banco `scripts/confluence_lab.py` — e gira; ciò
+che manca è la macchina con lo store delle candele.
 
 ## Il principio, e perché la struttura conta più dei segnali
 
@@ -233,14 +235,18 @@ scrive e ci si ferma li'.
 
 | | cosa | stato |
 |---|---|---|
-| **S0** | correlazione fra i sei stati barra-per-barra | da fare per primo: può chiudere tutto in un pomeriggio |
-| **S1** | allineamento a barre chiuse e barre in formazione | **fatto** (`trading/mtf.py` + `trading/live_frames.py`, 11 test) |
-| **S2** | adattatore da cambi di posizione a stato per barra, con memoria e decadimento | **fatto** (`trading/voters.py`, 10 test) |
-| **S3** | punteggio a peso uguale, soglia fissa, ampiezza minima, un asset | contro i tre riferimenti |
-| **S4** | soglia dinamica dai piani alti | +2 parametri |
-| **S5** | innesco 15m, stop ATR 15m, volatilità obiettivo | +2 parametri |
-| **S6** | il votante AI, con astensione | misurato con e senza, più il controllo casuale |
-| **S7** | pesi online (regola, non ricerca) | solo se S3-S5 hanno guadagnato |
+| **S0** | correlazione fra i sei stati barra-per-barra | `stati_dei_votanti` la produce; **resta da misurare su dati veri** |
+| **S1** | allineamento a barre chiuse e barre in formazione | **scritto** (`trading/mtf.py` + `trading/live_frames.py`, 11 test) |
+| **S2** | adattatore da cambi di posizione a stato per barra, con memoria e decadimento | **scritto** (`trading/voters.py`, 10 test) |
+| **S3** | punteggio a peso uguale, soglia fissa, ampiezza minima, un asset | **scritto** (`trading/confluence.py`, 16 test) — da misurare |
+| **S4** | soglia dinamica dai piani alti | **scritto**: `theta_macro` |
+| **S5** | innesco 15m, stop ATR 15m | **scritto**: `innesco`, `atr_multiplier`. La volatilità obiettivo **no** |
+| **S5b** | paniere a capitale condiviso | **scritto** (`trading/portfolio.py`, 8 test) — non era nel piano, l'ha chiesto l'utente |
+| **S6** | il votante AI, con astensione | lo slot c'è (`Votante`), il votante no |
+| **S7** | pesi online (regola, non ricerca) | `_pesi` accetta pesi non uguali e li tiene sotto `w_max`; nessuna regola online |
+
+Gli stadi sono scritti, non misurati. La distinzione non è pedanteria: fino a che non girano sui
+cinque asset veri, l'unica cosa che si sa è che il codice fa quello che dice di fare.
 
 ## L'aspettativa, dichiarata prima di misurare
 
@@ -251,3 +257,130 @@ probabile non è che perda: è che **operi troppo poco perché si possa dire se 
 
 Dichiararlo adesso serve a una cosa sola: se il risultato sarà molto migliore di così, la prima
 ipotesi da verificare non sarà il successo, sarà il look-ahead.
+
+
+## Cosa è cambiato scrivendolo
+
+Tre cose che il disegno diceva in un modo e il codice ha costretto a dire in un altro. Stanno qui
+perché un disegno che non registra dove ha sbagliato smette di essere una fonte di verità.
+
+### 1. Il sollevamento della media a valore provvisorio è algebricamente un non-fare
+
+Il disegno prometteva le barre in formazione anche per il cancello 1D e la struttura 4H, «perché
+lì il sollevamento è esatto e in O(1)». Lo è. È anche inutile, e si vede in una riga:
+
+```
+provisional_ema = a·prezzo + (1−a)·chiusa
+segno(prezzo − provisional_ema) = segno((1−a)·(prezzo − chiusa)) = segno(prezzo − chiusa)
+```
+
+Su un confronto di **segno** il sollevamento non sposta niente, per qualunque `a`. Il primo test
+scritto contro `barre_in_formazione` è caduto per questo — accendere e spegnere il meccanismo dava
+lo stesso identico risultato — ed era un parametro che sembrava collegato a qualcosa e non lo era.
+
+L'ablazione vera è un'altra, e ora è quella attuata: **quale prezzo** si confronta con la media.
+Quello di adesso (ciò che vede il bot live a metà giornata) o quello dell'ultima chiusura del
+piano lungo (l'attesa fino a ventiquattro ore). Quella differenza è reale e si misura.
+
+Il sollevamento resta utile dove conta il **valore** e non il lato — una distanza, una banda, uno
+stop — e `provisional_ema` resta in `live_frames.py` per quando servirà.
+
+**Conseguenza da dichiarare: `live_frames.py` oggi non lo importa nessuno.** È vivo solo nei suoi
+sei test. Sopravvive per due ragioni, e se nessuna delle due regge va cancellato invece che tenuto
+per affezione: è il pezzo che serve appena un votante debba leggere il *valore* di una barra lunga
+parziale, e contiene il test contro il difetto da tre caratteri (`transform("max")` invece di
+`cummax`, che trasforma il backtest in una macchina che conosce il futuro).
+
+### 2. I sei votanti non reagiscono dentro il periodo, e questo è il limite dichiarato
+
+Sollevare a valore provvisorio una *strategia* qualunque non è generico: ogni indicatore ricorsivo
+va sollevato a mano, e il disegno **congela i votanti**, cioè vieta di riscriverli. I due vincoli
+non stanno insieme. La scelta: i votanti decidono alla chiusura della propria barra lunga, e il
+loro stato entra nell'indice breve un periodo dopo (`mtf.align_to_lower`).
+
+La reattività intra-periodo resta dove non costa una riscrittura: nel cancello e nella struttura,
+che confrontano il **prezzo di adesso** con la media del piano lungo. È metà del confronto, ed è
+la metà che si muove.
+
+### 3. L'isteresi non copriva il rientro
+
+Il secondo test caduto: si usciva e si rientrava sulla stessa barra, 35 volte su 125. L'isteresi
+frena il punteggio che oscilla attorno alla soglia, ma uno **stop scattato dentro la barra** lascia
+il punteggio dov'era — e la condizione di ingresso, un attimo dopo, è di nuovo vera. Chi esce ora
+non rientra prima della barra successiva.
+
+## Il paniere a capitale condiviso
+
+Non era nel disegno; l'ha chiesto l'utente ed è la risposta più diretta al rischio dichiarato —
+che la confluenza operi troppo poco perché si possa dire se ha funzionato. Si sorvegliano *N*
+asset con la stessa strategia, si sta fuori finché nessuno parla, e quando **uno** dà il segnale
+ci si mette tutto il capitale.
+
+È una domanda diversa da quella della rotazione trasversale: la rotazione sceglie *quale* asset
+tenere e ci sta dentro sempre; questo sceglie *quando*, su un paniere, e sta fuori per default.
+
+Due numeri vanno riportati accanto a ogni risultato, e sono i due modi in cui la cosa può essere
+un'illusione:
+
+- **le occasioni perse.** Ogni segnale che arriva mentre il capitale è impegnato viene buttato. Se
+  sono molte più delle operazioni fatte, la scarsità del campione non era il problema;
+- **la concentrazione.** Se il 90% delle operazioni sta su un asset solo, non si sta sorvegliando
+  un paniere: si sta operando su quell'asset con quattro spettatori.
+
+Le pari merito le vince il **margine del punteggio sopra la soglia**, non l'ordine del dizionario.
+Su asset che si muovono insieme — e le criptovalute lo fanno — i segnali cadono spesso sulla stessa
+barra, e sceglierli per ordine alfabetico sarebbe una decisione arbitraria travestita da dettaglio
+di attuazione.
+
+## Come si misura, in pratica
+
+```bash
+python -m scripts.confluence_lab --selfcheck                       # senza store, dati finti
+python -m scripts.confluence_lab --grid coordinate --symbol BTCUSDT --interval 15m
+python -m scripts.confluence_lab --grid ampia --interval 15m --since 2021-01-01
+python -m scripts.confluence_lab --grid veloce --paniere majors
+```
+
+Tre griglie, e due modi diversi di guardare lo spazio:
+
+| griglia | celle | cosa vede |
+|---|---|---|
+| `veloce` | 108 | fumo: che giri, e su che ordine di grandezza di operazioni |
+| `ampia` | 4.800 | cartesiana su sei parametri: le **interazioni** fra di loro |
+| `coordinate` | 79 | l'intero intervallo di **ognuno** degli undici, uno per volta, gli altri al centro |
+
+La cartesiana su tutti e undici sarebbe mezzo milione di celle, cioè giorni di calcolo per una
+risposta che nessuno leggerebbe: un test tiene il tetto a cinquemila. La scansione per coordinata è
+anche il metodo con cui questo progetto ha già scelto i valori di partenza
+(`scripts/tune_defaults.py`), e per la stessa ragione: il massimo di una griglia è la cella più
+fortunata, e su questi dati trasferisce fuori campione peggio della mediana.
+
+Ogni file di risultati porta in testa il **numero di celle girate**, che è il conteggio delle prove
+per `scripts/multiplicity.py`. Guardare la cella migliore di 4.800 e riportarne lo Sharpe senza
+scontarlo non è una misura.
+
+## Il costo per barra, misurato
+
+| | |
+|---|---|
+| confluenza completa, 11.520 barre | 351 ms |
+| la stessa, riusando gli stati dei votanti | **104 ms** |
+| barre in formazione, 5 anni × 3 intervalli | 103 ms |
+
+Il 70% del costo sta nei sei votanti, e i votanti sono congelati: il loro stato non dipende da
+nessun parametro della griglia. `stati_dei_votanti` lo calcola una volta per (simbolo, intervallo)
+e il banco lo riusa su tutte le celle. È la differenza fra una griglia da 4.800 celle che si lancia
+e una che si rimanda.
+
+## Cosa il codice **non** fa, dichiarato
+
+- **la volatilità obiettivo** (dimensione della posizione proporzionale al margine e inversa alla
+  volatilità realizzata). Il passo 3 di `piano-strategie.md` si innesta lì senza modifiche, ma non
+  c'è: a leva 1 e capitale pieno ogni operazione ha la stessa dimensione;
+- **il votante AI**. Lo slot è la dataclass `Votante` e nient'altro: nome, famiglia, piano, una
+  funzione che restituisce eventi. Serve la versione **per barra** di `meta_gate`, che oggi produce
+  probabilità per operazione;
+- **i pesi online**. `_pesi` accetta pesi non uguali e li tiene sotto `w_max`, ma nessuno li muove;
+- **le famiglie multiple per votante**. Oggi i sei sono uno per famiglia, quindi contare famiglie o
+  votanti è lo stesso. La distinzione è scritta perché morderà appena entra un secondo votante di
+  prezzo, ed è più facile scriverla ora che accorgersene dopo.

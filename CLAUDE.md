@@ -11,6 +11,9 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
 - `.claude/docs/HANDOFF.md` — stato corrente del lavoro e trappole ambientali per chi riprende.
 - `.claude/docs/backtest-strategie.md` — le strategie a indicatori misurate su nove anni: 3.129
   configurazioni, sensibilità ai parametri, tenuta fuori campione, difetti trovati misurando.
+- `.claude/docs/strategia-confluenza.md` — la strategia multi-timeframe a più segnali: quattro
+  piani con domande disgiunte, sei votanti scelti per famiglia, memoria del segnale, soglia decisa
+  dai piani alti. **Il codice c'è e gira; la misura su dati veri no.**
 - `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
   2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
 - `.claude/docs/INDEX.md` — ordine di lettura consigliato.
@@ -52,6 +55,11 @@ src/cryptofarm/
     ├── strategies_ls.py  strategie a due versi: da candele a cambi di posizione (+1/0/-1)
     ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
     │                     e `simulate_positions` (long/short, con leva e costo di mantenimento)
+    ├── mtf.py            allineamento fra intervalli: legge la barra lunga **chiusa**, mai quella corrente
+    ├── live_frames.py    le barre lunghe *in formazione*, in forma chiusa — **oggi non lo importa nessuno**
+    ├── voters.py         da cambi di posizione a voto per barra, con memoria e decadimento
+    ├── confluence.py     la strategia a confluenza: sei votanti su quattro piani, soglia dinamica
+    ├── portfolio.py      un capitale solo su più asset: si apre sul primo che parla
     ├── rotation.py       rotazione trasversale: sceglie *quale* asset, non *quando*
     ├── tuned_defaults.py generato: valori di partenza misurati, per intervallo
     ├── config.py         valori di partenza dei widget della pagina
@@ -90,6 +98,12 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m scripts.sweep_report --interval 15m           # tabelle in reports/
 .venv312/bin/python -m scripts.strategy_focus --top 3                # commissioni e intervalli
 
+# Strategia a confluenza (vedi .claude/docs/strategia-confluenza.md)
+.venv312/bin/python -m scripts.confluence_lab --selfcheck             # gira senza store, dati finti
+.venv312/bin/python -m scripts.confluence_lab --grid coordinate --symbol BTCUSDT --interval 15m
+.venv312/bin/python -m scripts.confluence_lab --grid ampia --interval 15m --since 2021-01-01
+.venv312/bin/python -m scripts.confluence_lab --grid veloce --paniere majors
+
 # Strategie a due versi, long e short (vedi .claude/docs/strategie-nuove.md)
 .venv312/bin/python -m scripts.strategy_lab --all --interval 1d --since 2021-01-01
 .venv312/bin/python -m scripts.lab_report --symbol BTCUSD --interval 1d
@@ -101,7 +115,8 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (695 test in 20 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (797 test in 26 file; 791 sono verificati qui, i sei di
+`test_simulator_page.py` richiedono davvero Python 3.12). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -204,6 +219,45 @@ Tre cose da sapere prima di toccarlo:
   validatore su superficie scura. Il quarto slot contro l'arancio scende a 4,8 di ΔE per
   deuteranopia. L'acquamarina non si usa sopra le candele, dove si confonde con il corpo rialzista.
   Verde e rosso restano allo stato. Tre test tengono ferme queste regole.
+
+### La strategia a confluenza
+
+`trading/confluence.py` è l'unica voce del menu che non è una strategia a indicatore: legge
+**quattro piani temporali ricavati dall'intervallo scelto** (`FATTORI` — ×1 innesco, ×4 conferma,
+×16 struttura, ×96 regime, cioè 15m/1h/4h/1d partendo da 15m) e fa votare sei strategie diverse.
+Quattro cose da sapere prima di toccarla:
+
+- **i parametri dei sei votanti sono congelati** ai `tuned_defaults` del loro intervallo, e non
+  compaiono nella barra laterale. Non è pigrizia: ritararli dentro l'insieme porta il conto dei
+  parametri liberi da nove a oltre venticinque, e la correzione per molteplicità già applicata
+  altrove (`scripts/multiplicity.py`) dice cosa succede lì — niente di ciò che esce è
+  distinguibile dalla fortuna;
+- **la parte cara non dipende dalla griglia.** I votanti congelati hanno uno stato che dipende solo
+  da (simbolo, intervallo): `stati_dei_votanti` lo calcola una volta e `scripts/confluence_lab.py`
+  lo riusa su tutte le celle. Misurato su 11.520 barre: 351 ms per cella contro 104 ms;
+- **il punto in cui può barare è uno solo**, `_stato_del_votante`, e la difesa è
+  `mtf.align_to_lower`, che sposta lo stato del piano lungo di un periodo intero prima di leggerlo.
+  Il test che lo protegge taglia **dentro** una barra lunga già cominciata e confronta gli stati:
+  un taglio allineato ai confini passa anche col difetto reintrodotto, ed è com'era scritto la
+  prima volta;
+- **`live_frames.py` oggi non lo importa nessuno.** Era lo stadio S1 e serviva a sollevare i piani
+  lunghi a valore provvisorio; scrivendo la confluenza si e' visto che su un confronto di *segno* il
+  sollevamento e' algebricamente un non-fare (`confluence._sign_su_media` lo dimostra in tre
+  righe), e che sollevare una *strategia* qualunque non e' generico. Il modulo resta perche' e' il
+  pezzo che serve appena un votante debba leggere il **valore** di una barra lunga parziale -- una
+  distanza, una banda, uno stop -- e perche' contiene il test contro il difetto da tre caratteri
+  (`transform("max")` invece di `cummax`). Se si decide che non servira', si cancella: e' codice
+  vivo solo nei suoi test, e va detto invece che lasciato credere il contrario;
+- **la spiegazione viaggia col segnale.** I segnali della confluenza sono `(quando, prezzo, testo)`
+  invece di `(quando, prezzo)`, e il grafico mostra il testo al passaggio del mouse. Per questo
+  `pnl` scompatta con `[:2]`: qualunque strategia può aggiungere elementi dopo i due che il motore
+  usa.
+
+`trading/portfolio.py` risponde a una domanda diversa e non va confuso con `rotation.py`: la
+rotazione sceglie *quale* asset tenere e ci sta dentro sempre; il paniere a capitale condiviso sta
+fuori finché nessuno parla e mette tutto il capitale sul primo che dà il segnale. Riporta sempre le
+**occasioni perse** mentre il capitale era impegnato e la **concentrazione**, cioè la quota
+dell'asset più operato: sopra 0,9 il paniere è finzione.
 
 ### Funzioni di `strategies.py` che il menu non raggiunge
 
