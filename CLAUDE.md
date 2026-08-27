@@ -344,10 +344,10 @@ addestrato.
 
 ## Data/model artifacts
 
-`models/` contiene gli artefatti (`.joblib` + `.json` di metadata). `models/.gitignore` copre solo
-`*.keras`, per cui i `.joblib` sono finiti tracciati nel repository — circa 24 MB, con
-`policy_alta` e `policy_model` byte per byte identici. **Da sistemare**: estendere il `.gitignore` e
-fare `git rm --cached`. Rigenerare con i trainer, non modificare a mano.
+`models/` contiene gli artefatti (`.joblib` + `.json` di metadata) e **non ne traccia nessuno**:
+`models/.gitignore` copre `*.keras`, `*.joblib` e `*.json`, e tiene solo il `README.md`. Un clone
+del repository quindi non ha modelli, ed è la condizione in cui gira il servizio pubblico.
+Rigenerare con i trainer, non modificare a mano.
 
 ## Docker e CI
 
