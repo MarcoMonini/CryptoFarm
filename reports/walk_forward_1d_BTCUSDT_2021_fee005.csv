@@ -1,0 +1,12 @@
+griglia,anni,rendimento_%,anni_in_utile_%,anno_peggiore_%,anno_migliore_%,cambi_di_configurazione
+close_buy_sell_limits,5,41.4,40.0,-22.5,59.3,3
+close_atr,4,10.8,25.0,-14.2,50.8,2
+atr_bands,5,69.2,40.0,-21.2,69.0,3
+supertrend,5,-38.8,0.0,-16.5,0.0,3
+tp_sl_atr,5,-22.3,40.0,-51.1,105.4,5
+close_bullish_ema,3,13.9,66.7,-10.6,18.1,3
+close_ema_crossover,3,16.2,66.7,-6.7,22.6,1
+trend_zones,1,9.3,100.0,9.3,9.3,1
+close_rsi_reverse,5,-2.3,40.0,-46.4,62.7,4
+green_candles,5,87.8,40.0,-35.8,88.8,1
+atr_live_trade,4,103.6,100.0,12.3,36.3,3

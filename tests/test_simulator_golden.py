@@ -126,6 +126,8 @@ STRATEGIES = {
 
 KEYS = [
     "interval_to_minutes",
+    "drawdown",
+    "annualised",
     "calculate_latest_indicators",
     "simulate_candles",
     "simulate_trading_with_commisions",
@@ -174,6 +176,17 @@ def build_snapshot() -> dict:
         ]
         for name, call in STRATEGIES.items():
             snapshot[f"{scenario}/{name}"] = _capture(lambda c=call, f=table: _signals(c(f)))
+
+    # Le due misure della curva del capitale. Sono salite in `pnl` da `scripts/strategy_sweep`, e
+    # da li' le legge ogni tabella di ogni sweep: una divergenza silenziosa qui sposta lo Sharpe e
+    # il drawdown di ogni misura del progetto senza rompere niente.
+    # Due anni di barre giornaliere, non sei: su una finestra corta il CAGR annualizzato esplode a
+    # 1e16 e lo snapshot fisserebbe un numero che non dice niente sul comportamento.
+    passi = np.random.default_rng(20260826).normal(0.0006, 0.02, 730)
+    curva = 100.0 * np.exp(np.cumsum(passi))
+    indice = pd.date_range("2024-01-01", periods=len(curva), freq="1D", name="Open time")
+    snapshot["drawdown"] = round(float(pnl.drawdown(curva)), 8)
+    snapshot["annualised"] = [round(float(v), 8) for v in pnl.annualised(curva, indice)]
 
     # `simulate_candles` ricalcola gli indicatori a ogni candela: e' troppo lento per girare su
     # tutti gli scenari, quindi resta su una finestra corta.

@@ -104,6 +104,10 @@ def test_le_serie_dichiarate_esistono_davvero_nel_frame(chiave: str, frame: pd.D
     """E' il controllo che intercetta un nome di colonna sbagliato, come la vecchia `EMA200`."""
     indicatore = panels.INDICATORI[chiave]
     prodotte = indicatore.serie(frame, ExtraCache(frame), panels.valori_predefiniti())
+    if indicatore.condizionale and not prodotte:
+        # Dichiarato: questo indicatore disegna solo in certe condizioni (lo stop a trailing
+        # esiste solo dove c'e' una posizione), e su questo frame non ce ne sono.
+        return
     for traccia in indicatore.tracce:
         assert traccia.serie in prodotte, f"{chiave}: la traccia '{traccia.nome}' non ha la serie {traccia.serie}"
         assert prodotte[traccia.serie].notna().any(), f"{chiave}: la serie {traccia.serie} e' tutta vuota"
@@ -133,8 +137,8 @@ def test_la_panoramica_non_ha_due_voci_di_legenda_uguali() -> None:
 
 
 def test_i_parametri_non_si_ripetono_e_includono_le_dipendenze() -> None:
-    """`Close ATR` non disegna medie, ma le sue bande dipendono da EMA Short via KAMA."""
-    parametri = panels.parametri_di("Close ATR")
+    """`ATR Bands` non disegna medie, ma le sue bande dipendono da EMA Short via KAMA."""
+    parametri = panels.parametri_di("ATR Bands")
     assert len(parametri) == len(set(parametri))
     assert "EMA_SHORT" in parametri
     assert "RSI_SHORT" not in parametri
@@ -152,7 +156,7 @@ def test_i_colori_degli_indicatori_non_sono_quelli_di_stato() -> None:
 # L'adattatore fra i due motori
 # -------------------------------------------------------------------------------------------------
 
-NUOVE = ("Donchian Breakout", "Squeeze Breakout", "Trend Pullback", "Ichimoku Trend", "Band Reversion")
+NUOVE = ("Donchian Breakout", "Squeeze Breakout", "Ichimoku Trend")
 
 
 @pytest.mark.parametrize("nome", NUOVE)
@@ -342,9 +346,13 @@ def test_gli_overlay_non_usano_l_acquamarina() -> None:
 
 # Parole che in inglese non esistono: bastano a intercettare un'etichetta rimasta in italiano,
 # senza pretendere di riconoscere una lingua.
+# "per" era in questo elenco e ne e' uscito: e' anche una preposizione inglese comune nelle
+# etichette tecniche ("fee per leg", "trades per year"), quindi segnalava testo gia' inglese. Le
+# altre spie restano perche' in inglese non compaiono; il costo del falso positivo qui e' alto,
+# perche' spinge a scrivere l'etichetta peggio pur di far passare il test.
 SPIE = re.compile(
     r"\b(della|dello|delle|degli|nessun\w*|quando|viene|perche|soltanto|oppure|invece|questo|"
-    r"questa|sono|dalla|nella|senza|solo|con|per|il|lo|gli|una|un'|non|piu')\b|[àèéìòù]",
+    r"questa|sono|dalla|nella|senza|solo|con|il|lo|gli|una|un'|non|piu')\b|[àèéìòù]",
     re.IGNORECASE,
 )
 

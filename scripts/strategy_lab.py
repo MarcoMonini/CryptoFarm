@@ -32,8 +32,8 @@ import pandas as pd
 from cryptofarm.paths import PROJECT_ROOT
 from cryptofarm.trading import strategies_ls as ls
 from cryptofarm.trading.indicators_extra import ExtraCache
-from cryptofarm.trading.pnl import simulate_positions
-from scripts.strategy_sweep import _annualised, _drawdown, load_interval
+from cryptofarm.trading.pnl import annualised, drawdown, simulate_positions
+from scripts.strategy_sweep import load_interval
 
 SYMBOL = "BTCUSD"
 SINCE = "2021-01-01"
@@ -79,7 +79,7 @@ def evaluate(
 ) -> dict:
     closes = candles["Close"].to_numpy()
     equity = bar_equity(candles, operations, wallet)
-    cagr, volatility, sharpe = _annualised(equity, candles.index)
+    cagr, volatility, sharpe = annualised(equity, candles.index)
     result = {
         "n_trade": len(operations),
         "n_long": 0,
@@ -89,8 +89,8 @@ def evaluate(
         "cagr_%": cagr,
         "volatilita_%": volatility,
         "sharpe": sharpe,
-        "max_drawdown_%": _drawdown(equity),
-        "buy_hold_drawdown_%": _drawdown(closes / closes[0] * wallet),
+        "max_drawdown_%": drawdown(equity),
+        "buy_hold_drawdown_%": drawdown(closes / closes[0] * wallet),
         "win_rate_%": float("nan"),
         "win_rate_long_%": float("nan"),
         "win_rate_short_%": float("nan"),
@@ -252,7 +252,10 @@ def _cache(symbol: str, interval: str) -> ExtraCache:
 
 
 def _run_batch(job: tuple) -> tuple[list[dict], list[dict]]:
-    name, symbol, interval, batch, fee, carry = job
+    name, symbol, interval, batch, fee, carry, since, until = job
+    # macOS avvia i worker con `spawn`, non `fork`: i globali riempiti dal padre non arrivano.
+    # `prepare` e' idempotente, quindi sotto fork questa riga non costa nulla.
+    prepare(symbol, interval, since, until)
     candles = _CANDLES[(symbol, interval)]
     cache = _cache(symbol, interval)
     strategy = ls.STRATEGIES[name]
@@ -293,7 +296,7 @@ def run_grid(
     todo = param_list if param_list is not None else cells(name)
     size = max(1, len(todo) // (workers * 2) + 1)
     batches = [todo[start : start + size] for start in range(0, len(todo), size)]
-    jobs = [(name, symbol, interval, batch, fee, carry) for batch in batches]
+    jobs = [(name, symbol, interval, batch, fee, carry, since, until) for batch in batches]
 
     started = time.time()
     rows, yearly = [], []

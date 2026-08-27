@@ -12,7 +12,7 @@ from cryptofarm.ml.trainer import (
     load_signal_model,
 )
 from cryptofarm.paths import MODELS_DIR
-from cryptofarm.trading import config, panels
+from cryptofarm.trading import config, confluence, panels, rotation
 from cryptofarm.trading.indicators import add_technical_indicator
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.market_data import (
@@ -76,6 +76,9 @@ def trading_analysis(
     parametri della strategia scelta, quindi gli altri non hanno un widget da cui arrivare.
     """
     valori = {**panels.valori_predefiniti(), **valori}
+    # La confluenza ricava i suoi quattro piani da qui: e' l'intervallo delle candele, non una
+    # preferenza. Sovrascrive sempre, perche' nessun chiamante lo passa a mano.
+    valori["INTERVALLO"] = interval
 
     # ======================================
     # Scarica i dati di mercato e calcola il SAR
@@ -251,19 +254,26 @@ def trading_analysis(
                     col=1,
                 )
 
+        # Un segnale puo' portare un terzo elemento: la spiegazione di chi l'ha generato. Le
+        # strategie a indicatore singolo non ne hanno bisogno -- il segnale *e'* l'indicatore, che
+        # e' gia' disegnato -- ma quella a confluenza si', perche' li' la decisione viene da sei
+        # votanti e la sola posizione del marcatore non dice quali abbiano parlato.
         for punti, etichetta, simbolo, colore in (
             (buy_signals, "Buy", "triangle-up", panels.RIALZO),
             (sell_signals, "Sell", "triangle-down", panels.RIBASSO),
         ):
             if punti:
+                spiegazioni = [punto[2] if len(punto) > 2 else "" for punto in punti]
                 fig.add_trace(
                     go.Scatter(
-                        x=[quando for quando, _ in punti],
-                        y=[prezzo for _, prezzo in punti],
+                        x=[punto[0] for punto in punti],
+                        y=[punto[1] for punto in punti],
                         mode="markers",
                         marker=dict(size=13, color=colore, symbol=simbolo, line=dict(width=1, color="#1a1a19")),
                         name=etichetta,
                         legendgroup="segnali",
+                        text=spiegazioni,
+                        hovertemplate="%{text}<extra></extra>" if any(spiegazioni) else None,
                     ),
                     row=1,
                     col=1,
@@ -317,6 +327,152 @@ def trading_analysis(
     return fig, trades_df, actual_hours
 
 
+# -------------------------------------------------------------------------------------------------
+# La seconda vista: rotazione fra asset
+# -------------------------------------------------------------------------------------------------
+# Non e' una voce del menu, e' un'altra pagina. Il menu sceglie *quando* stare in un asset; qui si
+# sceglie *quale* fra piu' asset, e la domanda non e' esprimibile in `trading_analysis`, che carica
+# un simbolo solo. I due riferimenti -- BTC tenuto fermo e l'universo a peso uguale tenuto fermo --
+# sono disegnati sempre: il secondo e' quello che conta, perche' porta la stessa distorsione da
+# sopravvivenza della rotazione.
+
+
+@st.cache_data(ttl=3600, max_entries=8)
+def universo_di_sessione(symbols: tuple[str, ...], interval: str, since: str) -> pd.DataFrame:
+    """Le chiusure dell'universo, dallo store locale delle candele.
+
+    Il tetto sulle voci c'e' per la stessa ragione degli altri quattro della cartella: i parametri
+    arrivano dai widget, quindi la cardinalita' la decide chi muove i controlli.
+
+    **Legge lo store, non la rete.** In produzione `market_data/` e' vuota (il piano non ha dischi
+    persistenti), quindi la vista si spegne da sola invece di provare quindici scarichi.
+    """
+    return rotation.load_universe(list(symbols), interval, since)
+
+
+def rotation_analysis(closes: pd.DataFrame, parametri: dict) -> tuple[go.Figure, dict, dict]:
+    """La curva del capitale della rotazione contro i due riferimenti, piu' le metriche."""
+    esito = rotation.backtest(
+        closes,
+        lookback=int(parametri["lookback"]),
+        top=int(parametri["top"]),
+        every=int(parametri["every"]),
+        fee=float(parametri["fee"]),
+        regime="btc" if parametri["regime"] else "none",
+    )
+    riferimenti = rotation.benchmarks(closes)
+
+    fig = go.Figure()
+    # Il capitale della rotazione e' l'unica linea che il lettore deve seguire: prende l'arancio,
+    # i riferimenti restano blu, nella rampa chiaro/scuro che il registro usa per le serie
+    # ordinate. Verde e rosso restano allo stato, come ovunque nella pagina.
+    for nome, curva, colore, tratteggio in (
+        ("BTC buy and hold", riferimenti.get("BTC comprare e tenere", {}).get("_equity"), panels.BLU_CHIARO, "dot"),
+        ("Equal-weight universe", riferimenti["universo a peso uguale"]["_equity"], panels.BLU_SCURO, "dash"),
+        ("Rotation", esito["_equity"], panels.ARANCIO, None),
+    ):
+        if curva is None:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=closes.index,
+                y=curva,
+                name=nome,
+                mode="lines",
+                line={"color": colore, "width": 2.6 if tratteggio is None else 1.6, "dash": tratteggio},
+            )
+        )
+    fig.update_layout(
+        title="Capital, rebased to 100",
+        template="plotly_dark",
+        height=520,
+        hovermode="x unified",
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
+    )
+    fig.update_yaxes(type="log", title="Capital (log)")
+    return fig, esito, riferimenti
+
+
+def rotation_page(text_placeholder, fig_placeholder) -> None:
+    """La barra laterale e il corpo della vista di rotazione."""
+    st.sidebar.header("Universe")
+    universo = st.sidebar.selectbox(label="Assets", options=config.ROTATION_UNIVERSES, index=0)
+    interval = st.sidebar.selectbox(label="Candle interval", options=config.ROTATION_INTERVALS, index=1)
+    since = st.sidebar.text_input(label="From", value=config.ROTATION_SINCE)
+    if universo == "wide":
+        st.sidebar.caption(
+            "Measured: widening the universe **hurts**. Out of sample the median goes from +62% "
+            "on the five majors to −0.9% on fifteen. It is here as the control that shows it."
+        )
+
+    st.sidebar.header("Rotation")
+    parametri = {
+        "lookback": st.sidebar.number_input(label="Lookback (bars)", **config.ROTATION_LOOKBACK.widget),
+        "top": st.sidebar.number_input(label="Assets held", **config.ROTATION_TOP.widget),
+        "every": st.sidebar.number_input(label="Rebalance every (bars)", **config.ROTATION_EVERY.widget),
+        "fee": st.sidebar.number_input(label="Fee per leg %", **config.ROTATION_FEE.widget),
+        "regime": st.sidebar.checkbox("Cash out when BTC is below its 50-bar average", value=True),
+    }
+    st.sidebar.caption(
+        "These defaults are the **central** values, not a grid optimum. Picking the best "
+        "in-sample configuration transfers worse than picking one at random (ρ = −0.69)."
+    )
+
+    closes = universo_di_sessione(tuple(rotation.UNIVERSI[universo]), interval, since)
+    if closes.empty or closes.shape[1] < 2:
+        text_placeholder.warning(
+            "The candle store is empty or holds fewer than two assets. This view reads "
+            "`market_data/`, not the exchange: fill it with "
+            "`python -m cryptofarm.data.klines --update`."
+        )
+        return
+
+    try:
+        fig, esito, riferimenti = rotation_analysis(closes, parametri)
+    except ValueError as errore:
+        text_placeholder.warning(str(errore))
+        return
+
+    with text_placeholder.container():
+        st.subheader("Rotation vs holding")
+        colonne = st.columns(4)
+        colonne[0].metric("Rotation", f"{esito['rendimento_%']:.1f}%", f"Sharpe {esito['Sharpe']:.2f}")
+        universo_fermo = riferimenti["universo a peso uguale"]
+        colonne[1].metric(
+            "Equal-weight universe",
+            f"{universo_fermo['rendimento_%']:.1f}%",
+            f"Sharpe {universo_fermo['Sharpe']:.2f}",
+        )
+        btc_fermo = riferimenti.get("BTC comprare e tenere")
+        if btc_fermo:
+            colonne[2].metric(
+                "BTC buy and hold",
+                f"{btc_fermo['rendimento_%']:.1f}%",
+                f"Sharpe {btc_fermo['Sharpe']:.2f}",
+            )
+        colonne[3].metric(
+            "Max drawdown",
+            f"{esito['drawdown_%']:.1f}%",
+            f"{esito['drawdown_%'] - universo_fermo['drawdown_%']:+.1f} pts vs universe",
+            delta_color="inverse",
+        )
+        st.caption(
+            f"{esito['ribilanciamenti']} rebalances, turnover {esito['turnover_annuo']:.1f}× a year. "
+            "The number to beat is the equal-weight universe, not BTC: it carries the same "
+            "survivorship bias as the rotation, so the comparison isolates what the rotation adds."
+        )
+
+        if esito["_holdings"]:
+            recenti = pd.DataFrame(
+                [{"When": quando, "Held": ", ".join(nomi) or "cash"} for quando, nomi in esito["_holdings"][-8:]]
+            )
+            st.dataframe(recenti, use_container_width=True, hide_index=True)
+        else:
+            st.info("No asset ever had positive relative strength here: the portfolio stayed in cash.")
+
+    fig_placeholder.plotly_chart(fig, use_container_width=True)
+
+
 if __name__ == "__main__":
     st.set_page_config(
         page_title="CryptoFarm Simulator",
@@ -337,6 +493,16 @@ if __name__ == "__main__":
 
     text_placeholder = st.empty()
     fig_placeholder = st.empty()
+
+    # --- Quale delle due viste ----------------------------------------------------------------
+    # Non e' una strategia in piu' nel menu: e' un'altra domanda. Il menu sceglie *quando* stare
+    # dentro un asset, la rotazione sceglie *quale* fra piu' asset, e le due non condividono ne'
+    # i dati (una carica un simbolo, l'altra l'universo) ne' i controlli.
+    modalita = st.sidebar.radio("View", options=config.ROTATION_MODES, index=0, horizontal=True)
+
+    if modalita == config.ROTATION_MODES[1]:
+        rotation_page(text_placeholder, fig_placeholder)
+        st.stop()
 
     # --- Mercato ------------------------------------------------------------------------------
     st.sidebar.header("Market")
@@ -369,6 +535,23 @@ if __name__ == "__main__":
     voce = panels.STRATEGIE.get(strategia)
     if voce is not None and voce.note:
         st.sidebar.caption(voce.note)
+    if strategia == config.CONFLUENCE_STRATEGY:
+        # Quali sono davvero i quattro piani a questo intervallo, e quanta storia chiedono. Sono
+        # aggregazioni delle candele caricate (`resample_klines`), non scarichi separati: senza
+        # dirlo, «timeframe piu' grandi» resta una promessa che non si vede da nessuna parte.
+        scala = confluence.piani(interval)
+        st.sidebar.caption(
+            "Planes: " + " → ".join(f"{nome} {passo}" for nome, passo in scala.items()) + ". "
+            "They are resampled from the loaded candles, not fetched separately."
+        )
+        ore = confluence.ore_richieste(interval, int(config.CONF_REGIME_EMA.value))
+        st.sidebar.caption(
+            f"The regime gate needs about **{ore} hours** of history at {interval} before it can "
+            "open at all. With less, there are no trades and the reason is history, not the rules."
+        )
+        fuori = confluence.scala_fuori_misura(interval)
+        if fuori:
+            st.sidebar.warning(f"{interval}: {fuori}. Use 15m, 30m or 1h.")
     elif voce is None:
         st.sidebar.caption("No strategy selected: every available indicator is shown.")
 
@@ -376,20 +559,47 @@ if __name__ == "__main__":
     # I widget nascono da `panels.gruppi_di`: cambiando strategia cambiano i riquadri, e un
     # parametro che la strategia scelta non usa non compare. Chi non ha widget resta al suo valore
     # iniziale, che e' cio' che `trading_analysis` usa per gli indicatori non mostrati.
+    #
+    # I valori iniziali dipendono dall'intervallo, perche' le finestre si contano in **barre**: la
+    # stessa regola vuole un canale di 20 barre a un giorno e di 150 a un'ora per coprire lo stesso
+    # tratto di calendario. La chiave del widget include l'intervallo apposta -- Streamlit conserva
+    # lo stato di un widget con la stessa chiave, quindi senza, cambiando intervallo, i campi
+    # resterebbero fermi sui valori del precedente e il default misurato non comparirebbe mai.
     st.sidebar.header("Parameters")
+    misurati = panels.valori_misurati(strategia, interval)
+    ancora = panels.ancora_di(interval)
+    iniziali = panels.valori_predefiniti(strategia, interval)
     valori: dict = {}
     for titolo, nomi in panels.gruppi_di(strategia):
         with st.sidebar.expander(titolo, expanded=True):
             colonne = st.columns(2)
             for posizione, nome in enumerate(nomi):
+                campo = getattr(config, nome)
+                etichetta = panels.ETICHETTE[nome] + (" ·" if nome in misurati else "")
                 valori[nome] = colonne[posizione % 2].number_input(
-                    label=panels.ETICHETTE[nome], key=f"par_{nome}", **getattr(config, nome).widget
+                    label=etichetta,
+                    key=f"par_{nome}_{interval}",
+                    **{**campo.widget, "value": type(campo.value)(iniziali[nome])},
                 )
 
+    if misurati:
+        st.sidebar.caption(
+            f"· = starting value measured on five assets at {ancora}"
+            + (f" (nearest measured interval to {interval})" if ancora != interval else "")
+            + ". It is the value whose **median rank** is highest, not the one from the "
+            "best-performing configuration — picking that transfers worse than picking at random."
+        )
+    elif ancora:
+        st.sidebar.caption(f"No parameter of this strategy discriminated at {ancora}: the hand-written defaults stand.")
+
     if strategia == "Squeeze Breakout":
-        valori["CONFIRM_VOLUME"] = st.sidebar.checkbox("Require volume confirmation", value=config.CONFIRM_VOLUME)
+        valori["CONFIRM_VOLUME"] = st.sidebar.checkbox(
+            "Require volume confirmation", value=bool(iniziali["CONFIRM_VOLUME"]), key=f"vol_{interval}"
+        )
     if strategia == "Ichimoku Trend":
-        valori["REQUIRE_CLOUD"] = st.sidebar.checkbox("Require cloud confirmation", value=config.REQUIRE_CLOUD)
+        valori["REQUIRE_CLOUD"] = st.sidebar.checkbox(
+            "Require cloud confirmation", value=bool(iniziali["REQUIRE_CLOUD"]), key=f"cloud_{interval}"
+        )
     valori["MODELLO"] = st.session_state["model"]
 
     # --- Dati e visualizzazione ---------------------------------------------------------------
@@ -429,6 +639,8 @@ if __name__ == "__main__":
             st.subheader("Trades")
             if trades_df.empty:
                 st.info("No trades with these parameters.")
+                if strategia == config.CONFLUENCE_STRATEGY and st.session_state["df"] is not None:
+                    st.caption("Why: " + panels.diagnosi_confluenza(st.session_state["df"], valori, interval))
             else:
                 profitto = trades_df["Profit"].sum()
                 in_utile = len(trades_df[trades_df["Profit"] > 0])

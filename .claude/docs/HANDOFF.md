@@ -1,7 +1,8 @@
 # Handoff — CryptoFarm
 
-Data: **2026-08-24**. Branch di lavoro: **`claude/trading-strategies-performance-fb39oc`**
-(3 commit sopra `main`: `d82b3db`, `8f4ccd8`, `61603cc`).
+Data: **2026-08-27**. Branch di lavoro: **`claude/ricerca-quant-ml-cinque-asset`**
+(spinto). Il precedente
+`claude/trading-strategies-performance-fb39oc` e' stato unito in `main` con la PR #7.
 Il branch precedente `ai-labeling-rewrite` (pipeline ML a 3 stati) e' **chiuso con esito negativo**
 e non e' mai stato unito: vedi `.claude/docs/strategy.md` §10-13 e la sezione "Il filone ML" qui
 sotto.
@@ -13,6 +14,9 @@ sotto.
 | `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render |
 | `.claude/docs/backtest-strategie.md` | **le strategie del simulatore misurate su nove anni.** 3.129 configurazioni, sensibilita' ai parametri, tenuta fuori campione, quattro difetti del codice trovati misurando (§8, ora corretti) |
 | `.claude/docs/strategie-nuove.md` | **lo stato piu' recente del filone trading.** Le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
+| `.claude/docs/sessione-2026-08-27.md` | **chiusura dell'ultima sessione**: le due decisioni prese con l'utente, le trappole d'ambiente scoperte misurando, i due test che passavano a vuoto e come sono stati corretti, e cosa farei dopo in ordine |
+| `.claude/docs/strategia-confluenza.md` | **il filone piu' recente (2026-08-27): la strategia multi-timeframe a piu' segnali.** Disegno, sei votanti, memoria del segnale, soglia decisa dai piani alti, paniere a capitale condiviso, e le tre cose che scrivendola si sono rivelate diverse dal disegno. **Il codice c'e' e gira; la misura su dati veri no** |
+| `.claude/docs/ricerca-quant-ml.md` | **il documento piu' recente (2026-08-26), e quello da leggere per primo sui risultati.** Stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
 | `.claude/docs/strategy.md` | fonte di verita' delle decisioni sul **filone ML** (etichettatura, feature, modello, validazione). Chiuso in negativo, ma le trappole valgono ancora |
 | `git log main..HEAD` | i messaggi di commit spiegano il *perche'* di ogni scelta e i bug trovati |
 
@@ -22,7 +26,10 @@ Non riassumere quei contenuti: sono gia' scritti e aggiornati.
 
 ## Stato del lavoro corrente: il filone trading
 
-Due sessioni consecutive, entrambe concluse e spinte sul branch.
+Tre sessioni consecutive. **La terza (2026-08-26/27) e' quella piu' recente e in parte corregge le
+prime due**: sta in [`sessione-2026-08-27.md`](sessione-2026-08-27.md) per lo stato operativo e in
+[`ricerca-quant-ml.md`](ricerca-quant-ml.md) per le misure. Le due sezioni qui sotto restano perche'
+descrivono come ci si e' arrivati, non perche' siano l'ultima parola.
 
 ### Sessione 1 — misurare le strategie esistenti (`d82b3db`, `8f4ccd8`)
 
@@ -77,6 +84,14 @@ leva e liquidazione a capitale zero.
   ininfluente e' l'ADX come soglia minima nella rottura di canale.
 
 ### Cosa resta aperto
+
+> **Aggiornamento 2026-08-26 — i due punti qui sotto sono chiusi.** Sulla macchina dell'utente lo
+> store ha tutti e 15 i simboli fino al 2026-08-19: SOL e BNB sono stati misurati e
+> `donchian_breakout`/`squeeze_breakout` rimisurate dopo la correzione dello stop a trailing. I
+> risultati stanno in `.claude/docs/ricerca-quant-ml.md` §2, e **due conclusioni di
+> `strategie-nuove.md` non reggono su cinque asset**: `band_reversion_gated` e' negativa su 4 asset
+> su 5, e fuori campione 4h batte 1d. Restano validi i comandi qui sotto, con una correzione
+> necessaria a `strategy_lab`/`strategy_sweep` per il `spawn` di macOS (vedi §8 di quel documento).
 
 **SOL e BNB non sono stati misurati.** L'utente li aveva chiesti esplicitamente. Non e' una scelta:
 in ambiente remoto l'egress verso *ogni* exchange e aggregatore risponde 403 sul CONNECT (Binance,
@@ -136,6 +151,49 @@ diretta lungo→corto).
 Tabelle prodotte: `reports/lab_*.csv` (panoramica, effetto short, ablazioni, classifica, fuori
 campione, leva e costi; suffissi `_1d`, `_4h`, `_4h_ciclo2017`, `_ETHUSD_4h`).
 
+### Un guasto che era li' da un giorno: la rotazione con lo store vuoto
+
+`rotation.load_universe` costruiva `pd.DataFrame({})` da un dizionario vuoto -- che nasce con un
+RangeIndex di **interi** -- e poi lo filtrava con `frame.index >= since`. Il confronto fra int64 e
+una stringa solleva `TypeError`, quindi con `market_data/` vuoto la vista di rotazione **cadeva**
+invece di mostrare l'avviso che le sta accanto da sempre. E' la condizione normale in produzione:
+il piano gratuito di Render non ha dischi persistenti.
+
+Lo stesso guasto nascondeva la raccolta di `tests/test_simulator_page.py`, che lo esercita a
+livello di modulo. In questa sessione avevo attribuito quella raccolta fallita alla versione di
+Python: **era sbagliato**. Con la correzione la suite gira intera, 911 test, senza `--ignore`.
+
+### La confluenza (2026-08-27) — scritta, non misurata
+
+Il filone piu' recente. Il disegno completo sta in
+[`strategia-confluenza.md`](strategia-confluenza.md); qui solo cosa esiste e cosa manca.
+
+| file | cosa |
+|---|---|
+| `trading/mtf.py` | `align_to_lower`: legge la barra lunga **chiusa**, spostandola di un periodo. E' l'unica difesa contro il look-ahead fra intervalli |
+| `trading/live_frames.py` | le barre lunghe *in formazione*, in forma chiusa (`groupby` + `cummax`/`cummin`/`cumsum`). 103 ms per cinque anni e tre intervalli, contro ore del ciclo ingenuo |
+| `trading/voters.py` | `held_state` (eventi → stato tenuto) e `decayed_vote` (stato → voto che sfuma). E' la memoria del segnale, cioe' cio' che rende la confluenza capace di innescare |
+| `trading/confluence.py` | la strategia: sei votanti su quattro piani, punteggio pesato, ampiezza per famiglie, soglia che si muove coi piani alti, uscita a tre condizioni. `stati_dei_votanti` isola la parte cara |
+| `trading/portfolio.py` | un capitale solo su piu' asset, con occasioni perse e concentrazione |
+| `scripts/confluence_lab.py` | il banco: tre griglie, paniere, tre riferimenti, `--selfcheck` che gira senza store |
+| voce «Confluence» nel simulatore | due riquadri (decisione e votanti) e la spiegazione attaccata a ogni marcatore |
+
+**Quello che manca e' la misura**, e serve la macchina con lo store delle candele. Da fare, in
+ordine: `--grid coordinate` su BTCUSDT a 15m (79 celle, e' anche S0 travestito), poi `--grid ampia`
+sui cinque asset, poi `--paniere majors`. I tre riferimenti si stampano da soli.
+
+**Quattro cose gia' sapute che vanno tenute a mente leggendo i risultati:**
+
+1. l'aspettativa dichiarata *prima* e' lo stesso ordine di rendimento del possesso passivo con un
+   drawdown molto minore, **non** un rendimento superiore. Se il risultato fosse molto migliore, la
+   prima ipotesi da verificare e' il look-ahead, non il successo;
+2. il rischio piu' probabile non e' che perda: e' che **operi troppo poco** perche' si possa dire.
+   Il numero di operazioni all'anno va riportato accanto a ogni risultato;
+3. la **necessarieta' per votante** e' nella tabella dei risultati (`nec_*`, `necessarieta_max`).
+   Sopra 0,60 l'insieme e' quel votante travestito, e le metriche parlano di lui;
+4. il conteggio delle prove per `multiplicity.py` e' in testa a ogni CSV prodotto. `ampia` sono
+   4.800 celle: guardarne la migliore e riportarne lo Sharpe senza scontarlo non e' una misura.
+
 ---
 
 ## Il filone ML, in breve
@@ -160,12 +218,19 @@ i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0
 
 - **Usa `.venv312/bin/python`.** Il `.venv` preesistente e' Python 3.9 senza `scikit-learn`; il
   progetto richiede ≥3.12. Installazione normale: `pip install -e ".[app,data,dev]"`.
+- **Rete: dipende da dove gira la sessione.** Sulla macchina dell'utente `raw.githubusercontent.com`
+  e `api.github.com` rispondono, e i README dei repository si scaricano (fatto il 2026-08-26). Il
+  paragrafo qui sotto vale per l'**ambiente remoto**, non per il locale, e va letto cosi'.
 - **Rete bloccata in sessione remota.** Nessun exchange e nessun aggregatore e' raggiungibile
   (403 sul CONNECT del proxy); anche la *search API* di GitHub e' negata perche' la sessione e'
   legata ai suoi repository. Restano raggiungibili PyPI, i contenuti dei repository configurati e
   gli asset di release. Non perdere tempo a riprovare host nuovi: e' gia' stato fatto in modo
   esaustivo.
-- **`market_data/` in questo ambiente contiene solo due file** (55 MB, gitignorato):
+- **`market_data/` sulla macchina dell'utente ha tutti e 15 i simboli** a 5 minuti, fino al
+  2026-08-19 (284 MB, gitignorato): da 614.732 a 945.675 candele per simbolo. E' con questo store
+  che sono state fatte le misure di `ricerca-quant-ml.md`. Il paragrafo qui sotto descrive
+  l'**ambiente remoto**, dove ce n'erano due.
+- **`market_data/` nell'ambiente remoto contiene solo due file** (55 MB, gitignorato):
   `BTCUSD-5m.parquet` (1.540.397 candele, 2012-01-01 → oggi, fonte Bitstamp) e
   `ETHUSD-5m.parquet` (342.929 candele, 2016-03 → 2019-12, fonte Bitfinex). ETH **non copre il
   ciclo recente**: e' per questo che il controllo su un secondo asset e' stato fatto sul ciclo
@@ -174,10 +239,13 @@ i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0
 - **`models/*.joblib` e `*.json` non sono tracciati** (`models/.gitignore`, esteso nel 2026-08).
   `meta_model.*` e' il modello della strategia precedente: non cancellarlo, `load_signal_model()`
   lo carica ancora. `MODEL_PRECEDENCE` e `active_model_name()` sono l'unica fonte di verita'.
-- **Test: 430 in 15 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
+- **Test: 695 in 20 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
   entrambi i job su ogni PR.
 - Le due misure lunghe (`strategy_sweep`, `strategy_lab`) impiegano decine di minuti: farle partire
   in background e attendere con un ciclo di controllo, mai con `sleep` in catena.
+- **`analysis_cache/` e' gitignorata ed e' l'input di `scripts/tune_defaults.py`.** Senza,
+  `trading/tuned_defaults.py` non e' rigenerabile: servono di nuovo le griglie su quattro intervalli
+  per cinque simboli, circa due ore di calcolo. I `reports/*.csv` invece sono tracciati.
 
 ## Regole di ingaggio stabilite dall'utente
 
@@ -238,5 +306,10 @@ i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0
 - **`dataviz`** — prima di aggiungere grafici al simulatore.
 - **`artifact-design`** — l'utente si aspetta un report visuale a chiusura di ogni blocco di misure.
 
-Non serve `research` (nessuna fonte esterna raggiungibile) ne' `codebase-design` (la struttura a
-moduli e' decisa e documentata).
+- **`ponytail:ponytail`** — l'utente la lancia da se' a inizio sessione; nella terza era attiva a
+  livello `full` per tutto il tempo.
+
+Non serve `codebase-design` (la struttura a moduli e' decisa e documentata). `research` non serve
+per lo stato dell'arte, che e' gia' raccolto in `ricerca-quant-ml.md` §1 — ma **sulla macchina
+dell'utente la rete funziona**, quindi la vecchia nota "nessuna fonte esterna raggiungibile" vale
+solo in remoto.

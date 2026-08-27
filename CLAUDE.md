@@ -11,6 +11,9 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
 - `.claude/docs/HANDOFF.md` — stato corrente del lavoro e trappole ambientali per chi riprende.
 - `.claude/docs/backtest-strategie.md` — le strategie a indicatori misurate su nove anni: 3.129
   configurazioni, sensibilità ai parametri, tenuta fuori campione, difetti trovati misurando.
+- `.claude/docs/strategia-confluenza.md` — la strategia multi-timeframe a più segnali: quattro
+  piani con domande disgiunte, sei votanti scelti per famiglia, memoria del segnale, soglia decisa
+  dai piani alti. **Il codice c'è e gira; la misura su dati veri no.**
 - `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
   2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
 - `.claude/docs/INDEX.md` — ordine di lettura consigliato.
@@ -52,8 +55,15 @@ src/cryptofarm/
     ├── strategies_ls.py  strategie a due versi: da candele a cambi di posizione (+1/0/-1)
     ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
     │                     e `simulate_positions` (long/short, con leva e costo di mantenimento)
+    ├── mtf.py            allineamento fra intervalli: legge la barra lunga **chiusa**, mai quella corrente
+    ├── live_frames.py    le barre lunghe *in formazione*, in forma chiusa — **oggi non lo importa nessuno**
+    ├── voters.py         da cambi di posizione a voto per barra, con memoria e decadimento
+    ├── confluence.py     la strategia a confluenza: sei votanti su quattro piani, soglia dinamica
+    ├── portfolio.py      un capitale solo su più asset: si apre sul primo che parla
+    ├── rotation.py       rotazione trasversale: sceglie *quale* asset, non *quando*
+    ├── tuned_defaults.py generato: valori di partenza misurati, per intervallo
     ├── config.py         valori di partenza dei widget della pagina
-    ├── simulator.py      la pagina Streamlit: `trading_analysis` + layout
+    ├── simulator.py      la pagina Streamlit: due viste, `trading_analysis` + `rotation_page`
     └── live_bot.py       bot headless che piazza ordini veri
 scripts/analysis.py       misure da riga di comando che producono i numeri di strategy.md
 ```
@@ -76,10 +86,23 @@ streamlit run src/cryptofarm/trading/simulator.py
 # Misure di strategy.md
 .venv312/bin/python -m scripts.analysis
 
+# Rotazione trasversale e filtro meta (vedi .claude/docs/ricerca-quant-ml.md)
+.venv312/bin/python -m scripts.cross_section --universe majors --interval 1d --grid
+.venv312/bin/python -m scripts.meta_gate --strategy donchian_breakout --interval 4h --oos 2024-01-01
+
+# Valori di partenza misurati per intervallo (rigenera trading/tuned_defaults.py)
+.venv312/bin/python -m scripts.tune_defaults --all-intervals --save
+
 # Backtest delle strategie a indicatori su tutto lo storico (vedi .claude/docs/backtest-strategie.md)
 .venv312/bin/python -m scripts.strategy_sweep --all --interval 15m   # griglie di parametri
 .venv312/bin/python -m scripts.sweep_report --interval 15m           # tabelle in reports/
 .venv312/bin/python -m scripts.strategy_focus --top 3                # commissioni e intervalli
+
+# Strategia a confluenza (vedi .claude/docs/strategia-confluenza.md)
+.venv312/bin/python -m scripts.confluence_lab --selfcheck             # gira senza store, dati finti
+.venv312/bin/python -m scripts.confluence_lab --grid coordinate --symbol BTCUSDT --interval 15m
+.venv312/bin/python -m scripts.confluence_lab --grid ampia --interval 15m --since 2021-01-01
+.venv312/bin/python -m scripts.confluence_lab --grid veloce --paniere majors
 
 # Strategie a due versi, long e short (vedi .claude/docs/strategie-nuove.md)
 .venv312/bin/python -m scripts.strategy_lab --all --interval 1d --since 2021-01-01
@@ -92,7 +115,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (430 test in 15 file). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (911 test in 26 file, tutti verificati). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -116,6 +139,66 @@ ri-esportazione**: chi serve una strategia la importa dal modulo che la contiene
   **Se si cambia, va riverificato contro `ta`**: è ciò che rende `simulate_candles` 40 volte più
   veloce, e una divergenza silenziosa qui sposta ogni segnale.
 
+### Le due viste
+
+La pagina ha un interruttore in cima alla barra laterale (`config.ROTATION_MODES`), e le due voci
+non sono due strategie ma **due domande diverse**:
+
+- **Single asset** — `trading_analysis`: carica un simbolo dall'exchange e ci esegue sopra una
+  strategia del menu. Sceglie *quando* stare dentro.
+- **Cross-asset rotation** — `rotation_page` su `trading/rotation.py`: carica l'universo **dallo
+  store locale**, lo ordina per forza relativa e tiene i primi. Sceglie *quale*.
+
+Tre conseguenze da conoscere prima di toccarle:
+
+- **la rotazione non usa la rete.** Legge `market_data/`, quindi in produzione (nessun disco
+  persistente) non ha dati e lo dice, invece di provare quindici scarichi. Un test lo verifica;
+- **i valori iniziali sono centrali, non ottimi.** La correlazione fra resa in stima e resa in
+  verifica sulle prime dieci configurazioni e' **-0,69**: cercare il massimo in campione trasferisce
+  peggio che prendere una configurazione a caso. Chi li cambia in "quelli che rendono di piu' nel
+  grafico" sta facendo esattamente l'errore misurato;
+- **il riferimento da battere e' l'universo a peso uguale, non BTC.** Porta la stessa distorsione da
+  sopravvivenza della rotazione, quindi il confronto isola cio' che la rotazione aggiunge. Contro
+  BTC la rotazione vince nel 95,6% delle configurazioni; contro l'universo, nel 44,4%.
+
+### I valori di partenza dipendono dall'intervallo
+
+`trading/tuned_defaults.py` e' **generato** da `scripts/tune_defaults.py` e non si modifica a mano.
+Tiene, per ognuno dei quattro intervalli misurati (15m, 1h, 4h, 1d), il valore di partenza di ogni
+parametro di ogni strategia del menu.
+
+**Come sono scelti, e perche' non e' il massimo della griglia.** Il massimo e' la cella piu'
+fortunata: su questi dati la scelta del massimo trasferisce peggio della mediana, e sulla rotazione
+la correlazione fra resa in stima e in verifica e' −0,69. Qui si sceglie una coordinata alla volta:
+ogni configurazione riceve il suo **rango percentile dentro il proprio simbolo** (unico modo di
+sommare asset i cui possessi passivi vanno da +134% a +4.346%), e per ogni valore di ogni parametro
+si prende la mediana di quei ranghi su cinque asset. Si adotta il valore migliore **solo se** supera
+due controlli: sposta la mediana dei ranghi di almeno 0,06, e sceglie lo stesso valore anche
+guardando il solo 2021-2023. Chi non li supera tiene il default scritto a mano.
+
+**La mappa `panels.ANCORA_MISURATA`** dice quale misura copre quale intervallo: il menu ne offre
+nove, le griglie ne coprono quattro. E' un dato e non un calcolo, perche' "il piu' vicino" e' gia'
+una decisione (30m sta in mezzo fra 15m e 1h).
+
+Tre cose da sapere prima di toccarlo:
+
+- **la chiave dei widget include l'intervallo** (`par_{nome}_{intervallo}`). Streamlit conserva lo
+  stato di un widget con la stessa chiave: senza, cambiando timeframe i campi restano fermi sui
+  numeri del precedente e il default misurato non compare mai. Il difetto e' invisibile leggendo il
+  codice e non lo vede `AppTest`, che ricostruisce lo stato a ogni run — per questo il test asserisce
+  sulla **chiave**, non sul valore;
+- **le finestre crescono quando le barre si accorciano**, ed e' la lettura meccanica del risultato:
+  la stessa regola vuole un canale di 20 barre a un giorno e di 150 a un'ora per coprire lo stesso
+  tratto di calendario. Un test fissa il verso di quella disuguaglianza;
+- **due parametri non hanno una lettura coerente fra intervalli** e vanno trattati con sospetto:
+  `ATR Bands / atr_multiplier` (3,0 a 15m, 1,6 a 1h, 1,2 a 4h, 3,0 a 1d) e
+  `Donchian Breakout / adx_min`. Sono scelte adottate perche' superano i due controlli su ogni
+  intervallo preso da solo, ma il quadro d'insieme non le sostiene. `tune_defaults` stampa la
+  tabella dell'accordo fra intervalli apposta per renderle visibili.
+
+**Sotto l'ora nessuna misura di questo progetto ha mai trovato qualcosa che batta il possesso
+passivo.** I default a 15m sono i migliori *fra quelli provati*, non buoni.
+
 ### Il registro di `panels.py`
 
 La pagina non decide piu' da sola cosa mostrare. `trading/panels.py` tiene, in forma di dati, quali
@@ -136,19 +219,97 @@ Tre cose da sapere prima di toccarlo:
   deuteranopia. L'acquamarina non si usa sopra le candele, dove si confonde con il corpo rialzista.
   Verde e rosso restano allo stato. Tre test tengono ferme queste regole.
 
+### La strategia a confluenza
+
+`trading/confluence.py` è l'unica voce del menu che non è una strategia a indicatore: legge
+**quattro piani temporali ricavati dall'intervallo scelto** (`FATTORI` — ×1 innesco, ×4 conferma,
+×16 struttura, ×96 regime, cioè 15m/1h/4h/1d partendo da 15m) e fa votare sei strategie diverse.
+Quattro cose da sapere prima di toccarla:
+
+- **aggiungere un votante è `confluence.registra(Votante(...))`, e basta.** Da lì si adattano da
+  soli famiglie, pesi, necessarietà, riquadri della barra laterale, parametri della strategia e
+  griglia del banco: non c'è nessun elenco da tenere allineato a mano, ed è quello il punto;
+- **i parametri dei votanti si risolvono in tre strati**: default della funzione (`config.CONF_*`),
+  valore misurato in `tuned_defaults` per l'intervallo del **piano** su cui il votante gira — non
+  quello della pagina — e override di chi chiama. Il secondo strato è quello che si sbaglia
+  facilmente: a base 15m un votante di struttura gira a 4h e vuole i valori di 4h;
+- **muoverli costa.** Il congelamento teneva a nove i parametri liberi; con le 31 manopole aperte
+  si superano i quaranta, e `scripts/multiplicity.py` dice cosa succede lì. Muoverli per capire,
+  misurare con i votanti fermi;
+- **la soglia è continua, non a gradini.** I piani lunghi entrano come distanza dalla media
+  normalizzata sull'ATR dello stesso piano, non come `np.sign`: con il segno la soglia saltava di
+  0,15 per volta e una uscita per punteggio su quattro era decisa da quel salto;
+- **l'isteresi ha un pavimento e un soffitto** (`barre_minime`, `pazienza`), e valgono **solo per
+  l'uscita dal punteggio**. Lo stop e il cancello no: sono regole di rischio, non di opinione;
+- **la parte cara non dipende dalla griglia.** I votanti congelati hanno uno stato che dipende solo
+  da (simbolo, intervallo): `stati_dei_votanti` lo calcola una volta e `scripts/confluence_lab.py`
+  lo riusa su tutte le celle. Misurato su 11.520 barre: 351 ms per cella contro 104 ms;
+- **il punto in cui può barare è uno solo**, `_stato_del_votante`, e la difesa è
+  `mtf.align_to_lower`, che sposta lo stato del piano lungo di un periodo intero prima di leggerlo.
+  Il test che lo protegge taglia **dentro** una barra lunga già cominciata e confronta gli stati:
+  un taglio allineato ai confini passa anche col difetto reintrodotto, ed è com'era scritto la
+  prima volta;
+- **`live_frames.py` oggi non lo importa nessuno.** Era lo stadio S1 e serviva a sollevare i piani
+  lunghi a valore provvisorio; scrivendo la confluenza si e' visto che su un confronto di *segno* il
+  sollevamento e' algebricamente un non-fare (`confluence._sign_su_media` lo dimostra in tre
+  righe), e che sollevare una *strategia* qualunque non e' generico. Il modulo resta perche' e' il
+  pezzo che serve appena un votante debba leggere il **valore** di una barra lunga parziale -- una
+  distanza, una banda, uno stop -- e perche' contiene il test contro il difetto da tre caratteri
+  (`transform("max")` invece di `cummax`). Se si decide che non servira', si cancella: e' codice
+  vivo solo nei suoi test, e va detto invece che lasciato credere il contrario;
+- **zero operazioni non e' un risultato, e' una domanda.** Le condizioni d'ingresso sono quattro in
+  `and` e `Confluenza.perche_non_entra()` dice quale non si e' mai avverata, con i numeri. Serve
+  perche' il caso piu' comune non e' la prudenza della strategia ma la storia: a 15m il piano di
+  regime e' giornaliero e la sua media ne chiede cinquanta barre, cioe' **1.200 ore**, contro le
+  240 del valore di partenza della pagina;
+- **la scala x1/x4/x16/x96 vale attorno ai quindici minuti.** A 1m il «regime» dura un'ora e mezza,
+  a 1d chiede barre da 96 giorni. La regola scritta e' che il piano di regime duri fra mezza
+  giornata e una settimana (`scala_fuori_misura`), il che lascia 15m, 30m e 1h;
+- **la spiegazione viaggia col segnale.** I segnali della confluenza sono `(quando, prezzo, testo)`
+  invece di `(quando, prezzo)`, e il grafico mostra il testo al passaggio del mouse. Per questo
+  `pnl` scompatta con `[:2]`: qualunque strategia può aggiungere elementi dopo i due che il motore
+  usa. Il testo **distingue gli ingressi dalle uscite**: quattro uscite su cinque sono lo stop a
+  trailing, e mostrarci sopra i votanti fa leggere «venduto mentre cinque votanti dicevano di
+  comprare», che è vero e del tutto fuorviante;
+- **i quattro riquadri non sono intercambiabili.** `regime` e `struttura` valgono ±1 e il punteggio
+  sta in ±0,5: sullo stesso asse il primo schiaccia il secondo, e si vede una linea ferma a 1
+  mentre si compra e si vende. Da qui il riquadro *Higher planes* separato, e lo stop a trailing
+  disegnato sulle candele — senza, l'80% delle vendite è inspiegabile dal grafico.
+
+`trading/portfolio.py` risponde a una domanda diversa e non va confuso con `rotation.py`: la
+rotazione sceglie *quale* asset tenere e ci sta dentro sempre; il paniere a capitale condiviso sta
+fuori finché nessuno parla e mette tutto il capitale sul primo che dà il segnale. Riporta sempre le
+**occasioni perse** mentre il capitale era impegnato e la **concentrazione**, cioè la quota
+dell'asset più operato: sopra 0,9 il paniere è finzione.
+
 ### Funzioni di `strategies.py` che il menu non raggiunge
 
 `buy_sell_limits_simulation` legge `MACD`, che resta commentata in `add_technical_indicator`, e
-quindi solleva `KeyError` appena chiamata. `close_rsi_buy_sell_limits_simulation` e'
-irraggiungibile per scelta: misurata su nove anni, e' in perdita totale in tutte le 25
-configurazioni provate. Nessuna delle due sta nel registro, quindi non compare nel menu; restano
-nel modulo perche' il golden master le copre e il codice attorno le documenta.
+quindi solleva `KeyError` appena chiamata: e' l'unica esclusa perche' rotta.
+
+Le altre sette sono **uscite dal menu misurando** (2026-08-26, `.claude/docs/ricerca-quant-ml.md`
+§2): Close Buy/Sell Limits, Close ATR, Close Bullish EMA, Green Candles, ATR Live Trade, Trend
+Pullback, Band Reversion. Restano nel modulo e nel golden master -- la misura si rifa' con
+`scripts/strategy_sweep` -- ma non sono selezionabili.
+
+**`close_rsi_buy_sell_limits_simulation` e' invece rientrata** ("Close RSI Reverse"). La ragione
+per cui era esclusa -- "in perdita totale in tutte le 25 configurazioni provate" -- vale a 15
+minuti e non a scala giornaliera: a 1d fa 24-27 operazioni l'anno, mediana positiva su tutti e
+cinque i simboli e 72-92% di configurazioni in utile; a 4h ne fa 160 l'anno e su BTC perde il
+45,8%. E' il caso piu' netto della regola gia' nota, che la frequenza operativa spiega quasi tutto:
+**una strategia esclusa su un intervallo non e' esclusa su tutti**.
 
 ### Il golden master
 
 `tests/test_simulator_golden.py` fissa il comportamento di 21 funzioni su quattro scenari di mercato
-sintetici, confrontandolo con `tests/data/simulator_golden.json`. Serve perché il simulatore non ha
-altri test: **prima di toccarlo, questo deve passare; dopo, deve passare ancora senza rigenerarlo**.
+sintetici, confrontandolo con `tests/data/simulator_golden.json`. Copre il **comportamento delle
+funzioni**: **prima di toccarlo, questo deve passare; dopo, deve passare ancora senza rigenerarlo**.
+
+L'**assemblaggio** invece lo copre `tests/test_simulator_page.py`, che esegue la pagina con
+`streamlit.testing.v1.AppTest`. E' il livello da cui e' passato il guasto che tolse il simulatore
+dalla produzione: ogni funzione aveva i suoi test e passavano tutti, mentre `load_signal_model()`
+chiamata senza condizione dentro `__main__` impediva alla pagina di aprirsi. Copre anche la
+degradazione senza store delle candele, che e' la condizione in cui gira il servizio pubblico.
 
 Rigenerare (`SIMULATOR_GOLDEN_REGEN=1 pytest tests/test_simulator_golden.py`) **accetta qualunque
 differenza di comportamento**. Farlo solo dopo aver verificato a mano che la differenza sia voluta, e
@@ -183,10 +344,10 @@ addestrato.
 
 ## Data/model artifacts
 
-`models/` contiene gli artefatti (`.joblib` + `.json` di metadata). `models/.gitignore` copre solo
-`*.keras`, per cui i `.joblib` sono finiti tracciati nel repository — circa 24 MB, con
-`policy_alta` e `policy_model` byte per byte identici. **Da sistemare**: estendere il `.gitignore` e
-fare `git rm --cached`. Rigenerare con i trainer, non modificare a mano.
+`models/` contiene gli artefatti (`.joblib` + `.json` di metadata) e **non ne traccia nessuno**:
+`models/.gitignore` copre `*.keras`, `*.joblib` e `*.json`, e tiene solo il `README.md`. Un clone
+del repository quindi non ha modelli, ed è la condizione in cui gira il servizio pubblico.
+Rigenerare con i trainer, non modificare a mano.
 
 ## Docker e CI
 

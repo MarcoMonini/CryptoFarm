@@ -2,7 +2,22 @@
 
 Estratto da `simulator.py` senza modifiche. Entrambe le funzioni accoppiano i segnali per
 indice: ha senso solo se la strategia li produce alternati, come nota `ai_model_simulation`.
-Restituiscono la lista delle operazioni, non un totale."""
+Restituiscono la lista delle operazioni, non un totale.
+
+In fondo stanno le due misure della **curva del capitale** -- drawdown e metriche annualizzate.
+Vivevano in `scripts/strategy_sweep`, dove le importava anche `strategy_lab`; sono salite qui
+quando e' servita una terza chiamante (`trading/rotation.py`), perche' la terza copia sarebbe
+stata la prima occasione per farle divergere in silenzio."""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+# Un segnale e' `(quando, prezzo)`, e puo' portare **altri elementi dopo**: la confluenza ci
+# attacca la spiegazione di chi l'ha generato, che il grafico mostra al passaggio del mouse. Da
+# qui lo `[:2]` su ogni scompattamento: il motore legge i due che gli servono e ignora il resto,
+# invece di far cadere ogni strategia che voglia dire qualcosa in piu' del dove e del quando.
 
 
 def simulate_trading_with_commisions(
@@ -19,7 +34,7 @@ def simulate_trading_with_commisions(
     for i in range(len(buy_signals)):
         # Se NON stiamo detenendo nulla e c'è un segnale di BUY, compriamo
         if not holding and i < len(buy_signals):
-            buy_time, buy_price = buy_signals[i]
+            buy_time, buy_price = buy_signals[i][:2]
             if working_wallet > 0:
                 # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
                 # dopo la fee rimane working_wallet*(1 - fee_decimal) per comprare
@@ -31,7 +46,7 @@ def simulate_trading_with_commisions(
                 holding = True
         # Se ABBIAMO una posizione aperta e c'è un segnale di SELL, vendiamo
         if holding and i < len(sell_signals):
-            sell_time, sell_price = sell_signals[i]
+            sell_time, sell_price = sell_signals[i][:2]
             # Ricaviamo USDT vendendo la quantity di crypto
             gross_proceed = quantity * sell_price
             # Applichiamo la commissione di vendita
@@ -79,7 +94,7 @@ def simulate_trading_with_commisions_multiple_buy(
     while b < len(buy_signals):
         # for b in range(len(buy_signals)):
         # if i < len(buy_signals):
-        buy_time, buy_price = buy_signals[b]
+        buy_time, buy_price = buy_signals[b][:2]
         # if working_wallet > 0:
         # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
         # utilizzo metà del working wallet
@@ -92,8 +107,8 @@ def simulate_trading_with_commisions_multiple_buy(
         next = b + 1
         while next < len(buy_signals):
             if s < len(sell_signals):
-                buy_time, buy_price = buy_signals[next]
-                sell_time, sell_price = sell_signals[s]
+                buy_time, buy_price = buy_signals[next][:2]
+                sell_time, sell_price = sell_signals[s][:2]
                 if buy_time < sell_time:
                     # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
                     # utilizzo metà del working wallet
@@ -111,7 +126,7 @@ def simulate_trading_with_commisions_multiple_buy(
         b += 1
 
         if holding and s < len(sell_signals):
-            sell_time, sell_price = sell_signals[s]
+            sell_time, sell_price = sell_signals[s][:2]
             # mean_cost = total_buy / quantity
             # Ricaviamo USDT vendendo la quantity di crypto
             gross_proceed = quantity * sell_price
@@ -233,3 +248,30 @@ def simulate_positions(
             entry_time = timestamp
             notional = wallet * leverage
     return operations
+
+
+# ---------------------------------------------------------------------------------------------
+# Misure della curva del capitale
+# ---------------------------------------------------------------------------------------------
+
+
+def drawdown(equity: np.ndarray) -> float:
+    """La caduta peggiore dal massimo precedente, in percentuale."""
+    peak = np.maximum.accumulate(equity)
+    return float((1 - equity / peak).max() * 100)
+
+
+def annualised(equity: np.ndarray, index: pd.DatetimeIndex) -> tuple[float, float, float]:
+    """CAGR, volatilita' annualizzata e Sharpe (tasso privo di rischio zero) su rendimenti giornalieri.
+
+    Il ricampionamento a un giorno serve a rendere confrontabili curve nate da barre diverse: senza,
+    lo Sharpe di una strategia a 4h e quello di una a 1d non parlerebbero della stessa grandezza.
+    """
+    years = (index[-1] - index[0]).total_seconds() / (365.25 * 24 * 3600)
+    cagr = ((equity[-1] / equity[0]) ** (1 / years) - 1) * 100 if equity[-1] > 0 and years > 0 else float("nan")
+    daily = pd.Series(equity, index=index).resample("1D").last().dropna().pct_change().dropna()
+    if len(daily) < 2 or daily.std() == 0:
+        return cagr, float("nan"), float("nan")
+    volatility = float(daily.std() * np.sqrt(365) * 100)
+    sharpe = float(daily.mean() / daily.std() * np.sqrt(365))
+    return cagr, volatility, sharpe

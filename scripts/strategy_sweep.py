@@ -49,7 +49,7 @@ from ta.volatility import AverageTrueRange
 from cryptofarm.data.klines import load_klines
 from cryptofarm.paths import PROJECT_ROOT
 from cryptofarm.trading import strategies as strat
-from cryptofarm.trading.pnl import simulate_trading_with_commisions
+from cryptofarm.trading.pnl import annualised, drawdown, simulate_trading_with_commisions
 
 SYMBOL = "BTCUSD"
 SINCE = "2017-01-01"  # prima di questa data la fonte e' fatta per meta' di barre piatte
@@ -200,23 +200,6 @@ def _bar_equity(candles: pd.DataFrame, operations: list[dict], wallet: float) ->
     return equity
 
 
-def _drawdown(equity: np.ndarray) -> float:
-    peak = np.maximum.accumulate(equity)
-    return float((1 - equity / peak).max() * 100)
-
-
-def _annualised(equity: np.ndarray, index: pd.DatetimeIndex) -> tuple[float, float, float]:
-    """CAGR, volatilita' annualizzata e Sharpe (tasso privo di rischio zero) su rendimenti giornalieri."""
-    years = (index[-1] - index[0]).total_seconds() / (365.25 * 24 * 3600)
-    cagr = ((equity[-1] / equity[0]) ** (1 / years) - 1) * 100 if equity[-1] > 0 and years > 0 else float("nan")
-    daily = pd.Series(equity, index=index).resample("1D").last().dropna().pct_change().dropna()
-    if len(daily) < 2 or daily.std() == 0:
-        return cagr, float("nan"), float("nan")
-    volatility = float(daily.std() * np.sqrt(365) * 100)
-    sharpe = float(daily.mean() / daily.std() * np.sqrt(365))
-    return cagr, volatility, sharpe
-
-
 def evaluate(
     candles: pd.DataFrame,
     operations: list[dict],
@@ -227,7 +210,7 @@ def evaluate(
     closes = candles["Close"].to_numpy()
     buy_and_hold = (closes[-1] / closes[0] - 1) * 100
     equity = _bar_equity(candles, operations, wallet)
-    cagr, volatility, sharpe = _annualised(equity, candles.index)
+    cagr, volatility, sharpe = annualised(equity, candles.index)
     result = {
         "n_trade": len(operations),
         "rendimento_%": (equity[-1] / wallet - 1) * 100,
@@ -235,8 +218,8 @@ def evaluate(
         "cagr_%": cagr,
         "volatilita_%": volatility,
         "sharpe": sharpe,
-        "max_drawdown_%": _drawdown(equity),
-        "buy_hold_drawdown_%": _drawdown(closes / closes[0] * wallet),
+        "max_drawdown_%": drawdown(equity),
+        "buy_hold_drawdown_%": drawdown(closes / closes[0] * wallet),
         "win_rate_%": float("nan"),
         "profit_factor": float("nan"),
         "trade_medio_%": float("nan"),
@@ -479,7 +462,9 @@ def prepare(interval: str, since: str = SINCE, until: str | None = None, symbol:
 
 def _run_group(job: tuple[str, str, str, Indicators, list[dict], float]) -> tuple[list[dict], list[dict]]:
     """Una tabella di indicatori e tutte le configurazioni di strategia che ci girano sopra."""
-    symbol, interval, strategy, indicators, param_list, fee = job
+    symbol, interval, strategy, indicators, param_list, fee, since, until = job
+    # macOS avvia i worker con `spawn`, non `fork`: i globali riempiti dal padre non arrivano.
+    prepare(interval, since, until, symbol)
     candles = _CANDLES[(symbol, interval)]
     cache = _ColumnCache(candles, _PSAR[(symbol, interval)])
     df = indicator_frame(cache, indicators)
@@ -527,7 +512,9 @@ def run_cells(
     grouped: dict[Indicators, list[dict]] = {}
     for indicators, params in cells:
         grouped.setdefault(indicators, []).append(params)
-    jobs = [(symbol, interval, strategy, indicators, params, fee) for indicators, params in grouped.items()]
+    jobs = [
+        (symbol, interval, strategy, indicators, params, fee, since, until) for indicators, params in grouped.items()
+    ]
 
     started = time.time()
     rows, yearly = [], []

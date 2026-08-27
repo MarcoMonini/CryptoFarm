@@ -39,7 +39,8 @@ src/cryptofarm/
     └── live_bot.py           headless bot that places real orders
 
 scripts/analysis.py           reproducible measurements behind .claude/docs/strategy.md
-tests/                        188 tests; test_simulator_golden.py pins the simulator
+scripts/confluence_lab.py     the confluence bench: wide grids, shared-capital basket, benchmarks
+tests/                        911 tests; test_simulator_golden.py pins the simulator
 models/                       .joblib artifacts + .json metadata (untracked)
 backup/unused/                modules removed from src/ because nothing imported them
 backup/v2/                    multi-timeframe simulator, read-only reference
@@ -68,11 +69,16 @@ streamlit run src/cryptofarm/trading/simulator.py
 # Measurements (--help lists every measure)
 .venv312/bin/python -m scripts.analysis --barrier-capacity
 
+# The confluence strategy: runs without the kline store, on synthetic data
+.venv312/bin/python -m scripts.confluence_lab --selfcheck
+.venv312/bin/python -m scripts.confluence_lab --grid coordinate --symbol BTCUSDT --interval 15m
+.venv312/bin/python -m scripts.confluence_lab --grid veloce --paniere majors
+
 # Live bot — places real orders, needs env vars
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Tests: `.venv312/bin/python -m pytest` (188 tests). Lint/format: `ruff check src tests`,
+Tests: `.venv312/bin/python -m pytest` (911 tests in 26 files). Lint/format: `ruff check src tests`,
 `black src tests`.
 
 ### Dependency extras

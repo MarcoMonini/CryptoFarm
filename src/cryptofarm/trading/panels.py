@@ -44,9 +44,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 
-from cryptofarm.trading import strategies, strategies_ls
+from cryptofarm.data.klines import interval_to_minutes
+from cryptofarm.trading import confluence, strategies, strategies_ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 
 # Le tre tinte categoriche, validate insieme sulla superficie scura di Streamlit.
@@ -99,6 +101,13 @@ class Indicatore:
     pannello: str | None
     serie: Callable[[pd.DataFrame, ExtraCache, dict], dict[str, pd.Series]]
     tracce: tuple[Traccia, ...]
+    # `condizionale` dice che questo indicatore puo' legittimamente non disegnare niente su un
+    # dato frame -- lo stop a trailing esiste solo dove c'e' una posizione aperta, e su una storia
+    # in cui la strategia non e' mai entrata non esiste affatto. Serve al test che verifica che
+    # ogni traccia dichiarata abbia davvero la sua serie: senza, quel test dovrebbe accettare il
+    # dizionario vuoto da chiunque, e smetterebbe di intercettare il nome di colonna sbagliato che
+    # e' la ragione per cui esiste.
+    condizionale: bool = False
 
 
 @dataclass(frozen=True)
@@ -118,6 +127,114 @@ class Strategia:
     esegui: Callable[[pd.DataFrame, ExtraCache, dict], tuple[list, list]]
     parametri: tuple[str, ...] = ()
     note: str = ""
+
+
+# La confluenza viene chiesta tre volte per ogni ridisegno della pagina -- una dalla strategia e
+# una per ciascuno dei suoi due riquadri -- e ogni volta costa quanto sei strategie. La chiave e'
+# **derivata dal contenuto**, non da `id()`: due frame con la stessa lunghezza, gli stessi estremi
+# di indice, gli stessi prezzi ai bordi e gli stessi parametri danno lo stesso risultato, quindi
+# una collisione non e' un errore ma una risposta giusta.
+# ponytail: memoria a una cella, basta perche' le tre chiamate sono consecutive; se un giorno la
+# pagina dovesse confrontare due configurazioni affiancate, serve una `lru_cache` vera.
+_ULTIMA_CONFLUENZA: tuple = ()
+
+
+def confluenza_di(df: pd.DataFrame, valori: dict):
+    """La confluenza sulle candele date, calcolata una volta sola per ridisegno.
+
+    Restituisce `None` quando la storia e' troppo corta perche' i piani lunghi esistano: e' il
+    caso della pagina appena aperta con poche ore di dati, e va detto invece che sollevato.
+    """
+    global _ULTIMA_CONFLUENZA
+
+    parametri = {
+        "theta_base": float(valori["CONF_THETA_BASE"]),
+        "theta_macro": float(valori["CONF_THETA_MACRO"]),
+        "isteresi": float(valori["CONF_ISTERESI"]),
+        "barre_minime": int(valori["CONF_BARRE_MINIME"]),
+        "pazienza": int(valori["CONF_PAZIENZA"]),
+        "emivita": float(valori["CONF_EMIVITA"]),
+        "w_max": float(valori["CONF_W_MAX"]),
+        "k_famiglie": int(valori["CONF_K_FAMIGLIE"]),
+        "innesco": int(valori["CONF_INNESCO"]),
+        "atr_window": int(valori["CONF_ATR_WINDOW"]),
+        "atr_multiplier": float(valori["CONF_ATR_MULT"]),
+        "regime_ema": int(valori["CONF_REGIME_EMA"]),
+        "struttura_ema": int(valori["CONF_STRUTTURA_EMA"]),
+        "barre_in_formazione": bool(valori["CONF_IN_FORMAZIONE"]),
+    }
+    intervallo = str(valori["INTERVALLO"])
+    # Gli override dei votanti: quel che i widget hanno mosso rispetto ai loro default. Passarli
+    # sempre tutti sarebbe equivalente ma renderebbe la chiave della memoria enorme.
+    parametri["parametri_votanti"] = {
+        votante.nome: {
+            parametro.kwarg: valori[parametro.config] for parametro in votante.parametri if parametro.config in valori
+        }
+        for votante in confluence.VOTANTI
+    }
+    chiave = (
+        len(df),
+        df.index[0],
+        df.index[-1],
+        float(df["Close"].iloc[0]),
+        float(df["Close"].iloc[-1]),
+        intervallo,
+        tuple(sorted((k, v) for k, v in parametri.items() if k != "parametri_votanti")),
+        tuple(sorted((n, tuple(sorted(d.items()))) for n, d in parametri["parametri_votanti"].items())),
+    )
+    if _ULTIMA_CONFLUENZA and _ULTIMA_CONFLUENZA[0] == chiave:
+        return _ULTIMA_CONFLUENZA[1]
+
+    # Serve almeno una barra del piano piu' lungo, piu' quelle che le medie chiedono.
+    minimo = max(confluence.FATTORI.values()) * 3
+    risultato = confluence.evaluate(df, intervallo, **parametri) if len(df) >= minimo else None
+    _ULTIMA_CONFLUENZA = (chiave, risultato)
+    return risultato
+
+
+def diagnosi_confluenza(df: pd.DataFrame, valori: dict, intervallo: str) -> str:
+    """Perche' la confluenza non ha operato, in una riga, o "" se ha operato.
+
+    Zero operazioni non e' un risultato ma una domanda, e le condizioni d'ingresso sono quattro in
+    `and`: senza sapere quale non si e' mai avverata, chi guarda non sa se guardare la storia
+    caricata, la soglia o l'ampiezza. Riusa il calcolo gia' fatto per il grafico.
+    """
+    risultato = confluenza_di(df, {**valori, "INTERVALLO": intervallo})
+    if risultato is None:
+        minimo = max(confluence.FATTORI.values()) * 3
+        return f"only {len(df)} bars loaded: the longer planes need at least {minimo}."
+    return risultato.perche_non_entra()
+
+
+def _serie_confluenza(df, cache, valori):
+    risultato = confluenza_di(df, valori)
+    if risultato is None:
+        return {}
+    return _serie(df.index, punteggio=risultato.punteggio, soglia=risultato.soglia)
+
+
+def _serie_piani(df, cache, valori):
+    risultato = confluenza_di(df, valori)
+    if risultato is None:
+        return {}
+    return _serie(df.index, regime=risultato.regime, struttura=risultato.struttura)
+
+
+def _serie_stop(df, cache, valori):
+    """Lo stop a trailing, o niente quando non si e' mai stati dentro il mercato.
+
+    Restituire una serie tutta vuota metterebbe in legenda un indicatore che non disegna niente --
+    la stessa ragione per cui `media_regime` a finestra zero non restituisce nulla.
+    """
+    risultato = confluenza_di(df, valori)
+    if risultato is None or risultato.stop is None or not np.isfinite(risultato.stop).any():
+        return {}
+    return _serie(df.index, stop=risultato.stop)
+
+
+def _serie_votanti(df, cache, valori):
+    risultato = confluenza_di(df, valori)
+    return _serie(df.index, **risultato.voti) if risultato is not None else {}
 
 
 def _colonne(*nomi: str):
@@ -229,6 +346,63 @@ INDICATORI: dict[str, Indicatore] = {
         tracce=(
             Traccia("canale_alto", "Channel high", ARANCIO, larghezza=1.8),
             Traccia("canale_basso", "Channel low", ARANCIO, larghezza=1.8),
+        ),
+    ),
+    "confluenza": Indicatore(
+        # La decisione, disegnata per intero: il punteggio, la soglia che gli si muove incontro
+        # quando i piani alti concordano, e il cancello che manda a flat senza discutere. Chi
+        # guarda deve poter dire perche' quella barra ha aperto e non la precedente.
+        etichetta="Confluence score",
+        parametri=("CONF_THETA_BASE", "CONF_THETA_MACRO", "CONF_ISTERESI", "CONF_BARRE_MINIME", "CONF_PAZIENZA"),
+        pannello="Confluence",
+        serie=_serie_confluenza,
+        tracce=(
+            Traccia("punteggio", "Score", BLU, larghezza=2.0),
+            Traccia("soglia", "Threshold", ARANCIO, tratteggio="dash", larghezza=1.4),
+        ),
+    ),
+    "piani_lunghi": Indicatore(
+        # I due piani lunghi stanno in un riquadro **loro**, e non e' una questione di ordine:
+        # valgono +-1 e il punteggio sta in +-0,5, quindi sullo stesso asse il cancello occupa il
+        # doppio dell'ampiezza del punteggio e lo schiaccia in una riga piatta vicino allo zero. Si
+        # vedeva una linea ferma a 1 mentre si comprava e si vendeva, e sembrava incoerente proprio
+        # perche' la serie che decide non era leggibile.
+        etichetta="Higher planes",
+        parametri=("CONF_REGIME_EMA", "CONF_STRUTTURA_EMA"),
+        pannello="Higher planes",
+        serie=_serie_piani,
+        tracce=(
+            Traccia("regime", "Regime plane (gate)", ACQUA, larghezza=2.0),
+            Traccia("struttura", "Structure plane", ARANCIO, tratteggio="dash", larghezza=1.4),
+        ),
+    ),
+    "stop_confluenza": Indicatore(
+        # Quattro uscite su cinque sono lo stop a trailing. Senza questa linea il grafico mostra una
+        # vendita mentre il punteggio e' sopra la soglia, e non c'e' modo di capire perche'.
+        etichetta="Trailing stop",
+        parametri=("CONF_ATR_WINDOW", "CONF_ATR_MULT"),
+        pannello=None,
+        serie=_serie_stop,
+        tracce=(Traccia("stop", "Trailing stop", ARANCIO_CHIARO, tratteggio="dash", larghezza=1.3),),
+        condizionale=True,
+    ),
+    "votanti": Indicatore(
+        # **Chi** ha votato, e quanto forte. Con il passaggio del mouse unificato questo riquadro
+        # elenca i sei valori sulla barra puntata: e' li' che si legge chi ha generato il segnale,
+        # perche' sei linee sovrapposte in [-1, +1] da sole non si distinguono a colpo d'occhio.
+        # Sei serie categoriche su tre tinte: la quarta riusa una tinta cambiando tratteggio, mai
+        # una tinta nuova, e nessuna e' una rampa -- fra i votanti non c'e' nessun ordine.
+        etichetta="Voters",
+        parametri=("CONF_EMIVITA", "CONF_W_MAX", "CONF_K_FAMIGLIE"),
+        pannello="Voters",
+        serie=_serie_votanti,
+        tracce=(
+            Traccia("ichimoku", "Ichimoku · structure", BLU, larghezza=1.4),
+            Traccia("donchian", "Donchian · structure", BLU, tratteggio="dash", larghezza=1.4),
+            Traccia("flusso", "Volume flow · structure", ARANCIO, larghezza=1.4),
+            Traccia("squeeze", "Squeeze · confirmation", ARANCIO, tratteggio="dash", larghezza=1.4),
+            Traccia("pullback", "Pullback · confirmation", ACQUA, larghezza=1.4),
+            Traccia("reversione", "Mean reversion · trigger", ACQUA, tratteggio="dash", larghezza=1.4),
         ),
     ),
     "media_regime": Indicatore(
@@ -371,39 +545,20 @@ def _solo_lunghe(eventi: list) -> tuple[list, list]:
 # nessuno: "Green Candles" guarda solo la forma delle candele, "AI Model" chiede al modello.
 
 STRATEGIE: dict[str, Strategia] = {
-    "Close Buy/Sell Limits": Strategia(
-        indicatori=("bande_atr", "rsi"),
-        parametri=("RSI_BUY_LIMIT", "RSI_SELL_LIMIT", "NUM_CONDITIONS", "STOP_LOSS_PERCENT"),
-        esegui=lambda df, cache, v: strategies.buy_sell_limits_close_simulation(
-            df=df,
-            rsi_buy_limit=v["RSI_BUY_LIMIT"],
-            rsi_sell_limit=v["RSI_SELL_LIMIT"],
-            num_cond=v["NUM_CONDITIONS"],
-            stop_loss_percent=v["STOP_LOSS_PERCENT"],
-        ),
-    ),
-    "Close ATR": Strategia(
-        indicatori=("bande_atr", "psar"),
-        parametri=("STOP_LOSS_PERCENT",),
-        esegui=lambda df, cache, v: strategies.close_atr_buy_sell_simulation(
-            df=df, stop_loss_percent=v["STOP_LOSS_PERCENT"]
-        ),
-    ),
     "ATR Bands": Strategia(
         indicatori=("bande_atr", "psar"),
         parametri=("STOP_LOSS_PERCENT",),
         esegui=lambda df, cache, v: strategies.atr_buy_sell_simulation(df=df, stop_loss_percent=v["STOP_LOSS_PERCENT"]),
-    ),
-    "Close Bullish EMA": Strategia(
-        indicatori=("medie", "rsi"),
-        parametri=("RSI_BUY_LIMIT", "RSI_SELL_LIMIT"),
-        esegui=lambda df, cache, v: strategies.close_bullish_ema_simulation(
-            df=df, rsi_buy_limit=v["RSI_BUY_LIMIT"], rsi_sell_limit=v["RSI_SELL_LIMIT"]
-        ),
+        note="Best out of sample across the five assets: 7 of 10 cells beat buy and hold.",
     ),
     "Close EMA Crossover": Strategia(
         indicatori=("medie",),
         esegui=lambda df, cache, v: strategies.close_ema_crossover_simulation(df=df),
+    ),
+    "Close RSI Reverse": Strategia(
+        indicatori=("rsi",),
+        esegui=lambda df, cache, v: strategies.close_rsi_buy_sell_limits_simulation(df=df),
+        note="Fast/mid RSI crossover. Daily bars only: at 4h it makes 160 trades a year and loses.",
     ),
     "Supertrend": Strategia(
         indicatori=("bande_atr",),
@@ -416,22 +571,6 @@ STRATEGIE: dict[str, Strategia] = {
     "TP/SL with ATR": Strategia(
         indicatori=("bande_atr",),
         esegui=lambda df, cache, v: strategies.tp_sl_simulation(df=df),
-    ),
-    "Green Candles": Strategia(
-        indicatori=(),
-        esegui=lambda df, cache, v: strategies.green_candles_simulation(df=df),
-        note="Reads candle shape only: no indicators.",
-    ),
-    "ATR Live Trade": Strategia(
-        indicatori=("bande_atr", "psar"),
-        parametri=("ATR_WINDOW", "ATR_MULTIPLIER", "STOP_LOSS_PERCENT"),
-        esegui=lambda df, cache, v: strategies.simulate_candles(
-            raw_df=df,
-            atr_window=v["ATR_WINDOW"],
-            atr_multiplier=v["ATR_MULTIPLIER"],
-            stop_loss_percent=v["STOP_LOSS_PERCENT"],
-        ),
-        note="Recomputes the PSAR itself from the raw candles.",
     ),
     "AI Model": Strategia(
         indicatori=(),
@@ -484,33 +623,6 @@ STRATEGIE: dict[str, Strategia] = {
         ),
         note="Enters when the Bollinger bands expand out of the Keltner channel.",
     ),
-    "Trend Pullback": Strategia(
-        indicatori=("media_regime", "stochrsi"),
-        parametri=(
-            "REGIME_EMA",
-            "STOCHRSI_WINDOW",
-            "STOCHRSI_SMOOTH",
-            "STOCH_OVERSOLD",
-            "STOCH_OVERBOUGHT",
-            "TRAIL_ATR_WINDOW",
-            "PULLBACK_ATR_MULT",
-        ),
-        esegui=lambda df, cache, v: _solo_lunghe(
-            strategies_ls.trend_pullback(
-                df,
-                cache,
-                regime_ema=int(v["REGIME_EMA"]),
-                stochrsi_window=int(v["STOCHRSI_WINDOW"]),
-                stochrsi_smooth=int(v["STOCHRSI_SMOOTH"]),
-                oversold=float(v["STOCH_OVERSOLD"]),
-                overbought=float(v["STOCH_OVERBOUGHT"]),
-                atr_window=int(v["TRAIL_ATR_WINDOW"]),
-                atr_multiplier=float(v["PULLBACK_ATR_MULT"]),
-                allow_short=False,
-            )
-        ),
-        note="Buys the pullback, but only above the slow average.",
-    ),
     "Ichimoku Trend": Strategia(
         indicatori=("ichimoku",),
         parametri=("ICHIMOKU_FAST", "ICHIMOKU_SLOW", "ICHIMOKU_SPAN"),
@@ -527,39 +639,44 @@ STRATEGIE: dict[str, Strategia] = {
         ),
         note="The textbook trend system, kept as a benchmark.",
     ),
-    "Band Reversion": Strategia(
-        indicatori=("bande_kama", "adx"),
-        parametri=(
-            "REVERSION_KAMA_WINDOW",
-            "TRAIL_ATR_WINDOW",
-            "REVERSION_BAND_MULT",
-            "ADX_WINDOW",
-            "ADX_MAX",
-            "REVERSION_STOP_MULT",
-            "REVERSION_REGIME_EMA",
-        ),
-        esegui=lambda df, cache, v: _solo_lunghe(
-            strategies_ls.band_reversion_gated(
-                df,
-                cache,
-                kama_window=int(v["REVERSION_KAMA_WINDOW"]),
-                atr_window=int(v["TRAIL_ATR_WINDOW"]),
-                band_multiplier=float(v["REVERSION_BAND_MULT"]),
-                adx_window=int(v["ADX_WINDOW"]),
-                adx_max=float(v["ADX_MAX"]),
-                stop_multiplier=float(v["REVERSION_STOP_MULT"]),
-                regime_ema=int(v["REVERSION_REGIME_EMA"]),
-                allow_short=False,
-            )
-        ),
+    "Confluence": Strategia(
+        indicatori=("stop_confluenza", "confluenza", "piani_lunghi", "votanti"),
+        # I parametri dei votanti si ricavano dal registro invece di essere elencati qui: e' cio'
+        # che rende «aggiungere un votante» un'operazione sola. Un elenco a mano si sarebbe
+        # disallineato al primo votante nuovo, e il disallineamento sarebbe stato invisibile.
+        parametri=("CONF_INNESCO", *(p.config for v in confluence.VOTANTI for p in v.parametri)),
+        esegui=lambda df, cache, v: _confluenza_lunga(df, v),
         note=(
-            "Mean reversion, but only while the ADX says there is no trend. The regime filter is "
-            "off by default, as it was when measured, and then no average is drawn."
+            "Six voters on four timeframes derived from the one selected: trigger, confirmation, "
+            "structure, regime. Confluence shows score against threshold, Higher planes shows the "
+            "two long timeframes, Voters shows who drove it, and the dashed line on the candles is "
+            "the trailing stop — which closes most trades. Voter parameters are frozen at their "
+            "measured values and are not adjustable."
         ),
     ),
 }
 
+
+def _confluenza_lunga(df: pd.DataFrame, valori: dict) -> tuple[list, list]:
+    """I segnali della confluenza, ognuno con **chi l'ha generato** attaccato.
+
+    Il terzo elemento e' la sola differenza rispetto alle altre strategie, e c'e' per una ragione
+    precisa: qui la decisione viene da sei votanti, e la posizione del marcatore sul grafico non
+    dice quali abbiano parlato ne' con che contributo. Il grafico lo mostra al passaggio del
+    mouse; senza, chi guarda vedrebbe un triangolo e dovrebbe crederci.
+    """
+    risultato = confluenza_di(df, valori)
+    if risultato is None:
+        return [], []
+    compra, vende = _solo_lunghe(risultato.eventi)
+    return (
+        [(quando, prezzo, risultato.spiega(quando)) for quando, prezzo in compra],
+        [(quando, prezzo, risultato.spiega(quando)) for quando, prezzo in vende],
+    )
+
+
 VUOTA = "-"  # la voce che non seleziona nessuna strategia: si mostra tutto
+CONFLUENZA = "Confluence"
 
 # Nella panoramica senza strategia questi due si tolgono, perche' sarebbero doppioni visivi:
 # `medie_trend` disegna due delle tre linee di `medie`, e `bande_kama` ha la stessa forma di
@@ -569,17 +686,98 @@ VUOTA = "-"  # la voce che non seleziona nessuna strategia: si mostra tutto
 PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama")
 
 
-def valori_predefiniti() -> dict:
+# Quale misura copre quale intervallo. E' una **decisione**, scritta come dato invece che calcolata:
+# le griglie sono girate su quattro intervalli, la pagina ne offre nove, e dire "il piu' vicino" e'
+# gia' una scelta -- 30m sta in mezzo fra 15m e 1h, e va deciso da che parte cade.
+#
+# Sotto l'ora nessuna misura di questo progetto ha mai trovato qualcosa che batta il possesso
+# passivo: i default a 15m sono i migliori **fra quelli provati**, non buoni. La pagina lo dice.
+ANCORA_MISURATA: dict[str, str] = {
+    "1m": "15m",
+    "3m": "15m",
+    "5m": "15m",
+    "15m": "15m",
+    "30m": "1h",
+    "1h": "1h",
+    "2h": "1h",
+    "4h": "4h",
+    "1d": "1d",
+}
+
+
+def ancora_di(intervallo: str) -> str | None:
+    """L'intervallo misurato che fa da riferimento per quello scelto, o `None` se non ce n'e' uno."""
+    from cryptofarm.trading.tuned_defaults import PER_INTERVALLO
+
+    ancora = ANCORA_MISURATA.get(intervallo)
+    return ancora if ancora in PER_INTERVALLO else None
+
+
+def valori_misurati(strategia: str, intervallo: str) -> dict:
+    """I soli parametri per cui una misura ha scelto un valore diverso da quello di `config`.
+
+    Vuoto quando la strategia non e' stata misurata a quell'intervallo, quando il parametro non
+    discrimina, o quando la scelta non regge sulla meta' dei dati: in tutti e tre i casi resta il
+    default scritto a mano, che e' la scelta prudente.
+    """
+    from cryptofarm.trading.tuned_defaults import PER_INTERVALLO
+
+    if strategia == CONFLUENZA:
+        # Ogni votante gira sul **suo** piano, quindi il suo valore misurato e' quello
+        # dell'intervallo del piano -- non di quello scelto nella pagina. Prendere quello della
+        # pagina darebbe alla confluenza i default di un altro timeframe, in silenzio.
+        misurati: dict = {}
+        for votante in confluence.VOTANTI:
+            misurati.update(valori_del_piano(votante, intervallo))
+        return misurati
+
+    ancora = ancora_di(intervallo)
+    return dict(PER_INTERVALLO.get(ancora, {}).get(strategia, {})) if ancora else {}
+
+
+def valori_del_piano(votante, intervallo: str) -> dict:
+    """I valori misurati di un votante, tradotti nei nomi dei suoi widget.
+
+    L'ancora serve anche qui: le griglie coprono quattro intervalli e un piano puo' caderne fuori
+    (a base 1h il piano di struttura e' 16h, che nessuno ha misurato). In quel caso non si
+    sostituisce niente e restano i default di `config`, che e' la scelta prudente.
+    """
+    from cryptofarm.trading.tuned_defaults import PER_INTERVALLO
+
+    minuti = interval_to_minutes(intervallo) * confluence.FATTORI[votante.piano]
+    ancora = ancora_di(confluence._intervallo(minuti))
+    if not ancora or not votante.menu:
+        return {}
+    misurati = PER_INTERVALLO.get(ancora, {}).get(votante.menu, {})
+    return {
+        parametro.config: misurati[parametro.misurato]
+        for parametro in votante.parametri
+        if parametro.misurato in misurati
+    }
+
+
+def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
     """Il valore iniziale di ogni parametro noto, cioe' cosa vede la pagina prima che si tocchi
     qualcosa. Serve alla pagina come base su cui scrivere le scelte dei widget, e ai test come
-    contesto per calcolare le serie."""
+    contesto per calcolare le serie.
+
+    Con `strategia` e `intervallo` i valori misurati per quella coppia si sovrappongono a quelli
+    scritti a mano. Senza, si ottengono i default di `config` e basta -- che e' quel che serve ai
+    test e a chi calcola una serie fuori dalla pagina.
+    """
     from cryptofarm.trading import config
 
     valori = {
         nome: getattr(config, nome).value for nome in dir(config) if isinstance(getattr(config, nome), config.Param)
     }
     valori["CONFIRM_VOLUME"] = config.CONFIRM_VOLUME
+    valori["CONF_IN_FORMAZIONE"] = config.CONF_IN_FORMAZIONE
+    # L'intervallo e' un parametro come gli altri per la confluenza, che da li' ricava i suoi
+    # quattro piani. La pagina lo sovrascrive con quello scelto; fuori dalla pagina resta questo.
+    valori["INTERVALLO"] = config.INTERVALS[config.INTERVAL_INDEX]
     valori["REQUIRE_CLOUD"] = config.REQUIRE_CLOUD
+    if strategia and intervallo:
+        valori.update(valori_misurati(strategia, intervallo))
     return valori
 
 
@@ -647,6 +845,50 @@ ETICHETTE: dict[str, str] = {
     "STOP_LOSS_PERCENT": "Stop loss %",
     "NUM_CONDITIONS": "Conditions required",
     "PIVOT_WINDOW": "Swing window",
+    "CONF_THETA_BASE": "Entry threshold",
+    "CONF_THETA_MACRO": "Threshold relief from higher planes",
+    "CONF_ISTERESI": "Exit hysteresis",
+    "CONF_BARRE_MINIME": "Minimum bars held (score exit only)",
+    "CONF_PAZIENZA": "Bars below threshold before giving up",
+    "CONF_EMIVITA": "Signal half-life (voter bars)",
+    "CONF_W_MAX": "Weight cap per voter",
+    "CONF_K_FAMIGLIE": "Families required to agree",
+    "CONF_INNESCO": "Trigger breakout window",
+    "CONF_ATR_WINDOW": "ATR window (trailing exit)",
+    "CONF_ATR_MULT": "Stop distance (ATR)",
+    "CONF_REGIME_EMA": "Regime plane EMA",
+    "CONF_STRUTTURA_EMA": "Structure plane EMA",
+    "CONF_ICHIMOKU_FAST": "Tenkan (fast)",
+    "CONF_ICHIMOKU_SLOW": "Kijun (slow)",
+    "CONF_ICHIMOKU_SPAN": "Cloud span",
+    "CONF_ICHIMOKU_CLOUD": "Require cloud (1 = yes)",
+    "CONF_DONCHIAN_CHANNEL": "Channel length",
+    "CONF_DONCHIAN_ADX_WINDOW": "ADX window",
+    "CONF_DONCHIAN_ADX_MIN": "ADX minimum",
+    "CONF_DONCHIAN_ATR_WINDOW": "ATR window",
+    "CONF_DONCHIAN_ATR_MULT": "Stop distance (ATR)",
+    "CONF_DONCHIAN_REGIME_EMA": "Regime EMA (0 = off)",
+    "CONF_FLOW_WINDOW": "OBV and MFI window",
+    "CONF_FLOW_MFI_ALTO": "MFI ceiling for longs",
+    "CONF_FLOW_MFI_BASSO": "MFI floor for shorts",
+    "CONF_SQUEEZE_BB_WINDOW": "Bollinger window",
+    "CONF_SQUEEZE_BB_DEV": "Bollinger deviations",
+    "CONF_SQUEEZE_KC_WINDOW": "Keltner window",
+    "CONF_SQUEEZE_KC_MULT": "Keltner multiplier",
+    "CONF_SQUEEZE_ATR_WINDOW": "ATR window",
+    "CONF_SQUEEZE_ATR_MULT": "Stop distance (ATR)",
+    "CONF_SQUEEZE_VOLUME": "Confirm with volume (1 = yes)",
+    "CONF_SQUEEZE_OBV_WINDOW": "OBV window",
+    "CONF_PULLBACK_REGIME_EMA": "Regime EMA",
+    "CONF_PULLBACK_STOCH_WINDOW": "StochRSI window",
+    "CONF_PULLBACK_STOCH_SMOOTH": "StochRSI smoothing",
+    "CONF_PULLBACK_OVERSOLD": "Oversold level",
+    "CONF_PULLBACK_OVERBOUGHT": "Overbought level",
+    "CONF_PULLBACK_ATR_MULT": "Stop distance (ATR)",
+    "CONF_REVERSION_KAMA": "KAMA window",
+    "CONF_REVERSION_BAND_MULT": "Band width (ATR)",
+    "CONF_REVERSION_ADX_MAX": "ADX maximum (range required)",
+    "CONF_REVERSION_STOP_MULT": "Stop distance (ATR)",
     "ADX_WINDOW": "ADX window",
     "ADX_MIN": "ADX minimum (trend required)",
     "ADX_MAX": "ADX maximum (range required)",
@@ -677,15 +919,13 @@ ETICHETTE: dict[str, str] = {
 
 SOGLIE = "Strategy thresholds"
 
-# Le cinque strategie che nella pagina passano dal motore classico: quello non addebita il costo di
+# Le strategie che nella pagina passano dal motore classico: quello non addebita il costo di
 # mantenimento e non conosce la leva, quindi i loro numeri qui sono piu' ottimisti di quelli
 # misurati. La pagina lo dice accanto al risultato invece di lasciarlo scoprire per confronto.
 NUOVE_SENZA_MANTENIMENTO = (
     "Donchian Breakout",
     "Squeeze Breakout",
-    "Trend Pullback",
     "Ichimoku Trend",
-    "Band Reversion",
 )
 
 
@@ -704,6 +944,14 @@ def gruppi_di(strategia: str) -> list[tuple[str, list[str]]]:
         gia_visti.update(dentro)
         if dentro:
             gruppi.append((indicatore.etichetta, dentro))
+    if strategia == CONFLUENZA:
+        # Un riquadro per votante invece di trentuno campi in fila sotto un titolo solo. I nomi
+        # arrivano dal registro, quindi un votante aggiunto porta con se' il proprio riquadro.
+        for votante in confluence.VOTANTI:
+            dentro = [p.config for p in votante.parametri if p.config not in gia_visti]
+            gia_visti.update(dentro)
+            if dentro:
+                gruppi.append((f"Voter · {votante.nome}", dentro))
     propri = [nome for nome in parametri_di(strategia) if nome not in gia_visti]
     if propri:
         gruppi.append((SOGLIE, propri))
