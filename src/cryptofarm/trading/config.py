@@ -121,6 +121,12 @@ PULLBACK_ATR_MULT = Param(2.0, 0.5, 10.0, 0.1)
 CONF_THETA_BASE = Param(0.35, 0.0, 1.0, 0.05)
 CONF_THETA_MACRO = Param(0.15, 0.0, 0.5, 0.05)
 CONF_ISTERESI = Param(0.10, 0.0, 0.5, 0.01)
+# Il pavimento e il soffitto dell'isteresi. La banda da sola sbagliava in tutte e due le direzioni:
+# si apriva e si chiudeva in due barre, e il punteggio che decade piano teneva aperto per ore oltre
+# il primo segnale di uscita. Nessuno dei due limite tocca lo stop o il cancello, che sono regole
+# di rischio e non di opinione.
+CONF_BARRE_MINIME = Param(4, 0, 100, 1)
+CONF_PAZIENZA = Param(24, 1, 500, 1)
 CONF_EMIVITA = Param(6.0, 0.5, 50.0, 0.5)
 CONF_W_MAX = Param(0.30, 0.15, 1.0, 0.05)
 CONF_K_FAMIGLIE = Param(2, 1, 6, 1)

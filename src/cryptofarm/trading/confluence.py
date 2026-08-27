@@ -74,6 +74,11 @@ FATTORI = {"innesco": 1, "conferma": 4, "struttura": 16, "regime": 96}
 # «macro» e' rumore con un nome altisonante; sopra, una media di cinquanta barre chiede decenni di
 # storia. La scala x1/x4/x16/x96 e' nata su barre da quindici minuti e li' cade esatta su
 # 15m/1h/4h/1d, ma il menu ne offre nove e non c'e' niente che impedisca di scegliere le altre.
+# La finestra dell'ATR con cui si normalizza la distanza dalla media di un piano. E' un'unita' di
+# misura, non un parametro: la tangente iperbolica rende il risultato insensibile al suo valore
+# esatto, e renderlo tarabile aggiungerebbe un grado di liberta' che non compra niente.
+ATR_DI_NORMALIZZAZIONE = 14
+
 REGIME_MIN_MINUTI = 12 * 60
 REGIME_MAX_MINUTI = 7 * 24 * 60
 
@@ -392,6 +397,8 @@ def evaluate(
     theta_base: float = 0.35,
     theta_macro: float = 0.15,
     isteresi: float = 0.10,
+    barre_minime: int = 4,
+    pazienza: int = 24,
     emivita: float = 6.0,
     w_max: float = 0.30,
     k_famiglie: int = 2,
@@ -439,8 +446,8 @@ def evaluate(
     w = _pesi([v.nome for v in votanti], w_max, pesi)
     punteggio = sum(w[n] * voti[n] for n in voti)
 
-    regime = _sign_su_media(candles, minuti_base, "regime", regime_ema, barre_in_formazione)
-    struttura = _sign_su_media(candles, minuti_base, "struttura", struttura_ema, barre_in_formazione)
+    regime = _forza_del_piano(candles, minuti_base, "regime", regime_ema, barre_in_formazione)
+    struttura = _forza_del_piano(candles, minuti_base, "struttura", struttura_ema, barre_in_formazione)
     soglia = theta_base - theta_macro * (regime + struttura) / 2
 
     concordi_lungo = _famiglie_concordi(voti, famiglie, +1)
@@ -455,6 +462,8 @@ def evaluate(
         concordi_lungo=concordi_lungo,
         concordi_corto=concordi_corto,
         isteresi=isteresi,
+        barre_minime=barre_minime,
+        pazienza=pazienza,
         k_famiglie=k_famiglie,
         innesco=innesco,
         atr_window=atr_window,
@@ -484,38 +493,59 @@ def evaluate(
     return risultato
 
 
-def _sign_su_media(candele, minuti_base, piano, span, in_formazione) -> np.ndarray:
-    """Il verso del prezzo rispetto alla EMA del piano: +1, 0 o -1, su ogni barra di base.
+def _forza_del_piano(candele, minuti_base, piano, span, in_formazione) -> np.ndarray:
+    """Quanto il prezzo sta sopra (o sotto) la media del piano, in `[-1, +1]` e **con continuita'**.
 
-    `in_formazione` decide **quale prezzo** si confronta con la media: quello di adesso, che e'
-    cio' che vede il bot live a meta' giornata, oppure quello dell'ultima chiusura del piano
-    lungo, che e' l'attesa fino a ventiquattro ore. La differenza fra i due e' l'ablazione che
-    misura quanto vale reagire prima della chiusura.
+    Prima era `np.sign(prezzo - media)`, cioe' -1, 0 o +1. Sembrava innocuo e non lo era: la
+    soglia si ricava da qui, quindi prendeva cinque valori discreti e **saltava di 0,15 per volta**
+    contro un punteggio la cui ampiezza totale e' 0,91. Misurato: una uscita per punteggio su
+    quattro cadeva sulla barra esatta in cui la soglia era saltata, cioe' l'aveva decisa la soglia
+    e non il punteggio.
+
+    Ora la distanza dalla media si normalizza sull'ATR **dello stesso piano** -- cosi' il numero e'
+    adimensionale e confrontabile fra asset e intervalli -- e si schiaccia con una tangente
+    iperbolica. Il cancello resta lo stesso confronto di prima (`> 0` e' ancora «prezzo sopra la
+    media»), ma la soglia si muove con continuita' invece che a scalini.
+
+    L'ATR di normalizzazione ha finestra fissa a 14: **non e' un parametro libero**, e' l'unita' di
+    misura. Renderlo tarabile aggiungerebbe un grado di liberta' per cambiare una scala che la
+    tangente iperbolica gia' rende insensibile ai dettagli.
+
+    `in_formazione` decide **quale prezzo** entra nel confronto: quello di adesso, che e' cio' che
+    vede il bot live a meta' giornata, o quello dell'ultima chiusura del piano lungo, che e'
+    l'attesa fino a un periodo intero. La differenza fra i due e' l'ablazione che misura quanto
+    vale reagire prima della chiusura.
 
     ## Perche' la media resta quella chiusa in tutti e due i casi
 
-    Sollevare la EMA a valore provvisorio qui non servirebbe: `provisional_ema` restituisce
-    `a*prezzo + (1-a)*chiusa`, quindi
-
-        segno(prezzo - provvisoria) = segno((1-a) * (prezzo - chiusa)) = segno(prezzo - chiusa)
-
-    per qualunque `a` in (0,1). **Su un confronto di segno il sollevamento e' algebricamente un
-    non-fare**, e tenerlo sarebbe un parametro che sembra collegato a qualcosa e non lo e'. Il
-    sollevamento serve dove il valore conta, non il lato: una distanza, una banda, uno stop.
+    Sollevare la media a valore provvisorio qui non servirebbe: `provisional_ema` restituisce
+    `a*prezzo + (1-a)*chiusa`, e per il **segno** vale `segno(prezzo - a*prezzo - (1-a)*chiusa) =
+    segno(prezzo - chiusa)` per qualunque `a` in (0,1). Sul segno il sollevamento e'
+    algebricamente un non-fare; sulla magnitudine cambia solo la scala, che la tangente iperbolica
+    riassorbe. Il sollevamento serve dove conta il valore assoluto -- una banda, uno stop.
     """
     fattore = FATTORI[piano]
     intervallo = _intervallo(minuti_base * fattore)
     lungo = resample_klines(candele, intervallo) if fattore > 1 else candele
-    if len(lungo) < 2:
+    if len(lungo) <= ATR_DI_NORMALIZZAZIONE:
+        # Meno barre della finestra dell'ATR: `ta` solleverebbe un IndexError invece di dare NaN.
+        # Qui la risposta giusta e' «forza nulla», che chiude il cancello e fa dire alla diagnosi
+        # che manca la storia -- degradare, non cadere, e' la condizione in cui gira la pagina
+        # appena aperta.
         return np.zeros(len(candele))
 
-    media = ExtraCache(lungo).ema(span)
+    cache = ExtraCache(lungo)
+    media, ampiezza = cache.ema(span), cache.atr(ATR_DI_NORMALIZZAZIONE)
     prezzo = candele["Close"].to_numpy()
     if fattore > 1:
         media = align_to_lower(media, lungo.index, intervallo, candele.index)
+        ampiezza = align_to_lower(ampiezza, lungo.index, intervallo, candele.index)
         if not in_formazione:
             prezzo = align_to_lower(lungo["Close"], lungo.index, intervallo, candele.index)
-    return np.sign(np.nan_to_num(prezzo - media, nan=0.0))
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        forza = np.tanh((prezzo - media) / (2.0 * ampiezza))
+    return np.nan_to_num(forza, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def _famiglie_concordi(voti, famiglie, verso) -> np.ndarray:
@@ -542,6 +572,8 @@ def _percorri(
     concordi_lungo,
     concordi_corto,
     isteresi,
+    barre_minime,
+    pazienza,
     k_famiglie,
     innesco,
     atr_window,
@@ -553,6 +585,23 @@ def _percorri(
     Convenzioni identiche a `strategies_ls`, e non per gusto dell'uniformita': lo stop usa l'ATR e
     l'estremo a `i-1`, mai quelli della barra su cui viene testato, altrimenti la barra che fa
     scattare lo stop e' anche quella che decide dove stava.
+
+    ## L'isteresi ha un pavimento e un soffitto, e non sono simmetrici
+
+    La banda di isteresi da sola sbagliava in tutte e due le direzioni. Verso il basso: si apriva e
+    si chiudeva in due barre da quindici minuti, pagando due commissioni per tornare dov'eravamo.
+    Verso l'alto: il punteggio decade piano, quindi restava appena sopra `soglia - isteresi` per
+    ore -- mediana 14 barre oltre il primo calo sotto la soglia, coda a 84, cioe' ventun'ore.
+
+    Quindi due limiti, e **valgono solo per l'uscita dal punteggio**:
+
+    - `barre_minime` e' il pavimento: prima di quello il punteggio non puo' chiudere;
+    - `pazienza` e' il soffitto: dopo tante barre consecutive sotto la soglia **semplice** si esce
+      comunque, anche se il punteggio non e' mai caduto attraverso tutta la banda.
+
+    **Lo stop e il cancello non sono soggetti al pavimento**, e la distinzione e' quella che conta:
+    sono regole di rischio, non di opinione. Un pavimento che tiene aperta una posizione mentre lo
+    stop e' saltato non e' pazienza, e' un difetto travestito da parametro.
     """
     indice = candele.index
     chiusure = candele["Close"].to_numpy()
@@ -572,6 +621,8 @@ def _percorri(
     eventi: list = []
     ingressi: list[int] = []
     motivi: dict = {}
+    barra_ingresso = -(10**9)
+    barre_sotto = 0
     # Il livello dello stop, barra per barra, NaN quando si e' fuori. Non serve a decidere: serve
     # a **vederlo**. Quattro uscite su cinque sono lo stop, e senza questa serie il grafico mostra
     # una vendita mentre il punteggio e' tranquillamente sopra la soglia -- cioe' sembra incoerente
@@ -604,15 +655,25 @@ def _percorri(
                 else:
                     estremo = min(estremo, minimi[i])
 
-        uscita = soglia[i] - isteresi
-        if posizione > 0 and (punteggio[i] < uscita or regime[i] < 0):
-            eventi.append((indice[i], float(prezzo), 0))
-            motivi[indice[i]] = "regime gate shut" if regime[i] < 0 else "score fell below threshold − hysteresis"
-            posizione, uscito_ora = 0, True
-        elif posizione < 0 and (punteggio[i] > -uscita or regime[i] > 0):
-            eventi.append((indice[i], float(prezzo), 0))
-            motivi[indice[i]] = "regime gate shut" if regime[i] > 0 else "score rose above threshold − hysteresis"
-            posizione, uscito_ora = 0, True
+        verso = 1 if posizione > 0 else -1
+        if posizione != 0:
+            barre_sotto = barre_sotto + 1 if punteggio[i] * verso < soglia[i] else 0
+            per_isteresi = punteggio[i] * verso < soglia[i] - isteresi
+            per_pazienza = barre_sotto >= pazienza
+            maturo = (i - barra_ingresso) >= barre_minime
+            cancello_contro = regime[i] * verso < 0
+            if cancello_contro or (maturo and (per_isteresi or per_pazienza)):
+                eventi.append((indice[i], float(prezzo), 0))
+                motivi[indice[i]] = (
+                    "regime gate shut"
+                    if cancello_contro
+                    else (
+                        "score below threshold for too long"
+                        if per_pazienza and not per_isteresi
+                        else "score fell through the hysteresis band"
+                    )
+                )
+                posizione, uscito_ora = 0, True
 
         # Chi e' appena uscito non rientra sulla stessa barra. L'isteresi frena il punteggio che
         # oscilla attorno alla soglia, ma non questo: uno stop scattato dentro la barra lascia il
@@ -632,6 +693,7 @@ def _percorri(
                 eventi.append((indice[i], float(prezzo), posizione))
                 ingressi.append(i)
                 estremo = prezzo
+                barra_ingresso, barre_sotto = i, 0
 
     return eventi, ingressi, livello_stop, motivi
 

@@ -334,8 +334,8 @@ def test_ogni_uscita_ha_un_motivo_registrato(candele):
     assert set(risultato.motivi.values()) <= {
         "trailing stop",
         "regime gate shut",
-        "score fell below threshold − hysteresis",
-        "score rose above threshold − hysteresis",
+        "score fell through the hysteresis band",
+        "score below threshold for too long",
     }
 
 
@@ -390,3 +390,93 @@ def test_lo_stop_a_trailing_si_vede_sulle_candele(candele):
     valori = np.asarray(stop[0].y, dtype=float)
     assert np.isfinite(valori).any(), "la serie dello stop e' tutta vuota"
     assert np.isnan(valori).any(), "lo stop deve essere assente quando si e' fuori dal mercato"
+
+
+# -------------------------------------------------------------------------------------------------
+# La soglia e l'isteresi: i due difetti di valutazione trovati provandola
+# -------------------------------------------------------------------------------------------------
+
+
+def test_la_soglia_si_muove_con_continuita(candele):
+    """Con `np.sign` sui piani la soglia prendeva cinque valori e saltava di 0,15 per volta, contro
+    un punteggio la cui ampiezza totale e' 0,91. Un salto del genere decide da solo."""
+    import numpy as np
+
+    risultato = confluence.evaluate(candele, "15m")
+    salti = np.abs(np.diff(risultato.soglia))
+    # La prima barra in cui il piano lungo diventa disponibile e' un gradino per forza: si passa
+    # da «non c'e' dato» a un valore. Non e' quella il difetto, e contarla renderebbe il test una
+    # misura della lunghezza del riscaldamento invece che della continuita'.
+    partenza = int(np.flatnonzero(risultato.regime != 0)[0])
+    salti = salti[partenza:]
+    assert salti.max() < 0.05, f"la soglia salta di {salti.max():.3f} in una barra"
+    assert (salti > 0.02).mean() < 0.001, "troppi salti grossi"
+    assert len(set(np.round(risultato.soglia, 4))) > 50, "la soglia e' ancora una scala a gradini"
+
+
+def test_nessuna_uscita_per_punteggio_e_causata_dal_salto_della_soglia(candele):
+    """Una su quattro lo era: l'aveva decisa la soglia che si spostava, non il punteggio."""
+    import numpy as np
+
+    risultato = confluence.evaluate(candele, "15m")
+    posizione = {quando: i for i, quando in enumerate(candele.index)}
+    salto = np.abs(np.concatenate([[0.0], np.diff(risultato.soglia)]))
+    per_punteggio = [posizione[q] for q, motivo in risultato.motivi.items() if "score" in motivo]
+    assert per_punteggio
+    assert not any(salto[i] > 0.02 for i in per_punteggio)
+
+
+def test_non_si_apre_e_si_chiude_in_due_barre(candele):
+    """Su barre da quindici minuti succedeva, e ogni volta paga due commissioni per niente."""
+    posizione = {quando: i for i, quando in enumerate(candele.index)}
+    risultato = confluence.evaluate(candele, "15m", barre_minime=4)
+    apertura = None
+    for quando, _, obiettivo in risultato.eventi:
+        i = posizione[quando]
+        if obiettivo != 0:
+            apertura = i
+        elif apertura is not None:
+            durata = i - apertura
+            motivo = risultato.motivi[quando]
+            if "score" in motivo:
+                assert durata >= 4, f"chiusa dal punteggio dopo {durata} barre"
+            apertura = None
+
+
+def test_il_pavimento_non_trattiene_ne_lo_stop_ne_il_cancello(candele):
+    """La distinzione che conta: sono regole di rischio, non di opinione. Un pavimento che tiene
+    aperta una posizione mentre lo stop e' saltato non e' pazienza, e' un difetto travestito."""
+    risultato = confluence.evaluate(candele, "15m", barre_minime=500)
+    rapide = [m for m in risultato.motivi.values() if m == "trailing stop"]
+    assert rapide, "con un pavimento altissimo lo stop deve poter comunque chiudere"
+
+
+def test_la_pazienza_taglia_la_coda_dell_isteresi(candele):
+    """L'isteresi come idea e' buona, ma il punteggio decade piano e la posizione restava aperta
+    per ore oltre il primo segnale di uscita."""
+    import numpy as np
+
+    posizione = {quando: i for i, quando in enumerate(candele.index)}
+
+    def coda(**kwargs):
+        risultato = confluence.evaluate(candele, "15m", **kwargs)
+        apertura, ritardi = None, []
+        for quando, _, obiettivo in risultato.eventi:
+            i = posizione[quando]
+            if obiettivo != 0:
+                apertura = i
+            elif apertura is not None:
+                sotto = np.flatnonzero(risultato.punteggio[apertura:i] < risultato.soglia[apertura:i])
+                if len(sotto):
+                    ritardi.append(i - (apertura + int(sotto[0])))
+                apertura = None
+        return np.percentile(ritardi, 90)
+
+    assert coda(pazienza=24) < coda(pazienza=10**9), "la pazienza non accorcia niente"
+
+
+def test_la_pazienza_ha_un_motivo_suo(candele):
+    """Perche' «uscito perche' il punteggio e' stato sotto troppo a lungo» e «uscito perche' e'
+    caduto attraverso la banda» sono due cose diverse, e il grafico deve dirlo."""
+    risultato = confluence.evaluate(candele, "15m")
+    assert "score below threshold for too long" in risultato.motivi.values()

@@ -150,6 +150,8 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
         "theta_base": float(valori["CONF_THETA_BASE"]),
         "theta_macro": float(valori["CONF_THETA_MACRO"]),
         "isteresi": float(valori["CONF_ISTERESI"]),
+        "barre_minime": int(valori["CONF_BARRE_MINIME"]),
+        "pazienza": int(valori["CONF_PAZIENZA"]),
         "emivita": float(valori["CONF_EMIVITA"]),
         "w_max": float(valori["CONF_W_MAX"]),
         "k_famiglie": int(valori["CONF_K_FAMIGLIE"]),
@@ -341,7 +343,7 @@ INDICATORI: dict[str, Indicatore] = {
         # quando i piani alti concordano, e il cancello che manda a flat senza discutere. Chi
         # guarda deve poter dire perche' quella barra ha aperto e non la precedente.
         etichetta="Confluence score",
-        parametri=("CONF_THETA_BASE", "CONF_THETA_MACRO", "CONF_ISTERESI"),
+        parametri=("CONF_THETA_BASE", "CONF_THETA_MACRO", "CONF_ISTERESI", "CONF_BARRE_MINIME", "CONF_PAZIENZA"),
         pannello="Confluence",
         serie=_serie_confluenza,
         tracce=(
@@ -802,6 +804,8 @@ ETICHETTE: dict[str, str] = {
     "CONF_THETA_BASE": "Entry threshold",
     "CONF_THETA_MACRO": "Threshold relief from higher planes",
     "CONF_ISTERESI": "Exit hysteresis",
+    "CONF_BARRE_MINIME": "Minimum bars held (score exit only)",
+    "CONF_PAZIENZA": "Bars below threshold before giving up",
     "CONF_EMIVITA": "Signal half-life (voter bars)",
     "CONF_W_MAX": "Weight cap per voter",
     "CONF_K_FAMIGLIE": "Families required to agree",
