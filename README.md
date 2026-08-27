@@ -40,7 +40,7 @@ src/cryptofarm/
 
 scripts/analysis.py           reproducible measurements behind .claude/docs/strategy.md
 scripts/confluence_lab.py     the confluence bench: wide grids, shared-capital basket, benchmarks
-tests/                        797 tests; test_simulator_golden.py pins the simulator
+tests/                        911 tests; test_simulator_golden.py pins the simulator
 models/                       .joblib artifacts + .json metadata (untracked)
 backup/unused/                modules removed from src/ because nothing imported them
 backup/v2/                    multi-timeframe simulator, read-only reference
@@ -78,7 +78,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Tests: `.venv312/bin/python -m pytest` (797 tests in 26 files). Lint/format: `ruff check src tests`,
+Tests: `.venv312/bin/python -m pytest` (911 tests in 26 files). Lint/format: `ruff check src tests`,
 `black src tests`.
 
 ### Dependency extras

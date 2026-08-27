@@ -66,6 +66,14 @@ def load_universe(symbols: list[str], interval: str, since: str, until: str | No
         if candles.empty:
             continue
         closes[symbol] = candles["Close"]
+    if not closes:
+        # Nessun simbolo nello store. Senza questa uscita `pd.DataFrame({})` nasce con un
+        # RangeIndex di interi, e il confronto con la data qui sotto solleva `TypeError: Invalid
+        # comparison between dtype=int64 and str` invece di dare un frame vuoto. E' la condizione
+        # normale in produzione -- il piano gratuito non ha dischi persistenti, quindi
+        # `market_data/` e' vuoto -- e faceva cadere l'intera vista di rotazione.
+        return pd.DataFrame(index=pd.DatetimeIndex([], name="Open time"))
+
     frame = pd.DataFrame(closes).sort_index()
     frame = frame[frame.index >= since]
     if until:

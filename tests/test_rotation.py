@@ -98,3 +98,19 @@ def test_i_riferimenti_battono_la_rotazione_quando_tutto_sale(rampa: pd.DataFram
     assert riferimenti["BTC comprare e tenere"]["rendimento_%"] == pytest.approx(100.0)
     rotazione = rotation.backtest(rampa, lookback=10, top=1, every=5, fee=0.0)
     assert rotazione["rendimento_%"] < riferimenti["BTC comprare e tenere"]["rendimento_%"]
+
+
+def test_uno_store_vuoto_da_un_frame_vuoto_invece_di_sollevare(monkeypatch):
+    """E' la condizione in cui gira il servizio pubblico: il piano gratuito non ha dischi
+    persistenti, quindi `market_data/` e' vuoto.
+
+    Senza l'uscita anticipata `pd.DataFrame({})` nasce con un RangeIndex di interi e il confronto
+    con la data solleva `TypeError: Invalid comparison between dtype=int64 and str`. Non e' un
+    dettaglio di tipi: faceva cadere l'**intera** vista di rotazione invece di mostrare l'avviso
+    che le sta accanto da sempre, e nascondeva anche la raccolta di `test_simulator_page.py`.
+    """
+    monkeypatch.setattr(rotation, "load_klines", lambda *args, **kwargs: pd.DataFrame())
+    vuoto = rotation.load_universe(["MAINONESISTE"], "1d", "2021-01-01")
+    assert vuoto.empty
+    assert isinstance(vuoto.index, pd.DatetimeIndex), "un indice di interi rompe ogni filtro a valle"
+    assert vuoto.shape[1] == 0

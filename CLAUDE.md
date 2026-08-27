@@ -115,8 +115,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (797 test in 26 file; 791 sono verificati qui, i sei di
-`test_simulator_page.py` richiedono davvero Python 3.12). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (911 test in 26 file, tutti verificati). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
