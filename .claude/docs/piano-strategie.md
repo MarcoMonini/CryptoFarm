@@ -47,7 +47,9 @@ la configurazione che si terrebbe, visto che ottimizzare danneggia. Non e' una c
 rotazione: l'82% della griglia supera la soglia del caso, che e' un fatto sulla *famiglia* e non
 sulla cella fortunata. E' una condanna del leggere quella griglia dal suo massimo.
 
-**Cosa manca**, e richiede la macchina dell'utente perche' `analysis_cache/` e' gitignorata:
+**Cosa manca**, e non e' eseguibile ne' qui ne' dall'utente finche' non e' sulla macchina che ha
+il clone (`analysis_cache/` e' gitignorata, e la sessione remota non ha ne' candele ne' rete verso
+gli exchange):
 
 ```bash
 python -m scripts.multiplicity --cache          # PBO su tutte le griglie gia' in cache
@@ -132,6 +134,84 @@ store dell'utente.
 **Criterio, dichiarato prima di guardare.** Il disegno nuovo deve, su 2017-2020: mediana positiva,
 battere l'universo a peso uguale, e drawdown sotto quello del passivo. Tre condizioni, decise ora
 proprio perche' deciderle dopo sarebbe un'altra selezione.
+
+---
+
+---
+
+## Passo 2bis — il consenso fra strategie
+
+Chiesto dall'utente il 2026-08-27: un algoritmo che riconosce le condizioni di mercato, ne ricava
+**pesi di veridicita'** per ogni strategia, e agisce quando la somma pesata supera una **soglia
+dinamica**. E' la stessa idea del passo 2 un piano sopra -- li' si mediano le configurazioni di una
+strategia, qui le strategie fra loro -- e vale la stessa regola: **i pesi non si stimano**.
+
+### Il dato che c'era gia', e che nessuno aveva letto cosi'
+
+`live_bot.py` -- l'unico codice del progetto che muove denaro vero -- vota gia': `NUM_CONDITIONS`
+decide quante fra banda ATR e RSI devono concordare (`live_bot.py:441`, `:458`). E la griglia
+`close_buy_sell_limits` di `strategy_sweep` **sweepa `num_cond` fra 1 e 2**, 864 configurazioni per
+lato, su tutti e cinque i simboli e tre intervalli. E' in `reports/sensibilita_*.csv` dal primo
+giorno.
+
+Chiedere due condizioni invece di una, mediana del rendimento:
+
+| intervallo | migliora | invariato | peggiora | trade/anno mediani |
+|---|---|---|---|---|
+| 15m | BTC, ETH | — | — | 279 → 53 |
+| 4h | BNB, BTC, ETH, SOL | — | XRP | 15-17 → 2-3 |
+| 1d | BNB, ETH, SOL | BTC | XRP | 3 → **0** |
+
+Nove su dodici migliorano, lo Sharpe mediano sale in dieci. **Ma non e' una prova che il voto
+aggiunga informazione**: taglia le operazioni di cinque-dieci volte, e questo progetto ha gia'
+stabilito che la frequenza operativa spiega quasi tutto. A un giorno la mediana passa a 0,0% con
+zero operazioni mediane: la strategia non e' migliorata, ha smesso di operare.
+
+**Il controllo che manca, e che decide:** confrontare il voto a due condizioni con **una condizione
+sola tarata sulla stessa frequenza operativa**. Se il voto non batte quel riferimento, non sta
+selezionando meglio -- sta solo operando meno, e operare meno costa una riga, non un algoritmo.
+
+### La diagnosi da fare per prima, prima di scrivere l'algoritmo
+
+**La matrice di correlazione fra le posizioni barra-per-barra delle strategie del menu.** Sono quasi
+tutte di inseguimento del trend sullo stesso prezzo: se la correlazione media a coppie e' alta, il
+voto e' una sola opinione contata dieci volte, e nessun sistema di pesi lo cambia. E' la misura piu'
+economica del piano e puo' chiuderlo in un pomeriggio. **Non e' ancora stata fatta**, e non e'
+deducibile da `reports/`, che tiene righe di riepilogo e non serie.
+
+### Tre versioni annidate, una liberta' in piu' ciascuna
+
+Si misura ognuna contro la precedente, e si passa alla successiva **solo** se guadagna:
+
+1. **V0 — consenso a peso uguale.** k fra N strategie a parametri fissi (i `tuned_defaults`).
+   Un solo parametro: k. Riferimenti: ogni strategia singola, e -- quello che conta -- ogni
+   strategia singola ritarata alla stessa frequenza operativa.
+2. **V1 — pesi online.** Peso di ogni strategia esponenziale nella sua resa recente (Hedge /
+   pesi moltiplicativi). Un solo parametro: il tasso di apprendimento. I pesi li produce una
+   regola, non una ricerca, e la garanzia teorica e' esattamente quella che serve dato ρ = −0,69:
+   asintoticamente non si fa peggio della migliore strategia singola.
+3. **V2 — pesi condizionati al regime** — la versione chiesta. Solo se V1 batte V0. E' qui che il
+   numero di parametri esplode (un classificatore di regime x N strategie), ed e' la versione che
+   ρ = −0,69 prevede fallisca.
+
+La **soglia dinamica** segue la stessa regola: non un numero tarato per regime, ma una funzione
+scale-free (per esempio chiedere piu' consenso quando la volatilita' e' alta), aggiunta una alla
+volta e misurata come una liberta' in piu'.
+
+### E' un'idea nota?
+
+Si', e con nomi precisi: previsione con consulenti esperti (Hedge, pesi moltiplicativi), esperti
+"dormienti" o specialisti -- che votano solo nel proprio contesto, cioe' esattamente "quali
+strategie sono attendibili in questo regime" -- portafogli universali, modelli a cambio di regime
+di Markov, stacking, e il meta-labeling di Lopez de Prado, che in questo repository e' gia'
+implementato come `scripts/meta_gate.py`.
+
+La prova piu' vicina a questo progetto sta gia' nell'artifact §1: nella tabella qlib il **primo
+posto per IC e' DoubleEnsemble** (un ensemble) e il **primo per Rank IC e' TRA**, che e' un
+instradatore che manda ogni campione a un predittore diverso -- cioe' la versione appresa della
+"condizione di mercato che sceglie i pesi". La famiglia e' quella giusta. Ma i rendimenti annui di
+quelle due righe sono 11,6% e 7,2%: l'ensemble vince la classifica **e resta sotto lo stesso
+soffitto**. Non trasforma una famiglia perdente in una vincente.
 
 ---
 
