@@ -418,6 +418,49 @@ La regola scritta: il piano di regime deve durare **fra mezza giornata e una set
 lì `scala_fuori_misura` restituisce un avviso che la barra laterale mostra. La strategia gira lo
 stesso — non è un errore, è una scelta di chi guarda — ma dal menu non si vedeva.
 
+## Il grafico era un pessimo testimone
+
+Provandola, i grafici sembravano contraddire le operazioni: una linea ferma a 1 mentre si comprava
+e si vendeva, e nessuna relazione visibile fra i voti e i trade. L'audit del motore, però, è
+pulito: **su 288 ingressi, zero violano le quattro condizioni; su 288 uscite, zero sono senza
+causa.** L'incoerenza era tutta nella visualizzazione, e le cause erano quattro.
+
+### 1. Il cancello schiacciava il punteggio
+
+`regime` vale ±1, il punteggio sta in ±0,5. Sullo stesso asse il cancello occupa **2,2 volte**
+l'ampiezza del punteggio: si vede una linea piatta a 1 e uno sfrigolio indistinguibile vicino allo
+zero. La serie che decide era proprio quella illeggibile. Ora i due piani lunghi hanno il loro
+riquadro, **Higher planes**, e *Confluence* tiene solo punteggio e soglia, sulla loro scala.
+
+### 2. Quattro uscite su cinque sono lo stop, che non era disegnato
+
+| chi chiude | quante |
+|---|---|
+| stop a trailing | **231** |
+| punteggio sotto soglia − isteresi | 57 |
+| cancello che si chiude | 0 |
+
+L'80% delle vendite avveniva mentre il punteggio era tranquillamente sopra la soglia — corretto, e
+del tutto inspiegabile dal grafico, perché il livello dello stop non c'era. Ora è una linea
+tratteggiata sulle candele, presente solo dove c'è una posizione.
+
+### 3. La spiegazione delle uscite era attivamente fuorviante
+
+`spiega()` mostrava punteggio e votanti anche sulle uscite. Su un'uscita per stop si leggeva
+«venduto mentre cinque votanti dicevano di comprare»: vero, e falso come spiegazione — quella
+posizione l'ha chiusa il prezzo, non il voto. Ora ogni marcatore dice a quale famiglia appartiene:
+
+```
+entry — score +0.35 / threshold 0.20 · 3 families · ichimoku +0.17, flusso +0.15, pullback +0.04
+exit  — trailing stop at 144.26
+```
+
+### 4. Il piano di struttura non era disegnato affatto
+
+`struttura` è metà di `accordo_alto`, cioè **muove la soglia**, e non compariva da nessuna parte.
+Ora sta accanto al cancello in *Higher planes*: è lì che si vedono le condizioni sui timeframe
+lunghi, che prima erano solo un'affermazione nella documentazione.
+
 ## Cosa il codice **non** fa, dichiarato
 
 - **la volatilità obiettivo** (dimensione della posizione proporzionale al margine e inversa alla

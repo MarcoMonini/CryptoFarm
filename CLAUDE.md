@@ -259,7 +259,13 @@ Quattro cose da sapere prima di toccarla:
 - **la spiegazione viaggia col segnale.** I segnali della confluenza sono `(quando, prezzo, testo)`
   invece di `(quando, prezzo)`, e il grafico mostra il testo al passaggio del mouse. Per questo
   `pnl` scompatta con `[:2]`: qualunque strategia può aggiungere elementi dopo i due che il motore
-  usa.
+  usa. Il testo **distingue gli ingressi dalle uscite**: quattro uscite su cinque sono lo stop a
+  trailing, e mostrarci sopra i votanti fa leggere «venduto mentre cinque votanti dicevano di
+  comprare», che è vero e del tutto fuorviante;
+- **i quattro riquadri non sono intercambiabili.** `regime` e `struttura` valgono ±1 e il punteggio
+  sta in ±0,5: sullo stesso asse il primo schiaccia il secondo, e si vede una linea ferma a 1
+  mentre si compra e si vende. Da qui il riquadro *Higher planes* separato, e lo stop a trailing
+  disegnato sulle candele — senza, l'80% delle vendite è inspiegabile dal grafico.
 
 `trading/portfolio.py` risponde a una domanda diversa e non va confuso con `rotation.py`: la
 rotazione sceglie *quale* asset tenere e ci sta dentro sempre; il paniere a capitale condiviso sta

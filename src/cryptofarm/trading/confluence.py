@@ -218,6 +218,8 @@ class Confluenza:
     regime: np.ndarray
     struttura: np.ndarray
     famiglie_concordi: np.ndarray
+    stop: np.ndarray | None = None
+    motivi: dict = field(default_factory=dict)
     concordi_lungo: np.ndarray | None = None
     k_famiglie: int = 2
     barre_del_regime: int = 0
@@ -273,14 +275,27 @@ class Confluenza:
         ]
 
     def spiega(self, quando) -> str:
-        """Chi ha generato il segnale su quella barra, e con che contributo. Una riga."""
-        i = self.indice.get_indexer([pd.Timestamp(quando)], method="pad")[0]
+        """Perche' quella barra ha operato. Una riga, e **diversa per gli ingressi e le uscite**.
+
+        Non e' una rifinitura: quattro uscite su cinque sono lo stop a trailing, e su quelle il
+        punteggio e i votanti non c'entrano niente. Mostrarli lo stesso -- com'era scritto la prima
+        volta -- fa leggere «venduto mentre cinque votanti dicevano di comprare», che e' vero e del
+        tutto fuorviante: quella posizione l'ha chiusa il prezzo, non il voto.
+        """
+        quando = pd.Timestamp(quando)
+        i = self.indice.get_indexer([quando], method="pad")[0]
         if i < 0:
             return ""
+        motivo = self.motivi.get(quando)
+        if motivo:
+            coda = ""
+            if motivo == "trailing stop" and self.stop is not None and not np.isnan(self.stop[i]):
+                coda = f" at {self.stop[i]:.2f}"
+            return f"exit — {motivo}{coda}"
         parti = [f"{nome} {self.pesi[nome] * voto[i]:+.2f}" for nome, voto in self.voti.items() if abs(voto[i]) > 1e-9]
         return (
-            f"punteggio {self.punteggio[i]:+.2f} / soglia {self.soglia[i]:.2f} · "
-            f"famiglie {int(self.famiglie_concordi[i])} · " + ", ".join(parti or ["nessun votante attivo"])
+            f"entry — score {self.punteggio[i]:+.2f} / threshold {self.soglia[i]:.2f} · "
+            f"{int(self.famiglie_concordi[i])} families · " + ", ".join(parti or ["no active voter"])
         )
 
 
@@ -432,7 +447,7 @@ def evaluate(
     concordi_corto = _famiglie_concordi(voti, famiglie, -1)
     famiglie_concordi = np.where(punteggio >= 0, concordi_lungo, concordi_corto)
 
-    eventi, ingressi = _percorri(
+    eventi, ingressi, livello_stop, motivi = _percorri(
         candles,
         punteggio=punteggio,
         soglia=soglia,
@@ -457,6 +472,8 @@ def evaluate(
         regime=regime,
         struttura=struttura,
         famiglie_concordi=famiglie_concordi,
+        stop=livello_stop,
+        motivi=motivi,
         concordi_lungo=concordi_lungo,
         k_famiglie=k_famiglie,
         barre_del_regime=len(resample_klines(candles, _intervallo(minuti_base * FATTORI["regime"]))),
@@ -554,6 +571,12 @@ def _percorri(
 
     eventi: list = []
     ingressi: list[int] = []
+    motivi: dict = {}
+    # Il livello dello stop, barra per barra, NaN quando si e' fuori. Non serve a decidere: serve
+    # a **vederlo**. Quattro uscite su cinque sono lo stop, e senza questa serie il grafico mostra
+    # una vendita mentre il punteggio e' tranquillamente sopra la soglia -- cioe' sembra incoerente
+    # proprio dove e' piu' corretto.
+    livello_stop = np.full(len(candele), np.nan)
     posizione = 0
     estremo = 0.0
 
@@ -564,15 +587,19 @@ def _percorri(
         if posizione != 0 and not np.isnan(atr[i - 1]):
             if posizione > 0:
                 stop = estremo - atr_multiplier * atr[i - 1]
+                livello_stop[i] = stop
                 if minimi[i] <= stop:
                     eventi.append((indice[i], float(stop), 0))
+                    motivi[indice[i]] = "trailing stop"
                     posizione, uscito_ora = 0, True
                 else:
                     estremo = max(estremo, massimi[i])
             else:
                 stop = estremo + atr_multiplier * atr[i - 1]
+                livello_stop[i] = stop
                 if massimi[i] >= stop:
                     eventi.append((indice[i], float(stop), 0))
+                    motivi[indice[i]] = "trailing stop"
                     posizione, uscito_ora = 0, True
                 else:
                     estremo = min(estremo, minimi[i])
@@ -580,9 +607,11 @@ def _percorri(
         uscita = soglia[i] - isteresi
         if posizione > 0 and (punteggio[i] < uscita or regime[i] < 0):
             eventi.append((indice[i], float(prezzo), 0))
+            motivi[indice[i]] = "regime gate shut" if regime[i] < 0 else "score fell below threshold − hysteresis"
             posizione, uscito_ora = 0, True
         elif posizione < 0 and (punteggio[i] > -uscita or regime[i] > 0):
             eventi.append((indice[i], float(prezzo), 0))
+            motivi[indice[i]] = "regime gate shut" if regime[i] > 0 else "score rose above threshold − hysteresis"
             posizione, uscito_ora = 0, True
 
         # Chi e' appena uscito non rientra sulla stessa barra. L'isteresi frena il punteggio che
@@ -604,7 +633,7 @@ def _percorri(
                 ingressi.append(i)
                 estremo = prezzo
 
-    return eventi, ingressi
+    return eventi, ingressi, livello_stop, motivi
 
 
 def _necessarieta(voti, famiglie, pesi, soglia, ingressi, k_famiglie) -> dict[str, float]:

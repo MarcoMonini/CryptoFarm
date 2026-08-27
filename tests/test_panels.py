@@ -104,6 +104,10 @@ def test_le_serie_dichiarate_esistono_davvero_nel_frame(chiave: str, frame: pd.D
     """E' il controllo che intercetta un nome di colonna sbagliato, come la vecchia `EMA200`."""
     indicatore = panels.INDICATORI[chiave]
     prodotte = indicatore.serie(frame, ExtraCache(frame), panels.valori_predefiniti())
+    if indicatore.condizionale and not prodotte:
+        # Dichiarato: questo indicatore disegna solo in certe condizioni (lo stop a trailing
+        # esiste solo dove c'e' una posizione), e su questo frame non ce ne sono.
+        return
     for traccia in indicatore.tracce:
         assert traccia.serie in prodotte, f"{chiave}: la traccia '{traccia.nome}' non ha la serie {traccia.serie}"
         assert prodotte[traccia.serie].notna().any(), f"{chiave}: la serie {traccia.serie} e' tutta vuota"

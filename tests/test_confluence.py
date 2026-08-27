@@ -135,8 +135,9 @@ def test_la_necessarieta_e_una_frazione_per_ogni_votante(candele):
 
 def test_spiega_dice_chi_ha_generato_il_segnale(candele):
     risultato = confluence.evaluate(candele, "15m")
-    testo = risultato.spiega(risultato.eventi[0][0])
-    assert "punteggio" in testo and "soglia" in testo and "famiglie" in testo
+    ingresso = next(quando for quando, _, obiettivo in risultato.eventi if obiettivo != 0)
+    testo = risultato.spiega(ingresso)
+    assert "score" in testo and "threshold" in testo and "families" in testo
     assert any(v.nome in testo for v in confluence.VOTANTI)
 
 
@@ -190,18 +191,25 @@ def _figura(candele, strategia="Confluence"):
 
 def test_la_pagina_mostra_la_decisione_e_i_votanti(candele):
     nomi = {traccia.name for traccia in _figura(candele).data}
-    assert {"Score", "Threshold", "Regime gate"} <= nomi, "manca il riquadro della decisione"
+    assert {"Score", "Threshold"} <= nomi, "manca il riquadro della decisione"
+    assert {"Regime plane (gate)", "Structure plane"} <= nomi, "mancano i piani lunghi"
     assert sum("·" in (n or "") for n in nomi) == len(confluence.VOTANTI), "manca un votante"
 
 
 def test_ogni_segnale_dice_chi_l_ha_generato(candele):
-    """Senza questo si vedrebbe un triangolo e bisognerebbe crederci."""
-    marcatori = [t for t in _figura(candele).data if t.name in ("Buy", "Sell")]
-    assert marcatori, "nessun segnale: il test non proverebbe niente"
-    for traccia in marcatori:
-        assert traccia.text and all(traccia.text), f"{traccia.name} senza spiegazione"
-        assert any(v.nome in traccia.text[0] for v in confluence.VOTANTI)
-        assert "punteggio" in traccia.text[0] and "famiglie" in traccia.text[0]
+    """Senza questo si vedrebbe un triangolo e bisognerebbe crederci.
+
+    Gli acquisti dicono chi ha votato; le vendite dicono cosa ha chiuso la posizione, che nella
+    grande maggioranza dei casi e' lo stop e non un voto.
+    """
+    per_nome = {t.name: t for t in _figura(candele).data if t.name in ("Buy", "Sell")}
+    assert set(per_nome) == {"Buy", "Sell"}, "nessun segnale: il test non proverebbe niente"
+    for nome, traccia in per_nome.items():
+        assert traccia.text and all(traccia.text), f"{nome} senza spiegazione"
+    compra = per_nome["Buy"].text[0]
+    assert compra.startswith("entry — ") and "score" in compra and "families" in compra
+    assert any(v.nome in compra for v in confluence.VOTANTI)
+    assert per_nome["Sell"].text[0].startswith("exit — ")
 
 
 def test_con_poca_storia_la_pagina_degrada_invece_di_cadere():
@@ -293,3 +301,92 @@ def test_le_ore_richieste_sono_il_numero_che_manca_a_chi_apre_la_pagina():
     """Il default della pagina e' 240 ore. A quindici minuti ne servono piu' di mille."""
     assert confluence.ore_richieste("15m", 50) == 1200
     assert confluence.ore_richieste("1h", 50) == 4800
+
+
+# -------------------------------------------------------------------------------------------------
+# Il grafico deve essere un testimone affidabile di cio' che il motore ha fatto
+# -------------------------------------------------------------------------------------------------
+
+
+def test_ogni_ingresso_soddisfa_tutte_e_quattro_le_condizioni(candele):
+    """L'audit che va fatto prima di credere a qualunque grafico: il motore e' coerente con se'.
+
+    Se questo cade, l'incoerenza e' nelle regole. Se passa e il grafico sembra incoerente,
+    l'incoerenza e' nel grafico -- ed e' li' che e' stata, la prima volta.
+    """
+    risultato = confluence.evaluate(candele, "15m")
+    posizione = {quando: i for i, quando in enumerate(candele.index)}
+    for quando, _, obiettivo in risultato.eventi:
+        if obiettivo == 0:
+            continue
+        i = posizione[quando]
+        assert risultato.regime[i] > 0, f"{quando}: aperto col cancello chiuso"
+        assert risultato.punteggio[i] >= risultato.soglia[i], f"{quando}: aperto sotto la soglia"
+        assert risultato.concordi_lungo[i] >= risultato.k_famiglie, f"{quando}: aperto senza ampiezza"
+
+
+def test_ogni_uscita_ha_un_motivo_registrato(candele):
+    risultato = confluence.evaluate(candele, "15m")
+    uscite = [quando for quando, _, obiettivo in risultato.eventi if obiettivo == 0]
+    assert uscite
+    for quando in uscite:
+        assert quando in risultato.motivi, f"{quando}: uscita senza motivo"
+    assert set(risultato.motivi.values()) <= {
+        "trailing stop",
+        "regime gate shut",
+        "score fell below threshold − hysteresis",
+        "score rose above threshold − hysteresis",
+    }
+
+
+def test_un_uscita_sullo_stop_non_elenca_i_votanti(candele):
+    """Il difetto che faceva leggere «venduto mentre cinque votanti dicevano di comprare».
+
+    E' vero e del tutto fuorviante: quella posizione l'ha chiusa il prezzo, non il voto. Quattro
+    uscite su cinque sono lo stop, quindi era il caso piu' comune, non un angolo.
+    """
+    risultato = confluence.evaluate(candele, "15m")
+    per_stop = [q for q, motivo in risultato.motivi.items() if motivo == "trailing stop"]
+    assert per_stop, "senza uscite sullo stop il test non proverebbe niente"
+    for quando in per_stop[:20]:
+        testo = risultato.spiega(quando)
+        assert testo.startswith("exit — trailing stop")
+        assert not any(v.nome in testo for v in confluence.VOTANTI), testo
+
+
+def test_gli_ingressi_si_distinguono_dalle_uscite_a_colpo_d_occhio(candele):
+    risultato = confluence.evaluate(candele, "15m")
+    for quando, _, obiettivo in risultato.eventi[:20]:
+        atteso = "entry — " if obiettivo != 0 else "exit — "
+        assert risultato.spiega(quando).startswith(atteso)
+
+
+def test_il_cancello_non_sta_sullo_stesso_riquadro_del_punteggio():
+    """Il cancello vale ±1 e il punteggio sta in ±0,5: sullo stesso asse il primo schiaccia il
+    secondo in una riga piatta, e si vede «una linea ferma a 1» mentre si compra e si vende."""
+    from cryptofarm.trading import panels
+
+    decisione = panels.INDICATORI["confluenza"]
+    piani = panels.INDICATORI["piani_lunghi"]
+    assert decisione.pannello != piani.pannello
+    assert {t.serie for t in decisione.tracce} == {"punteggio", "soglia"}
+    assert {t.serie for t in piani.tracce} == {"regime", "struttura"}
+
+
+def test_i_due_piani_lunghi_si_vedono_tutti_e_due(candele):
+    """`struttura` e' meta' di `accordo_alto`, cioe' muove la soglia, e non era disegnata affatto."""
+    figura = _figura(candele)
+    nomi = {traccia.name for traccia in figura.data}
+    assert "Regime plane (gate)" in nomi and "Structure plane" in nomi
+
+
+def test_lo_stop_a_trailing_si_vede_sulle_candele(candele):
+    """Chiude quattro operazioni su cinque: senza la linea, quelle vendite sono inspiegabili."""
+    import numpy as np
+
+    figura = _figura(candele)
+    stop = [t for t in figura.data if t.name == "Trailing stop"]
+    assert stop, "lo stop non e' disegnato"
+    valori = np.asarray(stop[0].y, dtype=float)
+    assert np.isfinite(valori).any(), "la serie dello stop e' tutta vuota"
+    assert np.isnan(valori).any(), "lo stop deve essere assente quando si e' fuori dal mercato"

@@ -44,6 +44,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 
 from cryptofarm.trading import confluence, strategies, strategies_ls
@@ -99,6 +100,13 @@ class Indicatore:
     pannello: str | None
     serie: Callable[[pd.DataFrame, ExtraCache, dict], dict[str, pd.Series]]
     tracce: tuple[Traccia, ...]
+    # `condizionale` dice che questo indicatore puo' legittimamente non disegnare niente su un
+    # dato frame -- lo stop a trailing esiste solo dove c'e' una posizione aperta, e su una storia
+    # in cui la strategia non e' mai entrata non esiste affatto. Serve al test che verifica che
+    # ogni traccia dichiarata abbia davvero la sua serie: senza, quel test dovrebbe accettare il
+    # dizionario vuoto da chiunque, e smetterebbe di intercettare il nome di colonna sbagliato che
+    # e' la ragione per cui esiste.
+    condizionale: bool = False
 
 
 @dataclass(frozen=True)
@@ -190,12 +198,26 @@ def _serie_confluenza(df, cache, valori):
     risultato = confluenza_di(df, valori)
     if risultato is None:
         return {}
-    return _serie(
-        df.index,
-        punteggio=risultato.punteggio,
-        soglia=risultato.soglia,
-        cancello=risultato.regime,
-    )
+    return _serie(df.index, punteggio=risultato.punteggio, soglia=risultato.soglia)
+
+
+def _serie_piani(df, cache, valori):
+    risultato = confluenza_di(df, valori)
+    if risultato is None:
+        return {}
+    return _serie(df.index, regime=risultato.regime, struttura=risultato.struttura)
+
+
+def _serie_stop(df, cache, valori):
+    """Lo stop a trailing, o niente quando non si e' mai stati dentro il mercato.
+
+    Restituire una serie tutta vuota metterebbe in legenda un indicatore che non disegna niente --
+    la stessa ragione per cui `media_regime` a finestra zero non restituisce nulla.
+    """
+    risultato = confluenza_di(df, valori)
+    if risultato is None or risultato.stop is None or not np.isfinite(risultato.stop).any():
+        return {}
+    return _serie(df.index, stop=risultato.stop)
 
 
 def _serie_votanti(df, cache, valori):
@@ -319,20 +341,38 @@ INDICATORI: dict[str, Indicatore] = {
         # quando i piani alti concordano, e il cancello che manda a flat senza discutere. Chi
         # guarda deve poter dire perche' quella barra ha aperto e non la precedente.
         etichetta="Confluence score",
-        parametri=(
-            "CONF_THETA_BASE",
-            "CONF_THETA_MACRO",
-            "CONF_ISTERESI",
-            "CONF_REGIME_EMA",
-            "CONF_STRUTTURA_EMA",
-        ),
+        parametri=("CONF_THETA_BASE", "CONF_THETA_MACRO", "CONF_ISTERESI"),
         pannello="Confluence",
         serie=_serie_confluenza,
         tracce=(
             Traccia("punteggio", "Score", BLU, larghezza=2.0),
             Traccia("soglia", "Threshold", ARANCIO, tratteggio="dash", larghezza=1.4),
-            Traccia("cancello", "Regime gate", ACQUA, tratteggio="dot", larghezza=1.2),
         ),
+    ),
+    "piani_lunghi": Indicatore(
+        # I due piani lunghi stanno in un riquadro **loro**, e non e' una questione di ordine:
+        # valgono +-1 e il punteggio sta in +-0,5, quindi sullo stesso asse il cancello occupa il
+        # doppio dell'ampiezza del punteggio e lo schiaccia in una riga piatta vicino allo zero. Si
+        # vedeva una linea ferma a 1 mentre si comprava e si vendeva, e sembrava incoerente proprio
+        # perche' la serie che decide non era leggibile.
+        etichetta="Higher planes",
+        parametri=("CONF_REGIME_EMA", "CONF_STRUTTURA_EMA"),
+        pannello="Higher planes",
+        serie=_serie_piani,
+        tracce=(
+            Traccia("regime", "Regime plane (gate)", ACQUA, larghezza=2.0),
+            Traccia("struttura", "Structure plane", ARANCIO, tratteggio="dash", larghezza=1.4),
+        ),
+    ),
+    "stop_confluenza": Indicatore(
+        # Quattro uscite su cinque sono lo stop a trailing. Senza questa linea il grafico mostra una
+        # vendita mentre il punteggio e' sopra la soglia, e non c'e' modo di capire perche'.
+        etichetta="Trailing stop",
+        parametri=("CONF_ATR_WINDOW", "CONF_ATR_MULT"),
+        pannello=None,
+        serie=_serie_stop,
+        tracce=(Traccia("stop", "Trailing stop", ARANCIO_CHIARO, tratteggio="dash", larghezza=1.3),),
+        condizionale=True,
     ),
     "votanti": Indicatore(
         # **Chi** ha votato, e quanto forte. Con il passaggio del mouse unificato questo riquadro
@@ -588,13 +628,15 @@ STRATEGIE: dict[str, Strategia] = {
         note="The textbook trend system, kept as a benchmark.",
     ),
     "Confluence": Strategia(
-        indicatori=("confluenza", "votanti"),
-        parametri=("CONF_INNESCO", "CONF_ATR_WINDOW", "CONF_ATR_MULT"),
+        indicatori=("stop_confluenza", "confluenza", "piani_lunghi", "votanti"),
+        parametri=("CONF_INNESCO",),
         esegui=lambda df, cache, v: _confluenza_lunga(df, v),
         note=(
             "Six voters on four timeframes derived from the one selected: trigger, confirmation, "
-            "structure, regime. The Confluence panel shows the decision, the Voters panel shows who "
-            "drove it. Voter parameters are frozen at their measured values and are not adjustable."
+            "structure, regime. Confluence shows score against threshold, Higher planes shows the "
+            "two long timeframes, Voters shows who drove it, and the dashed line on the candles is "
+            "the trailing stop — which closes most trades. Voter parameters are frozen at their "
+            "measured values and are not adjustable."
         ),
     ),
 }
