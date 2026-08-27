@@ -1,7 +1,8 @@
 # Handoff — CryptoFarm
 
-Data: **2026-08-24**. Branch di lavoro: **`claude/trading-strategies-performance-fb39oc`**
-(3 commit sopra `main`: `d82b3db`, `8f4ccd8`, `61603cc`).
+Data: **2026-08-27**. Branch di lavoro: **`claude/ricerca-quant-ml-cinque-asset`**
+(7 commit sopra `main`, mai spinto). Il precedente
+`claude/trading-strategies-performance-fb39oc` e' stato unito in `main` con la PR #7.
 Il branch precedente `ai-labeling-rewrite` (pipeline ML a 3 stati) e' **chiuso con esito negativo**
 e non e' mai stato unito: vedi `.claude/docs/strategy.md` §10-13 e la sezione "Il filone ML" qui
 sotto.
@@ -13,6 +14,7 @@ sotto.
 | `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render |
 | `.claude/docs/backtest-strategie.md` | **le strategie del simulatore misurate su nove anni.** 3.129 configurazioni, sensibilita' ai parametri, tenuta fuori campione, quattro difetti del codice trovati misurando (§8, ora corretti) |
 | `.claude/docs/strategie-nuove.md` | **lo stato piu' recente del filone trading.** Le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
+| `.claude/docs/sessione-2026-08-27.md` | **chiusura dell'ultima sessione**: le due decisioni prese con l'utente, le trappole d'ambiente scoperte misurando, i due test che passavano a vuoto e come sono stati corretti, e cosa farei dopo in ordine |
 | `.claude/docs/ricerca-quant-ml.md` | **il documento piu' recente (2026-08-26), e quello da leggere per primo sui risultati.** Stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
 | `.claude/docs/strategy.md` | fonte di verita' delle decisioni sul **filone ML** (etichettatura, feature, modello, validazione). Chiuso in negativo, ma le trappole valgono ancora |
 | `git log main..HEAD` | i messaggi di commit spiegano il *perche'* di ogni scelta e i bug trovati |
@@ -23,7 +25,10 @@ Non riassumere quei contenuti: sono gia' scritti e aggiornati.
 
 ## Stato del lavoro corrente: il filone trading
 
-Due sessioni consecutive, entrambe concluse e spinte sul branch.
+Tre sessioni consecutive. **La terza (2026-08-26/27) e' quella piu' recente e in parte corregge le
+prime due**: sta in [`sessione-2026-08-27.md`](sessione-2026-08-27.md) per lo stato operativo e in
+[`ricerca-quant-ml.md`](ricerca-quant-ml.md) per le misure. Le due sezioni qui sotto restano perche'
+descrivono come ci si e' arrivati, non perche' siano l'ultima parola.
 
 ### Sessione 1 — misurare le strategie esistenti (`d82b3db`, `8f4ccd8`)
 
@@ -169,12 +174,19 @@ i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0
 
 - **Usa `.venv312/bin/python`.** Il `.venv` preesistente e' Python 3.9 senza `scikit-learn`; il
   progetto richiede ≥3.12. Installazione normale: `pip install -e ".[app,data,dev]"`.
+- **Rete: dipende da dove gira la sessione.** Sulla macchina dell'utente `raw.githubusercontent.com`
+  e `api.github.com` rispondono, e i README dei repository si scaricano (fatto il 2026-08-26). Il
+  paragrafo qui sotto vale per l'**ambiente remoto**, non per il locale, e va letto cosi'.
 - **Rete bloccata in sessione remota.** Nessun exchange e nessun aggregatore e' raggiungibile
   (403 sul CONNECT del proxy); anche la *search API* di GitHub e' negata perche' la sessione e'
   legata ai suoi repository. Restano raggiungibili PyPI, i contenuti dei repository configurati e
   gli asset di release. Non perdere tempo a riprovare host nuovi: e' gia' stato fatto in modo
   esaustivo.
-- **`market_data/` in questo ambiente contiene solo due file** (55 MB, gitignorato):
+- **`market_data/` sulla macchina dell'utente ha tutti e 15 i simboli** a 5 minuti, fino al
+  2026-08-19 (284 MB, gitignorato): da 614.732 a 945.675 candele per simbolo. E' con questo store
+  che sono state fatte le misure di `ricerca-quant-ml.md`. Il paragrafo qui sotto descrive
+  l'**ambiente remoto**, dove ce n'erano due.
+- **`market_data/` nell'ambiente remoto contiene solo due file** (55 MB, gitignorato):
   `BTCUSD-5m.parquet` (1.540.397 candele, 2012-01-01 → oggi, fonte Bitstamp) e
   `ETHUSD-5m.parquet` (342.929 candele, 2016-03 → 2019-12, fonte Bitfinex). ETH **non copre il
   ciclo recente**: e' per questo che il controllo su un secondo asset e' stato fatto sul ciclo
@@ -183,10 +195,13 @@ i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0
 - **`models/*.joblib` e `*.json` non sono tracciati** (`models/.gitignore`, esteso nel 2026-08).
   `meta_model.*` e' il modello della strategia precedente: non cancellarlo, `load_signal_model()`
   lo carica ancora. `MODEL_PRECEDENCE` e `active_model_name()` sono l'unica fonte di verita'.
-- **Test: 430 in 15 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
+- **Test: 695 in 20 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
   entrambi i job su ogni PR.
 - Le due misure lunghe (`strategy_sweep`, `strategy_lab`) impiegano decine di minuti: farle partire
   in background e attendere con un ciclo di controllo, mai con `sleep` in catena.
+- **`analysis_cache/` e' gitignorata ed e' l'input di `scripts/tune_defaults.py`.** Senza,
+  `trading/tuned_defaults.py` non e' rigenerabile: servono di nuovo le griglie su quattro intervalli
+  per cinque simboli, circa due ore di calcolo. I `reports/*.csv` invece sono tracciati.
 
 ## Regole di ingaggio stabilite dall'utente
 
@@ -247,5 +262,10 @@ i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0
 - **`dataviz`** — prima di aggiungere grafici al simulatore.
 - **`artifact-design`** — l'utente si aspetta un report visuale a chiusura di ogni blocco di misure.
 
-Non serve `research` (nessuna fonte esterna raggiungibile) ne' `codebase-design` (la struttura a
-moduli e' decisa e documentata).
+- **`ponytail:ponytail`** — l'utente la lancia da se' a inizio sessione; nella terza era attiva a
+  livello `full` per tutto il tempo.
+
+Non serve `codebase-design` (la struttura a moduli e' decisa e documentata). `research` non serve
+per lo stato dell'arte, che e' gia' raccolto in `ricerca-quant-ml.md` §1 — ma **sulla macchina
+dell'utente la rete funziona**, quindi la vecchia nota "nessuna fonte esterna raggiungibile" vale
+solo in remoto.
