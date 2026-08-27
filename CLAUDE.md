@@ -227,11 +227,21 @@ Tre cose da sapere prima di toccarlo:
 ×16 struttura, ×96 regime, cioè 15m/1h/4h/1d partendo da 15m) e fa votare sei strategie diverse.
 Quattro cose da sapere prima di toccarla:
 
-- **i parametri dei sei votanti sono congelati** ai `tuned_defaults` del loro intervallo, e non
-  compaiono nella barra laterale. Non è pigrizia: ritararli dentro l'insieme porta il conto dei
-  parametri liberi da nove a oltre venticinque, e la correzione per molteplicità già applicata
-  altrove (`scripts/multiplicity.py`) dice cosa succede lì — niente di ciò che esce è
-  distinguibile dalla fortuna;
+- **aggiungere un votante è `confluence.registra(Votante(...))`, e basta.** Da lì si adattano da
+  soli famiglie, pesi, necessarietà, riquadri della barra laterale, parametri della strategia e
+  griglia del banco: non c'è nessun elenco da tenere allineato a mano, ed è quello il punto;
+- **i parametri dei votanti si risolvono in tre strati**: default della funzione (`config.CONF_*`),
+  valore misurato in `tuned_defaults` per l'intervallo del **piano** su cui il votante gira — non
+  quello della pagina — e override di chi chiama. Il secondo strato è quello che si sbaglia
+  facilmente: a base 15m un votante di struttura gira a 4h e vuole i valori di 4h;
+- **muoverli costa.** Il congelamento teneva a nove i parametri liberi; con le 31 manopole aperte
+  si superano i quaranta, e `scripts/multiplicity.py` dice cosa succede lì. Muoverli per capire,
+  misurare con i votanti fermi;
+- **la soglia è continua, non a gradini.** I piani lunghi entrano come distanza dalla media
+  normalizzata sull'ATR dello stesso piano, non come `np.sign`: con il segno la soglia saltava di
+  0,15 per volta e una uscita per punteggio su quattro era decisa da quel salto;
+- **l'isteresi ha un pavimento e un soffitto** (`barre_minime`, `pazienza`), e valgono **solo per
+  l'uscita dal punteggio**. Lo stop e il cancello no: sono regole di rischio, non di opinione;
 - **la parte cara non dipende dalla griglia.** I votanti congelati hanno uno stato che dipende solo
   da (simbolo, intervallo): `stati_dei_votanti` lo calcola una volta e `scripts/confluence_lab.py`
   lo riusa su tutte le celle. Misurato su 11.520 barre: 351 ms per cella contro 104 ms;

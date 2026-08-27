@@ -461,6 +461,121 @@ exit  — trailing stop at 144.26
 Ora sta accanto al cancello in *Higher planes*: è lì che si vedono le condizioni sui timeframe
 lunghi, che prima erano solo un'affermazione nella documentazione.
 
+## I tre difetti di valutazione, misurati e corretti
+
+Provandola nel simulatore sono emersi tre problemi distinti. Tutti e tre misurati prima di
+toccarli, perché la differenza fra «mi sembra» e «è» è l'unica cosa che rende una correzione
+verificabile.
+
+### 1. La soglia saltava, e decideva lei
+
+I due piani lunghi entravano come `np.sign(prezzo − media)`, cioè −1, 0 o +1. Quindi
+`accordo_alto` prendeva cinque valori e la soglia **saltava di 0,15 per volta** — il 16%
+dell'escursione totale del punteggio, in un istante. Misurato: **una uscita per punteggio su
+quattro cadeva sulla barra esatta in cui la soglia era saltata.**
+
+La distanza dalla media ora si normalizza sull'ATR **dello stesso piano** e si schiaccia con una
+tangente iperbolica. Il cancello resta lo stesso confronto (`> 0` è ancora «prezzo sopra la
+media»); la soglia si muove con continuità.
+
+| | prima | dopo |
+|---|---|---|
+| salto tipico della soglia | 0,15 | **0,0023** |
+| valori distinti | 5 | 2.271 |
+| uscite causate dal salto | 24,6% | **0** |
+
+L'ATR di normalizzazione ha finestra fissa a 14 e **non è un parametro libero**: è l'unità di
+misura, e la tangente iperbolica rende il risultato insensibile al suo valore esatto.
+
+### 2. L'isteresi sbagliava in tutte e due le direzioni
+
+Verso il basso: si apriva e si chiudeva in due barre da quindici minuti. Verso l'alto: il punteggio
+decade piano, quindi restava appena sopra `soglia − isteresi` per ore — mediana 14 barre oltre il
+primo calo sotto la soglia, coda a 84, cioè ventun'ore.
+
+Due limiti nuovi, e valgono **solo per l'uscita dal punteggio**: `barre_minime` è il pavimento,
+`pazienza` il soffitto sulle barre consecutive sotto la soglia semplice.
+
+| | prima | dopo |
+|---|---|---|
+| operazioni chiuse entro 2 barre | 3 | **0** |
+| ritardo oltre il primo segnale, 90° percentile | 35 | 23 barre |
+| ritardo massimo | 84 | 52 barre |
+| operazioni totali | 211 | 213 |
+
+L'ultima riga è la più importante: **non si è soppressa attività**, si è tolta quella sbagliata.
+
+**Lo stop e il cancello non sono soggetti al pavimento.** Sono regole di rischio, non di opinione:
+un pavimento che tiene aperta una posizione mentre lo stop è saltato non è pazienza, è un difetto
+travestito da parametro.
+
+### 3. I pesi non sommavano a uno con pochi votanti
+
+Trovato dai test mentre scrivevo la selezione parziale: con tre votanti un tetto di 0,30 li cappava
+tutti e la somma faceva **0,90**. Il punteggio restava sistematicamente sotto la soglia e nessuno
+lo diceva. Con i sei di default non si vedeva, perché 0,167 sta sotto 0,30. Il tetto ora non può
+scendere sotto `1/n`, che è il limite oltre il quale il vincolo è insoddisfacibile.
+
+## I votanti sono moduli
+
+```python
+confluence.registra(confluence.Votante("nome", "famiglia", "conferma", funzione, parametri))
+confluence.evaluate(candele, "15m", votanti=confluence.selezione("ichimoku", "flusso"))
+```
+
+Registrare basta: da lì in poi si adattano da soli il conteggio delle famiglie, i pesi, la
+necessarietà, i riquadri della barra laterale, i parametri della strategia e la griglia del banco.
+**Non c'è nessun elenco da tenere allineato a mano** — è l'unica forma di modularità che conta,
+quella in cui dimenticarsi un posto non è possibile. Un test lo verifica registrando un votante
+finto e controllando che la pagina ne mostri il riquadro.
+
+### Le 31 manopole, e i tre strati da cui prendono il valore
+
+I parametri dei votanti erano congelati **e invisibili**: trentuno manopole sugli indicatori dei
+piani lunghi che non si potevano nemmeno leggere. Ora ognuna ha la sua costante, la sua etichetta e
+il suo widget, in un riquadro per votante. Il valore si risolve in tre strati:
+
+1. il default della funzione in `strategies_ls`, scritto in `config` come `CONF_*`;
+2. il valore **misurato** in `tuned_defaults` per l'intervallo del **piano** su cui il votante gira;
+3. l'override esplicito, cioè i widget e la griglia.
+
+Il secondo strato è quello che si sbagliava facilmente: a base 15m un votante di struttura gira a
+4h e prende i `tuned_defaults` di 4h, non quelli di 15m. Prenderli dalla pagina sarebbe stato
+sbagliato in silenzio. Dove il piano cade fuori dai quattro intervalli misurati — a base 1h la
+struttura è 16h — non si sostituisce niente e restano i default scritti a mano.
+
+### Il costo, dichiarato
+
+Il congelamento era **il vincolo portante** che teneva a nove i parametri liberi. Scioglierlo li
+porta a oltre quaranta. È una scelta esplicita di chi usa la pagina, non un miglioramento: il
+conteggio delle prove per la correzione di molteplicità deve ora includere anche questi, e con
+quaranta gradi di libertà su cinque anni di dati la soglia del DSR sale al punto in cui quasi
+niente resta distinguibile dalla fortuna. **La raccomandazione resta muovere i votanti per capire,
+e misurare con i votanti fermi.**
+
+## Ottimizzare i default: cosa si può dire adesso e cosa no
+
+`--grid votanti` scandisce le 31 manopole una per volta attorno al proprio valore di partenza, con
+la griglia ricavata dal registro (cinque multipli del default, ritagliati sui limiti di `config`).
+Sono 116 celle.
+
+**Ma i valori "ottimi" non li ha ancora scelti nessuna misura**, e non li si può inventare: i
+default di oggi sono quelli delle funzioni più i `tuned_defaults` dove esistono, cioè scelte
+ragionevoli e non ottimizzate. Ottimizzarli richiede lo store delle candele. La sequenza è:
+
+```bash
+python -m scripts.confluence_lab --grid votanti     --symbol BTCUSDT --interval 15m --since 2021-01-01
+python -m scripts.confluence_lab --grid coordinate  --symbol BTCUSDT --interval 15m --since 2021-01-01
+python -m scripts.confluence_lab --grid ampia       --interval 15m --since 2021-01-01
+```
+
+E la regola con cui leggerle è già scritta in questo progetto, non va reinventata: si adotta un
+valore **solo se** sposta la mediana dei ranghi di almeno 0,06 e sceglie lo stesso valore anche
+guardando il solo primo sottoperiodo. È il criterio di `scripts/tune_defaults.py`, e nasce dalla
+misura che qui vale più di ogni altra: sulla rotazione la correlazione fra resa in stima e resa in
+verifica è **−0,69**, cioè prendere il massimo della griglia trasferisce peggio che scegliere a
+caso.
+
 ## Cosa il codice **non** fa, dichiarato
 
 - **la volatilità obiettivo** (dimensione della posizione proporzionale al margine e inversa alla
