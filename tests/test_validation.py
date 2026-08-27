@@ -8,6 +8,7 @@ from cryptofarm.ml.validation import (
     CombinatorialPurgedCV,
     PurgedKFold,
     deflated_sharpe_ratio,
+    expected_max_sharpe,
     probability_of_backtest_overfitting,
     purge_train_indices,
     sample_uniqueness,
@@ -162,6 +163,31 @@ def test_deflated_sharpe_falls_as_more_configurations_are_tried():
 
     # The same track record is less convincing when it is the best of five hundred attempts.
     assert few > many
+
+
+def test_deflated_sharpe_uses_the_observed_spread_between_trials_when_it_is_given():
+    """Una griglia annidata disperde meno di prove indipendenti, e la soglia deve seguirla.
+
+    Senza `trial_variance` si assume la dispersione di prove indipendenti (1/(n-1)). Le
+    configurazioni vicine di una griglia sono quasi la stessa strategia, quindi disperdono meno:
+    dichiararlo abbassa la soglia, e il verso di quella disuguaglianza e' cio' che il test fissa.
+    """
+    rng = np.random.default_rng(1)
+    returns = rng.normal(0.03, 1.0, 2000)
+
+    stretta = deflated_sharpe_ratio(returns, trials=200, trial_variance=1 / 20_000)
+    implicita = deflated_sharpe_ratio(returns, trials=200)
+    larga = deflated_sharpe_ratio(returns, trials=200, trial_variance=1 / 200)
+
+    assert stretta > implicita > larga
+
+
+def test_expected_max_sharpe_grows_with_trials_and_with_their_spread():
+    assert expected_max_sharpe(1000, 0.01) > expected_max_sharpe(10, 0.01)
+    assert expected_max_sharpe(100, 0.04) > expected_max_sharpe(100, 0.01)
+    # Una prova sola, o nessuna dispersione, non regala niente al caso.
+    assert expected_max_sharpe(1, 0.01) == 0.0
+    assert expected_max_sharpe(100, 0.0) == 0.0
 
 
 def test_deflated_sharpe_is_undefined_on_a_track_record_too_short_to_judge():

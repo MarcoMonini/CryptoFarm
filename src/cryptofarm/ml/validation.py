@@ -184,10 +184,29 @@ def probability_of_backtest_overfitting(
     return below / in_sample.shape[0]
 
 
+def expected_max_sharpe(trials: int, trial_variance: float) -> float:
+    """Sharpe massimo atteso da `trials` prove a edge nullo, con dispersione `trial_variance`.
+
+    `trial_variance` e' la varianza degli Sharpe **fra le configurazioni provate**, nelle stesse
+    unita' (per osservazione, non annualizzate). Una griglia annidata produce configurazioni molto
+    correlate fra loro, quindi una dispersione piccola e una soglia bassa: e' il comportamento
+    voluto, perche' provare mille varianti della stessa regola non e' provare mille regole.
+    """
+    if trials < 2 or not np.isfinite(trial_variance) or trial_variance <= 0:
+        return 0.0
+    from scipy.stats import norm
+
+    euler = 0.5772156649
+    return float(
+        np.sqrt(trial_variance) * ((1 - euler) * norm.ppf(1 - 1 / trials) + euler * norm.ppf(1 - 1 / (trials * np.e)))
+    )
+
+
 def deflated_sharpe_ratio(
     returns: np.ndarray,
     trials: int,
     benchmark: float = 0.0,
+    trial_variance: float | None = None,
 ) -> float:
     """Probabilita' che lo Sharpe osservato sia reale e non il massimo di `trials` tentativi.
 
@@ -198,6 +217,11 @@ def deflated_sharpe_ratio(
 
     `trials` va contato **onestamente**, includendo le configurazioni provate e scartate: e'
     l'errore piu' comune nell'applicare questa correzione.
+
+    `trial_variance` e' la varianza osservata degli Sharpe fra le prove. Senza, si assume che le
+    prove disperdano quanto il solo errore di stima (1/(n-1)), che e' l'ipotesi di prove
+    indipendenti: su una griglia annidata e' una soglia **piu' alta** di quella vera, perche' le
+    configurazioni vicine sono quasi la stessa strategia. Passarla quando la si conosce.
     """
     from scipy.stats import kurtosis, norm, skew
 
@@ -211,13 +235,9 @@ def deflated_sharpe_ratio(
     skewness = float(skew(returns))
     excess_kurtosis = float(kurtosis(returns, fisher=True))
 
-    # Sharpe atteso come massimo di `trials` estrazioni indipendenti a edge nullo.
-    euler = 0.5772156649
-    if trials > 1:
-        expected_max = (1 - euler) * norm.ppf(1 - 1 / trials) + euler * norm.ppf(1 - 1 / (trials * np.e))
-    else:
-        expected_max = 0.0
-    threshold = benchmark + expected_max / np.sqrt(n - 1)
+    # Sharpe atteso come massimo di `trials` estrazioni a edge nullo.
+    variance = 1 / (n - 1) if trial_variance is None else trial_variance
+    threshold = benchmark + expected_max_sharpe(trials, variance)
 
     denominator = np.sqrt(1 - skewness * observed + (excess_kurtosis) / 4 * observed**2)
     if not np.isfinite(denominator) or denominator <= 0:
