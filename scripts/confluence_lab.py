@@ -77,6 +77,7 @@ GRIGLIE: dict[str, dict[str, list]] = {
         "isteresi": [0.05, 0.15],
         "emivita": [3.0, 6.0, 12.0],
         "k_famiglie": [1, 2, 3],
+        "pazienza": [12, 24],
     },
     "ampia": {
         "theta_base": [0.15, 0.25, 0.35, 0.45, 0.55],
@@ -98,6 +99,8 @@ CENTRO: dict = {
     "theta_base": 0.35,
     "theta_macro": 0.15,
     "isteresi": 0.10,
+    "barre_minime": 4,
+    "pazienza": 24,
     "emivita": 6.0,
     "w_max": 0.30,
     "k_famiglie": 2,
@@ -113,6 +116,8 @@ SCANSIONE: dict[str, list] = {
     "theta_base": [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.60, 0.70],
     "theta_macro": [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40],
     "isteresi": [0.0, 0.02, 0.05, 0.10, 0.15, 0.20, 0.30],
+    "barre_minime": [0, 2, 4, 8, 16, 32],
+    "pazienza": [4, 8, 16, 24, 48, 96, 10**9],
     "emivita": [0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0],
     "w_max": [0.17, 0.20, 0.25, 0.30, 0.40, 0.50, 1.0],
     "k_famiglie": [1, 2, 3, 4, 5, 6],
@@ -125,7 +130,45 @@ SCANSIONE: dict[str, list] = {
 }
 
 
-NOMI_GRIGLIA = [*GRIGLIE, "coordinate"]
+def scansione_dei_votanti() -> dict[str, list]:
+    """La scansione dei parametri dei votanti, **ricavata dal registro** invece che scritta a mano.
+
+    Per ogni manopola si provano cinque multipli del suo valore di partenza, ritagliati sui limiti
+    che `config` gia' dichiara e arrotondati al suo passo; i booleani diventano `[0, 1]`. Cosi' un
+    votante aggiunto porta con se' la propria griglia, e non c'e' nessun elenco da aggiornare --
+    che era il difetto da evitare, non un'eleganza.
+
+    I nomi delle celle sono `votante.argomento`, ed e' `_dividi` a rimetterli al loro posto.
+    """
+    from cryptofarm.trading import config
+
+    scansione: dict[str, list] = {}
+    for votante in confluence.VOTANTI:
+        for parametro in votante.parametri:
+            campo = getattr(config, parametro.config)
+            if campo.minimum == 0 and campo.maximum == 1 and campo.step == 1:
+                valori = [0, 1]
+            else:
+                grezzi = [campo.value * fattore for fattore in (0.5, 0.75, 1.0, 1.5, 2.0)]
+                arrotonda = (lambda x: int(round(x))) if float(campo.step).is_integer() else (lambda x: round(x, 2))
+                valori = sorted({arrotonda(min(max(v, campo.minimum), campo.maximum)) for v in grezzi})
+            scansione[f"{votante.nome}.{parametro.kwarg}"] = valori
+    return scansione
+
+
+def _dividi(cella: dict) -> tuple[dict, dict]:
+    """Separa i parametri dell'insieme da quelli dei votanti (`votante.argomento`)."""
+    insieme, votanti = {}, {}
+    for chiave, valore in cella.items():
+        if "." in chiave:
+            nome, argomento = chiave.split(".", 1)
+            votanti.setdefault(nome, {})[argomento] = valore
+        else:
+            insieme[chiave] = valore
+    return insieme, votanti
+
+
+NOMI_GRIGLIA = [*GRIGLIE, "coordinate", "votanti"]
 
 
 def celle(nome: str) -> list[dict]:
@@ -135,10 +178,14 @@ def celle(nome: str) -> list[dict]:
     default di `confluence.evaluate`. Le celle per coordinata li portano tutti, perche' li' il
     centro e' parte della definizione: senza, non si saprebbe rispetto a cosa si e' scostati.
     """
-    if nome == "coordinate":
-        configurazioni = [dict(CENTRO)]
-        for parametro, valori in SCANSIONE.items():
-            configurazioni += [{**CENTRO, parametro: valore} for valore in valori if valore != CENTRO[parametro]]
+    if nome in ("coordinate", "votanti"):
+        scansione = SCANSIONE if nome == "coordinate" else scansione_dei_votanti()
+        centro = dict(CENTRO)
+        if nome == "votanti":
+            centro |= {chiave: valori[len(valori) // 2] for chiave, valori in scansione.items()}
+        configurazioni = [dict(centro)]
+        for parametro, valori in scansione.items():
+            configurazioni += [{**centro, parametro: valore} for valore in valori if valore != centro[parametro]]
         return configurazioni
     griglia = GRIGLIE[nome]
     return [dict(zip(griglia, valori)) for valori in itertools.product(*griglia.values())]
@@ -208,7 +255,18 @@ def valuta(
     carry: float = MANTENIMENTO,
 ) -> dict:
     """Una configurazione su un asset. Riporta le metriche **e** la necessarieta' per votante."""
-    risultato = confluence.evaluate(candele, intervallo, stati=stati_votanti, **parametri)
+    insieme, votanti = _dividi(parametri)
+    # Gli stati precalcolati valgono solo finche' i votanti non si muovono: appena una cella ne
+    # tocca un parametro vanno ricalcolati, altrimenti sarebbero i vecchi e il risultato sarebbe
+    # sbagliato in silenzio. `evaluate` solleva se glieli si passa insieme, ma qui si evita di
+    # arrivarci.
+    risultato = confluence.evaluate(
+        candele,
+        intervallo,
+        stati=None if votanti else stati_votanti,
+        parametri_votanti=votanti or None,
+        **insieme,
+    )
     operazioni = simulate_positions(risultato.eventi, wallet=CAPITALE, fee_percent=fee, carry_daily_percent=carry)
     curva = curva_capitale(operazioni, candele.index, CAPITALE)
     riga = {**parametri, **_metriche(operazioni, curva, candele.index)}
@@ -237,11 +295,13 @@ def valuta_paniere(
     """
     eventi = {}
     for simbolo, candele in per_simbolo.items():
+        insieme, votanti = _dividi(parametri)
         risultato = confluence.evaluate(
             candele,
             intervallo,
-            stati=(stati_per_simbolo or {}).get(simbolo),
-            **parametri,
+            stati=None if votanti else (stati_per_simbolo or {}).get(simbolo),
+            parametri_votanti=votanti or None,
+            **insieme,
         )
         eventi[simbolo] = risultato.eventi_con_priorita()
 
@@ -389,7 +449,7 @@ def _selfcheck() -> None:
     votanti = confluence.stati_dei_votanti(candele, "15m")
 
     configurazioni = celle("veloce")
-    assert len(configurazioni) == 3 * 2 * 2 * 3 * 3, len(configurazioni)
+    assert len(configurazioni) == 3 * 2 * 2 * 3 * 3 * 2, len(configurazioni)
     righe = pd.DataFrame([valuta(candele, "15m", p, votanti) for p in configurazioni[:6]])
     assert {"n_trade", "trade_anno", "necessarieta_max"} <= set(righe.columns)
     assert righe["n_trade"].sum() > 0, "nessuna operazione: il banco non proverebbe niente"
@@ -417,6 +477,15 @@ def _selfcheck() -> None:
     for parametro, valori in SCANSIONE.items():
         visti = {c[parametro] for c in coordinate}
         assert set(valori) <= visti, f"{parametro}: la scansione non copre {set(valori) - visti}"
+
+    # La scansione dei votanti si ricava dal registro: un votante nuovo porta la sua griglia.
+    dei_votanti = celle("votanti")
+    manopole = {chiave for cella in dei_votanti for chiave in cella if "." in chiave}
+    attese = {f"{v.nome}.{p.kwarg}" for v in confluence.VOTANTI for p in v.parametri}
+    assert manopole == attese, attese - manopole
+    insieme, votanti = _dividi(dei_votanti[1])
+    assert votanti and "theta_base" in insieme
+    assert valuta(candele, "15m", dei_votanti[1])["n_trade"] >= 0
 
     assert "in utile" in riassunto(righe)
     print(f"confluence_lab selfcheck: passato · {riassunto(righe)}")
