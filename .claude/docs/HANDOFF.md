@@ -151,6 +151,18 @@ diretta lungo→corto).
 Tabelle prodotte: `reports/lab_*.csv` (panoramica, effetto short, ablazioni, classifica, fuori
 campione, leva e costi; suffissi `_1d`, `_4h`, `_4h_ciclo2017`, `_ETHUSD_4h`).
 
+### Un guasto che era li' da un giorno: la rotazione con lo store vuoto
+
+`rotation.load_universe` costruiva `pd.DataFrame({})` da un dizionario vuoto -- che nasce con un
+RangeIndex di **interi** -- e poi lo filtrava con `frame.index >= since`. Il confronto fra int64 e
+una stringa solleva `TypeError`, quindi con `market_data/` vuoto la vista di rotazione **cadeva**
+invece di mostrare l'avviso che le sta accanto da sempre. E' la condizione normale in produzione:
+il piano gratuito di Render non ha dischi persistenti.
+
+Lo stesso guasto nascondeva la raccolta di `tests/test_simulator_page.py`, che lo esercita a
+livello di modulo. In questa sessione avevo attribuito quella raccolta fallita alla versione di
+Python: **era sbagliato**. Con la correzione la suite gira intera, 911 test, senza `--ignore`.
+
 ### La confluenza (2026-08-27) — scritta, non misurata
 
 Il filone piu' recente. Il disegno completo sta in

@@ -824,8 +824,8 @@ def _percorri(
                 else:
                     estremo = min(estremo, minimi[i])
 
-        verso = 1 if posizione > 0 else -1
         if posizione != 0:
+            verso = 1 if posizione > 0 else -1
             barre_sotto = barre_sotto + 1 if punteggio[i] * verso < soglia[i] else 0
             per_isteresi = punteggio[i] * verso < soglia[i] - isteresi
             per_pazienza = barre_sotto >= pazienza
