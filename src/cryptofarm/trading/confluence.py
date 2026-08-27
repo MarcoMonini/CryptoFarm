@@ -183,6 +183,19 @@ class Confluenza:
     necessarieta: dict[str, float] = field(default_factory=dict)
     ingressi: int = 0
 
+    def eventi_con_priorita(self) -> list:
+        """Gli stessi eventi con il **margine sopra la soglia** come quarto elemento.
+
+        Serve al paniere a capitale condiviso (`trading/portfolio.py`): quando due asset parlano
+        sulla stessa barra vince il segnale piu' netto, non il primo dell'ordine alfabetico. Sulle
+        uscite il margine e' zero, perche' una chiusura non compete con niente.
+        """
+        posizioni = self.indice.get_indexer([e[0] for e in self.eventi])
+        return [
+            (*evento[:3], abs(self.punteggio[i]) - self.soglia[i] if evento[2] != 0 else 0.0)
+            for evento, i in zip(self.eventi, posizioni)
+        ]
+
     def spiega(self, quando) -> str:
         """Chi ha generato il segnale su quella barra, e con che contributo. Una riga."""
         i = self.indice.get_indexer([pd.Timestamp(quando)], method="pad")[0]

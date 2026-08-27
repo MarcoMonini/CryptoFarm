@@ -156,3 +156,13 @@ def test_i_piani_sono_multipli_dell_intervallo_di_base():
 def test_senza_verso_corto_non_si_apre_mai_una_posizione_corta(candele):
     eventi = confluence.evaluate(candele, "15m", allow_short=False).eventi
     assert all(e[2] >= 0 for e in eventi)
+
+
+def test_la_priorita_e_il_margine_sopra_la_soglia(candele):
+    """Serve al paniere a capitale condiviso: a parita' di barra vince il segnale piu' netto."""
+    risultato = confluence.evaluate(candele, "15m")
+    con_priorita = risultato.eventi_con_priorita()
+    assert [e[:3] for e in con_priorita] == risultato.eventi
+    aperture = [e for e in con_priorita if e[2] != 0]
+    assert all(e[3] >= 0 for e in aperture), "si apre solo oltre la soglia: il margine non e' negativo"
+    assert all(e[3] == 0.0 for e in con_priorita if e[2] == 0), "una chiusura non compete con niente"
