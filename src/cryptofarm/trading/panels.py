@@ -47,6 +47,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from cryptofarm.data.klines import interval_to_minutes
 from cryptofarm.trading import confluence, strategies, strategies_ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 
@@ -163,6 +164,14 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
         "barre_in_formazione": bool(valori["CONF_IN_FORMAZIONE"]),
     }
     intervallo = str(valori["INTERVALLO"])
+    # Gli override dei votanti: quel che i widget hanno mosso rispetto ai loro default. Passarli
+    # sempre tutti sarebbe equivalente ma renderebbe la chiave della memoria enorme.
+    parametri["parametri_votanti"] = {
+        votante.nome: {
+            parametro.kwarg: valori[parametro.config] for parametro in votante.parametri if parametro.config in valori
+        }
+        for votante in confluence.VOTANTI
+    }
     chiave = (
         len(df),
         df.index[0],
@@ -170,7 +179,8 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
         float(df["Close"].iloc[0]),
         float(df["Close"].iloc[-1]),
         intervallo,
-        tuple(sorted(parametri.items())),
+        tuple(sorted((k, v) for k, v in parametri.items() if k != "parametri_votanti")),
+        tuple(sorted((n, tuple(sorted(d.items()))) for n, d in parametri["parametri_votanti"].items())),
     )
     if _ULTIMA_CONFLUENZA and _ULTIMA_CONFLUENZA[0] == chiave:
         return _ULTIMA_CONFLUENZA[1]
@@ -631,7 +641,10 @@ STRATEGIE: dict[str, Strategia] = {
     ),
     "Confluence": Strategia(
         indicatori=("stop_confluenza", "confluenza", "piani_lunghi", "votanti"),
-        parametri=("CONF_INNESCO",),
+        # I parametri dei votanti si ricavano dal registro invece di essere elencati qui: e' cio'
+        # che rende «aggiungere un votante» un'operazione sola. Un elenco a mano si sarebbe
+        # disallineato al primo votante nuovo, e il disallineamento sarebbe stato invisibile.
+        parametri=("CONF_INNESCO", *(p.config for v in confluence.VOTANTI for p in v.parametri)),
         esegui=lambda df, cache, v: _confluenza_lunga(df, v),
         note=(
             "Six voters on four timeframes derived from the one selected: trigger, confirmation, "
@@ -663,6 +676,7 @@ def _confluenza_lunga(df: pd.DataFrame, valori: dict) -> tuple[list, list]:
 
 
 VUOTA = "-"  # la voce che non seleziona nessuna strategia: si mostra tutto
+CONFLUENZA = "Confluence"
 
 # Nella panoramica senza strategia questi due si tolgono, perche' sarebbero doppioni visivi:
 # `medie_trend` disegna due delle tre linee di `medie`, e `bande_kama` ha la stessa forma di
@@ -708,8 +722,38 @@ def valori_misurati(strategia: str, intervallo: str) -> dict:
     """
     from cryptofarm.trading.tuned_defaults import PER_INTERVALLO
 
+    if strategia == CONFLUENZA:
+        # Ogni votante gira sul **suo** piano, quindi il suo valore misurato e' quello
+        # dell'intervallo del piano -- non di quello scelto nella pagina. Prendere quello della
+        # pagina darebbe alla confluenza i default di un altro timeframe, in silenzio.
+        misurati: dict = {}
+        for votante in confluence.VOTANTI:
+            misurati.update(valori_del_piano(votante, intervallo))
+        return misurati
+
     ancora = ancora_di(intervallo)
     return dict(PER_INTERVALLO.get(ancora, {}).get(strategia, {})) if ancora else {}
+
+
+def valori_del_piano(votante, intervallo: str) -> dict:
+    """I valori misurati di un votante, tradotti nei nomi dei suoi widget.
+
+    L'ancora serve anche qui: le griglie coprono quattro intervalli e un piano puo' caderne fuori
+    (a base 1h il piano di struttura e' 16h, che nessuno ha misurato). In quel caso non si
+    sostituisce niente e restano i default di `config`, che e' la scelta prudente.
+    """
+    from cryptofarm.trading.tuned_defaults import PER_INTERVALLO
+
+    minuti = interval_to_minutes(intervallo) * confluence.FATTORI[votante.piano]
+    ancora = ancora_di(confluence._intervallo(minuti))
+    if not ancora or not votante.menu:
+        return {}
+    misurati = PER_INTERVALLO.get(ancora, {}).get(votante.menu, {})
+    return {
+        parametro.config: misurati[parametro.misurato]
+        for parametro in votante.parametri
+        if parametro.misurato in misurati
+    }
 
 
 def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
@@ -814,6 +858,37 @@ ETICHETTE: dict[str, str] = {
     "CONF_ATR_MULT": "Stop distance (ATR)",
     "CONF_REGIME_EMA": "Regime plane EMA",
     "CONF_STRUTTURA_EMA": "Structure plane EMA",
+    "CONF_ICHIMOKU_FAST": "Tenkan (fast)",
+    "CONF_ICHIMOKU_SLOW": "Kijun (slow)",
+    "CONF_ICHIMOKU_SPAN": "Cloud span",
+    "CONF_ICHIMOKU_CLOUD": "Require cloud (1 = yes)",
+    "CONF_DONCHIAN_CHANNEL": "Channel length",
+    "CONF_DONCHIAN_ADX_WINDOW": "ADX window",
+    "CONF_DONCHIAN_ADX_MIN": "ADX minimum",
+    "CONF_DONCHIAN_ATR_WINDOW": "ATR window",
+    "CONF_DONCHIAN_ATR_MULT": "Stop distance (ATR)",
+    "CONF_DONCHIAN_REGIME_EMA": "Regime EMA (0 = off)",
+    "CONF_FLOW_WINDOW": "OBV and MFI window",
+    "CONF_FLOW_MFI_ALTO": "MFI ceiling for longs",
+    "CONF_FLOW_MFI_BASSO": "MFI floor for shorts",
+    "CONF_SQUEEZE_BB_WINDOW": "Bollinger window",
+    "CONF_SQUEEZE_BB_DEV": "Bollinger deviations",
+    "CONF_SQUEEZE_KC_WINDOW": "Keltner window",
+    "CONF_SQUEEZE_KC_MULT": "Keltner multiplier",
+    "CONF_SQUEEZE_ATR_WINDOW": "ATR window",
+    "CONF_SQUEEZE_ATR_MULT": "Stop distance (ATR)",
+    "CONF_SQUEEZE_VOLUME": "Confirm with volume (1 = yes)",
+    "CONF_SQUEEZE_OBV_WINDOW": "OBV window",
+    "CONF_PULLBACK_REGIME_EMA": "Regime EMA",
+    "CONF_PULLBACK_STOCH_WINDOW": "StochRSI window",
+    "CONF_PULLBACK_STOCH_SMOOTH": "StochRSI smoothing",
+    "CONF_PULLBACK_OVERSOLD": "Oversold level",
+    "CONF_PULLBACK_OVERBOUGHT": "Overbought level",
+    "CONF_PULLBACK_ATR_MULT": "Stop distance (ATR)",
+    "CONF_REVERSION_KAMA": "KAMA window",
+    "CONF_REVERSION_BAND_MULT": "Band width (ATR)",
+    "CONF_REVERSION_ADX_MAX": "ADX maximum (range required)",
+    "CONF_REVERSION_STOP_MULT": "Stop distance (ATR)",
     "ADX_WINDOW": "ADX window",
     "ADX_MIN": "ADX minimum (trend required)",
     "ADX_MAX": "ADX maximum (range required)",
@@ -869,6 +944,14 @@ def gruppi_di(strategia: str) -> list[tuple[str, list[str]]]:
         gia_visti.update(dentro)
         if dentro:
             gruppi.append((indicatore.etichetta, dentro))
+    if strategia == CONFLUENZA:
+        # Un riquadro per votante invece di trentuno campi in fila sotto un titolo solo. I nomi
+        # arrivano dal registro, quindi un votante aggiunto porta con se' il proprio riquadro.
+        for votante in confluence.VOTANTI:
+            dentro = [p.config for p in votante.parametri if p.config not in gia_visti]
+            gia_visti.update(dentro)
+            if dentro:
+                gruppi.append((f"Voter · {votante.nome}", dentro))
     propri = [nome for nome in parametri_di(strategia) if nome not in gia_visti]
     if propri:
         gruppi.append((SOGLIE, propri))

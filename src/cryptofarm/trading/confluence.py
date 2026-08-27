@@ -53,7 +53,7 @@ passaggio fra i piani rilegga `tests/test_confluence.py::test_nessun_piano_lungo
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -113,68 +113,131 @@ def scala_fuori_misura(interval: str) -> str:
     return ""
 
 
+class Par(NamedTuple):
+    """Un parametro di un votante: come si chiama nei tre posti in cui vive.
+
+    Tre nomi e non uno perche' i tre posti sono davvero diversi e farli coincidere a forza
+    costringerebbe a rinominare cose che appartengono ad altri: `config` e' lo spazio dei widget
+    della pagina, dove serve un prefisso per non collidere con la strategia omonima del menu;
+    `kwarg` e' l'argomento della funzione in `strategies_ls`, che non sa niente della pagina;
+    `misurato` e' la chiave in `tuned_defaults`, che e' un file **generato** e non si rinomina.
+    """
+
+    config: str
+    kwarg: str
+    misurato: str = ""
+
+
 @dataclass(frozen=True)
 class Votante:
-    """Un votante: chi e', su che piano guarda, e come si esegue.
+    """Un votante: chi e', su che piano guarda, come si esegue e quali manopole ha.
 
     `famiglia` non e' decorativa: l'ampiezza minima si conta in **famiglie distinte**, non in
-    votanti, ed e' cio' che impedisce a un peso grande di aprire una posizione da solo. Oggi i sei
-    sono uno per famiglia; il votante AI entrera' nella famiglia "trasversale" senza cambiare il
-    conteggio.
+    votanti, ed e' cio' che impedisce a un peso grande di aprire una posizione da solo.
 
     `menu` e' il nome con cui la strategia compare in `tuned_defaults`, vuoto per chi non e' mai
-    stato misurato: quei votanti restano ai default della propria funzione.
+    stato misurato: quei votanti restano ai default scritti in `config`.
+
+    ## Aggiungere o togliere un votante
+
+    Si scrive la funzione, si costruisce un `Votante` e lo si passa a `registra`. Da li' in poi
+    tutto il resto si adatta da solo: il conteggio delle famiglie, i pesi, la necessarieta', i
+    widget della barra laterale, la griglia del banco. Toglierlo e' `selezione(...)` senza il suo
+    nome. **Non c'e' nessun elenco da tenere allineato a mano**, ed e' l'unica forma di modularita'
+    che conta: quella in cui dimenticarsi un posto non e' possibile.
     """
 
     nome: str
     famiglia: str
     piano: str
     esegui: Callable[[pd.DataFrame, ExtraCache, dict], list]
+    parametri: tuple[Par, ...] = ()
     menu: str = ""
 
 
-def _ichimoku(df, cache, v):
+REGISTRO: dict[str, Votante] = {}
+
+
+def registra(votante: Votante) -> Votante:
+    """Mette un votante nel registro. Sostituisce quello con lo stesso nome, se c'e'."""
+    REGISTRO[votante.nome] = votante
+    return votante
+
+
+def selezione(*nomi: str) -> tuple[Votante, ...]:
+    """I votanti indicati, nell'ordine dato. Senza argomenti, tutti quelli registrati."""
+    if not nomi:
+        return tuple(REGISTRO.values())
+    mancanti = [nome for nome in nomi if nome not in REGISTRO]
+    if mancanti:
+        raise KeyError(f"votanti sconosciuti: {mancanti}. Registrati: {sorted(REGISTRO)}")
+    return tuple(REGISTRO[nome] for nome in nomi)
+
+
+def _ichimoku(df, cache, p):
     return strategies_ls.ichimoku_trend(
         df,
         cache,
-        fast=int(v.get("ICHIMOKU_FAST", 9)),
-        slow=int(v.get("ICHIMOKU_SLOW", 26)),
-        span=int(v.get("ICHIMOKU_SPAN", 52)),
-        require_cloud=bool(v.get("REQUIRE_CLOUD", True)),
+        fast=int(p["fast"]),
+        slow=int(p["slow"]),
+        span=int(p["span"]),
+        require_cloud=bool(p["require_cloud"]),
     )
 
 
-def _donchian(df, cache, v):
+def _donchian(df, cache, p):
     return strategies_ls.donchian_breakout(
         df,
         cache,
-        channel=int(v.get("DONCHIAN_CHANNEL", 20)),
-        adx_min=float(v.get("ADX_MIN", 20.0)),
-        atr_multiplier=float(v.get("DONCHIAN_ATR_MULT", 3.0)),
-        regime_ema=int(v.get("REGIME_EMA", 200)),
+        channel=int(p["channel"]),
+        adx_window=int(p["adx_window"]),
+        adx_min=float(p["adx_min"]),
+        atr_window=int(p["atr_window"]),
+        atr_multiplier=float(p["atr_multiplier"]),
+        regime_ema=int(p["regime_ema"]),
     )
 
 
-def _squeeze(df, cache, v):
+def _squeeze(df, cache, p):
     return strategies_ls.squeeze_breakout(
         df,
         cache,
-        bb_dev=float(v.get("BB_DEV", 2.0)),
-        kc_multiplier=float(v.get("KC_MULTIPLIER", 1.5)),
-        atr_multiplier=float(v.get("SQUEEZE_ATR_MULT", 2.5)),
-        confirm_volume=bool(v.get("CONFIRM_VOLUME", True)),
+        bb_window=int(p["bb_window"]),
+        bb_dev=float(p["bb_dev"]),
+        kc_window=int(p["kc_window"]),
+        kc_multiplier=float(p["kc_multiplier"]),
+        atr_window=int(p["atr_window"]),
+        atr_multiplier=float(p["atr_multiplier"]),
+        confirm_volume=bool(p["confirm_volume"]),
+        obv_window=int(p["obv_window"]),
     )
 
 
-def _pullback(df, cache, v):
-    return strategies_ls.trend_pullback(df, cache)
+def _pullback(df, cache, p):
+    return strategies_ls.trend_pullback(
+        df,
+        cache,
+        regime_ema=int(p["regime_ema"]),
+        stochrsi_window=int(p["stochrsi_window"]),
+        stochrsi_smooth=int(p["stochrsi_smooth"]),
+        oversold=float(p["oversold"]),
+        overbought=float(p["overbought"]),
+        atr_multiplier=float(p["atr_multiplier"]),
+    )
 
 
-def _reversione(df, cache, v):
-    return strategies_ls.band_reversion_gated(df, cache)
+def _reversione(df, cache, p):
+    return strategies_ls.band_reversion_gated(
+        df,
+        cache,
+        kama_window=int(p["kama_window"]),
+        band_multiplier=float(p["band_multiplier"]),
+        adx_max=float(p["adx_max"]),
+        stop_multiplier=float(p["stop_multiplier"]),
+    )
 
 
-def _flusso(df, cache, v):
+def _flusso(df, cache, p):
     """Il votante di flusso: l'unico che non legge il prezzo, e per questo l'unico che decorrela.
 
     Non e' una strategia di `strategies_ls` -- non ne esiste una di questa famiglia -- ma le due
@@ -182,27 +245,105 @@ def _flusso(df, cache, v):
     ipercomprato, corto allo specchio: la pendenza dice la direzione del flusso, l'MFI dice se il
     flusso e' gia' stato tutto speso.
     """
-    finestra = int(v.get("OBV_WINDOW", 20))
-    pendenza = cache.obv_slope(finestra)
-    mfi = cache.mfi(finestra)
-    lungo = (pendenza > 0) & (mfi < 80)
-    corto = (pendenza < 0) & (mfi > 20)
+    finestra = int(p["finestra"])
+    pendenza, mfi = cache.obv_slope(finestra), cache.mfi(finestra)
+    lungo = (pendenza > 0) & (mfi < float(p["mfi_alto"]))
+    corto = (pendenza < 0) & (mfi > float(p["mfi_basso"]))
     stato = np.where(lungo, 1, np.where(corto, -1, 0)).astype(np.int8)
     stato[np.isnan(pendenza) | np.isnan(mfi)] = 0
-    # Il formato comune e' quello degli eventi: si emettono i soli cambi.
     cambi = np.flatnonzero(np.diff(stato, prepend=np.int8(0)))
     chiusure = df["Close"].to_numpy()
     return [(df.index[i], float(chiusure[i]), int(stato[i])) for i in cambi]
 
 
-VOTANTI: tuple[Votante, ...] = (
-    Votante("ichimoku", "inseguimento", "struttura", _ichimoku, "Ichimoku Trend"),
-    Votante("donchian", "rottura", "struttura", _donchian, "Donchian Breakout"),
-    Votante("flusso", "volume", "struttura", _flusso, "Squeeze Breakout"),
-    Votante("squeeze", "volatilita", "conferma", _squeeze, "Squeeze Breakout"),
-    Votante("pullback", "rientro", "conferma", _pullback),
-    Votante("reversione", "ritorno_media", "innesco", _reversione),
-)
+for _votante in (
+    Votante(
+        "ichimoku",
+        "inseguimento",
+        "struttura",
+        _ichimoku,
+        (
+            Par("CONF_ICHIMOKU_FAST", "fast", "ICHIMOKU_FAST"),
+            Par("CONF_ICHIMOKU_SLOW", "slow", "ICHIMOKU_SLOW"),
+            Par("CONF_ICHIMOKU_SPAN", "span", "ICHIMOKU_SPAN"),
+            Par("CONF_ICHIMOKU_CLOUD", "require_cloud", "REQUIRE_CLOUD"),
+        ),
+        "Ichimoku Trend",
+    ),
+    Votante(
+        "donchian",
+        "rottura",
+        "struttura",
+        _donchian,
+        (
+            Par("CONF_DONCHIAN_CHANNEL", "channel", "DONCHIAN_CHANNEL"),
+            Par("CONF_DONCHIAN_ADX_WINDOW", "adx_window", "ADX_WINDOW"),
+            Par("CONF_DONCHIAN_ADX_MIN", "adx_min", "ADX_MIN"),
+            Par("CONF_DONCHIAN_ATR_WINDOW", "atr_window", "TRAIL_ATR_WINDOW"),
+            Par("CONF_DONCHIAN_ATR_MULT", "atr_multiplier", "DONCHIAN_ATR_MULT"),
+            Par("CONF_DONCHIAN_REGIME_EMA", "regime_ema", "REGIME_EMA"),
+        ),
+        "Donchian Breakout",
+    ),
+    Votante(
+        "flusso",
+        "volume",
+        "struttura",
+        _flusso,
+        (
+            Par("CONF_FLOW_WINDOW", "finestra", "OBV_WINDOW"),
+            Par("CONF_FLOW_MFI_ALTO", "mfi_alto"),
+            Par("CONF_FLOW_MFI_BASSO", "mfi_basso"),
+        ),
+        "Squeeze Breakout",
+    ),
+    Votante(
+        "squeeze",
+        "volatilita",
+        "conferma",
+        _squeeze,
+        (
+            Par("CONF_SQUEEZE_BB_WINDOW", "bb_window", "BB_WINDOW"),
+            Par("CONF_SQUEEZE_BB_DEV", "bb_dev", "BB_DEV"),
+            Par("CONF_SQUEEZE_KC_WINDOW", "kc_window", "KC_WINDOW"),
+            Par("CONF_SQUEEZE_KC_MULT", "kc_multiplier", "KC_MULTIPLIER"),
+            Par("CONF_SQUEEZE_ATR_WINDOW", "atr_window", "TRAIL_ATR_WINDOW"),
+            Par("CONF_SQUEEZE_ATR_MULT", "atr_multiplier", "SQUEEZE_ATR_MULT"),
+            Par("CONF_SQUEEZE_VOLUME", "confirm_volume", "CONFIRM_VOLUME"),
+            Par("CONF_SQUEEZE_OBV_WINDOW", "obv_window", "OBV_WINDOW"),
+        ),
+        "Squeeze Breakout",
+    ),
+    Votante(
+        "pullback",
+        "rientro",
+        "conferma",
+        _pullback,
+        (
+            Par("CONF_PULLBACK_REGIME_EMA", "regime_ema"),
+            Par("CONF_PULLBACK_STOCH_WINDOW", "stochrsi_window"),
+            Par("CONF_PULLBACK_STOCH_SMOOTH", "stochrsi_smooth"),
+            Par("CONF_PULLBACK_OVERSOLD", "oversold"),
+            Par("CONF_PULLBACK_OVERBOUGHT", "overbought"),
+            Par("CONF_PULLBACK_ATR_MULT", "atr_multiplier"),
+        ),
+    ),
+    Votante(
+        "reversione",
+        "ritorno_media",
+        "innesco",
+        _reversione,
+        (
+            Par("CONF_REVERSION_KAMA", "kama_window"),
+            Par("CONF_REVERSION_BAND_MULT", "band_multiplier"),
+            Par("CONF_REVERSION_ADX_MAX", "adx_max"),
+            Par("CONF_REVERSION_STOP_MULT", "stop_multiplier"),
+        ),
+    ),
+):
+    registra(_votante)
+
+VOTANTI: tuple[Votante, ...] = selezione()
 
 
 @dataclass
@@ -313,17 +454,31 @@ def _intervallo(minuti: int) -> str:
     return f"{minuti}m"
 
 
-def _parametri_congelati(menu: str, intervallo: str) -> dict:
-    """I parametri misurati per quella strategia a quell'intervallo, o niente.
+def valori_del_votante(votante: Votante, intervallo: str, override: dict | None = None) -> dict:
+    """I parametri con cui girera' quel votante, in tre strati sovrapposti.
 
-    **Congelare i votanti e' il vincolo portante del disegno**: ritararli dentro l'insieme porta
-    il conto dei parametri liberi da nove a oltre venticinque, e a quel punto niente di cio' che
-    esce e' distinguibile dalla fortuna. Questa funzione e' l'unico posto da cui i loro valori
-    arrivano, e non prende niente dalla griglia dell'insieme.
+    1. il default della funzione, scritto in `config` come `CONF_*`;
+    2. il valore **misurato** per l'intervallo del piano su cui il votante gira, se una misura
+       esiste in `tuned_defaults`. Nota bene: l'intervallo del *piano*, non quello scelto nella
+       pagina -- un votante di struttura a base 15m gira a 4h, e il suo valore misurato e' quello
+       di 4h. Prendere quello di 15m sarebbe sbagliato in silenzio;
+    3. l'override esplicito di chi chiama, che e' cio' che arriva dai widget e dalla griglia.
+
+    Il terzo strato e' quello che il disegno originale non aveva: i votanti erano **congelati**
+    perche' ritararli dentro l'insieme porta il conto dei parametri liberi da nove a oltre
+    quaranta. Ora si possono muovere, ed e' una scelta esplicita di chi usa la pagina; il conto
+    delle prove per la correzione di molteplicita' deve tenerne conto.
     """
+    from cryptofarm.trading import config
     from cryptofarm.trading.tuned_defaults import PER_INTERVALLO
 
-    return dict(PER_INTERVALLO.get(intervallo, {}).get(menu, {})) if menu else {}
+    misurati = PER_INTERVALLO.get(intervallo, {}).get(votante.menu, {}) if votante.menu else {}
+    valori = {}
+    for parametro in votante.parametri:
+        default = getattr(config, parametro.config).value
+        valori[parametro.kwarg] = misurati.get(parametro.misurato, default) if parametro.misurato else default
+    valori.update((override or {}).get(votante.nome, {}))
+    return valori
 
 
 def _pesi(nomi: list[str], w_max: float, pesi: dict[str, float] | None = None) -> dict[str, float]:
@@ -338,6 +493,11 @@ def _pesi(nomi: list[str], w_max: float, pesi: dict[str, float] | None = None) -
     if totale <= 0:
         raise ValueError("pesi tutti nulli")
     valori = {n: p / totale for n, p in valori.items()}
+    # Con `n` votanti non esiste nessuna assegnazione che sommi a 1 e stia tutta sotto `1/n`:
+    # applicando il tetto alla lettera si capperebbero tutti e la somma verrebbe minore di uno,
+    # cioe' il punteggio sarebbe sistematicamente piu' piccolo della soglia **senza che niente lo
+    # dica**. Con sei votanti non si vedeva (0,167 sta sotto 0,30); con tre la somma faceva 0,90.
+    w_max = max(w_max, 1.0 / len(nomi))
     for _ in range(len(nomi)):
         eccedenti = {n for n, p in valori.items() if p > w_max + 1e-12}
         if not eccedenti:
@@ -351,7 +511,10 @@ def _pesi(nomi: list[str], w_max: float, pesi: dict[str, float] | None = None) -
 
 
 def stati_dei_votanti(
-    candles: pd.DataFrame, interval: str, votanti: tuple[Votante, ...] = VOTANTI
+    candles: pd.DataFrame,
+    interval: str,
+    votanti: tuple[Votante, ...] = VOTANTI,
+    parametri_votanti: dict | None = None,
 ) -> dict[str, np.ndarray]:
     """Lo stato per barra dei votanti, che e' **la parte cara e l'unica che non dipende dalla griglia**.
 
@@ -361,10 +524,10 @@ def stati_dei_votanti(
     correttezza -- e' lo stesso valore, calcolato una volta invece che mille.
     """
     minuti_base = interval_to_minutes(interval)
-    return {v.nome: _stato_del_votante(v, candles, minuti_base) for v in votanti}
+    return {v.nome: _stato_del_votante(v, candles, minuti_base, parametri_votanti) for v in votanti}
 
 
-def _stato_del_votante(votante, candele, minuti_base) -> np.ndarray:
+def _stato_del_votante(votante, candele, minuti_base, parametri_votanti=None) -> np.ndarray:
     """Lo stato di un votante, calcolato sul suo piano e riportato sull'indice di base.
 
     Il passaggio critico e' `align_to_lower`: sposta lo stato in avanti di **un periodo intero**,
@@ -381,7 +544,7 @@ def _stato_del_votante(votante, candele, minuti_base) -> np.ndarray:
     if len(lungo) < 3:
         return np.zeros(len(candele), dtype=np.int8)
 
-    valori = _parametri_congelati(votante.menu, intervallo)
+    valori = valori_del_votante(votante, intervallo, parametri_votanti)
     eventi = votante.esegui(lungo, ExtraCache(lungo), valori)
     stato_lungo = held_state(eventi, lungo.index)
     if fattore == 1:
@@ -411,6 +574,7 @@ def evaluate(
     allow_short: bool = False,
     pesi: dict[str, float] | None = None,
     votanti: tuple[Votante, ...] = VOTANTI,
+    parametri_votanti: dict | None = None,
     stati: dict[str, np.ndarray] | None = None,
 ) -> Confluenza:
     """Esegue la confluenza sulle candele date e restituisce eventi e diagnosi.
@@ -432,12 +596,17 @@ def evaluate(
     """
     if len(candles) < 3:
         raise ValueError("servono almeno tre barre")
+    if stati is not None and parametri_votanti:
+        # Gli stati precalcolati valgono per i parametri con cui sono stati calcolati. Accettarli
+        # insieme a un override darebbe un risultato sbagliato **senza dirlo**, che e' il modo in
+        # cui una memoization rovina una misura.
+        raise ValueError("`stati` precalcolati e `parametri_votanti` insieme: gli stati sarebbero vecchi")
     minuti_base = interval_to_minutes(interval)
 
     voti: dict[str, np.ndarray] = {}
     famiglie: dict[str, str] = {}
     for votante in votanti:
-        stato = stati[votante.nome] if stati else _stato_del_votante(votante, candles, minuti_base)
+        stato = stati[votante.nome] if stati else _stato_del_votante(votante, candles, minuti_base, parametri_votanti)
         # L'emivita e' una sola, espressa in barre del timeframe del votante: qui si converte in
         # barre di base. Un segnale di struttura resta vivo giorni, uno di innesco ore.
         voti[votante.nome] = decayed_vote(stato, emivita * FATTORI[votante.piano])

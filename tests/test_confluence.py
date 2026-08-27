@@ -480,3 +480,96 @@ def test_la_pazienza_ha_un_motivo_suo(candele):
     caduto attraverso la banda» sono due cose diverse, e il grafico deve dirlo."""
     risultato = confluence.evaluate(candele, "15m")
     assert "score below threshold for too long" in risultato.motivi.values()
+
+
+# -------------------------------------------------------------------------------------------------
+# I votanti sono moduli: aggiungerne uno o toglierlo deve essere un'operazione sola
+# -------------------------------------------------------------------------------------------------
+
+
+def test_si_puo_scegliere_un_sottoinsieme_di_votanti(candele):
+    tre = confluence.evaluate(candele, "15m", votanti=confluence.selezione("ichimoku", "flusso", "reversione"))
+    assert list(tre.voti) == ["ichimoku", "flusso", "reversione"]
+    assert set(tre.necessarieta) == {"ichimoku", "flusso", "reversione"}
+    assert abs(sum(tre.pesi.values()) - 1.0) < 1e-12, "i pesi si rinormalizzano sui votanti scelti"
+
+
+def test_un_votante_sconosciuto_si_fa_notare():
+    with pytest.raises(KeyError, match="votanti sconosciuti"):
+        confluence.selezione("ichimoku", "inventato")
+
+
+def test_registrare_un_votante_basta_a_farlo_entrare_ovunque(candele):
+    """La prova della modularita': si registra e basta, senza toccare nessun elenco.
+
+    Se un giorno l'aggiunta richiedesse anche una riga in `panels`, una in `config` e una nella
+    griglia del banco, tre posti su quattro si disallineerebbero al primo votante distratto.
+    """
+    from cryptofarm.trading import panels
+
+    def sempre_lungo(df, cache, p):
+        return [(df.index[int(p["ritardo"])], float(df["Close"].iloc[int(p["ritardo"])]), 1)]
+
+    finto = confluence.Votante(
+        "prova",
+        "sperimentale",
+        "conferma",
+        sempre_lungo,
+        (confluence.Par("CONF_INNESCO", "ritardo"),),
+    )
+    scelti = (*confluence.selezione("ichimoku"), finto)
+    risultato = confluence.evaluate(candele, "15m", votanti=scelti, k_famiglie=1)
+
+    assert "prova" in risultato.voti and "prova" in risultato.necessarieta
+    assert "sperimentale" in {v.famiglia for v in scelti}
+    # E il registro e' l'unica fonte da cui la pagina ricava i suoi riquadri.
+    titoli = [titolo for titolo, _ in panels.gruppi_di("Confluence")]
+    assert [f"Voter · {v.nome}" for v in confluence.VOTANTI] == [t for t in titoli if t.startswith("Voter · ")]
+
+
+def test_ogni_parametro_di_ogni_votante_ha_la_sua_costante_e_la_sua_etichetta():
+    """Un parametro dichiarato e non configurabile comparirebbe col nome della costante, o non
+    comparirebbe affatto: in tutti e due i casi e' una manopola che esiste e non si vede."""
+    from cryptofarm.trading import config, panels
+
+    for votante in confluence.VOTANTI:
+        for parametro in votante.parametri:
+            assert isinstance(getattr(config, parametro.config, None), config.Param), parametro.config
+            assert parametro.config in panels.ETICHETTE, parametro.config
+            assert parametro.config in panels.parametri_di("Confluence"), parametro.config
+
+
+def test_i_parametri_dei_votanti_cambiano_davvero_il_risultato(candele):
+    """Altrimenti sarebbero widget che non fanno niente, che e' peggio di non averli."""
+    normale = confluence.evaluate(candele, "15m")
+    diverso = confluence.evaluate(candele, "15m", parametri_votanti={"ichimoku": {"fast": 5, "slow": 13, "span": 26}})
+    assert normale.eventi != diverso.eventi
+
+
+def test_i_valori_misurati_vengono_dal_piano_del_votante_non_dalla_pagina():
+    """Un votante di struttura a base 15m gira a 4h: il suo valore misurato e' quello di 4h.
+
+    Prendere quello di 15m sarebbe sbagliato **in silenzio**, che e' il modo peggiore.
+    """
+    from cryptofarm.trading.tuned_defaults import PER_INTERVALLO
+
+    ichimoku = confluence.REGISTRO["ichimoku"]
+    a_quindici = confluence.valori_del_votante(ichimoku, "4h")
+    assert a_quindici["require_cloud"] == PER_INTERVALLO["4h"]["Ichimoku Trend"].get("REQUIRE_CLOUD", 1)
+    assert confluence.valori_del_votante(ichimoku, "1d")["require_cloud"] == 0
+
+
+def test_gli_stati_precalcolati_con_un_override_sollevano(candele):
+    """Sarebbero stati vecchi, e il risultato sbagliato non lo direbbe nessuno."""
+    stati = confluence.stati_dei_votanti(candele, "15m")
+    with pytest.raises(ValueError, match="vecchi"):
+        confluence.evaluate(candele, "15m", stati=stati, parametri_votanti={"ichimoku": {"fast": 5}})
+
+
+@pytest.mark.parametrize("quanti", [2, 3, 4, 6])
+def test_i_pesi_sommano_a_uno_con_qualunque_numero_di_votanti(quanti):
+    """Con tre votanti un tetto di 0,30 li cappava tutti e la somma faceva 0,90: il punteggio
+    restava sistematicamente sotto la soglia, e nessuno lo diceva."""
+    nomi = [f"v{i}" for i in range(quanti)]
+    pesi = confluence._pesi(nomi, w_max=0.30)
+    assert abs(sum(pesi.values()) - 1.0) < 1e-12, f"{quanti} votanti: somma {sum(pesi.values())}"
