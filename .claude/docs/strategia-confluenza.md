@@ -372,6 +372,52 @@ nessun parametro della griglia. `stati_dei_votanti` lo calcola una volta per (si
 e il banco lo riusa su tutte le celle. È la differenza fra una griglia da 4.800 celle che si lancia
 e una che si rimanda.
 
+## Il fallimento silenzioso, e come è stato tolto
+
+Provandola nel simulatore con i valori di partenza della pagina — **240 ore** — non succedeva
+niente, e niente diceva perché. La causa, misurata:
+
+| storia caricata | cancello aperto | punteggio massimo | operazioni |
+|---|---|---|---|
+| 240 ore (10 giorni) | **0%** | 0,17 | 0 |
+| 52 giorni | 4% | 0,42 | 0 |
+| 208 giorni | 76% | 0,47 | 268 |
+
+Il piano di regime a 15m è giornaliero, e la sua media ne chiede cinquanta barre: con dieci giorni
+di storia è tutta NaN, `sign(NaN)` diventa 0, e il cancello **non può** aprirsi. Zero operazioni
+non era prudenza della strategia: era una condizione impossibile, che si legge identica.
+
+Le condizioni d'ingresso sono quattro in `and`, e ognuna chiede un rimedio diverso. Ora
+`Confluenza.perche_non_entra()` dice quale non si è mai avverata, con i numeri:
+
+```
+not enough history: the regime plane has 10 bars and its moving average needs 50.
+the gate opened but the score never reached the threshold: peak +0.17 against a threshold
+    that never fell below 0.20. Lower «Entry threshold».
+score and gate agreed, but never with 3 families at once (at most 2).
+```
+
+La pagina lo mostra sotto «No trades», e nella barra laterale dichiara in anticipo **quante ore**
+servono a quell'intervallo: 1.200 a 15m, 2.400 a 30m, 4.800 a 1h.
+
+## La scala dei piani vale attorno ai quindici minuti, non ovunque
+
+Il menu offre nove intervalli; la scala ×1/×4/×16/×96 è nata su barre da quindici minuti, dove
+cade esatta su 15m/1h/4h/1d. Altrove no:
+
+| base | innesco | conferma | struttura | regime | |
+|---|---|---|---|---|---|
+| 1m | 1m | 4m | 16m | 96m | il «regime» dura un'ora e mezza |
+| **15m** | 15m | 1h | 4h | **1d** | la scala del disegno |
+| 30m | 30m | 2h | 8h | 2d | |
+| 1h | 1h | 4h | 16h | 4d | |
+| 4h | 4h | 16h | 64h | 16d | la media di regime chiede decenni |
+| 1d | 1d | 4d | 16d | 96d | idem, in peggio |
+
+La regola scritta: il piano di regime deve durare **fra mezza giornata e una settimana**. Fuori da
+lì `scala_fuori_misura` restituisce un avviso che la barra laterale mostra. La strategia gira lo
+stesso — non è un errore, è una scelta di chi guarda — ma dal menu non si vedeva.
+
 ## Cosa il codice **non** fa, dichiarato
 
 - **la volatilità obiettivo** (dimensione della posizione proporzionale al margine e inversa alla

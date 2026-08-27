@@ -248,6 +248,14 @@ Quattro cose da sapere prima di toccarla:
   distanza, una banda, uno stop -- e perche' contiene il test contro il difetto da tre caratteri
   (`transform("max")` invece di `cummax`). Se si decide che non servira', si cancella: e' codice
   vivo solo nei suoi test, e va detto invece che lasciato credere il contrario;
+- **zero operazioni non e' un risultato, e' una domanda.** Le condizioni d'ingresso sono quattro in
+  `and` e `Confluenza.perche_non_entra()` dice quale non si e' mai avverata, con i numeri. Serve
+  perche' il caso piu' comune non e' la prudenza della strategia ma la storia: a 15m il piano di
+  regime e' giornaliero e la sua media ne chiede cinquanta barre, cioe' **1.200 ore**, contro le
+  240 del valore di partenza della pagina;
+- **la scala x1/x4/x16/x96 vale attorno ai quindici minuti.** A 1m il «regime» dura un'ora e mezza,
+  a 1d chiede barre da 96 giorni. La regola scritta e' che il piano di regime duri fra mezza
+  giornata e una settimana (`scala_fuori_misura`), il che lascia 15m, 30m e 1h;
 - **la spiegazione viaggia col segnale.** I segnali della confluenza sono `(quando, prezzo, testo)`
   invece di `(quando, prezzo)`, e il grafico mostra il testo al passaggio del mouse. Per questo
   `pnl` scompatta con `[:2]`: qualunque strategia può aggiungere elementi dopo i due che il motore

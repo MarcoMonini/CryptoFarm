@@ -12,7 +12,7 @@ from cryptofarm.ml.trainer import (
     load_signal_model,
 )
 from cryptofarm.paths import MODELS_DIR
-from cryptofarm.trading import config, panels, rotation
+from cryptofarm.trading import config, confluence, panels, rotation
 from cryptofarm.trading.indicators import add_technical_indicator
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.market_data import (
@@ -535,6 +535,23 @@ if __name__ == "__main__":
     voce = panels.STRATEGIE.get(strategia)
     if voce is not None and voce.note:
         st.sidebar.caption(voce.note)
+    if strategia == config.CONFLUENCE_STRATEGY:
+        # Quali sono davvero i quattro piani a questo intervallo, e quanta storia chiedono. Sono
+        # aggregazioni delle candele caricate (`resample_klines`), non scarichi separati: senza
+        # dirlo, «timeframe piu' grandi» resta una promessa che non si vede da nessuna parte.
+        scala = confluence.piani(interval)
+        st.sidebar.caption(
+            "Planes: " + " → ".join(f"{nome} {passo}" for nome, passo in scala.items()) + ". "
+            "They are resampled from the loaded candles, not fetched separately."
+        )
+        ore = confluence.ore_richieste(interval, int(config.CONF_REGIME_EMA.value))
+        st.sidebar.caption(
+            f"The regime gate needs about **{ore} hours** of history at {interval} before it can "
+            "open at all. With less, there are no trades and the reason is history, not the rules."
+        )
+        fuori = confluence.scala_fuori_misura(interval)
+        if fuori:
+            st.sidebar.warning(f"{interval}: {fuori}. Use 15m, 30m or 1h.")
     elif voce is None:
         st.sidebar.caption("No strategy selected: every available indicator is shown.")
 
@@ -622,6 +639,8 @@ if __name__ == "__main__":
             st.subheader("Trades")
             if trades_df.empty:
                 st.info("No trades with these parameters.")
+                if strategia == config.CONFLUENCE_STRATEGY and st.session_state["df"] is not None:
+                    st.caption("Why: " + panels.diagnosi_confluenza(st.session_state["df"], valori, interval))
             else:
                 profitto = trades_df["Profit"].sum()
                 in_utile = len(trades_df[trades_df["Profit"] > 0])

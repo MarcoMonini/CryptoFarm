@@ -219,3 +219,77 @@ def test_le_altre_strategie_non_perdono_i_segnali(candele):
     non lo usano devono comportarsi esattamente come prima."""
     marcatori = [t for t in _figura(candele, "Ichimoku Trend").data if t.name in ("Buy", "Sell")]
     assert marcatori and all(t.text is None or not any(t.text) for t in marcatori)
+
+
+# -------------------------------------------------------------------------------------------------
+# Zero operazioni non e' un risultato, e' una domanda
+# -------------------------------------------------------------------------------------------------
+
+
+def test_con_poca_storia_la_diagnosi_dice_che_manca_la_storia():
+    """Il caso in cui cade chi apre la pagina: 240 ore, il default, sono dieci barre giornaliere.
+
+    La media di regime ne chiede cinquanta, quindi il cancello non puo' aprirsi e non si opera mai
+    -- senza che niente lo dica. E' il difetto piu' grave della prima versione: falliva in
+    silenzio, e il silenzio si legge come «la strategia non ha trovato occasioni».
+    """
+    risultato = confluence.evaluate(_candele(giorni=10), "15m")
+    assert risultato.ingressi == 0
+    messaggio = risultato.perche_non_entra()
+    assert "not enough history" in messaggio
+    assert "10 bars" in messaggio and "50" in messaggio
+
+
+def test_la_diagnosi_distingue_la_soglia_dalla_storia(candele):
+    """Tre cause diverse chiedono tre rimedi diversi: caricare piu' storia, abbassare la soglia,
+    abbassare l'ampiezza. Un messaggio solo per tutte non servirebbe a niente."""
+    stati = confluence.stati_dei_votanti(candele, "15m")
+    impossibile = confluence.evaluate(candele, "15m", theta_base=0.99, stati=stati)
+    assert "never reached the threshold" in impossibile.perche_non_entra()
+
+    stretta = confluence.evaluate(candele, "15m", k_famiglie=99, stati=stati)
+    assert "families at once" in stretta.perche_non_entra()
+
+
+def test_chi_opera_non_ha_niente_da_spiegare(candele):
+    risultato = confluence.evaluate(candele, "15m")
+    assert risultato.ingressi > 0 and risultato.perche_non_entra() == ""
+
+
+@pytest.mark.parametrize(
+    ("intervallo", "atteso"),
+    [("15m", ""), ("30m", ""), ("1h", ""), ("1m", "too short"), ("4h", "decades"), ("1d", "decades")],
+)
+def test_la_scala_dei_piani_si_dichiara_fuori_misura(intervallo, atteso):
+    """Il menu offre nove intervalli e la scala x1/x4/x16/x96 e' nata su quindici minuti.
+
+    A un minuto il «regime» dura un'ora e mezza; a un giorno chiede barre da 96 giorni, cioe'
+    decenni di storia. La strategia gira lo stesso -- non e' un errore, e' una scelta di chi
+    guarda -- ma va detto, perche' dal menu non si vede.
+    """
+    avviso = confluence.scala_fuori_misura(intervallo)
+    assert (atteso in avviso) if atteso else (avviso == "")
+
+
+def test_i_piani_si_possono_leggere_prima_di_lanciare():
+    """La pagina li mostra nella barra laterale: e' cosi' che si vede che le aggregazioni ci sono."""
+    assert confluence.piani("15m") == {
+        "innesco": "15m",
+        "conferma": "1h",
+        "struttura": "4h",
+        "regime": "1d",
+    }
+    assert confluence.piani("1h")["regime"] == "4d"
+
+
+def test_la_pagina_spiega_perche_non_ha_operato():
+    from cryptofarm.trading import panels
+
+    corta = _candele(giorni=10)
+    assert "not enough history" in panels.diagnosi_confluenza(corta, panels.valori_predefiniti(), "15m")
+
+
+def test_le_ore_richieste_sono_il_numero_che_manca_a_chi_apre_la_pagina():
+    """Il default della pagina e' 240 ore. A quindici minuti ne servono piu' di mille."""
+    assert confluence.ore_richieste("15m", 50) == 1200
+    assert confluence.ore_richieste("1h", 50) == 4800

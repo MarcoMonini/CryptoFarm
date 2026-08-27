@@ -70,6 +70,44 @@ from cryptofarm.trading.voters import decayed_vote, held_state
 FATTORI = {"innesco": 1, "conferma": 4, "struttura": 16, "regime": 96}
 
 
+# Il piano di regime deve durare quanto un regime: fra mezza giornata e una settimana. Sotto, la
+# «macro» e' rumore con un nome altisonante; sopra, una media di cinquanta barre chiede decenni di
+# storia. La scala x1/x4/x16/x96 e' nata su barre da quindici minuti e li' cade esatta su
+# 15m/1h/4h/1d, ma il menu ne offre nove e non c'e' niente che impedisca di scegliere le altre.
+REGIME_MIN_MINUTI = 12 * 60
+REGIME_MAX_MINUTI = 7 * 24 * 60
+
+
+def piani(interval: str) -> dict[str, str]:
+    """I quattro piani effettivi per un intervallo di base, come stringhe leggibili."""
+    minuti = interval_to_minutes(interval)
+    return {nome: _intervallo(minuti * fattore) for nome, fattore in FATTORI.items()}
+
+
+def ore_richieste(interval: str, regime_ema: int) -> int:
+    """Quante ore di storia servono perche' il cancello di regime possa aprirsi.
+
+    E' il numero che manca a chi apre la pagina: il default sono 240 ore, e a quindici minuti la
+    media di regime ne chiede piu' di mille. Sotto quella soglia non e' che la strategia non trovi
+    occasioni -- e' che non puo' trovarne, e le due cose si leggono uguali.
+    """
+    return int(interval_to_minutes(interval) * FATTORI["regime"] * regime_ema / 60)
+
+
+def scala_fuori_misura(interval: str) -> str:
+    """Un avviso quando l'intervallo scelto porta il piano di regime fuori scala, altrimenti "".
+
+    Restituisce testo perche' e' un avviso da mostrare, non una condizione da gestire: la
+    strategia gira lo stesso, e sta a chi guarda decidere se quel che ne esce significhi qualcosa.
+    """
+    minuti_regime = interval_to_minutes(interval) * FATTORI["regime"]
+    if minuti_regime < REGIME_MIN_MINUTI:
+        return f"regime plane is {_intervallo(minuti_regime)}: too short to be a regime"
+    if minuti_regime > REGIME_MAX_MINUTI:
+        return f"regime plane is {_intervallo(minuti_regime)}: its moving average needs decades of history"
+    return ""
+
+
 @dataclass(frozen=True)
 class Votante:
     """Un votante: chi e', su che piano guarda, e come si esegue.
@@ -180,8 +218,46 @@ class Confluenza:
     regime: np.ndarray
     struttura: np.ndarray
     famiglie_concordi: np.ndarray
+    concordi_lungo: np.ndarray | None = None
+    k_famiglie: int = 2
+    barre_del_regime: int = 0
+    barre_chieste_dal_regime: int = 0
     necessarieta: dict[str, float] = field(default_factory=dict)
     ingressi: int = 0
+
+    def perche_non_entra(self) -> str:
+        """La prima condizione che non si e' mai verificata, in inglese e con i numeri.
+
+        Zero operazioni non e' un risultato: e' una domanda. Le condizioni d'ingresso sono quattro
+        in `and`, e senza sapere **quale** non si e' mai avverata non si sa se la strategia sia
+        prudente, mal tarata o senza abbastanza storia -- che sono tre cose diverse e chiedono tre
+        rimedi diversi. Restituisce "" quando le operazioni ci sono.
+        """
+        if self.ingressi:
+            return ""
+        if self.barre_del_regime < self.barre_chieste_dal_regime:
+            return (
+                f"not enough history: the regime plane has {self.barre_del_regime} bars and its "
+                f"moving average needs {self.barre_chieste_dal_regime}. The gate stays shut, so no "
+                "long entry is possible. Load a longer window."
+            )
+        aperto = self.regime > 0
+        if not aperto.any():
+            return "the regime gate never opened: price stayed below the regime plane average the whole window."
+        sopra = aperto & (self.punteggio >= self.soglia)
+        if not sopra.any():
+            picco = float(self.punteggio[aperto].max())
+            minima = float(self.soglia[aperto].min())
+            return (
+                f"the gate opened but the score never reached the threshold: peak {picco:+.2f} "
+                f"against a threshold that never fell below {minima:.2f}. Lower «Entry threshold»."
+            )
+        if self.concordi_lungo is not None and not (sopra & (self.concordi_lungo >= self.k_famiglie)).any():
+            return (
+                f"score and gate agreed, but never with {self.k_famiglie} families at once "
+                f"(at most {int(self.concordi_lungo[sopra].max())}). Lower «Families required to agree»."
+            )
+        return "everything agreed but the trigger never fired: lower «Trigger breakout window» or set it to 0."
 
     def eventi_con_priorita(self) -> list:
         """Gli stessi eventi con il **margine sopra la soglia** come quarto elemento.
@@ -381,6 +457,10 @@ def evaluate(
         regime=regime,
         struttura=struttura,
         famiglie_concordi=famiglie_concordi,
+        concordi_lungo=concordi_lungo,
+        k_famiglie=k_famiglie,
+        barre_del_regime=len(resample_klines(candles, _intervallo(minuti_base * FATTORI["regime"]))),
+        barre_chieste_dal_regime=regime_ema,
         ingressi=len(ingressi),
     )
     risultato.necessarieta = _necessarieta(voti, famiglie, w, soglia, ingressi, k_famiglie)

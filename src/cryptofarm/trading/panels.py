@@ -172,6 +172,20 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
     return risultato
 
 
+def diagnosi_confluenza(df: pd.DataFrame, valori: dict, intervallo: str) -> str:
+    """Perche' la confluenza non ha operato, in una riga, o "" se ha operato.
+
+    Zero operazioni non e' un risultato ma una domanda, e le condizioni d'ingresso sono quattro in
+    `and`: senza sapere quale non si e' mai avverata, chi guarda non sa se guardare la storia
+    caricata, la soglia o l'ampiezza. Riusa il calcolo gia' fatto per il grafico.
+    """
+    risultato = confluenza_di(df, {**valori, "INTERVALLO": intervallo})
+    if risultato is None:
+        minimo = max(confluence.FATTORI.values()) * 3
+        return f"only {len(df)} bars loaded: the longer planes need at least {minimo}."
+    return risultato.perche_non_entra()
+
+
 def _serie_confluenza(df, cache, valori):
     risultato = confluenza_di(df, valori)
     if risultato is None:
