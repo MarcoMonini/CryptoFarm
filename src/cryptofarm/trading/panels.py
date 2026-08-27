@@ -46,7 +46,7 @@ from typing import Callable
 
 import pandas as pd
 
-from cryptofarm.trading import strategies, strategies_ls
+from cryptofarm.trading import confluence, strategies, strategies_ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 
 # Le tre tinte categoriche, validate insieme sulla superficie scura di Streamlit.
@@ -118,6 +118,75 @@ class Strategia:
     esegui: Callable[[pd.DataFrame, ExtraCache, dict], tuple[list, list]]
     parametri: tuple[str, ...] = ()
     note: str = ""
+
+
+# La confluenza viene chiesta tre volte per ogni ridisegno della pagina -- una dalla strategia e
+# una per ciascuno dei suoi due riquadri -- e ogni volta costa quanto sei strategie. La chiave e'
+# **derivata dal contenuto**, non da `id()`: due frame con la stessa lunghezza, gli stessi estremi
+# di indice, gli stessi prezzi ai bordi e gli stessi parametri danno lo stesso risultato, quindi
+# una collisione non e' un errore ma una risposta giusta.
+# ponytail: memoria a una cella, basta perche' le tre chiamate sono consecutive; se un giorno la
+# pagina dovesse confrontare due configurazioni affiancate, serve una `lru_cache` vera.
+_ULTIMA_CONFLUENZA: tuple = ()
+
+
+def confluenza_di(df: pd.DataFrame, valori: dict):
+    """La confluenza sulle candele date, calcolata una volta sola per ridisegno.
+
+    Restituisce `None` quando la storia e' troppo corta perche' i piani lunghi esistano: e' il
+    caso della pagina appena aperta con poche ore di dati, e va detto invece che sollevato.
+    """
+    global _ULTIMA_CONFLUENZA
+
+    parametri = {
+        "theta_base": float(valori["CONF_THETA_BASE"]),
+        "theta_macro": float(valori["CONF_THETA_MACRO"]),
+        "isteresi": float(valori["CONF_ISTERESI"]),
+        "emivita": float(valori["CONF_EMIVITA"]),
+        "w_max": float(valori["CONF_W_MAX"]),
+        "k_famiglie": int(valori["CONF_K_FAMIGLIE"]),
+        "innesco": int(valori["CONF_INNESCO"]),
+        "atr_window": int(valori["CONF_ATR_WINDOW"]),
+        "atr_multiplier": float(valori["CONF_ATR_MULT"]),
+        "regime_ema": int(valori["CONF_REGIME_EMA"]),
+        "struttura_ema": int(valori["CONF_STRUTTURA_EMA"]),
+        "barre_in_formazione": bool(valori["CONF_IN_FORMAZIONE"]),
+    }
+    intervallo = str(valori["INTERVALLO"])
+    chiave = (
+        len(df),
+        df.index[0],
+        df.index[-1],
+        float(df["Close"].iloc[0]),
+        float(df["Close"].iloc[-1]),
+        intervallo,
+        tuple(sorted(parametri.items())),
+    )
+    if _ULTIMA_CONFLUENZA and _ULTIMA_CONFLUENZA[0] == chiave:
+        return _ULTIMA_CONFLUENZA[1]
+
+    # Serve almeno una barra del piano piu' lungo, piu' quelle che le medie chiedono.
+    minimo = max(confluence.FATTORI.values()) * 3
+    risultato = confluence.evaluate(df, intervallo, **parametri) if len(df) >= minimo else None
+    _ULTIMA_CONFLUENZA = (chiave, risultato)
+    return risultato
+
+
+def _serie_confluenza(df, cache, valori):
+    risultato = confluenza_di(df, valori)
+    if risultato is None:
+        return {}
+    return _serie(
+        df.index,
+        punteggio=risultato.punteggio,
+        soglia=risultato.soglia,
+        cancello=risultato.regime,
+    )
+
+
+def _serie_votanti(df, cache, valori):
+    risultato = confluenza_di(df, valori)
+    return _serie(df.index, **risultato.voti) if risultato is not None else {}
 
 
 def _colonne(*nomi: str):
@@ -229,6 +298,45 @@ INDICATORI: dict[str, Indicatore] = {
         tracce=(
             Traccia("canale_alto", "Channel high", ARANCIO, larghezza=1.8),
             Traccia("canale_basso", "Channel low", ARANCIO, larghezza=1.8),
+        ),
+    ),
+    "confluenza": Indicatore(
+        # La decisione, disegnata per intero: il punteggio, la soglia che gli si muove incontro
+        # quando i piani alti concordano, e il cancello che manda a flat senza discutere. Chi
+        # guarda deve poter dire perche' quella barra ha aperto e non la precedente.
+        etichetta="Confluence score",
+        parametri=(
+            "CONF_THETA_BASE",
+            "CONF_THETA_MACRO",
+            "CONF_ISTERESI",
+            "CONF_REGIME_EMA",
+            "CONF_STRUTTURA_EMA",
+        ),
+        pannello="Confluence",
+        serie=_serie_confluenza,
+        tracce=(
+            Traccia("punteggio", "Score", BLU, larghezza=2.0),
+            Traccia("soglia", "Threshold", ARANCIO, tratteggio="dash", larghezza=1.4),
+            Traccia("cancello", "Regime gate", ACQUA, tratteggio="dot", larghezza=1.2),
+        ),
+    ),
+    "votanti": Indicatore(
+        # **Chi** ha votato, e quanto forte. Con il passaggio del mouse unificato questo riquadro
+        # elenca i sei valori sulla barra puntata: e' li' che si legge chi ha generato il segnale,
+        # perche' sei linee sovrapposte in [-1, +1] da sole non si distinguono a colpo d'occhio.
+        # Sei serie categoriche su tre tinte: la quarta riusa una tinta cambiando tratteggio, mai
+        # una tinta nuova, e nessuna e' una rampa -- fra i votanti non c'e' nessun ordine.
+        etichetta="Voters",
+        parametri=("CONF_EMIVITA", "CONF_W_MAX", "CONF_K_FAMIGLIE"),
+        pannello="Voters",
+        serie=_serie_votanti,
+        tracce=(
+            Traccia("ichimoku", "Ichimoku · structure", BLU, larghezza=1.4),
+            Traccia("donchian", "Donchian · structure", BLU, tratteggio="dash", larghezza=1.4),
+            Traccia("flusso", "Volume flow · structure", ARANCIO, larghezza=1.4),
+            Traccia("squeeze", "Squeeze · confirmation", ARANCIO, tratteggio="dash", larghezza=1.4),
+            Traccia("pullback", "Pullback · confirmation", ACQUA, larghezza=1.4),
+            Traccia("reversione", "Mean reversion · trigger", ACQUA, tratteggio="dash", larghezza=1.4),
         ),
     ),
     "media_regime": Indicatore(
@@ -465,7 +573,36 @@ STRATEGIE: dict[str, Strategia] = {
         ),
         note="The textbook trend system, kept as a benchmark.",
     ),
+    "Confluence": Strategia(
+        indicatori=("confluenza", "votanti"),
+        parametri=("CONF_INNESCO", "CONF_ATR_WINDOW", "CONF_ATR_MULT"),
+        esegui=lambda df, cache, v: _confluenza_lunga(df, v),
+        note=(
+            "Six voters on four timeframes derived from the one selected: trigger, confirmation, "
+            "structure, regime. The Confluence panel shows the decision, the Voters panel shows who "
+            "drove it. Voter parameters are frozen at their measured values and are not adjustable."
+        ),
+    ),
 }
+
+
+def _confluenza_lunga(df: pd.DataFrame, valori: dict) -> tuple[list, list]:
+    """I segnali della confluenza, ognuno con **chi l'ha generato** attaccato.
+
+    Il terzo elemento e' la sola differenza rispetto alle altre strategie, e c'e' per una ragione
+    precisa: qui la decisione viene da sei votanti, e la posizione del marcatore sul grafico non
+    dice quali abbiano parlato ne' con che contributo. Il grafico lo mostra al passaggio del
+    mouse; senza, chi guarda vedrebbe un triangolo e dovrebbe crederci.
+    """
+    risultato = confluenza_di(df, valori)
+    if risultato is None:
+        return [], []
+    compra, vende = _solo_lunghe(risultato.eventi)
+    return (
+        [(quando, prezzo, risultato.spiega(quando)) for quando, prezzo in compra],
+        [(quando, prezzo, risultato.spiega(quando)) for quando, prezzo in vende],
+    )
+
 
 VUOTA = "-"  # la voce che non seleziona nessuna strategia: si mostra tutto
 
@@ -532,6 +669,10 @@ def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
         nome: getattr(config, nome).value for nome in dir(config) if isinstance(getattr(config, nome), config.Param)
     }
     valori["CONFIRM_VOLUME"] = config.CONFIRM_VOLUME
+    valori["CONF_IN_FORMAZIONE"] = config.CONF_IN_FORMAZIONE
+    # L'intervallo e' un parametro come gli altri per la confluenza, che da li' ricava i suoi
+    # quattro piani. La pagina lo sovrascrive con quello scelto; fuori dalla pagina resta questo.
+    valori["INTERVALLO"] = config.INTERVALS[config.INTERVAL_INDEX]
     valori["REQUIRE_CLOUD"] = config.REQUIRE_CLOUD
     if strategia and intervallo:
         valori.update(valori_misurati(strategia, intervallo))
@@ -602,6 +743,17 @@ ETICHETTE: dict[str, str] = {
     "STOP_LOSS_PERCENT": "Stop loss %",
     "NUM_CONDITIONS": "Conditions required",
     "PIVOT_WINDOW": "Swing window",
+    "CONF_THETA_BASE": "Entry threshold",
+    "CONF_THETA_MACRO": "Threshold relief from higher planes",
+    "CONF_ISTERESI": "Exit hysteresis",
+    "CONF_EMIVITA": "Signal half-life (voter bars)",
+    "CONF_W_MAX": "Weight cap per voter",
+    "CONF_K_FAMIGLIE": "Families required to agree",
+    "CONF_INNESCO": "Trigger breakout window",
+    "CONF_ATR_WINDOW": "ATR window (trailing exit)",
+    "CONF_ATR_MULT": "Stop distance (ATR)",
+    "CONF_REGIME_EMA": "Regime plane EMA",
+    "CONF_STRUTTURA_EMA": "Structure plane EMA",
     "ADX_WINDOW": "ADX window",
     "ADX_MIN": "ADX minimum (trend required)",
     "ADX_MAX": "ADX maximum (range required)",

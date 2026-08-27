@@ -76,6 +76,9 @@ def trading_analysis(
     parametri della strategia scelta, quindi gli altri non hanno un widget da cui arrivare.
     """
     valori = {**panels.valori_predefiniti(), **valori}
+    # La confluenza ricava i suoi quattro piani da qui: e' l'intervallo delle candele, non una
+    # preferenza. Sovrascrive sempre, perche' nessun chiamante lo passa a mano.
+    valori["INTERVALLO"] = interval
 
     # ======================================
     # Scarica i dati di mercato e calcola il SAR
@@ -251,19 +254,26 @@ def trading_analysis(
                     col=1,
                 )
 
+        # Un segnale puo' portare un terzo elemento: la spiegazione di chi l'ha generato. Le
+        # strategie a indicatore singolo non ne hanno bisogno -- il segnale *e'* l'indicatore, che
+        # e' gia' disegnato -- ma quella a confluenza si', perche' li' la decisione viene da sei
+        # votanti e la sola posizione del marcatore non dice quali abbiano parlato.
         for punti, etichetta, simbolo, colore in (
             (buy_signals, "Buy", "triangle-up", panels.RIALZO),
             (sell_signals, "Sell", "triangle-down", panels.RIBASSO),
         ):
             if punti:
+                spiegazioni = [punto[2] if len(punto) > 2 else "" for punto in punti]
                 fig.add_trace(
                     go.Scatter(
-                        x=[quando for quando, _ in punti],
-                        y=[prezzo for _, prezzo in punti],
+                        x=[punto[0] for punto in punti],
+                        y=[punto[1] for punto in punti],
                         mode="markers",
                         marker=dict(size=13, color=colore, symbol=simbolo, line=dict(width=1, color="#1a1a19")),
                         name=etichetta,
                         legendgroup="segnali",
+                        text=spiegazioni,
+                        hovertemplate="%{text}<extra></extra>" if any(spiegazioni) else None,
                     ),
                     row=1,
                     col=1,

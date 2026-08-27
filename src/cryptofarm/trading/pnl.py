@@ -14,6 +14,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+# Un segnale e' `(quando, prezzo)`, e puo' portare **altri elementi dopo**: la confluenza ci
+# attacca la spiegazione di chi l'ha generato, che il grafico mostra al passaggio del mouse. Da
+# qui lo `[:2]` su ogni scompattamento: il motore legge i due che gli servono e ignora il resto,
+# invece di far cadere ogni strategia che voglia dire qualcosa in piu' del dove e del quando.
+
 
 def simulate_trading_with_commisions(
     buy_signals: list, sell_signals: list, wallet: float = 100, fee_percent: float = 0.1
@@ -29,7 +34,7 @@ def simulate_trading_with_commisions(
     for i in range(len(buy_signals)):
         # Se NON stiamo detenendo nulla e c'è un segnale di BUY, compriamo
         if not holding and i < len(buy_signals):
-            buy_time, buy_price = buy_signals[i]
+            buy_time, buy_price = buy_signals[i][:2]
             if working_wallet > 0:
                 # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
                 # dopo la fee rimane working_wallet*(1 - fee_decimal) per comprare
@@ -41,7 +46,7 @@ def simulate_trading_with_commisions(
                 holding = True
         # Se ABBIAMO una posizione aperta e c'è un segnale di SELL, vendiamo
         if holding and i < len(sell_signals):
-            sell_time, sell_price = sell_signals[i]
+            sell_time, sell_price = sell_signals[i][:2]
             # Ricaviamo USDT vendendo la quantity di crypto
             gross_proceed = quantity * sell_price
             # Applichiamo la commissione di vendita
@@ -89,7 +94,7 @@ def simulate_trading_with_commisions_multiple_buy(
     while b < len(buy_signals):
         # for b in range(len(buy_signals)):
         # if i < len(buy_signals):
-        buy_time, buy_price = buy_signals[b]
+        buy_time, buy_price = buy_signals[b][:2]
         # if working_wallet > 0:
         # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
         # utilizzo metà del working wallet
@@ -102,8 +107,8 @@ def simulate_trading_with_commisions_multiple_buy(
         next = b + 1
         while next < len(buy_signals):
             if s < len(sell_signals):
-                buy_time, buy_price = buy_signals[next]
-                sell_time, sell_price = sell_signals[s]
+                buy_time, buy_price = buy_signals[next][:2]
+                sell_time, sell_price = sell_signals[s][:2]
                 if buy_time < sell_time:
                     # Paghiamo la commissione in USDT/USDC: se abbiamo working_wallet,
                     # utilizzo metà del working wallet
@@ -121,7 +126,7 @@ def simulate_trading_with_commisions_multiple_buy(
         b += 1
 
         if holding and s < len(sell_signals):
-            sell_time, sell_price = sell_signals[s]
+            sell_time, sell_price = sell_signals[s][:2]
             # mean_cost = total_buy / quantity
             # Ricaviamo USDT vendendo la quantity di crypto
             gross_proceed = quantity * sell_price

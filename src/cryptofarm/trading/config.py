@@ -43,6 +43,11 @@ WALLET = {"value": 100, "min_value": 0, "step": 1}
 # `trading_analysis`, e perche' la pagina lo toglie dalle opzioni quando manca il modello.
 AI_STRATEGY = "AI Model"
 
+# La confluenza non e' una strategia come le altre: legge quattro piani temporali ricavati
+# dall'intervallo scelto, e sotto una certa lunghezza di storia i piani lunghi non esistono. Il
+# nome sta in una costante perche' lo usano il menu, il registro e la pagina, che la avvisa.
+CONFLUENCE_STRATEGY = "Confluence"
+
 # Il menu e' stato potato sulle misure di `.claude/docs/ricerca-quant-ml.md` §2: scelta della
 # configurazione sul 2021-2023, resa sul 2024-2026, su BTC/ETH/SOL/XRP/BNB a 1d e 4h. Restano le
 # voci che fuori campione hanno mediana positiva o almeno due celle su dieci sopra il possesso
@@ -61,6 +66,7 @@ STRATEGIES = [
     "Ichimoku Trend",
     "Squeeze Breakout",
     "Donchian Breakout",
+    CONFLUENCE_STRATEGY,
 ]
 
 # Indicatori
@@ -109,6 +115,21 @@ STOCH_OVERSOLD = Param(0.2, 0.0, 1.0, 0.05)
 STOCH_OVERBOUGHT = Param(0.8, 0.0, 1.0, 0.05)
 PULLBACK_ATR_MULT = Param(2.0, 0.5, 10.0, 0.1)
 
+# Confluenza. I parametri dei sei votanti **non** sono qui di proposito: sono congelati ai valori
+# misurati (`tuned_defaults`) e ritararli dentro l'insieme porterebbe il conto dei parametri liberi
+# da nove a oltre venticinque, dove niente e' piu' distinguibile dalla fortuna.
+CONF_THETA_BASE = Param(0.35, 0.0, 1.0, 0.05)
+CONF_THETA_MACRO = Param(0.15, 0.0, 0.5, 0.05)
+CONF_ISTERESI = Param(0.10, 0.0, 0.5, 0.01)
+CONF_EMIVITA = Param(6.0, 0.5, 50.0, 0.5)
+CONF_W_MAX = Param(0.30, 0.15, 1.0, 0.05)
+CONF_K_FAMIGLIE = Param(2, 1, 6, 1)
+CONF_INNESCO = Param(0, 0, 50, 1)
+CONF_ATR_WINDOW = Param(14, 2, 100, 1)
+CONF_ATR_MULT = Param(3.0, 0.5, 10.0, 0.1)
+CONF_REGIME_EMA = Param(50, 5, 300, 5)
+CONF_STRUTTURA_EMA = Param(50, 5, 300, 5)
+
 ICHIMOKU_FAST = Param(9, 2, 100, 1)
 ICHIMOKU_SLOW = Param(26, 2, 200, 1)
 ICHIMOKU_SPAN = Param(52, 2, 400, 1)
@@ -126,6 +147,7 @@ PSAR_STEP = 0.01
 PSAR_MAX_STEP = 0.4
 
 # Interruttori delle strategie nuove.
+CONF_IN_FORMAZIONE = True
 CONFIRM_VOLUME = True
 REQUIRE_CLOUD = True
 

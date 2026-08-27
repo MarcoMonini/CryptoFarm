@@ -166,3 +166,56 @@ def test_la_priorita_e_il_margine_sopra_la_soglia(candele):
     aperture = [e for e in con_priorita if e[2] != 0]
     assert all(e[3] >= 0 for e in aperture), "si apre solo oltre la soglia: il margine non e' negativo"
     assert all(e[3] == 0.0 for e in con_priorita if e[2] == 0), "una chiusura non compete con niente"
+
+
+# -------------------------------------------------------------------------------------------------
+# La pagina: chi ha generato il segnale deve **vedersi**, non essere deducibile
+# -------------------------------------------------------------------------------------------------
+
+
+def _figura(candele, strategia="Confluence"):
+    from cryptofarm.trading.simulator import trading_analysis
+
+    figura, _, _ = trading_analysis(
+        asset="TEST",
+        interval="15m",
+        wallet=100.0,
+        valori={},
+        strategia=strategia,
+        show=True,
+        market_data=candele,
+    )
+    return figura
+
+
+def test_la_pagina_mostra_la_decisione_e_i_votanti(candele):
+    nomi = {traccia.name for traccia in _figura(candele).data}
+    assert {"Score", "Threshold", "Regime gate"} <= nomi, "manca il riquadro della decisione"
+    assert sum("·" in (n or "") for n in nomi) == len(confluence.VOTANTI), "manca un votante"
+
+
+def test_ogni_segnale_dice_chi_l_ha_generato(candele):
+    """Senza questo si vedrebbe un triangolo e bisognerebbe crederci."""
+    marcatori = [t for t in _figura(candele).data if t.name in ("Buy", "Sell")]
+    assert marcatori, "nessun segnale: il test non proverebbe niente"
+    for traccia in marcatori:
+        assert traccia.text and all(traccia.text), f"{traccia.name} senza spiegazione"
+        assert any(v.nome in traccia.text[0] for v in confluence.VOTANTI)
+        assert "punteggio" in traccia.text[0] and "famiglie" in traccia.text[0]
+
+
+def test_con_poca_storia_la_pagina_degrada_invece_di_cadere():
+    """I piani lunghi non esistono ancora: la pagina si apre lo stesso, senza segnali.
+
+    E' la condizione in cui gira il servizio pubblico appena avviato, ed e' anche il livello da
+    cui e' gia' passato un guasto che tolse il simulatore dalla produzione.
+    """
+    figura = _figura(_candele(giorni=1))
+    assert not [t for t in figura.data if t.name in ("Buy", "Sell")]
+
+
+def test_le_altre_strategie_non_perdono_i_segnali(candele):
+    """Lo scompattamento in `pnl` e' cambiato per accettare un terzo elemento: le strategie che
+    non lo usano devono comportarsi esattamente come prima."""
+    marcatori = [t for t in _figura(candele, "Ichimoku Trend").data if t.name in ("Buy", "Sell")]
+    assert marcatori and all(t.text is None or not any(t.text) for t in marcatori)
