@@ -235,7 +235,7 @@ scrive e ci si ferma li'.
 |---|---|---|
 | **S0** | correlazione fra i sei stati barra-per-barra | da fare per primo: può chiudere tutto in un pomeriggio |
 | **S1** | allineamento a barre chiuse e barre in formazione | **fatto** (`trading/mtf.py` + `trading/live_frames.py`, 11 test) |
-| **S2** | adattatore da cambi di posizione a stato per barra, con memoria e decadimento | il pezzo che manca per avere i voti |
+| **S2** | adattatore da cambi di posizione a stato per barra, con memoria e decadimento | **fatto** (`trading/voters.py`, 10 test) |
 | **S3** | punteggio a peso uguale, soglia fissa, ampiezza minima, un asset | contro i tre riferimenti |
 | **S4** | soglia dinamica dai piani alti | +2 parametri |
 | **S5** | innesco 15m, stop ATR 15m, volatilità obiettivo | +2 parametri |
