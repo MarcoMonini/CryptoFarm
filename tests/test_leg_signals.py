@@ -118,7 +118,7 @@ def test_le_due_soglie_arrivano_dai_metadata_e_sono_distinte(tmp_path, monkeypat
     monkeypatch.setattr(trainer, "MODELS_DIR", tmp_path)
     assert trainer.stored_exit_threshold() == trainer.DEFAULT_EXIT_THRESHOLD
 
-    (tmp_path / "leg_model.json").write_text(json.dumps({"decision_threshold": 0.55, "exit_threshold": 0.74}))
+    (tmp_path / "meta_model.json").write_text(json.dumps({"decision_threshold": 0.55, "exit_threshold": 0.74}))
     assert trainer.stored_decision_threshold() == pytest.approx(0.55)
     assert trainer.stored_exit_threshold() == pytest.approx(0.74)
 

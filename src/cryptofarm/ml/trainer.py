@@ -301,7 +301,12 @@ def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = Non
 # disegno chiuso in negativo da `strategy.md` §12-13, con la causa misurata in §13.1 (entrare e
 # uscire alla conferma cattura zero in media, su ogni simbolo e a ogni soglia, prima dei costi).
 # L'artefatto non viene cancellato: se serve rivederlo, si rimette il nome in questa tupla.
-MODEL_PRECEDENCE = ("leg_model", "meta_model", MODEL_NAME)
+# `leg_model` e' **fuori dalla catena di proposito**, pur avendo l'artefatto su disco. Il ciclo di
+# dubbio del 2026-08-28 ha misurato che il suo netto medio per ingresso e' negativo a tutte e sei
+# le soglie provate, e che il verdetto «PASSA» si accontentava di battere un p95 anch'esso
+# negativo. Finche' non e' rivalidato non deve servire la voce «AI Model» della pagina: bastava
+# spostare l'artefatto, ma cosi' la ragione resta scritta dove qualcuno la rilegge.
+MODEL_PRECEDENCE = ("meta_model", MODEL_NAME)
 
 
 def stored_decision_threshold() -> float:

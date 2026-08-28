@@ -34,8 +34,8 @@ def test_the_most_recent_strategy_wins_when_several_are_trained(models_dir):
     (models_dir / "meta_model.joblib").write_bytes(b"")
     assert trainer.active_model_name() == "meta_model"
 
-    (models_dir / "leg_model.joblib").write_bytes(b"")
-    assert trainer.active_model_name() == "leg_model"
+    (models_dir / "meta_model.joblib").write_bytes(b"")
+    assert trainer.active_model_name() == "meta_model"
 
 
 def test_the_three_action_policy_is_out_of_the_chain(models_dir):
@@ -51,6 +51,8 @@ def test_the_three_action_policy_is_out_of_the_chain(models_dir):
     (models_dir / "signal_model.joblib").write_bytes(b"")
     assert trainer.active_model_name() == "signal_model"
     assert "policy_model" not in trainer.MODEL_PRECEDENCE
+    # e nemmeno `leg_model`, misurato in perdita a ogni soglia
+    assert "leg_model" not in trainer.MODEL_PRECEDENCE
 
 
 def test_a_keras_artifact_counts_as_a_trained_model(models_dir):
