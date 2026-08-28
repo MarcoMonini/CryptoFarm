@@ -18,6 +18,10 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
   Le conclusioni e cosa farne stanno in fondo a quel documento.
 - `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
   2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
+- `.claude/docs/politica-rl.md` — **la politica a rinforzo, cablata (2026-08-28).** Le tre misure
+  che escludono lo stop e indicano la commissione come causa, la ricompensa col costo dentro, e i
+  risultati: batte il possesso passivo 11/15 fuori campione e **dimezza la discesa massima**, ma il
+  *quando* sta sopra il caso solo debolmente.
 - `.claude/docs/modello-swing.md` — **il modello AI rifatto, misurato e cablato (2026-08-28).**
   L'audit che ha tolto `leg_model` dalla catena, l'etichettatura nuova a prossimità degli
   estremi, le tre misure per cui il segnale esiste (IC +0,0385 fuori campione, 14/15 simboli
@@ -96,6 +100,12 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m cryptofarm.ml.swing_trainer              # ~12 minuti, 15 simboli dal 2018
 .venv312/bin/python -m scripts.swing_lab                        # decili, P&L, controllo casuale
 
+# Politica a rinforzo: sceglie la posizione col costo dentro la ricompensa (.claude/docs/politica-rl.md)
+.venv312/bin/python -m cryptofarm.ml.rl                         # selfcheck del solo algoritmo
+.venv312/bin/python -m cryptofarm.ml.rl_trainer --selfcheck     # gira senza store
+.venv312/bin/python -m cryptofarm.ml.rl_trainer                 # ~5 minuti, 15 simboli dal 2019
+.venv312/bin/python -m scripts.rl_lab                           # controllo a blocchi rimescolati
+
 # Misure di strategy.md
 .venv312/bin/python -m scripts.analysis
 
@@ -128,7 +138,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (979 test in 34 file, tutti verificati). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (994 test in 36 file, tutti verificati). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -354,7 +364,7 @@ candele (`data/klines.py`), non un download al volo.
 
 ### Quale modello usa il simulatore
 
-`ml/trainer.MODEL_PRECEDENCE` è `("swing_model", "meta_model", "signal_model")` e
+`ml/trainer.MODEL_PRECEDENCE` è `("rl_model", "swing_model", "meta_model", "signal_model")` e
 `active_model_name()` è l'unica fonte di verità: `load_signal_model` carica quel modello e
 `ai_model_simulation` sceglie la strategia in base a quel nome, quindi i due non possono divergere.
 Per tornare al modello precedente basta spostare altrove l'artefatto di quello più recente.
