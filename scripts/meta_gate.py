@@ -44,7 +44,7 @@ from cryptofarm.paths import PROJECT_ROOT
 from cryptofarm.trading import strategies_ls as ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.pnl import simulate_positions
-from scripts.cross_section import MAJORS, WIDE
+from cryptofarm.trading.rotation import MAJORS, WIDE
 
 SINCE = "2021-01-01"
 WALLET = 100.0
