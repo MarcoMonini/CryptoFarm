@@ -755,6 +755,85 @@ E la cosa da non fare: tarare i sei votanti sperando di trovare la regione buona
 commissioni il tempismo è peggiore dell'esposizione casuale su quattro asset su cinque; non c'è una
 taratura che trasformi quel numero in un vantaggio.
 
+## Il seguito: Monte Carlo, slot concorrenti, votante a modello (2026-08-28)
+
+### Monte Carlo per permutazione — il risultato piu' netto
+
+200 permutazioni per asset, 3.000 simulazioni. Ogni barra conserva la propria geometria e viene
+riattaccata alla chiusura della precedente nel nuovo ordine: restano identiche la distribuzione dei
+rendimenti di barra e **la deriva dell'asset**, sparisce solo la correlazione seriale.
+
+**Valore-p mediano 0,488.** Su 7 asset su 15 il risultato vero e' *peggiore* della mediana delle
+permutazioni; 3 asset stanno sotto 0,05 e 4 sopra 0,95, che e' la forma del caso su quindici prove.
+Distruggere ogni struttura temporale non peggiora la strategia in modo misurabile: e' la
+confutazione diretta della premessa del disegno.
+
+### Gli slot concorrenti sono de-leva, non diversificazione
+
+`portfolio.simulate_shared_capital` teneva **una** posizione e scartava i segnali che arrivavano a
+capitale impegnato: il 36% su cinque asset, il **60%** su quindici -- molto piu' di quanto suggerisca
+un conto a eventi indipendenti, perche' in cripto i segnali arrivano insieme. `simulate_slots` divide
+il capitale in `n_slot` quote e li recupera tutti.
+
+Il rendimento migliora in modo monotono in tutte le sei combinazioni provate (a 0,40/4,0: da −23,8%
+con 3 slot a −6,3% con 12). **Ma lo Sharpe non si muove** -- −0,52 con 3 slot e −0,52 con 12, mentre
+il drawdown scende dal 31,1% all'8,7% -- e a 0,35/6,0 *peggiora*, da −1,21 a −1,33. Lo Sharpe e'
+invariante di scala: se resta fermo mentre il rendimento sale, quello che e' cambiato e' la
+**dimensione della posizione**, non la bonta' della scelta. Con correlazione fra asset attorno a 0,8
+le posizioni contemporanee non sono scommesse indipendenti, quindi non c'e' errore da mediare.
+
+Gli slot sono una leva di rischio genuina, e il loro valore e' **condizionato a uno Sharpe positivo**.
+Su 48 configurazioni (3 theta × 2 emivita × 2 k_famiglie × 4 n_slot) **nessuna** e' in utile, contro un
+possesso passivo mediano di +348,3%; e stringere per compensare non funziona come sembra -- la stretta
+e' moltiplicativa fra sei votanti, e nel primo tentativo ha portato gli ingressi da 113,7 a **0,3 per
+asset all'anno**, cioe' 35 operazioni in tutto. Non e' operare meno: e' smettere.
+
+### Il votante a modello: vantaggio reale, stabile, insufficiente
+
+`scripts/ai_voter.py` addestra un GBDT sulle **operazioni della confluenza stessa** -- non su quelle di
+un'altra primaria, perche' quattro uscite su cinque le chiude lo stop a trailing e un'etichetta presa
+altrove risponderebbe su un'operazione che non verra' presa. 21.919 operazioni su 15 asset, etichetta
+«chiude sopra i costi», le 16 feature di `meta_gate` comprese le tre trasversali.
+
+| taglio | AUC | verifica | netto base | netto a p ≥ 0,45 | percentile |
+|---|---|---|---|---|---|
+| 2021-07 | 0,536 | 15.125 | −0,099% | −0,002% | 98,4 |
+| 2022-01 | 0,540 | 13.322 | −0,109% | +0,005% | 99,2 |
+| 2023-01 | 0,536 | 11.309 | −0,092% | +0,036% | 94,0 |
+| 2024-01 | 0,536 | 7.789 | −0,100% | +0,177% | 99,0 |
+
+**Il vantaggio di ordinamento e' reale e stabile**: AUC 0,536-0,540 su quattro tagli indipendenti, ogni
+volta fra il 94o e il 99o percentile di 500 selezioni casuali di pari numerosita'. E' il soffitto del
+campo (§1.1), non una delusione. **E toglie il segno meno, poi si ferma**: il netto per operazione va da
+≈−0,10% a ≈0,00% su tre tagli su quattro. E' parola per parola la conclusione gia' registrata in §3.4
+per `trend_pullback`, adesso su un campione sette volte piu' grande e stabile su quattro finestre.
+
+Una trappola da non ripetere: la CV purgata **dentro** la sola finestra 2024-2026 da' AUC 0,495, cioe'
+caso. Il purging toglie la sovrapposizione fra operazioni vicine, non il fatto che in una CV il regime
+successivo sia gia' nel campione di addestramento. Serve il taglio temporale vero.
+
+Fine a fine sul 2024-2026 (modello seleziona, votanti confermano, slot allocano): da −51,0% senza filtro
+a **+2,0%** a soglia 0,50 con 12 slot, Sharpe +0,23 e drawdown 5,2%, contro un passivo di −33,8%. Va
+letto per quello che e': in una finestra in cui il passivo perde un terzo, battere il passivo di 36 punti
+vuol dire **stare in contanti**, e contro i contanti sono +2,0% in due anni e mezzo. In piu' la soglia
+0,45 rende −1,5% mentre la 0,40 e la 0,50 rendono +0,8% e +2,0%: fra soglie adiacenti quel salto e'
+rumore. **L'architettura si compone e smette di perdere; un vantaggio non l'ha dimostrato.**
+
+### Il collegio nuovo, misurato e non adottato
+
+Su richiesta dell'utente Donchian e squeeze escono, entrano `atr_band_bounce` (le bande ATR senza il
+cancello di range, con uscita alla banda opposta) e `trend_zone` (la macrostruttura come stato). Ognuna
+registrata **due volte su piani diversi**: e' la prima volta che `famiglia` codifica qualcosa, perche'
+con sei votanti in sei famiglie `k_famiglie=2` era dimostrabilmente identico a `k_famiglie=1`. Adesso
+tutti e quattro i piani hanno un votante -- il regime non ne aveva nessuno.
+
+A parametri identici pero' **rende meno**: mediana −79,2% contro −70,3%, con il 25% di operazioni in piu'
+(1.077 contro 864). La necessarieta' massima scende da 0,766 a 0,627, cioe' l'insieme e' meno dominato --
+ma `flusso` resta il votante piu' necessario su tutti e 15 gli asset. Il confronto giusto tiene fermo il
+**numero di operazioni**, non `theta_base`: con sette votanti il peso di ciascuno passa da 1/6 a 1/7 e la
+stessa soglia non vuol dire la stessa cosa. Quel confronto non e' stato fatto, e finche' non lo e' il
+collegio nuovo non e' ne' meglio ne' peggio: e' diverso.
+
 ## Cosa il codice **non** fa, dichiarato
 
 - **la volatilità obiettivo** (dimensione della posizione proporzionale al margine e inversa alla
