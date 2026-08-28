@@ -877,14 +877,21 @@ def _necessarieta(voti, famiglie, pesi, soglia, ingressi, k_famiglie) -> dict[st
     if not ingressi:
         return {nome: 0.0 for nome in voti}
     barre = np.array(ingressi)
-    verso = np.sign(sum(pesi[n] * voti[n] for n in voti)[barre])
+    # Si ritaglia **prima** di contare. La domanda riguarda solo le barre d'ingresso, ma la
+    # versione precedente costruiva le serie intere una volta per ogni coppia (votante, ingresso)
+    # per leggerne un elemento: su sette anni a quindici minuti erano 6.800 passate da 267.000
+    # barre ciascuna, cioe' l'86% del tempo di `evaluate` speso su valori buttati via subito.
+    # `_famiglie_concordi` lavora elemento per elemento, quindi accetta il `verso` come vettore e
+    # una passata sola sostituisce le seimila.
+    ai_bordi = {nome: voto[barre] for nome, voto in voti.items()}
+    verso = np.sign(sum(pesi[n] * ai_bordi[n] for n in ai_bordi))
     verso[verso == 0] = 1
 
     conteggi = {}
     for nome in voti:
-        restanti = {n: v for n, v in voti.items() if n != nome}
-        punteggio = sum(pesi[n] * restanti[n] for n in restanti)[barre] if restanti else np.zeros(len(barre))
+        restanti = {n: v for n, v in ai_bordi.items() if n != nome}
+        punteggio = sum(pesi[n] * restanti[n] for n in restanti) if restanti else np.zeros(len(barre))
         sotto_soglia = punteggio * verso < soglia[barre]
-        ampiezza = np.array([_famiglie_concordi(restanti, famiglie, int(v))[b] for b, v in zip(barre, verso)])
+        ampiezza = _famiglie_concordi(restanti, famiglie, verso)
         conteggi[nome] = float(np.mean(sotto_soglia | (ampiezza < k_famiglie)))
     return conteggi

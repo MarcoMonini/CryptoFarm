@@ -590,3 +590,37 @@ def test_la_diagnosi_regge_il_dizionario_parziale_della_barra_laterale():
     assert "CONF_IN_FORMAZIONE" not in dalla_barra
 
     assert "not enough history" in panels.diagnosi_confluenza(_candele(giorni=10), dalla_barra, "15m")
+
+
+def test_la_necessarieta_vale_quanto_la_definizione_che_la_descrive(candele):
+    """Il valore, non solo la forma: la riscrittura veloce deve dare gli stessi numeri.
+
+    `_necessarieta` costruiva le serie **intere** una volta per ogni coppia (votante, ingresso)
+    per poi leggerne un elemento solo: su sette anni di barre da quindici minuti erano l'86% del
+    tempo di `evaluate`, e nessuna di quelle serie serviva oltre la barra d'ingresso. Ritagliare
+    prima e contare dopo da' per costruzione lo stesso risultato, ma «per costruzione» e' esatta-
+    mente cio' che va verificato: qui la definizione lenta sta scritta nel test e i due numeri si
+    confrontano. Se qualcuno riscrive di nuovo quel ciclo, questo test dice se ha cambiato idea.
+    """
+    risultato = confluence.evaluate(candele, "15m")
+    voti, pesi, soglia = risultato.voti, risultato.pesi, risultato.soglia
+    famiglie = {v.nome: v.famiglia for v in confluence.VOTANTI}
+
+    # La definizione, trascritta senza furbizie: per ogni votante, la frazione di ingressi in cui
+    # azzerarlo avrebbe impedito l'ingresso -- per punteggio sotto soglia o per ampiezza sotto il
+    # minimo di famiglie.
+    barre = np.array([risultato.indice.get_loc(q) for q, _, obiettivo in risultato.eventi if obiettivo != 0])
+    assert len(barre) > 10, "servono abbastanza ingressi perche' il confronto significhi qualcosa"
+    verso = np.sign(sum(pesi[n] * voti[n] for n in voti)[barre])
+    verso[verso == 0] = 1
+    atteso = {}
+    for nome in voti:
+        restanti = {n: v for n, v in voti.items() if n != nome}
+        punteggio = sum(pesi[n] * restanti[n] for n in restanti)[barre]
+        sotto_soglia = punteggio * verso < soglia[barre]
+        ampiezza = np.array(
+            [confluence._famiglie_concordi(restanti, famiglie, int(v))[b] for b, v in zip(barre, verso)]
+        )
+        atteso[nome] = float(np.mean(sotto_soglia | (ampiezza < risultato.k_famiglie)))
+
+    assert risultato.necessarieta == pytest.approx(atteso)
