@@ -147,6 +147,106 @@ def simulate_shared_capital(
     return Portafoglio(operazioni=operazioni, occasioni_perse=perse, per_asset=per_asset)
 
 
+def simulate_slots(
+    eventi_per_asset: dict[str, list],
+    n_slot: int = 3,
+    wallet: float = 100.0,
+    fee_percent: float = 0.1,
+    carry_daily_percent: float = CARRY_DAILY_PERCENT,
+) -> Portafoglio:
+    """Lo stesso capitale su **piu' posizioni contemporanee**, una per asset, fino a `n_slot`.
+
+    E' la differenza che conta rispetto a `simulate_shared_capital`, che ne tiene **una** e butta
+    via tutto il resto. Con `n_slot=1` i due coincidono, ed e' il controllo che lo dimostra.
+
+    ## Perche' esiste
+
+    Un segnale a IC 0,05 non e' eseguibile su un asset alla volta: l'errore non ha su cosa
+    mediarsi. La sezione trasversale e' il posto in cui un vantaggio debole diventa pagabile
+    (`ricerca-quant-ml.md` §1.5.1), e per starci dentro servono scommesse **simultanee e
+    indipendenti**, non una coda di scommesse sequenziali. Sequenziale e' cio' che il paniere a
+    capitale condiviso gia' fa, e le sue «occasioni perse» misurano esattamente quanto costa.
+
+    ## Come si divide il capitale
+
+    All'apertura la quota e' `contante / slot ancora liberi`. Non e' `capitale / n_slot`: con
+    quello, dopo la prima perdita le quote successive resterebbero tarate sul capitale iniziale e
+    il portafoglio andrebbe in leva senza dirlo. Cosi' invece la somma delle quote non supera mai
+    il contante disponibile, che e' il vincolo vero, e a slot tutti liberi le quote sono uguali.
+
+    Il capitale riportato in `Wallet_After` e' `contante + nozionali aperti al costo`: ignora il
+    non realizzato, esattamente come `curva_capitale` e `pnl.simulate_positions`, tenuto uguale di
+    proposito perche' i tre numeri vanno confrontati fra loro.
+    """
+    if n_slot < 1:
+        raise ValueError(f"servono almeno uno slot: {n_slot}")
+
+    stream = sorted(
+        (
+            (e[0], -float(e[3]) if len(e) > 3 else 0.0, indice, nome, float(e[1]), int(e[2]))
+            for indice, (nome, eventi) in enumerate(eventi_per_asset.items())
+            for e in eventi
+        ),
+        key=lambda r: r[:3],
+    )
+
+    fee = fee_percent / 100.0
+    carry = carry_daily_percent / 100.0
+    operazioni: list = []
+    per_asset = {nome: 0 for nome in eventi_per_asset}
+    perse = 0
+    contante = wallet
+    aperte: dict[str, tuple] = {}
+
+    def apri(nome, prezzo, quando, verso):
+        nonlocal contante
+        liberi = n_slot - len(aperte)
+        quota = contante / liberi
+        aperte[nome] = (verso, prezzo, quando, quota)
+        contante -= quota
+
+    for quando, _, _, nome, prezzo, obiettivo in stream:
+        if nome not in aperte:
+            # Un'uscita su un asset su cui non siamo dentro non e' niente; un ingresso senza slot
+            # liberi e' un'occasione persa, ed e' il numero che dice se `n_slot` basta.
+            if obiettivo != 0:
+                if len(aperte) < n_slot:
+                    apri(nome, prezzo, quando, obiettivo)
+                else:
+                    perse += 1
+            continue
+
+        verso, prezzo_ingresso, quando_ingresso, nozionale = aperte[nome]
+        if obiettivo == verso:
+            continue
+
+        giorni = (quando - quando_ingresso).total_seconds() / 86400.0
+        lordo = nozionale * verso * (prezzo - prezzo_ingresso) / prezzo_ingresso
+        commissioni = fee * nozionale * (1 + prezzo / prezzo_ingresso)
+        mantenimento = carry * nozionale * giorni
+        profitto = lordo - commissioni - mantenimento
+        contante = max(0.0, contante + nozionale + profitto)
+        del aperte[nome]
+        operazioni.append(
+            {
+                "Asset": nome,
+                "Side": "long" if verso > 0 else "short",
+                "Buy_Time": quando_ingresso,
+                "Buy_Price": prezzo_ingresso,
+                "Sell_Time": quando,
+                "Sell_Price": prezzo,
+                "Quantity": nozionale / prezzo_ingresso,
+                "Profit": profitto,
+                "Wallet_After": contante + sum(q for _, _, _, q in aperte.values()),
+            }
+        )
+        per_asset[nome] += 1
+        if obiettivo != 0:
+            apri(nome, prezzo, quando, obiettivo)
+
+    return Portafoglio(operazioni=operazioni, occasioni_perse=perse, per_asset=per_asset)
+
+
 def curva_capitale(operazioni: list, indice: pd.DatetimeIndex, wallet: float = 100.0) -> np.ndarray:
     """Il capitale su tutto l'indice, per poter calcolare drawdown e Sharpe con `pnl`.
 
