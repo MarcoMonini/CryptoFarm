@@ -573,3 +573,20 @@ def test_i_pesi_sommano_a_uno_con_qualunque_numero_di_votanti(quanti):
     nomi = [f"v{i}" for i in range(quanti)]
     pesi = confluence._pesi(nomi, w_max=0.30)
     assert abs(sum(pesi.values()) - 1.0) < 1e-12, f"{quanti} votanti: somma {sum(pesi.values())}"
+
+
+def test_la_diagnosi_regge_il_dizionario_parziale_della_barra_laterale():
+    """La pagina passa **solo cio' che disegna**, non tutti i parametri di `config`.
+
+    Il test precedente passa `valori_predefiniti()`, cioe' un dizionario completo che la barra
+    laterale non produce mai: con quello un parametro mancante sembra presente e il `KeyError` che
+    la pagina solleva davvero non si vede. Qui il dizionario si costruisce dai nomi dei widget
+    numerici, che e' la forma minima con cui `confluenza_di` puo' essere chiamata.
+    """
+    from cryptofarm.trading import config, panels
+
+    iniziali = panels.valori_predefiniti(config.CONFLUENCE_STRATEGY, "15m")
+    dalla_barra = {nome: iniziali[nome] for _, nomi in panels.gruppi_di(config.CONFLUENCE_STRATEGY) for nome in nomi}
+    assert "CONF_IN_FORMAZIONE" not in dalla_barra
+
+    assert "not enough history" in panels.diagnosi_confluenza(_candele(giorni=10), dalla_barra, "15m")

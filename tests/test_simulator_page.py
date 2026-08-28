@@ -115,3 +115,20 @@ def test_la_vista_di_rotazione_senza_store_avvisa_invece_di_rompersi(monkeypatch
     # senza che la toppa arrivi alla pagina.
     assert any("candle store is empty" in avviso.value for avviso in prova.warning), [w.value for w in prova.warning]
     assert not prova.metric
+
+
+def test_la_confluenza_offre_l_interruttore_delle_barre_in_formazione(pagina: AppTest) -> None:
+    """`CONF_IN_FORMAZIONE` decide se il cancello legge il prezzo di adesso o aspetta la chiusura
+    del piano lungo: e' l'ablazione che il banco misura, e la pagina deve poterla girare.
+
+    Finche' non aveva un widget non entrava nel dizionario della barra laterale, e
+    `panels.diagnosi_confluenza` cadeva con `KeyError` proprio quando serviva -- senza operazioni.
+    La chiave porta l'intervallo per la ragione di `test_cambiare_intervallo_ricarica_i_valori_di_partenza`.
+    """
+    menu = next(box for box in pagina.selectbox if box.label == "Strategy")
+    menu.set_value(config.CONFLUENCE_STRATEGY).run()
+
+    intervallo = next(box for box in pagina.selectbox if box.label == "Candle interval").value
+    interruttore = next(c for c in pagina.checkbox if c.label.startswith("React inside forming"))
+    assert interruttore.value is config.CONF_IN_FORMAZIONE
+    assert interruttore.key.endswith(f"_{intervallo}")

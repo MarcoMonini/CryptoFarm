@@ -282,6 +282,13 @@ L'ablazione vera è un'altra, e ora è quella attuata: **quale prezzo** si confr
 Quello di adesso (ciò che vede il bot live a metà giornata) o quello dell'ultima chiusura del
 piano lungo (l'attesa fino a ventiquattro ore). Quella differenza è reale e si misura.
 
+Dal 2026-08-27 è anche **girabile dalla pagina** («React inside forming higher-plane bars»), non
+solo dalla griglia del banco. Finché era una costante di `config` senza widget, non entrava nel
+dizionario che la barra laterale costruisce, e `panels.diagnosi_confluenza` — che quel dizionario
+lo riceve così com'è — cadeva con `KeyError` esattamente nel caso per cui esiste, quello senza
+operazioni. Ora `panels.confluenza_di` riempie da sé i buchi di ciò che riceve, così la stessa
+trappola non si ripresenta col prossimo parametro senza widget.
+
 Il sollevamento resta utile dove conta il **valore** e non il lato — una distanza, una banda, uno
 stop — e `provisional_ema` resta in `live_frames.py` per quando servirà.
 

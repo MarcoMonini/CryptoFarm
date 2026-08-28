@@ -600,6 +600,18 @@ if __name__ == "__main__":
         valori["REQUIRE_CLOUD"] = st.sidebar.checkbox(
             "Require cloud confirmation", value=bool(iniziali["REQUIRE_CLOUD"]), key=f"cloud_{interval}"
         )
+    if strategia == config.CONFLUENCE_STRATEGY:
+        valori["CONF_IN_FORMAZIONE"] = st.sidebar.checkbox(
+            "React inside forming higher-plane bars",
+            value=bool(iniziali["CONF_IN_FORMAZIONE"]),
+            key=f"forming_{interval}",
+        )
+        st.sidebar.caption(
+            "On, the regime gate and the structure compare **the price now** with the closed "
+            "higher-plane average — what the live bot sees mid-period. Off, they wait for the "
+            "long bar to close: it is the ablation that measures what reacting early is worth. "
+            "The six voters decide at their own close either way."
+        )
     valori["MODELLO"] = st.session_state["model"]
 
     # --- Dati e visualizzazione ---------------------------------------------------------------

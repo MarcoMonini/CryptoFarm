@@ -147,6 +147,13 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
     """
     global _ULTIMA_CONFLUENZA
 
+    # `valori` puo' arrivare **parziale**: la barra laterale lo costruisce da zero mettendoci solo
+    # cio' che disegna, e chi chiama da fuori la pagina passa quel che ha. `trading_analysis`
+    # riempie i buchi per conto suo, ma non e' l'unico chiamante -- `diagnosi_confluenza` riceve il
+    # dizionario della barra laterale cosi' com'e', e cadeva con `KeyError` proprio nel caso per cui
+    # esiste, quello senza operazioni. Riempirli qui copre tutti i chiamanti in una volta.
+    valori = {**valori_predefiniti(), **valori}
+
     parametri = {
         "theta_base": float(valori["CONF_THETA_BASE"]),
         "theta_macro": float(valori["CONF_THETA_MACRO"]),
