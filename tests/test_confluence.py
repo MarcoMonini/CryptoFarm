@@ -488,9 +488,9 @@ def test_la_pazienza_ha_un_motivo_suo(candele):
 
 
 def test_si_puo_scegliere_un_sottoinsieme_di_votanti(candele):
-    tre = confluence.evaluate(candele, "15m", votanti=confluence.selezione("ichimoku", "flusso", "reversione"))
-    assert list(tre.voti) == ["ichimoku", "flusso", "reversione"]
-    assert set(tre.necessarieta) == {"ichimoku", "flusso", "reversione"}
+    tre = confluence.evaluate(candele, "15m", votanti=confluence.selezione("ichimoku", "flusso", "bande_innesco"))
+    assert list(tre.voti) == ["ichimoku", "flusso", "bande_innesco"]
+    assert set(tre.necessarieta) == {"ichimoku", "flusso", "bande_innesco"}
     assert abs(sum(tre.pesi.values()) - 1.0) < 1e-12, "i pesi si rinormalizzano sui votanti scelti"
 
 

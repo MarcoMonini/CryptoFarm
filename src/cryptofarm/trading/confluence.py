@@ -237,6 +237,20 @@ def _reversione(df, cache, p):
     )
 
 
+def _bande(df, cache, p):
+    return strategies_ls.atr_band_bounce(
+        df,
+        cache,
+        kama_window=int(p["kama_window"]),
+        band_multiplier=float(p["band_multiplier"]),
+        stop_multiplier=float(p["stop_multiplier"]),
+    )
+
+
+def _zone(df, cache, p):
+    return strategies_ls.trend_zone(df, cache, fast=int(p["fast"]), slow=int(p["slow"]))
+
+
 def _flusso(df, cache, p):
     """Il votante di flusso: l'unico che non legge il prezzo, e per questo l'unico che decorrela.
 
@@ -271,21 +285,6 @@ for _votante in (
         "Ichimoku Trend",
     ),
     Votante(
-        "donchian",
-        "rottura",
-        "struttura",
-        _donchian,
-        (
-            Par("CONF_DONCHIAN_CHANNEL", "channel", "DONCHIAN_CHANNEL"),
-            Par("CONF_DONCHIAN_ADX_WINDOW", "adx_window", "ADX_WINDOW"),
-            Par("CONF_DONCHIAN_ADX_MIN", "adx_min", "ADX_MIN"),
-            Par("CONF_DONCHIAN_ATR_WINDOW", "atr_window", "TRAIL_ATR_WINDOW"),
-            Par("CONF_DONCHIAN_ATR_MULT", "atr_multiplier", "DONCHIAN_ATR_MULT"),
-            Par("CONF_DONCHIAN_REGIME_EMA", "regime_ema", "REGIME_EMA"),
-        ),
-        "Donchian Breakout",
-    ),
-    Votante(
         "flusso",
         "volume",
         "struttura",
@@ -294,23 +293,6 @@ for _votante in (
             Par("CONF_FLOW_WINDOW", "finestra", "OBV_WINDOW"),
             Par("CONF_FLOW_MFI_ALTO", "mfi_alto"),
             Par("CONF_FLOW_MFI_BASSO", "mfi_basso"),
-        ),
-        "Squeeze Breakout",
-    ),
-    Votante(
-        "squeeze",
-        "volatilita",
-        "conferma",
-        _squeeze,
-        (
-            Par("CONF_SQUEEZE_BB_WINDOW", "bb_window", "BB_WINDOW"),
-            Par("CONF_SQUEEZE_BB_DEV", "bb_dev", "BB_DEV"),
-            Par("CONF_SQUEEZE_KC_WINDOW", "kc_window", "KC_WINDOW"),
-            Par("CONF_SQUEEZE_KC_MULT", "kc_multiplier", "KC_MULTIPLIER"),
-            Par("CONF_SQUEEZE_ATR_WINDOW", "atr_window", "TRAIL_ATR_WINDOW"),
-            Par("CONF_SQUEEZE_ATR_MULT", "atr_multiplier", "SQUEEZE_ATR_MULT"),
-            Par("CONF_SQUEEZE_VOLUME", "confirm_volume", "CONFIRM_VOLUME"),
-            Par("CONF_SQUEEZE_OBV_WINDOW", "obv_window", "OBV_WINDOW"),
         ),
         "Squeeze Breakout",
     ),
@@ -329,16 +311,40 @@ for _votante in (
         ),
     ),
     Votante(
-        "reversione",
-        "ritorno_media",
-        "innesco",
-        _reversione,
+        "bande_conferma",
+        "bande",
+        "conferma",
+        _bande,
         (
-            Par("CONF_REVERSION_KAMA", "kama_window"),
-            Par("CONF_REVERSION_BAND_MULT", "band_multiplier"),
-            Par("CONF_REVERSION_ADX_MAX", "adx_max"),
-            Par("CONF_REVERSION_STOP_MULT", "stop_multiplier"),
+            Par("CONF_BANDE_KAMA", "kama_window"),
+            Par("CONF_BANDE_BAND_MULT", "band_multiplier"),
+            Par("CONF_BANDE_STOP_MULT", "stop_multiplier"),
         ),
+    ),
+    Votante(
+        "bande_innesco",
+        "bande",
+        "innesco",
+        _bande,
+        (
+            Par("CONF_BANDE_KAMA_VELOCE", "kama_window"),
+            Par("CONF_BANDE_BAND_MULT_VELOCE", "band_multiplier"),
+            Par("CONF_BANDE_STOP_MULT_VELOCE", "stop_multiplier"),
+        ),
+    ),
+    Votante(
+        "zone_regime",
+        "macrostruttura",
+        "regime",
+        _zone,
+        (Par("CONF_ZONE_FAST", "fast"), Par("CONF_ZONE_SLOW", "slow")),
+    ),
+    Votante(
+        "zone_struttura",
+        "macrostruttura",
+        "struttura",
+        _zone,
+        (Par("CONF_ZONE_FAST_STRUTTURA", "fast"), Par("CONF_ZONE_SLOW_STRUTTURA", "slow")),
     ),
 ):
     registra(_votante)

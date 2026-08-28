@@ -150,3 +150,81 @@ def test_squeeze_non_entra_se_la_conferma_di_volume_non_e_calcolabile(candles: p
     # semplicemente perche' non c'e' nessun segnale da filtrare.
     liberi = ls.squeeze_breakout(senza_volume, ExtraCache(senza_volume), confirm_volume=False)
     assert [event for event in liberi if event[2] != 0] != []
+
+
+# --- le due aggiunte: rimbalzo fra bande e zone di trend --------------------------------------
+
+
+def test_il_rimbalzo_esce_alla_banda_opposta_non_alla_media(candles: pd.DataFrame) -> None:
+    """E' la differenza che giustifica `atr_band_bounce` accanto a `band_reversion_gated`.
+
+    Le due condividono le bande e differiscono nell'obiettivo: la media (KAMA) contro la banda
+    opposta. Se l'uscita cadesse alla media, il guadagno per operazione sarebbe lo stesso e il
+    votante nuovo sarebbe un doppione con un nome diverso.
+    """
+    cache = ExtraCache(candles)
+    eventi = ls.atr_band_bounce(candles, cache, allow_short=False)
+    kama = cache.kama(10)
+    atr = cache.atr(14)
+    indice = candles.index
+
+    uscite_a_obiettivo = 0
+    for quando, prezzo, obiettivo in eventi:
+        if obiettivo != 0:
+            continue
+        i = indice.get_loc(quando)
+        banda_alta = kama[i] + 2.5 * atr[i]
+        if np.isclose(prezzo, banda_alta):
+            uscite_a_obiettivo += 1
+            # L'uscita a obiettivo sta sopra la media, non sopra di essa per caso.
+            assert prezzo > kama[i]
+    assert uscite_a_obiettivo > 0, "nessuna uscita alla banda opposta: l'obiettivo non e' quello"
+
+
+def test_il_rimbalzo_senza_cancello_parla_piu_del_votante_gated(candles: pd.DataFrame) -> None:
+    """Il cancello `adx < adx_max` e' la ragione per cui `reversione` quasi non parla.
+
+    Toglierlo deve produrre **piu'** occasioni sugli stessi dati, altrimenti la differenza fra i
+    due votanti non e' quella dichiarata e uno dei due e' inutile.
+    """
+    cache = ExtraCache(candles)
+    con_cancello = ls.band_reversion_gated(candles, cache, allow_short=False)
+    senza = ls.atr_band_bounce(candles, cache, allow_short=False)
+    ingressi = lambda eventi: len([e for e in eventi if e[2] != 0])  # noqa: E731
+    assert ingressi(senza) > ingressi(con_cancello), (ingressi(senza), ingressi(con_cancello))
+
+
+def test_la_zona_di_trend_non_sta_mai_fuori(candles: pd.DataFrame) -> None:
+    """Uno stato di struttura non ha un «fuori»: e' sopra o sotto, sempre.
+
+    Un votante che torna a flat abbassa il punteggio dell'insieme esattamente come uno contrario,
+    e una macrostruttura deve poter sostenere il punteggio per tutta la durata di un trend.
+    """
+    eventi = ls.trend_zone(candles, ExtraCache(candles), allow_short=True)
+    assert eventi, "lo scenario deve produrre almeno un incrocio"
+    assert all(obiettivo != 0 for _, _, obiettivo in eventi)
+    # E si alterna: due segnali consecutivi non possono essere dello stesso verso.
+    versi = [obiettivo for _, _, obiettivo in eventi]
+    assert all(a != b for a, b in zip(versi, versi[1:])), versi
+
+
+def test_la_zona_di_trend_cambia_solo_sugli_incroci(candles: pd.DataFrame) -> None:
+    """Ogni evento deve cadere su una barra in cui le due medie si sono incrociate davvero."""
+    cache = ExtraCache(candles)
+    eventi = ls.trend_zone(candles, cache, fast=20, slow=100, allow_short=True)
+    veloce, lenta = cache.ema(20), cache.ema(100)
+    indice = candles.index
+
+    # Il primo evento e' la **dichiarazione dello stato iniziale**, non un incrocio: senza,
+    # `held_state` resterebbe a zero fino al primo incrocio vero e la struttura risulterebbe
+    # sconosciuta mentre invece e' nota. Va esentato qui, non tolto dalla strategia.
+    primo = eventi[0]
+    i0 = indice.get_loc(primo[0])
+    assert (veloce[i0] >= lenta[i0]) == (primo[2] > 0)
+
+    for quando, _, obiettivo in eventi[1:]:
+        i = indice.get_loc(quando)
+        sopra_ora = veloce[i] >= lenta[i]
+        assert sopra_ora == (obiettivo > 0), (quando, obiettivo)
+        # e la barra precedente stava dall'altra parte
+        assert (veloce[i - 1] >= lenta[i - 1]) != sopra_ora, f"{quando}: nessun incrocio qui"

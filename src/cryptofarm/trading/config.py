@@ -181,6 +181,23 @@ CONF_REVERSION_BAND_MULT = Param(2.5, 0.5, 8.0, 0.1)
 CONF_REVERSION_ADX_MAX = Param(20.0, 0.0, 100.0, 1.0)
 CONF_REVERSION_STOP_MULT = Param(2.0, 0.5, 12.0, 0.1)
 
+# Le bande ATR, senza il cancello di range che tiene zitto `reversione`. Registrate due volte su
+# due piani con moltiplicatori diversi: la stessa domanda posta a due scale, che e' il motivo per
+# cui la famiglia esiste come concetto separato dal votante.
+CONF_BANDE_KAMA = Param(10, 2, 100, 1)
+CONF_BANDE_BAND_MULT = Param(2.5, 0.5, 8.0, 0.1)
+CONF_BANDE_STOP_MULT = Param(3.0, 0.5, 12.0, 0.1)
+CONF_BANDE_KAMA_VELOCE = Param(6, 2, 100, 1)
+CONF_BANDE_BAND_MULT_VELOCE = Param(1.8, 0.5, 8.0, 0.1)
+CONF_BANDE_STOP_MULT_VELOCE = Param(2.5, 0.5, 12.0, 0.1)
+
+# Le zone di trend: la macrostruttura come stato. Anche queste due volte, sul piano di regime e su
+# quello di struttura, perche' «sopra o sotto» a un giorno e a quattro ore non sono la stessa cosa.
+CONF_ZONE_FAST = Param(20, 2, 200, 1)
+CONF_ZONE_SLOW = Param(100, 5, 400, 1)
+CONF_ZONE_FAST_STRUTTURA = Param(12, 2, 200, 1)
+CONF_ZONE_SLOW_STRUTTURA = Param(50, 5, 400, 1)
+
 ICHIMOKU_FAST = Param(9, 2, 100, 1)
 ICHIMOKU_SLOW = Param(26, 2, 200, 1)
 ICHIMOKU_SPAN = Param(52, 2, 400, 1)
