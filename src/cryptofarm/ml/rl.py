@@ -5,11 +5,13 @@
 Tre misure, su 15 simboli e la regola a esposizione gia' cablata (`.claude/docs/modello-swing.md`
 §5.2), dicono da dove viene la perdita fuori campione:
 
-| domanda | misura | esito |
-|---|---|---|
-| gli ingressi cadono prima dei crolli? | drawdown a 3 giorni dopo un ingresso: mediana −3,88%, p05 −15,82%; dopo una barra giornaliera qualunque: −3,94%, −15,72% | no, sono indistinguibili dal caso |
-| uno stop taglia la perdita? | netto OOS: senza −201%, stop 3% −229%, 5% −314%, 8% −327%, trailing 12% −418% | no, la peggiora sempre |
-| dove va il denaro? | lordo **+401%**, netto **−201%**, 3.009 operazioni × 0,2% = **602%** | nella commissione |
+- **gli ingressi cadono prima dei crolli?** No, sono indistinguibili dal caso: drawdown a tre
+  giorni dopo un ingresso −3,88% mediano e −15,82% al p05, dopo una barra giornaliera qualunque
+  −3,94% e −15,72%.
+- **uno stop taglia la perdita?** No, la peggiora sempre. Netto fuori campione: senza −201%, stop
+  fisso al 3% −229%, al 5% −314%, all'8% −327%, trailing al 12% −418%.
+- **dove va il denaro?** Nella commissione: lordo **+401%**, netto **−201%**, 3.009 operazioni
+  × 0,2% = **602%**.
 
 Il segnale esiste al lordo. A mangiarlo e' il **numero di giri**: passare la stessa regola da una
 decisione al giorno a una ogni due giorni porta il netto da −201% a +306%, senza toccare il modello.
@@ -68,9 +70,7 @@ class Transizioni:
         return len(self.logret)
 
 
-def transizioni_simbolo(
-    features: np.ndarray, close: np.ndarray, cadenza: int, fasi: int = 1
-) -> Transizioni:
+def transizioni_simbolo(features: np.ndarray, close: np.ndarray, cadenza: int, fasi: int = 1) -> Transizioni:
     """Le transizioni di un simbolo, campionate ogni `cadenza` barre a partire da `fasi` sfasature.
 
     Le sfasature moltiplicano il campione senza cambiare il problema: la decisione resta una ogni
@@ -129,8 +129,7 @@ def fitted_q(
     for giro in range(giri):
         if Q:
             valore = {
-                a: np.maximum(*(q.predict(_con_posizione(batch.successivo, float(a))) for q in Q))
-                for a in (0, 1)
+                a: np.maximum(*(q.predict(_con_posizione(batch.successivo, float(a))) for q in Q)) for a in (0, 1)
             }
         else:
             valore = {0: np.zeros(len(batch)), 1: np.zeros(len(batch))}
@@ -138,9 +137,7 @@ def fitted_q(
         for azione in (0, 1):
             ricompensa = azione * logret - costo * np.abs(azione - precedente)
             bersaglio = ricompensa + gamma * np.tile(valore[azione], 2)
-            modello = HistGradientBoostingRegressor(
-                max_iter=max_iter, learning_rate=0.06, random_state=seme + azione
-            )
+            modello = HistGradientBoostingRegressor(max_iter=max_iter, learning_rate=0.06, random_state=seme + azione)
             nuovi.append(modello.fit(stati, bersaglio))
         Q = nuovi
         if verboso:
