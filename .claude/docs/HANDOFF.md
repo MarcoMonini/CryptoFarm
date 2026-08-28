@@ -1,7 +1,7 @@
 # Handoff — CryptoFarm
 
-Data: **2026-08-27**. Branch di lavoro: **`claude/ricerca-quant-ml-cinque-asset`**
-(spinto). Il precedente
+Data: **2026-08-28**. Branch di lavoro: **`claude/audit-confluenza`**.
+Il precedente `claude/ricerca-quant-ml-cinque-asset` era spinto. Il precedente
 `claude/trading-strategies-performance-fb39oc` e' stato unito in `main` con la PR #7.
 Il branch precedente `ai-labeling-rewrite` (pipeline ML a 3 stati) e' **chiuso con esito negativo**
 e non e' mai stato unito: vedi `.claude/docs/strategy.md` §10-13 e la sezione "Il filone ML" qui
@@ -17,10 +17,39 @@ sotto.
 | `.claude/docs/sessione-2026-08-27.md` | **chiusura dell'ultima sessione**: le due decisioni prese con l'utente, le trappole d'ambiente scoperte misurando, i due test che passavano a vuoto e come sono stati corretti, e cosa farei dopo in ordine |
 | `.claude/docs/strategia-confluenza.md` | **il filone piu' recente (2026-08-27): la strategia multi-timeframe a piu' segnali.** Disegno, sei votanti, memoria del segnale, soglia decisa dai piani alti, paniere a capitale condiviso, e le tre cose che scrivendola si sono rivelate diverse dal disegno. **Il codice c'e' e gira; la misura su dati veri no** |
 | `.claude/docs/ricerca-quant-ml.md` | **il documento piu' recente (2026-08-26), e quello da leggere per primo sui risultati.** Stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
+| `.claude/docs/modello-swing.md` | **il documento piu' recente (2026-08-28), e quello da leggere per primo sul filone modello.** L'audit di `leg_model`, l'etichettatura nuova a prossimita' degli estremi, le tre decisioni di disegno prese misurando, e le tre misure per cui il modello non e' cablato |
 | `.claude/docs/strategy.md` | fonte di verita' delle decisioni sul **filone ML** (etichettatura, feature, modello, validazione). Chiuso in negativo, ma le trappole valgono ancora |
 | `git log main..HEAD` | i messaggi di commit spiegano il *perche'* di ogni scelta e i bug trovati |
 
 Non riassumere quei contenuti: sono gia' scritti e aggiornati.
+
+---
+
+## Ultima sessione (2026-08-28): il modello AI, rifatto e chiuso in negativo
+
+Tutto in [`modello-swing.md`](modello-swing.md). Le tre cose da sapere prima di ripartire:
+
+1. **`leg_model` e' fuori da `MODEL_PRECEDENCE`, di proposito.** Un revisore in contesto fresco ha
+   trovato che le sue due soglie erano tarate sul campione di verifica, che il controllo casuale
+   campionava righe i.i.d. da una popolazione sovrapposta per 7/8 dell'orizzonte, e che il netto
+   medio per ingresso e' **negativo a tutte e sei le soglie**. L'artefatto resta su disco; la
+   ragione sta scritta accanto alla costante. Chi lo rimette dentro deve prima rifare il metro.
+2. **`swing_model` esiste, e' addestrato, e non e' cablato.** Il segnale statistico c'e' -- IC
+   +0,0385 fuori campione contro un riferimento causale di +0,0297, 14/15 simboli concordi -- ma
+   contro un controllo casuale **a esposizione appaiata** vince 1 simbolo su 15, cioe' il caso.
+   Il vantaggio apparente sul possesso passivo era interamente «stare fuori dal mercato».
+3. **Il segnale ha forma a U, e questo cambia come si usa.** Il polo +1 non e' «vendi»: e'
+   «tendenza forte in corso», e in cripto la continuazione paga. Vendere sui massimi previsti --
+   la lettura naturale di un target in [-1, 1] -- vende le barre migliori. Chi riprende deve
+   partire da qui, non dalla regola direzionale.
+
+**Trappola nuova da conoscere:** `swing_target` guarda `W` barre nel futuro, quindi non si mette
+fra le feature se non ritardato di **almeno `W`+1**. Al ritardo di una barra l'IC passa da 0,050 a
+**0,673**, che non e' un modello ma la fuga. E' scritto nel docstring e c'e' un test.
+
+**Tre strade non provate**, in ordine di costo: dimensionare la posizione con `|previsione|`
+invece di usarla come interruttore; portare la decisione a scala giornaliera; usare il modello
+come **votante** dentro Confluence, dove non deve battere il possesso passivo da solo.
 
 ---
 

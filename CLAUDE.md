@@ -18,6 +18,10 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
   Le conclusioni e cosa farne stanno in fondo a quel documento.
 - `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
   2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
+- `.claude/docs/modello-swing.md` — **il modello AI rifatto e misurato (2026-08-28).**
+  L'audit che ha tolto `leg_model` dalla catena, l'etichettatura nuova a prossimità degli
+  estremi, e le tre misure per cui il modello **non è cablato**: il segnale esiste (IC +0,0385
+  fuori campione, 14/15 simboli concordi) ma non batte il caso a esposizione appaiata.
 - `.claude/docs/INDEX.md` — ordine di lettura consigliato.
 
 Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
@@ -84,6 +88,12 @@ streamlit run src/cryptofarm/trading/simulator.py
 
 # Store delle candele (prerequisito dell'addestramento)
 .venv312/bin/python -m cryptofarm.data.klines --update
+
+# Modello a swing: prossimità agli estremi locali (vedi .claude/docs/modello-swing.md)
+.venv312/bin/python -m cryptofarm.data.positioning --update     # posizionamento futures, 400 MB
+.venv312/bin/python -m cryptofarm.ml.swing_trainer --selfcheck  # gira senza store
+.venv312/bin/python -m cryptofarm.ml.swing_trainer              # ~12 minuti, 15 simboli dal 2018
+.venv312/bin/python -m scripts.swing_lab                        # decili, P&L, controllo casuale
 
 # Misure di strategy.md
 .venv312/bin/python -m scripts.analysis
