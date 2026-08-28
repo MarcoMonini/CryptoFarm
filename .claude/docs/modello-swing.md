@@ -1,7 +1,8 @@
 # Il modello a swing — dalla barriera tripla alla forma degli estremi
 
-**Data:** 2026-08-28. **Stato:** modello addestrato e su disco, **non cablato** nella pagina né in
-Confluence, per la ragione misurata al §5.
+**Data:** 2026-08-28. **Stato:** modello addestrato, su disco e **cablato** — la voce «AI Model»
+della pagina e un votante di Confluence. Cablato *sapendo* cosa dice il §5: la regola non batte il
+caso a esposizione appaiata. Cosa è stato cablato, e cosa deliberatamente no, sta al §5.4.
 
 Questo documento chiude tre cose in una sessione: l'audit del modello precedente (`leg_model`),
 la sostituzione dell'etichettatura, e la misura che dice cosa farne. Le tre parti vanno lette in
@@ -203,9 +204,52 @@ stesse durate, a caso. Duecento estrazioni per simbolo:
 > **1 simbolo su 15 in validazione, 1 su 15 fuori campione** supera il p95, contro **0,75** attesi
 > dal caso.
 
-Il merito della regola è l'astensione, e per quella non serve un modello. Cablare `swing_model`
-nella pagina o in Confluence sarebbe ripetere esattamente ciò che si è appena tolto con
-`leg_model`.
+Il merito della regola è l'astensione, e per quella non serve un modello.
+
+### 5.4 Cosa è stato cablato, e cosa no
+
+Il modello è ora in testa a `MODEL_PRECEDENCE` e vota in Confluence. Le tre misure sopra non sono
+diventate favorevoli: quello che è cambiato è che **la lettura sbagliata non è più raggiungibile
+dal codice**. Prima il rischio era che qualcuno leggesse un target in `[-1, 1]` e cablasse il
+segno; ora l'unica strada che esiste è `|previsione|`, e le tre docstring che la implementano
+dicono perché.
+
+| dove | cosa è cablato | cosa **non** lo è |
+|---|---|---|
+| `ml/signals.swing_exposure` | `|previsione|` alta → dentro, con isteresi | `sign(previsione)` come direzione (§5.1: perde a tutte le soglie) |
+| `trading/strategies.ai_model_simulation` | l'uscita è l'ingresso letto al contrario | barriere, take profit, stop: il modello non è stato misurato con nessuno dei tre |
+| `trading/confluence._modello` | voto +1 o 0, in una famiglia sua | il voto −1, che darebbe un corto sulle barre migliori |
+
+Tre scelte di protocollo, tutte prese per non ripetere §1.2:
+
+- **le soglie sono 0,35/0,25**, scelte sulla validazione. Fuori campione rendono −0,191% per
+  operazione contro il +0,086% di 0,50/0,40. Prendere le seconde *perché* rendono sul 2024-2026
+  sarebbe tararsi sul campione di verifica, cioè il difetto per cui `leg_model` è uscito. In
+  Confluence sono due manopole (`CONF_MODELLO_ENTRA`/`ESCI`) perché §5.2 misura che la coppia
+  buona cambia da una finestra all'altra: tenerla in una costante farebbe credere che ne esista
+  una giusta;
+- **senza artefatto il votante resta fuori dall'insieme di default**, non semplicemente muto. I
+  pesi si normalizzano sui votanti presenti, quindi un ottavo che tace sempre alzerebbe di fatto
+  la soglia per gli altri sette — e in produzione `models/` è vuoto per costruzione. Nel registro
+  ci resta, così `selezione("modello")` lo raggiunge per misurarlo;
+- **la nota del riquadro dice che non batte il possesso passivo.** È l'unica parte di questo
+  documento che arriva a chi guarda il grafico.
+
+Due cose sono emerse scrivendo il percorso di servizio, e nessuna si vedeva leggendo il trainer:
+
+- **le scale lunghe vanno prese solo se sono più lunghe della base.** A 4h, aggregare a un'ora
+  significa ricampionare all'insù, cioè inventare barre. Le colonne che restano fuori diventano
+  NaN, ed è la degradazione già misurata al §4;
+- **e solo se hanno almeno 28 barre.** `ExtraCache.adx(14)` passa da `ta`, che sotto due finestre
+  solleva `IndexError` invece di restituire NaN. In addestramento non si vede — le serie sono di
+  centinaia di migliaia di barre — ma la pagina carica per default 240 ore, cioè dieci barre
+  giornaliere, e lì la voce «AI Model» cadeva appena selezionata.
+
+**Misurato dopo il cablaggio**, e da leggere come conferma del §5.3 e non come risultato: BTC a 1h
+dal 2025, 104 operazioni, −21,1% contro un passivo di −27,2%. È il merito dell'astensione. Dentro
+Confluence, su 92.321 barre 15m dal 2024, il votante è lungo il 56,4% delle barre, mai corto, e
+**necessario nel 10% degli ingressi**: aggiunge senza dominare, che è la sola condizione in cui
+valeva la pena aggiungerlo.
 
 ---
 
@@ -217,12 +261,14 @@ nella pagina o in Confluence sarebbe ripetere esattamente ciò che si è appena 
 - **Non è redditizio a queste frequenze.** Il miglior eccesso misurato è +0,20% su 48 ore contro
   un giro di commissioni che ne costa 0,20%. È la tassa di conferma di `strategy.md` §13, per la
   terza volta indipendente in questo progetto.
-- **Tre strade non ancora provate**, in ordine di costo: (a) usare `|previsione|` per
-  **dimensionare** la posizione invece che come interruttore — l'unica forma che non tronca la
-  coda destra; (b) portare la decisione su scala giornaliera, dove il rapporto fra eccesso e
-  commissioni cambia di un ordine di grandezza; (c) usare il modello come **votante** dentro
-  Confluence, dove non deve battere il possesso passivo da solo ma solo aggiungere informazione
-  non correlata agli altri sei.
+- **La (c) è stata fatta** (§5.4): il modello è un votante di Confluence, dove non deve battere
+  il possesso passivo da solo. Che paghi non è ancora misurato — serve rifare la griglia di
+  `scripts/confluence_lab.py` con e senza il votante, sugli stessi asset e la stessa finestra.
+  Finché quel confronto non c'è, l'unica cosa che si sa è che il votante non domina la decisione.
+- **Due strade restano**, in ordine di costo: (a) usare `|previsione|` per **dimensionare** la
+  posizione invece che come interruttore — l'unica forma che non tronca la coda destra; (b)
+  portare la decisione su scala giornaliera, dove il rapporto fra eccesso e commissioni cambia di
+  un ordine di grandezza.
 
 ## 7. Riprodurre
 

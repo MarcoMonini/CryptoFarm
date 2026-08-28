@@ -18,10 +18,11 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
   Le conclusioni e cosa farne stanno in fondo a quel documento.
 - `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
   2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
-- `.claude/docs/modello-swing.md` — **il modello AI rifatto e misurato (2026-08-28).**
+- `.claude/docs/modello-swing.md` — **il modello AI rifatto, misurato e cablato (2026-08-28).**
   L'audit che ha tolto `leg_model` dalla catena, l'etichettatura nuova a prossimità degli
-  estremi, e le tre misure per cui il modello **non è cablato**: il segnale esiste (IC +0,0385
-  fuori campione, 14/15 simboli concordi) ma non batte il caso a esposizione appaiata.
+  estremi, le tre misure per cui il segnale esiste (IC +0,0385 fuori campione, 14/15 simboli
+  concordi) ma non batte il caso a esposizione appaiata, e il §5.4 su **cosa è stato cablato e
+  cosa deliberatamente no** nella pagina e in Confluence.
 - `.claude/docs/INDEX.md` — ordine di lettura consigliato.
 
 Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
@@ -127,7 +128,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (911 test in 26 file, tutti verificati). Lint/format: `ruff check src tests` e
+Test: `.venv312/bin/python -m pytest` (979 test in 34 file, tutti verificati). Lint/format: `ruff check src tests` e
 `black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
 
 ## Il simulatore
@@ -235,12 +236,20 @@ Tre cose da sapere prima di toccarlo:
 
 `trading/confluence.py` è l'unica voce del menu che non è una strategia a indicatore: legge
 **quattro piani temporali ricavati dall'intervallo scelto** (`FATTORI` — ×1 innesco, ×4 conferma,
-×16 struttura, ×96 regime, cioè 15m/1h/4h/1d partendo da 15m) e fa votare sei strategie diverse.
+×16 struttura, ×96 regime, cioè 15m/1h/4h/1d partendo da 15m) e fa votare otto strategie diverse.
 Quattro cose da sapere prima di toccarla:
 
-- **aggiungere un votante è `confluence.registra(Votante(...))`, e basta.** Da lì si adattano da
-  soli famiglie, pesi, necessarietà, riquadri della barra laterale, parametri della strategia e
-  griglia del banco: non c'è nessun elenco da tenere allineato a mano, ed è quello il punto;
+- **aggiungere un votante è `confluence.registra(Votante(...))`, quasi e basta.** Da lì si adattano
+  da soli famiglie, pesi, necessarietà, riquadri della barra laterale, parametri della strategia e
+  griglia del banco, ed è quello il punto. L'unico elenco rimasto da tenere allineato a mano sono
+  le tracce del riquadro *Voters* in `panels.INDICATORI`, e c'è un test che se ne accorge: conta
+  le tracce col `·` contro `len(VOTANTI)`;
+- **il votante `modello` sta nel default solo se l'artefatto c'è.** `votanti_predefiniti()` lo
+  toglie quando `models/swing_model.joblib` manca, che è la condizione della produzione: i pesi si
+  normalizzano sui votanti presenti, quindi un ottavo che tace sempre alzerebbe di fatto la soglia
+  per gli altri sette. Nel registro ci resta, così `selezione("modello")` lo raggiunge. È anche
+  l'unico votante **solo lungo**: vota +1 o 0, mai −1, e la ragione è misurata (§5.1 di
+  `modello-swing.md`);
 - **i parametri dei votanti si risolvono in tre strati**: default della funzione (`config.CONF_*`),
   valore misurato in `tuned_defaults` per l'intervallo del **piano** su cui il votante gira — non
   quello della pagina — e override di chi chiama. Il secondo strato è quello che si sbaglia
@@ -345,7 +354,7 @@ candele (`data/klines.py`), non un download al volo.
 
 ### Quale modello usa il simulatore
 
-`ml/trainer.MODEL_PRECEDENCE` è `("policy_model", "meta_model", "signal_model")` e
+`ml/trainer.MODEL_PRECEDENCE` è `("swing_model", "meta_model", "signal_model")` e
 `active_model_name()` è l'unica fonte di verità: `load_signal_model` carica quel modello e
 `ai_model_simulation` sceglie la strategia in base a quel nome, quindi i due non possono divergere.
 Per tornare al modello precedente basta spostare altrove l'artefatto di quello più recente.
@@ -353,6 +362,15 @@ Per tornare al modello precedente basta spostare altrove l'artefatto di quello p
 `meta_parameters()` legge barriere, soglia CUSUM e parametri di esecuzione **dai metadata
 dell'artefatto**, non da costanti: devono essere esattamente quelli con cui il modello è stato
 addestrato.
+
+**Il modello in testa oggi è `swing_model`, e non serve barriere.** Prevede la prossimità agli
+estremi locali, e la forma misurata di quel segnale è a U: *entrambi* i poli precedono rendimenti
+sopra la media, quindi il segno **non dice il verso**. `ml/signals.swing_exposure` cabla l'unica
+lettura che la misura sostiene — `|previsione|` come interruttore di esposizione, con isteresi — e
+il votante `modello` di Confluence vota per questo +1 o 0, mai −1. Cablare `sign(previsione)`, che
+è la lettura naturale di un target in `[-1, 1]`, vende esattamente le barre migliori: è misurato
+in perdita a tutte le soglie e tutte le cadenze (`modello-swing.md` §5.1). Il modello **non batte
+il possesso passivo**, e la nota del riquadro lo dice a chi guarda il grafico.
 
 ## Data/model artifacts
 
