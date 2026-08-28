@@ -235,18 +235,19 @@ scrive e ci si ferma li'.
 
 | | cosa | stato |
 |---|---|---|
-| **S0** | correlazione fra i sei stati barra-per-barra | `stati_dei_votanti` la produce; **resta da misurare su dati veri** |
+| **S0** | correlazione fra i sei stati barra-per-barra | **misurato** (2026-08-28): media +0,156, massima 0,476 — i votanti sono vari |
 | **S1** | allineamento a barre chiuse e barre in formazione | **scritto** (`trading/mtf.py` + `trading/live_frames.py`, 11 test) |
 | **S2** | adattatore da cambi di posizione a stato per barra, con memoria e decadimento | **scritto** (`trading/voters.py`, 10 test) |
-| **S3** | punteggio a peso uguale, soglia fissa, ampiezza minima, un asset | **scritto** (`trading/confluence.py`, 16 test) — da misurare |
-| **S4** | soglia dinamica dai piani alti | **scritto**: `theta_macro` |
+| **S3** | punteggio a peso uguale, soglia fissa, ampiezza minima, un asset | **scritto e misurato** (`trading/confluence.py`) — non batte il passivo |
+| **S4** | soglia dinamica dai piani alti | **scritto e misurato**: `theta_macro` — **toglie valore**, meglio a 0 |
 | **S5** | innesco 15m, stop ATR 15m | **scritto**: `innesco`, `atr_multiplier`. La volatilità obiettivo **no** |
 | **S5b** | paniere a capitale condiviso | **scritto** (`trading/portfolio.py`, 8 test) — non era nel piano, l'ha chiesto l'utente |
 | **S6** | il votante AI, con astensione | lo slot c'è (`Votante`), il votante no |
 | **S7** | pesi online (regola, non ricerca) | `_pesi` accetta pesi non uguali e li tiene sotto `w_max`; nessuna regola online |
 
-Gli stadi sono scritti, non misurati. La distinzione non è pedanteria: fino a che non girano sui
-cinque asset veri, l'unica cosa che si sa è che il codice fa quello che dice di fare.
+Gli stadi erano scritti e non misurati. Dal 2026-08-28 lo sono, su quindici asset e sette anni:
+vedi «La misura su dati veri» in fondo. Il codice fa quello che dice di fare — e ciò che dice di
+fare non basta.
 
 ## L'aspettativa, dichiarata prima di misurare
 
@@ -582,6 +583,177 @@ guardando il solo primo sottoperiodo. È il criterio di `scripts/tune_defaults.p
 misura che qui vale più di ogni altra: sulla rotazione la correlazione fra resa in stima e resa in
 verifica è **−0,69**, cioè prendere il massimo della griglia trasferisce peggio che scegliere a
 caso.
+
+## La misura su dati veri, finalmente (2026-08-28)
+
+Fino a qui questo documento diceva «il codice c'è e gira; la misura su dati veri no». Adesso c'è:
+`scripts/confluence_audit.py`, **90 configurazioni per coordinata × 15 asset × tre intervalli ×
+tre finestre**, più una griglia cartesiana da 4.800 celle e un Monte Carlo per permutazione delle
+barre. I dati sono lo store locale, 2019-2026, dai 610.000 ai 950.000 minuti di storia per asset.
+
+### Il risultato, in una riga
+
+**Non batte il possesso passivo, e il modo in cui fallisce è informativo.** Su 1.350 celle a
+quindici minuti (90 configurazioni × 15 asset, finestra intera) ne battono il passivo il **6,4%**,
+e la mediana rende **−70,3%** dove la mediana del possesso passivo rende **+348,3%**.
+
+### Le tre cose che il banco ha escluso, e non sono poche
+
+Prima di leggere il resto: il fallimento **non** è uno dei tre dichiarati in «I tre modi in cui
+questo fallisce».
+
+1. **Non c'è look-ahead.** Verificato su dati veri, non solo sintetici: riscrivendo ×1,7 il futuro
+   di BTC a partire da un istante *dentro* una barra giornaliera già cominciata, i 70 eventi
+   precedenti restano identici byte per byte, e il troncamento puro dà gli stessi 70. `mtf.py` fa
+   il suo lavoro.
+2. **I votanti non sono correlati** (S0, che era «resta da misurare»). Correlazione media fra i sei
+   stati **+0,156**, massima 0,476, nessuna coppia sopra 0,5; servono **cinque** componenti
+   principali su sei per il 90% della varianza. Il timore era 0,8: l'insieme è genuinamente vario.
+3. **Non opera troppo poco.** Era il rischio ritenuto più probabile. Opera *troppo*: 116 operazioni
+   l'anno di mediana a quindici minuti.
+
+Quindi il disegno ha fatto ciò che prometteva. Perde lo stesso.
+
+### Perché perde: opera, e non dovrebbe
+
+La correlazione fra numero di operazioni e rango della configurazione è **−0,60** su tutte le celle
+(p ≈ 1e-130), mediana **−0,72** dentro il simbolo, negativa in 14 asset su 15. La scala per fascia
+di frequenza non ha eccezioni:
+
+| operazioni/anno | mediana del rendimento |
+|---|---|
+| < 10 | −1,1% |
+| 10-25 | −14,5% |
+| 25-50 | −42,7% |
+| 50-100 | −65,0% |
+| 100-200 | −75,1% |
+| > 200 | −84,7% |
+
+**Ogni parametro migliora nella direzione che fa operare di meno**, senza una sola eccezione:
+`theta_base` da 0,05 (rango 0,03) a 0,60 (0,97); `emivita` da 48 (0,06) a 0,5 (0,94);
+`atr_multiplier` da 1,0 (0,06) a 8,0 (0,88); `k_famiglie` da 1 (0,42) a 6 (0,97), dove 6 significa
+**zero operazioni**. Il gradiente della griglia punta al non-fare, ed è la forma che prende una
+strategia il cui vantaggio lordo è minore del proprio costo di transazione.
+
+Che sia il costo e non il tempismo si vede togliendo il costo. Al lordo di **tutto** — nessuna
+commissione, nessun mantenimento — contro l'esposizione casuale di pari durata:
+
+| | lordo | esposizione | caso, stessa esposizione | passivo |
+|---|---|---|---|---|
+| BTC | +25,3% | 7,4% | +24,3% | +1.759,6% |
+| ETH | +5,5% | 7,4% | +22,9% | +1.495,7% |
+| SOL | −48,2% | 6,5% | +23,5% | +2.487,3% |
+| XRP | −13,6% | 5,1% | +5,9% | +207,2% |
+| BNB | −62,7% | 6,7% | +36,3% | +10.035,6% |
+
+Su quattro asset su cinque il tempismo è **peggiore** dell'esposizione casuale di pari durata, e
+sul quinto è indistinguibile. Le commissioni non rovinano un vantaggio: non c'è un vantaggio da
+rovinare. Raddoppiare la commissione da perpetui (0,05%) a spot (0,10%) porta BTC da −59,7% a
+−87,0%, che è la firma di una strategia il cui risultato è dominato dal numero di operazioni.
+
+### Il mantenimento non c'entra, contro l'ipotesi ovvia
+
+`confluence_lab` addebita 0,03%/giorno a una strategia che di default è solo lunga, cioè ~11,6%
+l'anno di costo. Sembra il colpevole e non lo è: toglierlo del tutto sposta BTC da −62,1% a
+−59,7%, perché **l'esposizione è il 7,4%** del calendario. È comunque una stortura del modello —
+a pronti una posizione lunga non paga mantenimento — ma non spiega niente.
+
+### Batte il mercato solo dove il mercato scende
+
+La correlazione fra la resa passiva di un asset e la frazione di configurazioni che la battono è
+**−0,73**, identica a 15m e a 1h (p = 0,002, n = 15).
+
+- asset con possesso passivo sopra +100% (n = 9): battuti nell'**1,6%** delle configurazioni;
+- asset con possesso passivo sotto +50% (n = 5): **44,9%**.
+
+Su BNB, SOL, LINK, BTC, ETH, TRX, ADA, LTC — ognuno con passivo sopra +50% — **nessuna** delle 90
+configurazioni batte il possesso passivo. Le uniche vittorie larghe sono DOT (passivo −74,9%,
+battuto dal 98,9% delle celle) e ATOM (−65,8%, dall'85,6%). Non è selezione: è **stare fuori**, e
+stare fuori paga esattamente quando il mercato scende.
+
+### Il trasferimento fuori campione è positivo, e non significa quello che sembra
+
+Spearman fra rango in stima (2019-2024) e rango in verifica (2024-2026): **+0,65** a 15m. Sembra
+la smentita del −0,69 misurato sulla rotazione, e non lo è. La correlazione fra operazioni all'anno
+e rango **fuori campione** è **−0,843**: la classifica ordina il *non-fare*, che è una proprietà dei
+parametri e non del mercato, quindi trasferisce per costruzione. Fra le prime dieci fuori campione,
+quattro fanno meno di due operazioni l'anno e una ne fa **zero**.
+
+Le due finestre non sono nemmeno lo stesso mercato: in stima il possesso passivo rende **+613,9%**
+di mediana con **0 asset su 15** in perdita; in verifica rende **−33,8%** con **11 su 15** in
+perdita. «Battere il passivo nel 47% delle celle» in verifica vuol dire che stare in contanti ha
+battuto le criptovalute durante una discesa. Non è un'abilità.
+
+### I due parametri morti
+
+- **`w_max` non fa niente, mai.** `_pesi` fa `w_max = max(w_max, 1/len(nomi))`: a pesi uniformi il
+  tetto non può mordere. Tutti e sette i valori della scansione danno peso 0,1667. Empiricamente lo
+  spread di rango è **0,000** e i rendimenti sono identici asset per asset. La scansione spreca
+  sette celle su un parametro che è un no-op.
+- **`k_famiglie = 2`, il default, è identico a `k_famiglie = 1`** su tutti e 15 gli asset,
+  rendimenti e numero di operazioni compresi. Con sei pesi uniformi da 0,167 un punteggio sopra una
+  soglia di 0,20+ implica già almeno due votanti concordi: il cancello di ampiezza non vincola mai.
+  Morde da 3 in su.
+
+### Due meccanismi del disegno che tolgono valore
+
+- **La soglia adattiva (`theta_macro`) fa danno.** A 15m spegnerla (0,0) è la scelta migliore della
+  coordinata: rango 0,867 contro 0,417 del centro, rendimento mediano −33,3% contro −77,1%, e il
+  degrado è monotòno fino a 0,40 (rango 0,156). È il meccanismo dello stadio S4.
+- **Reagire dentro la barra lunga fa danno.** `barre_in_formazione=False` batte `True` a tutti e due
+  gli intervalli: 0,589 contro 0,417 a 15m (−69,8% contro −77,1%), 0,667 contro 0,583 a 1h (+1,6%
+  contro −5,3%). È l'ablazione che questo documento chiedeva, e la risposta è che **aspettare la
+  chiusura del piano lungo è meglio**.
+
+### Due votanti su sei fanno il lavoro
+
+Necessarietà mediana sulla configurazione centrale, BTC 2019-2026: `flusso` **0,741**, `pullback`
+**0,683**, `ichimoku` 0,375, `donchian` 0,224, `squeeze` 0,075, `reversione` 0,057. Su tutti e 15
+gli asset la necessarietà massima mediana sta fra **0,74 e 0,80**, cioè sopra la soglia di 0,60 che
+questo documento fissa come «l'insieme è quel votante travestito», nell'**88,5%** delle celle a 15m.
+
+Ma attenzione a come si legge, perché la misura di S0 dice che l'insieme *non* è un votante
+travestito (correlazione +0,156). Le due cose convivono: con sei pesi uniformi da 0,167 e una
+soglia di 0,35 servono due o tre votanti attivi per entrare, quindi **quasi ogni votante attivo è
+necessario per costruzione**. `necessarieta` confonde «votante dominante» con «margine sottile
+sopra la soglia», e va letta insieme alla correlazione, non da sola.
+
+### La scala impedisce di andare dove il gradiente punta
+
+I tre intervalli che `scala_fuori_misura` ammette, stesse 90 configurazioni e stessi 15 asset:
+
+| intervallo | batte il passivo | in utile | mediana rendimento | operazioni/anno | drawdown mediano |
+|---|---|---|---|---|---|
+| 15m | 6,4% | 7,4% | −70,3% | 116,0 | 78,4% |
+| 30m | 9,0% | 36,6% | −22,0% | 76,5 | 66,2% |
+| 1h | 15,9% | 41,9% | −8,6% | 31,2 | 55,2% |
+
+Monotòno in ogni colonna, e coerente con tutto il resto: allungare la barra riduce le operazioni e
+migliora tutto. Il gradiente punta **oltre** l'ora — ma il fattore ×96 del piano di regime porta la
+media di regime a 4 giorni a 1h e a 16 giorni a 4h, cioè fuori dalla regola che questo documento si
+è dato. **Il vincolo di scala del disegno taglia via proprio la regione che le misure indicano**, ed
+è il difetto strutturale più importante fra quelli trovati: i quattro piani sono agganciati a una
+progressione geometrica fissa (×1/×4/×16/×96) invece che a intervalli scelti, e quella progressione
+è ciò che vieta una base a 4h.
+
+### Cosa farne
+
+In ordine di rapporto fra guadagno atteso e lavoro:
+
+1. **Sganciare i piani dalla progressione fissa.** `FATTORI` diventa una mappa da intervallo a
+   quattro intervalli scelti, così una base a 4h può avere un regime a 1d invece che a 16d. È la
+   sola modifica che apre la regione dove le misure puntano.
+2. **Spegnere `theta_macro` di default** (S4 non guadagna) e **mettere `barre_in_formazione=False`**
+   come valore di partenza. Sono due default, non due meccanismi da cancellare.
+3. **Togliere `w_max` dalla scansione** finché i pesi sono uniformi, e portare il default di
+   `k_famiglie` a 3, che è dove comincia a vincolare.
+4. **Non cercare il massimo di griglia.** La cella migliore in assoluto è DOGE a 1h con +10.864%
+   contro un passivo di +1.752%: una cella su 1.350, su un asset, ed è esattamente la forma che ha
+   la fortuna. Vale come promemoria, non come configurazione.
+
+E la cosa da non fare: tarare i sei votanti sperando di trovare la regione buona. Al lordo delle
+commissioni il tempismo è peggiore dell'esposizione casuale su quattro asset su cinque; non c'è una
+taratura che trasformi quel numero in un vantaggio.
 
 ## Cosa il codice **non** fa, dichiarato
 

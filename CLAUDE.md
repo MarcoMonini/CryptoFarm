@@ -13,7 +13,9 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
   configurazioni, sensibilità ai parametri, tenuta fuori campione, difetti trovati misurando.
 - `.claude/docs/strategia-confluenza.md` — la strategia multi-timeframe a più segnali: quattro
   piani con domande disgiunte, sei votanti scelti per famiglia, memoria del segnale, soglia decisa
-  dai piani alti. **Il codice c'è e gira; la misura su dati veri no.**
+  dai piani alti. **Misurata (2026-08-28) su 15 asset e sette anni: non batte il possesso passivo.**
+  Niente look-ahead, votanti non correlati, ma il gradiente di ogni parametro punta al non-operare.
+  Le conclusioni e cosa farne stanno in fondo a quel documento.
 - `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
   2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
 - `.claude/docs/INDEX.md` — ordine di lettura consigliato.
