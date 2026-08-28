@@ -596,8 +596,10 @@ STRATEGIE: dict[str, Strategia] = {
         esegui=lambda df, cache, v: strategies.ai_model_simulation(
             df=df, model=v["MODELLO"], symbol=v.get("SIMBOLO", "")
         ),
-        note="Signals come from the trained model: nothing to plot. The swing model gates "
-        "*exposure* on |prediction|, it does not call direction, and it does not beat buy and hold.",
+        note="Signals come from the trained model: nothing to plot. The RL policy picks the "
+        "position with the switching cost inside its objective: out of sample it beats buy and "
+        "hold on 11 of 15 assets and halves max drawdown, but its timing is only weakly above "
+        "an exposure-matched random control.",
     ),
     "Donchian Breakout": Strategia(
         indicatori=("donchian", "media_regime", "adx"),

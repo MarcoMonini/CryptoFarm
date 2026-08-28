@@ -431,6 +431,28 @@ def swing_model():
     return load_model(MODELS_DIR / "swing_model.joblib") if swing_model_disponibile() else None
 
 
+def swing_features(df: pd.DataFrame, symbol: str = "") -> pd.DataFrame:
+    """Le 41 colonne, nell'ordine di `SWING_COLUMNS`, dalle candele che la pagina ha in mano.
+
+    Una sola definizione per i due modelli che le usano -- quello a swing e la politica RL --
+    perche' sono state addestrate sulla stessa matrice e un ordine diverso non solleva niente:
+    sposta soltanto i numeri.
+
+    Le scale lunghe sono **quelle piu' lunghe della base**, non sempre `1h` e `1d`: a 4h aggregare
+    a un'ora vorrebbe dire ricampionare all'insu', cioe' inventare barre. Le colonne che restano
+    fuori diventano NaN, che il modello a gradienti tratta come categoria a se'.
+    """
+    from cryptofarm.ml.bar_features import SWING_COLUMNS, SWING_SCALES, build_swing_features
+
+    minuti = interval_to_minutes(interval_from_index(df.index))
+    scale = tuple(
+        s
+        for s in SWING_SCALES
+        if interval_to_minutes(s) > minuti and len(df) * minuti >= SCALA_MINIMA_BARRE * interval_to_minutes(s)
+    )
+    return build_swing_features(symbol, df, scales=scale).reindex(columns=SWING_COLUMNS)
+
+
 def swing_predictions(df: pd.DataFrame, model, symbol: str = "") -> np.ndarray:
     """La previsione del modello a swing per ogni barra: -1 su un minimo locale, +1 su un massimo.
 
@@ -444,15 +466,7 @@ def swing_predictions(df: pd.DataFrame, model, symbol: str = "") -> np.ndarray:
     di un decimillesimo. Non e' un percorso degradato da evitare, e' la condizione normale della
     pagina.
     """
-    from cryptofarm.ml.bar_features import SWING_COLUMNS, SWING_SCALES, build_swing_features
-
-    minuti = interval_to_minutes(interval_from_index(df.index))
-    scale = tuple(
-        s
-        for s in SWING_SCALES
-        if interval_to_minutes(s) > minuti and len(df) * minuti >= SCALA_MINIMA_BARRE * interval_to_minutes(s)
-    )
-    frame = build_swing_features(symbol, df, scales=scale).reindex(columns=SWING_COLUMNS)
+    frame = swing_features(df, symbol)
     previsto = model.predict(frame.to_numpy(dtype=float))
     # `atr_rel` NaN sono le barre di riscaldamento, dove le feature strutturali non esistono
     # ancora: e' lo stesso criterio con cui `swing_trainer.campione_simbolo` le scarta.
@@ -488,6 +502,62 @@ def swing_exposure(previsto: np.ndarray, entra: float, esci: float, cadenza: int
     return dentro
 
 
+def rl_model_disponibile() -> bool:
+    """Se l'artefatto della politica RL e' su disco. Come per il modello a swing, la risposta serve
+    **prima** di caricare: in produzione gli artefatti sono gitignorati."""
+    return (MODELS_DIR / "rl_model.joblib").exists()
+
+
+@lru_cache(maxsize=1)
+def rl_model():
+    """I due regressori `Q[0]` e `Q[1]` della politica, o `None` se l'artefatto non c'e'."""
+    return load_model(MODELS_DIR / "rl_model.joblib") if rl_model_disponibile() else None
+
+
+def rl_exposure(Q, df: pd.DataFrame, symbol: str = "", cadenza: int | None = None) -> np.ndarray:
+    """Dentro o fuori per barra, secondo la politica appresa. Vero per barra.
+
+    La decisione si prende una volta al giorno -- la cadenza a cui la politica e' stata addestrata
+    e misurata -- e resta ferma in mezzo. Cambiarla non regola una manopola: cambia il problema,
+    perche' il costo dentro la ricompensa e' calibrato su quel passo.
+
+    Le barre di riscaldamento, dove `atr_rel` non esiste ancora, sono fuori: e' lo stesso criterio
+    con cui l'addestramento le scarta, e senza, la politica deciderebbe su uno stato di soli NaN.
+    """
+    from cryptofarm.ml.rl import posizioni
+
+    frame = swing_features(df, symbol)
+    stato = frame.to_numpy(dtype=float)
+    passo = max(int(cadenza or swing_cadenza(df.index)), 1)
+    decisioni = np.arange(0, len(stato), passo)
+    pronte = decisioni[frame["atr_rel"].to_numpy()[decisioni] == frame["atr_rel"].to_numpy()[decisioni]]
+    dentro = np.zeros(len(stato), dtype=bool)
+    if not len(pronte):
+        return dentro
+    azioni = posizioni(Q, stato[pronte])
+    for i, (inizio, azione) in enumerate(zip(pronte, azioni)):
+        fine = pronte[i + 1] if i + 1 < len(pronte) else len(stato)
+        dentro[inizio:fine] = bool(azione)
+    return dentro
+
+
+def rl_signals(Q, df: pd.DataFrame, symbol: str = "") -> tuple[list[tuple], list[tuple]]:
+    """La politica tradotta in acquisti e vendite alternati, come `swing_signals`."""
+    return _eventi(rl_exposure(Q, df, symbol=symbol), df)
+
+
+def _eventi(dentro: np.ndarray, df: pd.DataFrame) -> tuple[list[tuple], list[tuple]]:
+    """Da esposizione per barra a due liste alternate di `(quando, prezzo)`.
+
+    Se l'ultima posizione e' ancora aperta a fine serie non le si inventa una vendita: resta un
+    acquisto spaiato, che `pnl` ignora accoppiando per indice.
+    """
+    cambi = np.flatnonzero(np.diff(dentro.astype(np.int8), prepend=np.int8(0)))
+    close = df["Close"].to_numpy(dtype=float)
+    eventi = [(df.index[i], float(close[i])) for i in cambi]
+    return eventi[::2], eventi[1::2]
+
+
 def swing_cadenza(index: pd.DatetimeIndex) -> int:
     """Una decisione al giorno, in barre. E' la cadenza con cui il modello e' stato misurato."""
     return max(round(1440 / interval_to_minutes(interval_from_index(index))), 1)
@@ -508,8 +578,4 @@ def swing_signals(
     spaiato, che `pnl` ignora accoppiando per indice.
     """
     previsto = swing_predictions(df, model, symbol=symbol)
-    dentro = swing_exposure(previsto, entra, esci, swing_cadenza(df.index))
-    cambi = np.flatnonzero(np.diff(dentro.astype(np.int8), prepend=np.int8(0)))
-    close = df["Close"].to_numpy(dtype=float)
-    eventi = [(df.index[i], float(close[i])) for i in cambi]
-    return eventi[::2], eventi[1::2]
+    return _eventi(swing_exposure(previsto, entra, esci, swing_cadenza(df.index)), df)

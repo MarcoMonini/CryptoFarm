@@ -667,8 +667,9 @@ def test_senza_artefatto_il_votante_a_modello_tace_e_resta_fuori_dal_default(can
     raggiunge per misurarlo.
     """
     monkeypatch.setattr(confluence.signals, "MODELS_DIR", Path("/nessun/modello/qui"))
-    confluence.signals.swing_model.cache_clear()
-    monkeypatch.setattr(confluence.signals, "swing_model", confluence.signals.swing_model.__wrapped__)
+    for nome in ("swing_model", "rl_model"):
+        getattr(confluence.signals, nome).cache_clear()
+        monkeypatch.setattr(confluence.signals, nome, getattr(confluence.signals, nome).__wrapped__)
 
     assert confluence._modello(candele, ExtraCache(candele), {"entra": 0.5, "esci": 0.4}) == []
     nomi = [v.nome for v in confluence.votanti_predefiniti()]

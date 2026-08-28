@@ -293,12 +293,23 @@ def _modello(df, cache, p):
     Le due colonne di posizionamento restano NaN: `esegui` riceve le candele, non il simbolo. La
     perdita e' misurata e vale un decimillesimo di IC (§4, «senza posizionamento» +0,0539 contro
     +0,0540), quindi non vale un parametro in piu' nella firma di tutti gli altri votanti.
+
+    **Quale modello.** Quello in testa a `trainer.MODEL_PRECEDENCE`, non uno scelto qui: se
+    l'artefatto della politica RL c'e', vota quella, e `entra`/`esci` non hanno effetto perche' la
+    politica la sua soglia ce l'ha dentro l'obiettivo. Un secondo votante a modello sarebbe stato
+    la scelta comoda, ed e' sbagliata due volte: i due rispondono alla stessa domanda a partire
+    dalle stesse 41 colonne, quindi voterebbero insieme, e l'ampiezza si conta in famiglie proprio
+    per non far pesare due volte la stessa opinione.
     """
-    modello = signals.swing_model()
-    if modello is None:
-        return []
-    previsto = signals.swing_predictions(df, modello)
-    dentro = signals.swing_exposure(previsto, float(p["entra"]), float(p["esci"]), signals.swing_cadenza(df.index))
+    politica = signals.rl_model()
+    if politica is not None:
+        dentro = signals.rl_exposure(politica, df)
+    else:
+        modello = signals.swing_model()
+        if modello is None:
+            return []
+        previsto = signals.swing_predictions(df, modello)
+        dentro = signals.swing_exposure(previsto, float(p["entra"]), float(p["esci"]), signals.swing_cadenza(df.index))
     stato = dentro.astype(np.int8)
     cambi = np.flatnonzero(np.diff(stato, prepend=np.int8(0)))
     chiusure = df["Close"].to_numpy()
@@ -409,7 +420,7 @@ def votanti_predefiniti() -> tuple[Votante, ...]:
     dal default non e' escluderlo dalla misura.
     """
     tutti = selezione()
-    if signals.swing_model_disponibile():
+    if signals.rl_model_disponibile() or signals.swing_model_disponibile():
         return tutti
     return tuple(v for v in tutti if v.nome != "modello")
 

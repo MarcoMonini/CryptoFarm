@@ -313,7 +313,15 @@ def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = Non
 # misura sostiene -- `|previsione|` come interruttore, mai `sign(previsione)` come direzione. Chi
 # guarda il grafico deve sapere che il riferimento da battere e' il possesso passivo e che questa
 # regola non lo batte: la nota del riquadro lo dice, e `ml/signals.swing_exposure` spiega perche'.
-MODEL_PRECEDENCE = ("swing_model", "meta_model", MODEL_NAME)
+# `rl_model` sta in testa dal 2026-08-28. Risponde alla stessa domanda del modello a swing --
+# quando stare esposti -- ma con il **costo dentro la ricompensa** invece che fuori: la banda di
+# non-fare emerge dall'obiettivo invece di essere due soglie scritte a mano, e la classe di
+# politiche contiene il possesso passivo, che e' il riferimento da battere. Il motivo per cui
+# passa davanti sta in `.claude/docs/politica-rl.md`: batte il possesso passivo su 11 simboli su
+# 15 fuori campione e **dimezza la discesa massima** (-48,8% contro -76,0% mediano) in entrambe
+# le finestre. Il *quando* sta sopra il caso a esposizione appaiata in tutte e due (rango 0,588 e
+# 0,602 contro 0,500) ma non raggiunge la significativita': va servito sapendolo.
+MODEL_PRECEDENCE = ("rl_model", "swing_model", "meta_model", MODEL_NAME)
 
 
 def stored_decision_threshold() -> float:
