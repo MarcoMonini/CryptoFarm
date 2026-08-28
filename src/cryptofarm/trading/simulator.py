@@ -79,6 +79,10 @@ def trading_analysis(
     # La confluenza ricava i suoi quattro piani da qui: e' l'intervallo delle candele, non una
     # preferenza. Sovrascrive sempre, perche' nessun chiamante lo passa a mano.
     valori["INTERVALLO"] = interval
+    # Il simbolo serve al modello delle gambe per le due feature di posizionamento, che vivono in
+    # uno store separato indicizzato per coppia. Se la coppia scelta non c'e' (o non e' un
+    # perpetuo) restano NaN, e il modello a gradienti le tratta come categoria a se'.
+    valori["SIMBOLO"] = asset
 
     # ======================================
     # Scarica i dati di mercato e calcola il SAR

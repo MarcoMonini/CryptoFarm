@@ -34,8 +34,23 @@ def test_the_most_recent_strategy_wins_when_several_are_trained(models_dir):
     (models_dir / "meta_model.joblib").write_bytes(b"")
     assert trainer.active_model_name() == "meta_model"
 
+    (models_dir / "leg_model.joblib").write_bytes(b"")
+    assert trainer.active_model_name() == "leg_model"
+
+
+def test_the_three_action_policy_is_out_of_the_chain(models_dir):
+    """`policy_model` non deve piu' vincere per il solo fatto di esistere su disco.
+
+    Era il primo della precedenza, quindi bastava che l'artefatto fosse in `models/` perche' la
+    voce «AI Model» eseguisse la politica a tre azioni -- il disegno chiuso in negativo da
+    `strategy.md` §12-13. L'artefatto puo' restare sul disco senza governare la pagina.
+    """
     (models_dir / "policy_model.joblib").write_bytes(b"")
-    assert trainer.active_model_name() == "policy_model"
+    assert trainer.active_model_name() is None
+
+    (models_dir / "signal_model.joblib").write_bytes(b"")
+    assert trainer.active_model_name() == "signal_model"
+    assert "policy_model" not in trainer.MODEL_PRECEDENCE
 
 
 def test_a_keras_artifact_counts_as_a_trained_model(models_dir):
@@ -80,3 +95,20 @@ def test_la_pagina_parte_anche_senza_nessun_modello(models_dir):
     modello = modello_di_sessione()
     assert modello is None
     assert config.AI_STRATEGY not in available_strategies(modello)
+
+
+def test_un_regressore_si_salva_e_si_rilegge(tmp_path):
+    """`save_model` sceglieva il formato da `predict_proba`: il primo regressore moriva li'.
+
+    Il difetto scattava **dopo** l'addestramento, cioe' nel punto piu' caro possibile.
+    """
+    import numpy as np
+    from sklearn.ensemble import HistGradientBoostingRegressor
+
+    from cryptofarm.ml.models import load_model, save_model
+
+    X = np.random.default_rng(0).normal(size=(200, 4))
+    modello = HistGradientBoostingRegressor(max_iter=5).fit(X, X[:, 0])
+    percorso = tmp_path / "regressore.joblib"
+    save_model(modello, percorso)
+    assert np.allclose(load_model(percorso).predict(X), modello.predict(X))

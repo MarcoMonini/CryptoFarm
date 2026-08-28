@@ -51,3 +51,30 @@ un'opinione. Il criterio 3 può passare da solo ed è comunque un'informazione.
   di GB;
 - **niente architetture profonde**: benchmark qlib, `ricerca-quant-ml.md` §1.1;
 - **niente ottimizzazione dei parametri dei votanti** insieme al modello.
+
+---
+
+## Decisioni prese con l'utente (2026-08-28)
+
+| bivio | scelta | conseguenza |
+|---|---|---|
+| dati di posizionamento | **sì, solo `retail_pos` e `top_pos`** | `positioning` scarica e conserva tutte le colonne (arrivano nello stesso file, non costa niente), ma `features-bar` ne usa due. Le altre dieci — funding compreso — non hanno superato il controllo di segno sul pannello 5 asset × 2 finestre |
+| scala | **1h + 4h + 1d, con `TIMEFRAME` come feature** | un modello solo copre i piani su cui girano i votanti di conferma, struttura e regime. Sotto l'ora resta escluso: è la regione già misurata perdente |
+| teste | **una sola, tre classi su barriere simmetriche** | da ogni barra: `+k·ATR` per primo (SU), `−k·ATR` per primo (GIÙ), nessuno dei due entro `H` (FERMO). `P_su` entra, `P_giu` esce e vota −1 |
+| stato della posizione | **fuori dalle feature** | il modello non sa se una posizione è aperta. È un'opinione sulla barra, indipendente dal trading in corso — ed è ciò che rende identico l'artefatto per i due consumatori |
+
+### Perché il tre-classi qui non è il tre-classi già bocciato
+
+La differenza è la **simmetria delle barriere**, non il numero di classi. Con `TP_ATR_MULTIPLE = 1.5`
+e `SL_ATR_MULTIPLE = 1.0` la classe «sell» significa «lo stop di una posizione lunga è stato
+toccato per primo»: copre ~60% delle barre e confonde «scende» con «scende un po' e poi sale». È
+la ragione scritta in `ml/signals.py` per cui quella classe non va usata come segnale di vendita.
+
+Con barriere simmetriche la classe GIÙ significa «è sceso di `k·ATR` prima di salirne altrettanti»,
+cioè esattamente la gamba ribassista da evitare. Le due classi direzionali diventano confrontabili
+fra loro, che è la proprietà che serve a `P_su` contro `P_giu`.
+
+Il prezzo della simmetria è che scompare l'argomento di `labeling.py` sul break-even (con barriere
+2:1 la precisione di pareggio scende dal 66,7% al 44,4%). Qui non si applica allo stesso modo:
+il modello sceglie una **direzione**, non solo se entrare, e il pavimento sulle commissioni resta
+il vincolo economico dentro l'etichetta.

@@ -105,6 +105,13 @@ def triple_barrier_events(
     - `t_exit`     timestamp della candela di uscita
     - `exit_return` rendimento realizzato, lordo di commissioni
     - `tp_width` / `sl_width`  ampiezza effettiva delle barriere, in frazione del prezzo
+    - `ambiguous` le due barriere sono state toccate nella **stessa** candela
+
+    `ambiguous` esiste perche' la convenzione pessimistica non e' universale. Con barriere
+    asimmetriche e un consumatore solo lungo, assegnare SELL e' la scelta prudente. Con barriere
+    **simmetriche** e un modello che sceglie la direzione, quelle righe direbbero al modello
+    "scende" mentre il dato non dice niente: chi etichetta in modo simmetrico le toglie invece di
+    crederci, e senza questa colonna non puo' nemmeno sapere quante sono.
 
     `t_exit` non e' un dettaglio diagnostico: e' il dato senza cui il **purging** della
     cross-validation non e' calcolabile. Due osservazioni le cui vite si sovrappongono
@@ -122,6 +129,7 @@ def triple_barrier_events(
     labels = np.zeros(total, dtype=np.int8)
     exit_bar = np.arange(total, dtype=np.int64)
     exit_return = np.zeros(total, dtype=float)
+    ambiguous = np.zeros(total, dtype=bool)
 
     labelable = total - horizon
     if labelable <= 0:
@@ -133,6 +141,7 @@ def triple_barrier_events(
                 "exit_return": exit_return,
                 "tp_width": take_profit,
                 "sl_width": stop_loss,
+                "ambiguous": ambiguous,
             },
             index=df.index,
         )
@@ -174,6 +183,10 @@ def triple_barrier_events(
         bars[lost] = first_lower[lost] + 1
         returns[lost] = -stop_loss[start:stop][lost]
 
+        # Stessa candela per entrambe le barriere: l'OHLC non dice in che ordine il prezzo le ha
+        # toccate. La riga resta SELL per la convenzione pessimistica, ma viene segnalata.
+        ambiguous[start:stop] = (first_lower == first_upper) & (first_lower != never)
+
         labels[start:stop] = chunk
         exit_bar[start:stop] = np.arange(start, stop) + bars
         exit_return[start:stop] = returns
@@ -190,6 +203,7 @@ def triple_barrier_events(
             "exit_return": exit_return,
             "tp_width": take_profit,
             "sl_width": stop_loss,
+            "ambiguous": ambiguous,
         },
         index=df.index,
     )
@@ -275,3 +289,52 @@ def extrema_labels(
     labels.iloc[argrelextrema(df["Low"].values, np.less, order=order)[0]] = BUY
     labels = filter_labels_by_future_return(df, labels, min_return, return_horizon)
     return apply_label_cooldown(labels, cooldown)
+
+
+# --- Prossimita' agli estremi locali ------------------------------------------------------------
+
+
+def swing_target(close: pd.Series | np.ndarray, window: int, verso: str = "entrambi") -> pd.Series:
+    """Target continuo in [-1, 1]: +1 su un massimo locale, -1 su un minimo, ~0 dove non c'e'.
+
+    E' il **rango centrato** della chiusura dentro la finestra di `window` barre per lato,
+    riscalato. Chiede al modello una domanda diversa dalla barriera tripla: quella chiede «di
+    quanto si muove il prezzo», che e' una proprieta' della volatilita'; questa chiede «dove sta
+    questa barra rispetto alle sue vicine», che e' la forma.
+
+    La proprieta' che la rende adatta e' il comportamento **dentro una tendenza**: in una salita
+    regolare la barra centrale ha meta' finestra sopra e meta' sotto per costruzione, quindi il
+    target vale circa 0 e non +1. Satura solo dove la salita si esaurisce. Un massimo dei prezzi
+    futuri, o una distanza da quel massimo, non hanno questa proprieta' e marcherebbero come
+    «vicino al massimo» tutta la salita, che e' l'errore che rende quelle etichette inservibili.
+
+    **Guarda `window` barre nel futuro, per costruzione**, e da qui tre vincoli per chi la usa:
+    le ultime `window` barre non sono etichettabili (escono NaN da sole), il taglio fra stima e
+    verifica vuole un embargo di `window` barre, e se il target rientra fra le feature va ritardato
+    di **almeno `window` + 1** barre -- ritardarlo di una sola inserisce look-ahead quasi puro.
+
+    `verso` serve a separare le due meta', ed e' la cosa piu' importante di questa funzione.
+    Il rango centrato usa anche le `window` barre **passate**, che le feature gia' descrivono:
+    misurato, uno Stochastic senza modello ne spiega IC 0,70, cioe' il 93%. Valutare un modello
+    contro il target pieno misura quindi soprattutto la sua capacita' di rifare uno Stochastic --
+    e infatti il modello ne prende 0,67, meno dell'indicatore. Il metro va preso contro
+    `verso="avanti"`, dove sia lo Stochastic sia il modello stanno attorno a 0,05.
+
+    Il rango si ricava da due rolling causali invece che da una finestra centrata: quello
+    all'indietro da' la posizione fra le `window` barre precedenti, quello sulla serie rovesciata
+    fra le successive, e la somma meno uno e' il rango centrato esatto. Costa O(n log window)
+    invece di materializzare n x (2 window + 1) valori, che a 5m su quindici simboli non ci sta.
+    """
+    if window < 1:
+        raise ValueError("window deve essere >= 1")
+    serie = pd.Series(close).astype(float)
+    dietro = serie.rolling(window + 1).rank().to_numpy()
+    avanti = serie[::-1].rolling(window + 1).rank().to_numpy()[::-1]
+    if verso == "dietro":  # la meta' gia' nota: e' uno Stochastic, serve come riferimento
+        return pd.Series((dietro - 1.0) / window * 2.0 - 1.0, index=serie.index, name="Target")
+    if verso == "avanti":  # la meta' non conoscibile: e' l'unico metro onesto
+        return pd.Series((avanti - 1.0) / window * 2.0 - 1.0, index=serie.index, name="Target")
+    if verso != "entrambi":
+        raise ValueError(f"verso sconosciuto: {verso!r}")
+    rango = dietro + avanti - 1.0  # rango centrato esatto, in [1, 2*window + 1]
+    return pd.Series((rango - 1.0) / window - 1.0, index=serie.index, name="Target")

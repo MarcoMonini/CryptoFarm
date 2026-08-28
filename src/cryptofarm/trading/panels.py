@@ -587,7 +587,9 @@ STRATEGIE: dict[str, Strategia] = {
     ),
     "AI Model": Strategia(
         indicatori=(),
-        esegui=lambda df, cache, v: strategies.ai_model_simulation(df=df, model=v["MODELLO"]),
+        esegui=lambda df, cache, v: strategies.ai_model_simulation(
+            df=df, model=v["MODELLO"], symbol=v.get("SIMBOLO", "")
+        ),
         note="Signals come from the trained model: nothing to plot.",
     ),
     "Donchian Breakout": Strategia(

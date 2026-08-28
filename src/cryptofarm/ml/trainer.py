@@ -292,10 +292,16 @@ def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = Non
     return result
 
 
-# Precedenza alla strategia piu' recente: politica a tre azioni, poi meta-labeling, poi il
-# classificatore di segnale originale. Il modello della strategia piu' recente e' quello che si
-# vuole vedere sul grafico; per tornare al precedente basta spostarne l'artefatto altrove.
-MODEL_PRECEDENCE = ("policy_model", "meta_model", MODEL_NAME)
+# Precedenza: modello delle gambe, poi meta-labeling, poi il classificatore di segnale
+# originale. Il modello della strategia piu' recente e' quello che si vuole vedere sul grafico;
+# per tornare al precedente basta spostarne l'artefatto altrove.
+#
+# **`policy_model` non e' piu' in catena.** Restava per primo, quindi bastava che l'artefatto
+# esistesse in `models/` perche' la voce «AI Model» eseguisse la politica a tre azioni -- il
+# disegno chiuso in negativo da `strategy.md` §12-13, con la causa misurata in §13.1 (entrare e
+# uscire alla conferma cattura zero in media, su ogni simbolo e a ogni soglia, prima dei costi).
+# L'artefatto non viene cancellato: se serve rivederlo, si rimette il nome in questa tupla.
+MODEL_PRECEDENCE = ("leg_model", "meta_model", MODEL_NAME)
 
 
 def stored_decision_threshold() -> float:
@@ -308,6 +314,28 @@ def stored_decision_threshold() -> float:
             except Exception:
                 continue
     return DEFAULT_DECISION_THRESHOLD
+
+
+DEFAULT_EXIT_THRESHOLD = 0.90
+
+
+def stored_exit_threshold() -> float:
+    """Soglia d'**uscita**, che vale su `P(giu)` e non su `P(su)`.
+
+    Non e' la stessa di `stored_decision_threshold`, e confonderle e' un difetto gia' capitato:
+    le due teste hanno distribuzioni diverse, quindi un valore che sulla prima seleziona l'8%
+    delle barre sulla seconda ne seleziona l'80%, e ogni posizione si chiude alla barra dopo
+    averla aperta. Il default alto e' deliberato: senza una calibrazione l'uscita a modello deve
+    quasi non scattare, perche' l'ablazione la misura dannosa (vedi `ml/signals.leg_signals`).
+    """
+    for name in MODEL_PRECEDENCE:
+        metadata_path = MODELS_DIR / f"{name}.json"
+        if metadata_path.exists():
+            try:
+                return float(json.loads(metadata_path.read_text())["exit_threshold"])
+            except Exception:
+                continue
+    return DEFAULT_EXIT_THRESHOLD
 
 
 def _meta_metadata() -> dict | None:

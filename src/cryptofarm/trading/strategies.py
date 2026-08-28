@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 from ta.trend import PSARIndicator
 
-from cryptofarm.ml.signals import barrier_signals, meta_signals, policy_signals
+from cryptofarm.ml.signals import barrier_signals, leg_signals, meta_signals, policy_signals
 from cryptofarm.ml.trainer import active_model_name, meta_parameters, stored_decision_threshold
 from cryptofarm.trading.indicators import latest_bands
 
@@ -804,7 +804,7 @@ def get_green_red_percentage(df: pd.DataFrame):
     return green_after_green / green
 
 
-def ai_model_simulation(df, model, threshold: float = None):
+def ai_model_simulation(df, model, threshold: float = None, symbol: str = ""):
     """Strategia "AI Model": ingresso sul punteggio del modello, uscita sulle barriere.
 
     Il modello produce solo segnali di ingresso; l'uscita e' il take-profit, lo stop-loss o il
@@ -816,6 +816,10 @@ def ai_model_simulation(df, model, threshold: float = None):
     """
     threshold = threshold if threshold is not None else stored_decision_threshold()
     family = active_model_name()
+    if family == "leg_model":
+        # Il modello delle gambe emette anche l'uscita (`P(giu)`), quindi non c'e' take profit:
+        # e' `ml/signals.leg_signals` a decidere, e la ragione e' misurata li'.
+        return leg_signals(df, model, threshold=threshold, symbol=symbol)
     if family == "policy_model":
         # La politica a tre azioni decide anche l'uscita, quindi le barriere qui non entrano.
         return policy_signals(df, model, threshold=threshold)
