@@ -8,11 +8,14 @@ perche' troncando fra le barre corte la barra lunga incriminata resta identica. 
 precedenti non si spostino di un capello.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from cryptofarm.trading import confluence
+from cryptofarm.trading.indicators_extra import ExtraCache
 
 
 def _candele(giorni: int = 120, seme: int = 0) -> pd.DataFrame:
@@ -624,3 +627,51 @@ def test_la_necessarieta_vale_quanto_la_definizione_che_la_descrive(candele):
         atteso[nome] = float(np.mean(sotto_soglia | (ampiezza < risultato.k_famiglie)))
 
     assert risultato.necessarieta == pytest.approx(atteso)
+
+
+# --- il votante a modello -------------------------------------------------------------------------
+
+
+def test_il_votante_a_modello_non_vota_mai_corto(candele, monkeypatch):
+    """La proprieta' che non si vede dai tipi, e che un refactoring distratto romperebbe.
+
+    Il modello a swing prevede la prossimita' a un estremo locale e la forma misurata di quel
+    segnale e' a U: entrambi i poli precedono rendimenti sopra la media
+    (`.claude/docs/modello-swing.md` §5.1). Far votare `sign(previsione)` -- la lettura naturale
+    di un target in [-1, 1] -- darebbe un voto **corto** proprio sulle barre che rendono di piu'.
+    Il votante vota quindi +1 o 0, mai -1, e questo test e' cio' che lo tiene fermo.
+
+    Il modello finto mette i due poli a blocchi di una cadenza, cosi' che la decisione ne veda sia
+    di negativi sia di positivi, e ogni terzo blocco al centro, cosi' che ci siano anche uscite.
+    """
+    cadenza = confluence.signals.swing_cadenza(candele.index)
+
+    class Poli:
+        def predict(self, X):
+            blocco = np.arange(len(X)) // cadenza
+            return np.where(blocco % 2 == 0, -1.0, 1.0) * np.where(blocco % 3 == 2, 0.1, 0.9)
+
+    monkeypatch.setattr(confluence.signals, "swing_model", lambda: Poli())
+    eventi = confluence._modello(candele, ExtraCache(candele), {"entra": 0.5, "esci": 0.4})
+
+    stati = {stato for _, _, stato in eventi}
+    assert stati == {0, 1}, f"servono ingressi e uscite per misurare qualcosa, visti {stati}"
+
+
+def test_senza_artefatto_il_votante_a_modello_tace_e_resta_fuori_dal_default(candele, monkeypatch):
+    """In produzione `models/` e' vuoto, e li' la confluenza deve restare quella misurata.
+
+    Non basta che il votante si astenga: i pesi si normalizzano sui votanti **presenti**, quindi
+    un ottavo che tace sempre alzerebbe di fatto la soglia per gli altri sette. Deve proprio
+    restare fuori dall'insieme di default -- pur restando nel registro, cosi' `selezione` lo
+    raggiunge per misurarlo.
+    """
+    monkeypatch.setattr(confluence.signals, "MODELS_DIR", Path("/nessun/modello/qui"))
+    confluence.signals.swing_model.cache_clear()
+    monkeypatch.setattr(confluence.signals, "swing_model", confluence.signals.swing_model.__wrapped__)
+
+    assert confluence._modello(candele, ExtraCache(candele), {"entra": 0.5, "esci": 0.4}) == []
+    nomi = [v.nome for v in confluence.votanti_predefiniti()]
+    assert "modello" not in nomi
+    assert len(nomi) == len(confluence.REGISTRO) - 1
+    assert confluence.selezione("modello")[0].nome == "modello", "il registro lo tiene comunque"

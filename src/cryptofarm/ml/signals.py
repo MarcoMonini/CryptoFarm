@@ -409,6 +409,17 @@ SWING_ENTRA, SWING_ESCI = 0.35, 0.25
 SCALA_MINIMA_BARRE = 28
 
 
+def swing_model_disponibile() -> bool:
+    """Se l'artefatto del modello a swing e' su disco.
+
+    Separata da `swing_model` perche' la risposta serve **prima** di caricare: la confluenza deve
+    decidere se il votante a modello fa parte dell'insieme di default, e in produzione gli
+    artefatti sono gitignorati. Legge `MODELS_DIR` a ogni chiamata, invece di ricordarselo, cosi'
+    la variabile d'ambiente che lo sposta continua a valere.
+    """
+    return (MODELS_DIR / "swing_model.joblib").exists()
+
+
 @lru_cache(maxsize=1)
 def swing_model():
     """Il modello a swing addestrato, o `None` se l'artefatto non c'e'.
@@ -417,8 +428,7 @@ def swing_model():
     griglia. Il rovescio e' che un riaddestramento si vede solo riavviando il processo: e' la
     stessa condizione della pagina, che il modello lo carica una volta in `st.session_state`.
     """
-    percorso = MODELS_DIR / "swing_model.joblib"
-    return load_model(percorso) if percorso.exists() else None
+    return load_model(MODELS_DIR / "swing_model.joblib") if swing_model_disponibile() else None
 
 
 def swing_predictions(df: pd.DataFrame, model, symbol: str = "") -> np.ndarray:

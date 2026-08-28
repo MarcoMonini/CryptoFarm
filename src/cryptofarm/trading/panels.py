@@ -416,6 +416,12 @@ INDICATORI: dict[str, Indicatore] = {
             Traccia("bande_innesco", "ATR bands · trigger", BLU, tratteggio="dot", larghezza=1.4),
             Traccia("zone_regime", "Trend zones · regime", ARANCIO, tratteggio="dash", larghezza=1.4),
             Traccia("zone_struttura", "Trend zones · structure", ARANCIO, tratteggio="dot", larghezza=1.4),
+            # Il votante a modello e' l'unico che non scende mai sotto zero: vota +1 quando
+            # `|previsione|` e' alta e 0 altrimenti, perche' la forma misurata del segnale non
+            # dice il verso. Una linea che sta solo in [0, 1] si legge a colpo d'occhio come
+            # diversa dalle altre, ed e' giusto cosi'. Se l'artefatto non c'e' la serie non
+            # esiste e la traccia si salta da se'.
+            Traccia("modello", "Swing model · trigger", ACQUA, tratteggio="dot", larghezza=1.4),
         ),
     ),
     "media_regime": Indicatore(
@@ -897,6 +903,8 @@ ETICHETTE: dict[str, str] = {
     "CONF_ZONE_SLOW": "Slow EMA (regime)",
     "CONF_ZONE_FAST_STRUTTURA": "Fast EMA (structure)",
     "CONF_ZONE_SLOW_STRUTTURA": "Slow EMA (structure)",
+    "CONF_MODELLO_ENTRA": "Model |prediction| in",
+    "CONF_MODELLO_ESCI": "Model |prediction| out",
     "ADX_WINDOW": "ADX window",
     "ADX_MIN": "ADX minimum (trend required)",
     "ADX_MAX": "ADX maximum (range required)",

@@ -198,6 +198,13 @@ CONF_ZONE_SLOW = Param(100, 5, 400, 1)
 CONF_ZONE_FAST_STRUTTURA = Param(12, 2, 200, 1)
 CONF_ZONE_SLOW_STRUTTURA = Param(50, 5, 400, 1)
 
+# Le due soglie del votante a modello, sulla stessa scala della previsione ([-1, 1] in valore
+# assoluto). Sono i valori scelti sulla validazione in `ml/signals.SWING_ENTRA/SWING_ESCI`; qui
+# sono manopole perche' §5.2 misura che la coppia buona cambia da una finestra all'altra, e
+# tenerla nascosta in una costante farebbe credere che ne esista una giusta.
+CONF_MODELLO_ENTRA = Param(0.35, 0.0, 1.0, 0.05)
+CONF_MODELLO_ESCI = Param(0.25, 0.0, 1.0, 0.05)
+
 ICHIMOKU_FAST = Param(9, 2, 100, 1)
 ICHIMOKU_SLOW = Param(26, 2, 200, 1)
 ICHIMOKU_SPAN = Param(52, 2, 400, 1)
