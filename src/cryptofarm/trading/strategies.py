@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 from ta.trend import PSARIndicator
 
-from cryptofarm.ml.signals import barrier_signals, leg_signals, meta_signals, policy_signals
+from cryptofarm.ml.signals import barrier_signals, leg_signals, meta_signals, policy_signals, swing_signals
 from cryptofarm.ml.trainer import active_model_name, meta_parameters, stored_decision_threshold
 from cryptofarm.trading.indicators import latest_bands
 
@@ -816,6 +816,11 @@ def ai_model_simulation(df, model, threshold: float = None, symbol: str = ""):
     """
     threshold = threshold if threshold is not None else stored_decision_threshold()
     family = active_model_name()
+    if family == "swing_model":
+        # Il modello a swing non emette una direzione: emette la prossimita' a un estremo locale,
+        # e la forma misurata di quel segnale e' a U. L'uscita e' la stessa condizione
+        # dell'ingresso letta al contrario, quindi qui non entrano ne' barriere ne' soglia.
+        return swing_signals(df, model, symbol=symbol)
     if family == "leg_model":
         # Il modello delle gambe emette anche l'uscita (`P(giu)`), quindi non c'e' take profit:
         # e' `ml/signals.leg_signals` a decidere, e la ragione e' misurata li'.

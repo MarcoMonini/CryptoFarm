@@ -306,7 +306,14 @@ def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = Non
 # le soglie provate, e che il verdetto «PASSA» si accontentava di battere un p95 anch'esso
 # negativo. Finche' non e' rivalidato non deve servire la voce «AI Model» della pagina: bastava
 # spostare l'artefatto, ma cosi' la ragione resta scritta dove qualcuno la rilegge.
-MODEL_PRECEDENCE = ("meta_model", MODEL_NAME)
+# `swing_model` e' il piu' recente e sta in testa. Cablarlo e' stata una decisione, non un
+# automatismo: `.claude/docs/modello-swing.md` §5 lo lasciava fuori perche' la sua regola a
+# esposizione non batte il caso a esposizione appaiata (1 simbolo su 15, contro 0,75 attesi). Cio'
+# che la pagina serve non e' quindi una strategia dichiarata redditizia, ma la sola lettura che la
+# misura sostiene -- `|previsione|` come interruttore, mai `sign(previsione)` come direzione. Chi
+# guarda il grafico deve sapere che il riferimento da battere e' il possesso passivo e che questa
+# regola non lo batte: la nota del riquadro lo dice, e `ml/signals.swing_exposure` spiega perche'.
+MODEL_PRECEDENCE = ("swing_model", "meta_model", MODEL_NAME)
 
 
 def stored_decision_threshold() -> float:

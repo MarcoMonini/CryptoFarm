@@ -114,3 +114,30 @@ def test_un_regressore_si_salva_e_si_rilegge(tmp_path):
     percorso = tmp_path / "regressore.joblib"
     save_model(modello, percorso)
     assert np.allclose(load_model(percorso).predict(X), modello.predict(X))
+
+
+def test_the_swing_model_leads_the_chain_when_it_is_on_disk(models_dir):
+    """`swing_model` in testa: e' il piu' recente, ed e' quello che si vuole vedere sul grafico.
+
+    Vale la stessa via d'uscita di sempre -- spostare l'artefatto altrove riporta la voce «AI
+    Model» al modello precedente -- e vale la stessa avvertenza di `leg_model`: stare in catena
+    non vuol dire essere redditizio, vuol dire essere servito. Cio' che rende accettabile
+    servirlo e' che la regola cablata sia quella misurata (`|previsione|` come esposizione) e non
+    quella che il tipo dell'etichetta suggerisce (il segno come direzione).
+    """
+    (models_dir / "meta_model.joblib").write_bytes(b"")
+    assert trainer.active_model_name() == "meta_model"
+
+    (models_dir / "swing_model.joblib").write_bytes(b"")
+    assert trainer.active_model_name() == "swing_model"
+
+
+def test_the_swing_metadata_do_not_hijack_the_decision_threshold(models_dir):
+    """`swing_model.json` non ha `decision_threshold`, e non deve azzerare quello di chi ce l'ha.
+
+    La soglia si legge scorrendo la precedenza: essendo `swing_model` il primo, un file senza
+    quella chiave poteva far cadere la lettura sul default invece che sul modello che la porta.
+    """
+    (models_dir / "swing_model.json").write_text(json.dumps({"ic_futuro": 0.0385}))
+    (models_dir / "meta_model.json").write_text(json.dumps({"decision_threshold": 0.62}))
+    assert trainer.stored_decision_threshold() == pytest.approx(0.62)
