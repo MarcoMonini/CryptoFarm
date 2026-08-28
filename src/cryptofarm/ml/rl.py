@@ -49,13 +49,23 @@ from dataclasses import dataclass
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-# Costo di **un** cambio di posizione (un lato). Il giro completo ne paga due, uno all'ingresso e
-# uno all'uscita, e li paga in due transizioni diverse: e' cosi' che l'agente vede il conto vero.
-COSTO = 0.001
+# Una decisione al giorno: 288 barre da cinque minuti. E' la cadenza a cui la regola a esposizione
+# gia' cablata prende le sue, e cambiarla cambia il problema, non la sua soluzione.
+CADENZA = 288
+# Il costo **vero** di un lato su Binance, quello con cui si misura.
+FEE = 0.001
+# Il costo che l'agente vede dentro la ricompensa, ed e' dodici volte quello vero. Non e' un errore
+# e non e' una stima prudente: e' il termine che allarga la banda di non-fare, scelto in
+# validazione fra 0,001 / 0,004 / 0,012. Con il costo vero la politica gira 203 volte in due anni
+# e mezzo e resta sotto il caso; a 0,012 gira 184 volte e sopra ci passa. Misurare resta a `FEE`.
+COSTO = 0.012
 # 0,95 a cadenza giornaliera e' un orizzonte di circa venti giorni. Sotto, l'agente non aspetta
 # mai una gamba; sopra, il costo di un cambio sparisce dentro il valore terminale.
 GAMMA = 0.95
-GIRI = 5
+# Un solo giro, cioe' la politica miope con il costo dentro. Scelto in validazione contro 2, 3 e 5:
+# oltre il primo giro il bersaglio contiene la stima di se stesso e la varianza cresce piu' del
+# guadagno di orizzonte. E' un risultato, non una scorciatoia.
+GIRI = 1
 
 
 @dataclass(frozen=True)
@@ -85,7 +95,11 @@ def transizioni_simbolo(features: np.ndarray, close: np.ndarray, cadenza: int, f
         if len(d) < 2:
             continue
         x, y = features[d], features[d + cadenza]
-        buoni = np.isfinite(x).all(axis=1) & np.isfinite(y).all(axis=1)
+        # `any`, non `all`: HistGradientBoosting tratta i NaN da solo, e le colonne di
+        # posizionamento mancano per interi anni sui simboli entrati tardi nei futures. Con `all`
+        # il campione di stima scendeva da ~190.000 righe a 29.000 -- e sparivano proprio i primi
+        # anni, cioe' l'unico ciclo completo che il periodo di stima contiene.
+        buoni = np.isfinite(x).any(axis=1) & np.isfinite(y).any(axis=1)
         buoni &= (close[d] > 0) & (close[d + cadenza] > 0)
         pezzi.append((x[buoni], y[buoni], np.log(close[d + cadenza][buoni] / close[d][buoni])))
     if not pezzi:
@@ -163,7 +177,7 @@ def posizioni(Q: list[HistGradientBoostingRegressor], stato: np.ndarray, inizial
     return fuori
 
 
-def rendimento(azioni: np.ndarray, logret: np.ndarray, costo: float = COSTO, iniziale: int = 0) -> float:
+def rendimento(azioni: np.ndarray, logret: np.ndarray, costo: float = FEE, iniziale: int = 0) -> float:
     """Rendimento composto netto in percento della sequenza di posizioni, costi dei cambi inclusi."""
     cambi = np.abs(np.diff(azioni.astype(float), prepend=float(iniziale)))
     return float(np.exp(np.sum(azioni * logret - costo * cambi)) - 1.0) * 100
