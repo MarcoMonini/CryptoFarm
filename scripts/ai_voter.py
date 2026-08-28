@@ -50,13 +50,21 @@ import argparse
 
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier
 
 from cryptofarm.paths import PROJECT_ROOT
 from cryptofarm.trading import confluence, rotation
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.pnl import simulate_positions
 from scripts import confluence_lab as lab
-from scripts.meta_gate import cross_features, features_frame, gate_report
+from scripts.meta_gate import (
+    FEATURE_COLUMNS,
+    _auc,
+    cross_features,
+    features_frame,
+    gate_report,
+    sequential_equity,
+)
 
 USCITA = PROJECT_ROOT / "analysis_cache" / "ai_voter"
 
@@ -166,6 +174,62 @@ def rapporto(campione: pd.DataFrame, fold: int = 6, embargo: int = 24) -> pd.Dat
     return unita
 
 
+def verifica_temporale(campione: pd.DataFrame, taglio: str, seme: int = 0) -> pd.DataFrame:
+    """Addestra **solo sul passato** e misura **solo sul futuro**. E' il test che decide.
+
+    La validazione purgata dentro una finestra risponde a «il modello sa ordinare le operazioni di
+    questo periodo?». La domanda operativa e' un'altra: «un modello che conosce solo il passato sa
+    ordinare quello che viene dopo?». Le due possono divergere -- e qui divergono -- perche' la
+    prima vede, in ogni fold, righe che vengono da *dopo* le righe che predice: il purging toglie
+    la sovrapposizione fra operazioni vicine, non il fatto che il regime successivo sia gia' nel
+    campione di addestramento.
+
+    Nessun riaddestramento scorrevole: un solo taglio, dichiarato prima. Rifarlo a piu' tagli e
+    scegliere il migliore sarebbe la stessa ricerca su griglia che questo progetto ha gia'
+    misurato non trasferire.
+    """
+    dentro = campione[campione["t_start"] < taglio]
+    fuori = campione[campione["t_start"] >= taglio].copy()
+    if len(dentro) < 500 or len(fuori) < 200:
+        raise SystemExit(f"campione insufficiente per il taglio {taglio}: {len(dentro)}/{len(fuori)}")
+
+    modello = HistGradientBoostingClassifier(
+        max_iter=200,
+        learning_rate=0.05,
+        max_leaf_nodes=15,
+        min_samples_leaf=40,
+        l2_regularization=1.0,
+        random_state=seme,
+    )
+    modello.fit(dentro[FEATURE_COLUMNS].to_numpy(dtype=float), dentro["y"].to_numpy(dtype=int))
+    fuori["p"] = modello.predict_proba(fuori[FEATURE_COLUMNS].to_numpy(dtype=float))[:, 1]
+
+    netto = fuori["netto_%"].to_numpy()
+    righe = []
+    for soglia in (0.0, 0.40, 0.45, 0.50, 0.55, 0.60):
+        tieni = fuori["p"].to_numpy() >= soglia if soglia else np.ones(len(fuori), bool)
+        if tieni.sum() < 20:
+            continue
+        caso = controllo_casuale(netto, int(tieni.sum()))
+        estrazioni = caso.pop("_estrazioni")
+        righe.append(
+            {
+                "soglia": soglia or "nessuna",
+                "operazioni": int(tieni.sum()),
+                "precisione_%": round(100 * float(fuori["y"].to_numpy()[tieni].mean()), 1),
+                "netto_medio_%": round(float(netto[tieni].mean()), 3),
+                "composto_seq": round(sequential_equity(netto[tieni]), 2),
+                **{k: round(v, 3) for k, v in caso.items()},
+                "percentile_nel_caso": round(float((estrazioni < netto[tieni].mean()).mean() * 100), 1),
+            }
+        )
+    tabella = pd.DataFrame(righe)
+    tabella.attrs["auc"] = _auc(fuori["y"].to_numpy(), fuori["p"].to_numpy())
+    tabella.attrs["n_dentro"] = len(dentro)
+    tabella.attrs["n_fuori"] = len(fuori)
+    return tabella
+
+
 def _selfcheck() -> None:
     """Un segnale piantato si deve trovare; rumore no. Riusa il controllo gia' scritto."""
     from scripts.meta_gate import selfcheck as meta_selfcheck
@@ -209,6 +273,14 @@ def main() -> None:
         tabella = rapporto(parte, fold=args.folds)
         print(f"\n--- {nome} --- AUC {tabella.attrs.get('auc', float('nan')):.3f}  n={tabella.attrs.get('n')}")
         print(tabella.to_string(index=False))
+
+    temporale = verifica_temporale(campione, args.oos)
+    print(f"\n--- VERIFICA TEMPORALE (addestrato < {args.oos}, misurato dopo) ---")
+    print(
+        f"    AUC {temporale.attrs['auc']:.3f}   "
+        f"stima {temporale.attrs['n_dentro']}  verifica {temporale.attrs['n_fuori']}"
+    )
+    print(temporale.to_string(index=False))
 
 
 if __name__ == "__main__":
