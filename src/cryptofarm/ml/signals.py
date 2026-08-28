@@ -19,6 +19,8 @@ vendita, il successivo acquisto), che e' anche l'unico modo in cui l'accoppiamen
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 import pandas as pd
 
@@ -26,7 +28,8 @@ from cryptofarm.data.klines import interval_to_minutes
 from cryptofarm.ml.dataset import build_design_matrix, cusum_events
 from cryptofarm.ml.features import build_feature_frame
 from cryptofarm.ml.labeling import BUY, HORIZON_BARS, SL_ATR_MULTIPLE, TP_ATR_MULTIPLE, barrier_widths
-from cryptofarm.ml.models import predict_proba
+from cryptofarm.ml.models import load_model, predict_proba
+from cryptofarm.paths import MODELS_DIR
 
 
 def interval_from_index(index: pd.DatetimeIndex) -> str:
@@ -387,3 +390,116 @@ def leg_signals(
         posizione = uscita + 1
 
     return acquisti, vendite
+
+
+# --- Il modello a swing --------------------------------------------------------------------------
+
+# Le soglie della regola a esposizione, scelte **sulla validazione** e non fuori campione.
+# `.claude/docs/modello-swing.md` §5.2 misura che nessuna coppia va bene in entrambe le finestre:
+# 0,50/0,40 rende fuori campione e perde in validazione, 0,35/0,25 il contrario. Prendere la prima
+# perche' e' quella che rende sul 2024-2026 sarebbe tararsi sul campione di verifica -- il difetto
+# per cui `leg_model` e' uscito dalla catena. Si prende quindi quella scelta dove e' lecito
+# sceglierla, sapendo che fuori campione ha reso -0,191% per operazione.
+SWING_ENTRA, SWING_ESCI = 0.35, 0.25
+
+# Quante barre deve avere una scala lunga perche' sia calcolabile. Non e' un margine prudenziale:
+# `ExtraCache.adx(14)` passa da `ta`, che con meno di due finestre solleva `IndexError` invece
+# di restituire NaN. In addestramento non si vede -- le serie sono di centinaia di migliaia di
+# barre -- ma la pagina carica per default 240 ore, cioe' dieci barre giornaliere, e li' cadeva.
+SCALA_MINIMA_BARRE = 28
+
+
+@lru_cache(maxsize=1)
+def swing_model():
+    """Il modello a swing addestrato, o `None` se l'artefatto non c'e'.
+
+    In cache perche' il votante della confluenza lo chiede una volta per configurazione della
+    griglia. Il rovescio e' che un riaddestramento si vede solo riavviando il processo: e' la
+    stessa condizione della pagina, che il modello lo carica una volta in `st.session_state`.
+    """
+    percorso = MODELS_DIR / "swing_model.joblib"
+    return load_model(percorso) if percorso.exists() else None
+
+
+def swing_predictions(df: pd.DataFrame, model, symbol: str = "") -> np.ndarray:
+    """La previsione del modello a swing per ogni barra: -1 su un minimo locale, +1 su un massimo.
+
+    Le scale lunghe sono **quelle piu' lunghe della base**, non sempre `1h` e `1d`: a 4h
+    aggregare a un'ora vorrebbe dire ricampionare all'insu', cioe' inventare barre. Le colonne
+    che restano fuori diventano NaN, che il modello a gradienti tratta come categoria a se' --
+    ed e' una degradazione **misurata**, non sperata: senza `@1d` l'IC passa da +0,0540 a +0,0524,
+    senza `@1h` e `@1d` a +0,0542 (`.claude/docs/modello-swing.md` §4).
+
+    `symbol` serve alle due colonne di posizionamento; senza, restano NaN e l'IC misurato scende
+    di un decimillesimo. Non e' un percorso degradato da evitare, e' la condizione normale della
+    pagina.
+    """
+    from cryptofarm.ml.bar_features import SWING_COLUMNS, SWING_SCALES, build_swing_features
+
+    minuti = interval_to_minutes(interval_from_index(df.index))
+    scale = tuple(
+        s
+        for s in SWING_SCALES
+        if interval_to_minutes(s) > minuti and len(df) * minuti >= SCALA_MINIMA_BARRE * interval_to_minutes(s)
+    )
+    frame = build_swing_features(symbol, df, scales=scale).reindex(columns=SWING_COLUMNS)
+    previsto = model.predict(frame.to_numpy(dtype=float))
+    # `atr_rel` NaN sono le barre di riscaldamento, dove le feature strutturali non esistono
+    # ancora: e' lo stesso criterio con cui `swing_trainer.campione_simbolo` le scarta.
+    previsto[frame["atr_rel"].isna().to_numpy()] = np.nan
+    return previsto
+
+
+def swing_exposure(previsto: np.ndarray, entra: float, esci: float, cadenza: int) -> np.ndarray:
+    """Dentro quando `|previsione|` e' alta, fuori quando e' bassa: vero per barra.
+
+    **Non e' una regola direzionale, ed e' il punto.** Il segno della previsione non dice il
+    verso: `.claude/docs/modello-swing.md` §5.1 misura che *entrambi* i poli precedono rendimenti
+    sopra la media -- il polo +1 non e' «vendi» ma «tendenza forte in corso», e in cripto la
+    continuazione paga. Comprare i minimi previsti e vendere i massimi perde a tutte le soglie e
+    tutte le cadenze, in validazione come fuori campione. Cio' che la forma a U sostiene e' solo
+    *quanto* stare esposti, non da che parte.
+
+    L'isteresi non e' un abbellimento: con `entra == esci` ogni oscillazione della previsione
+    attorno alla soglia costa un giro di commissioni. La decisione si prende una volta ogni
+    `cadenza` barre e resta ferma in mezzo.
+    """
+    dentro = np.zeros(len(previsto), dtype=bool)
+    stato, inizio = False, 0
+    for i in range(0, len(previsto), max(int(cadenza), 1)):
+        forza = abs(previsto[i])
+        if not np.isfinite(forza):
+            continue
+        nuovo = bool(forza >= (esci if stato else entra))
+        if nuovo != stato:
+            dentro[inizio:i] = stato
+            stato, inizio = nuovo, i
+    dentro[inizio:] = stato
+    return dentro
+
+
+def swing_cadenza(index: pd.DatetimeIndex) -> int:
+    """Una decisione al giorno, in barre. E' la cadenza con cui il modello e' stato misurato."""
+    return max(round(1440 / interval_to_minutes(interval_from_index(index))), 1)
+
+
+def swing_signals(
+    df: pd.DataFrame,
+    model,
+    entra: float = SWING_ENTRA,
+    esci: float = SWING_ESCI,
+    symbol: str = "",
+) -> tuple[list[tuple], list[tuple]]:
+    """La regola a esposizione tradotta in acquisti e vendite alternati.
+
+    Nessuna barriera e nessuno stop: qui l'uscita e' la stessa condizione dell'ingresso letta al
+    contrario, perche' e' la sola forma su cui il modello sia stato misurato. Se l'ultima
+    posizione e' ancora aperta a fine serie non le si inventa una vendita: resta un acquisto
+    spaiato, che `pnl` ignora accoppiando per indice.
+    """
+    previsto = swing_predictions(df, model, symbol=symbol)
+    dentro = swing_exposure(previsto, entra, esci, swing_cadenza(df.index))
+    cambi = np.flatnonzero(np.diff(dentro.astype(np.int8), prepend=np.int8(0)))
+    close = df["Close"].to_numpy(dtype=float)
+    eventi = [(df.index[i], float(close[i])) for i in cambi]
+    return eventi[::2], eventi[1::2]
