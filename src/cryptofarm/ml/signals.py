@@ -593,20 +593,25 @@ ENTRY_VELOCE = "entry_model_veloce"
 ENTRY_LENTO = "entry_model"
 
 
-def entry_metadata(nome: str = "entry_model") -> dict:
+def entry_metadata(nome: str = "entry_model", blocco: str = "servizio") -> dict:
     """Soglia, tenuta e orizzonte con cui l'artefatto e' stato misurato.
 
     Non sono costanti di questo modulo di proposito: la soglia e' il quantile 0,98 delle previsioni
     **sullo stima** e la tenuta e' l'orizzonte dell'etichetta. Servire il modello con altri due
     numeri significa servire un'altra strategia, e i risultati fuori campione non descrivono piu'
     niente. Chi riaddestra con `--h` diverso ottiene numeri diversi qui dentro, e va bene cosi'.
+
+    `blocco="labeling"` da' invece l'etichetta: il metodo e l'orizzonte `h`. Serve a chi vuole
+    **disegnare** cio' che il modello ha imparato a prevedere accanto a cio' che prevede, e `h`
+    non e' deducibile dalla tenuta -- sono due argomenti distinti del trainer, uguali solo per
+    come e' stato lanciato finora.
     """
     percorso = MODELS_DIR / f"{nome}.json"
     if not percorso.exists():
         return {}
     import json
 
-    return json.loads(percorso.read_text()).get("servizio", {})
+    return json.loads(percorso.read_text()).get(blocco, {})
 
 
 def entry_model_disponibile(nome: str = "entry_model") -> bool:
@@ -622,6 +627,15 @@ def entry_model(nome: str = "entry_model"):
     return load_model(MODELS_DIR / f"{nome}.joblib") if entry_model_disponibile(nome) else None
 
 
+def barre_equivalenti(index: pd.DatetimeIndex, barre_5m: int) -> int:
+    """Un conteggio di barre da 5 minuti, tradotto nelle barre della pagina a durata uguale."""
+    base = interval_to_minutes(BASE_INTERVAL_ENTRY)
+    minuti = interval_to_minutes(interval_from_index(index))
+    # Mezza barra si arrotonda in su: `round` in Python arrotonda al pari, e a 1h 12,5 barre
+    # diventerebbero 12 -- mezz'ora in meno di quanto il modello e' stato misurato tenere.
+    return max(int(barre_5m * base / minuti + 0.5), 1)
+
+
 def entry_tenuta(index: pd.DatetimeIndex, servizio: dict) -> int:
     """La tenuta dei metadata, che e' in barre da 5 minuti, tradotta nelle barre della pagina.
 
@@ -629,11 +643,7 @@ def entry_tenuta(index: pd.DatetimeIndex, servizio: dict) -> int:
     centocinquanta candele di qualunque durata. Chi guarda il grafico a 1h deve vedere le stesse
     dodici ore e mezza, cioe' tredici barre.
     """
-    base = interval_to_minutes(BASE_INTERVAL_ENTRY)
-    minuti = interval_to_minutes(interval_from_index(index))
-    # Mezza barra si arrotonda in su: `round` in Python arrotonda al pari, e a 1h 12,5 barre
-    # diventerebbero 12 -- mezz'ora in meno di quanto il modello e' stato misurato tenere.
-    return max(int(int(servizio.get("tenuta", 150)) * base / minuti + 0.5), 1)
+    return barre_equivalenti(index, int(servizio.get("tenuta", 150)))
 
 
 SCALA_MASSIMA_ENTRY = 30

@@ -8,6 +8,7 @@ from plotly.subplots import make_subplots
 from scipy.signal import argrelextrema
 
 from cryptofarm.data.klines import interval_to_minutes
+from cryptofarm.ml import signals
 from cryptofarm.ml.trainer import (
     active_model_name,
     load_signal_model,
@@ -38,6 +39,20 @@ def modello_di_sessione():
     modello lo usa. I pezzi erano coperti da test, l'assemblaggio no, e il guasto e' passato di li'.
     """
     return load_signal_model() if active_model_name() else None
+
+
+def modelli_dingresso() -> dict[str, str]:
+    """Gli artefatti d'ingresso su disco, etichetta della pagina -> nome del file.
+
+    Solo questi due sono intercambiabili: sono la stessa famiglia addestrata su due orizzonti, e
+    la strategia sa gia' servirli entrambi. Le altre famiglie (`rl_model`, `swing_model`, ...)
+    rispondono ad altre domande e la scelta fra loro resta quella di `MODEL_PRECEDENCE`, cioe' si
+    fa spostando gli artefatti, non da un widget.
+
+    Vuoto quando non ce n'e' nessuno, che e' la condizione della produzione.
+    """
+    candidati = {"Fast (trades)": signals.ENTRY_VELOCE, "Slow (gates)": signals.ENTRY_LENTO}
+    return {etichetta: nome for etichetta, nome in candidati.items() if signals.entry_model_disponibile(nome)}
 
 
 def available_strategies(model) -> list[str]:
@@ -168,6 +183,10 @@ def trading_analysis(
         # -- e si aggiunge a qualunque vista: serve a vedere su queste candele quale numero il
         # modello impara a prevedere, non a decidere niente.
         indicatori = (*indicatori, "etichetta_swing")
+    if valori.get("MOSTRA_PREVISIONE"):
+        # Stessa idea, altra domanda: qui si vede cio' che il modello **prevede** accanto a cio'
+        # che gli e' stato insegnato, nella stessa unita' e sullo stesso asse.
+        indicatori = (*indicatori, "previsione_ingresso")
     pannelli = panels.pannelli_degli(indicatori)
     riga_di = {titolo: numero for numero, titolo in enumerate(pannelli, start=2)}
 
@@ -648,6 +667,51 @@ if __name__ == "__main__":
             "looks ahead to the next extreme, so the tail is empty and no strategy can trade it."
         )
     valori["MODELLO"] = st.session_state["model"]
+
+    # --- Quale dei due modelli d'ingresso -----------------------------------------------------
+    # I due artefatti sono la stessa famiglia su due orizzonti, e in servizio lavorano insieme: il
+    # veloce opera, il lento gli fa da cancello. Qui si puo' invece guardarli **uno alla volta**,
+    # che e' l'unico modo di vedere in che cosa differiscono su queste candele.
+    valori["FAMIGLIA"] = ""
+    candele = st.session_state["df"]
+    if strategia == config.AI_STRATEGY and (scelte := modelli_dingresso()):
+        etichetta = list(scelte)[0]
+        if len(scelte) > 1:
+            etichetta = st.sidebar.radio(
+                "Entry model", options=list(scelte), index=0, horizontal=True, key=f"famiglia_{interval}"
+            )
+        valori["FAMIGLIA"] = scelte[etichetta]
+        valori["MODELLO"] = signals.entry_model(valori["FAMIGLIA"])
+        servizio = signals.entry_metadata(valori["FAMIGLIA"])
+        qui = f" (**{signals.entry_tenuta(candele.index, servizio)}** here)" if candele is not None else ""
+        st.sidebar.caption(
+            f"Threshold **{servizio.get('soglia', float('nan')):+.4f}** log-return, holding "
+            f"**{int(servizio.get('tenuta', 0))}** 5m bars{qui}. Both come from the artifact. "
+            "Picked alone, the slow model is a strategy of its own; served together it only gates "
+            "the fast one's entries."
+        )
+        fuori = signals.entry_fuori_misura(candele.index) if candele is not None else ""
+        if fuori:
+            st.sidebar.warning(f"No signals here: {fuori}.")
+
+    # --- La previsione del modello, a richiesta -----------------------------------------------
+    # Sta accanto alla sua etichetta e nella stessa unita', non sul riquadro dello swing target:
+    # quello vive in [-1, 1] e schiaccerebbe dei rendimenti dell'ordine del centesimo.
+    valori["MOSTRA_PREVISIONE"] = False
+    if valori["FAMIGLIA"]:
+        valori["MOSTRA_PREVISIONE"] = st.sidebar.checkbox(
+            "Show prediction vs realised return", value=False, key=f"previsione_{interval}"
+        )
+        if valori["MOSTRA_PREVISIONE"]:
+            st.sidebar.caption(
+                "Blue is what the model predicts on each candle; green is what actually happened "
+                "over the same span, which is the number it was trained on and looks ahead, so "
+                "the tail is empty. The dashed line is the buy threshold: how far blue stays "
+                "below it is why the strategy trades rarely. **The two curves barely track each "
+                "other, and that is the model** — rank IC is +0.007 over all bars, but above the "
+                "line the realised return averages +2.0% against -0.004% over all bars. The edge "
+                "is in the tail, not in the fit."
+            )
 
     # --- Dati e visualizzazione ---------------------------------------------------------------
     st.sidebar.header("Data")

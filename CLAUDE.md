@@ -401,6 +401,11 @@ senza, 14 simboli su 15 in utile, 100° percentile contro ingressi a caso a pari
 modello prevede quello delle prossime venti barre *da cinque minuti*: sulla stessa soglia le barre
 marcate passano da 0,063% a 5m a 2,98% a 1h e 28,1% a 1d, contro lo 0,5% per cui è misurato.
 `signals.entry_fuori_misura` è il cancello di scala, gemello di `confluence.scala_fuori_misura`.
+Sulla pagina i due artefatti si scelgono da un interruttore (`Fast (trades)` / `Slow (gates)`) e la
+scelta arriva alla strategia come `ai_model_simulation(..., famiglia=...)`: sono due strategie, non
+due tarature. Il riquadro *Entry model* affianca previsione e bersaglio nella stessa unità — le due
+curve non si somigliano (IC di rango +0,007) e non è un guasto: sopra la soglia il realizzato medio
+è +1,99% contro −0,004% su tutte le barre.
 Conseguenza da conoscere prima di dire «non funziona»: a 5m marca **una barra su millecinquecento**,
 quindi su una finestra da 240 ore zero operazioni è il comportamento atteso.
 

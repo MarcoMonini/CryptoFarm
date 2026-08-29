@@ -812,7 +812,7 @@ def get_green_red_percentage(df: pd.DataFrame):
     return green_after_green / green
 
 
-def ai_model_simulation(df, model, threshold: float = None, symbol: str = ""):
+def ai_model_simulation(df, model, threshold: float = None, symbol: str = "", famiglia: str = ""):
     """Strategia "AI Model": ingresso sul punteggio del modello, uscita sulle barriere.
 
     Il modello produce solo segnali di ingresso; l'uscita e' il take-profit, lo stop-loss o il
@@ -821,9 +821,15 @@ def ai_model_simulation(df, model, threshold: float = None, symbol: str = ""):
 
     I segnali risultano alternati per costruzione, che e' anche l'unico caso in cui
     l'accoppiamento per indice di `simulate_trading_with_commisions` ha senso.
+
+    `famiglia` sceglie **quale** artefatto: senza, quello in testa a `MODEL_PRECEDENCE`. La pagina
+    la passa perche' i due modelli d'ingresso sono due strategie diverse -- il veloce opera, il
+    lento fa da cancello e da solo tiene la posizione dodici volte piu' a lungo -- e confrontarle
+    sullo stesso grafico e' il motivo per cui esistono entrambi. Chi la passa deve passare anche
+    il `model` corrispondente: qui non si carica niente da disco.
     """
     threshold = threshold if threshold is not None else stored_decision_threshold()
-    family = active_model_name()
+    family = famiglia or active_model_name()
     if family in ("entry_model_veloce", "entry_model"):
         # Soglia e tenuta stanno nei metadata dell'artefatto: sono il modello, non due manopole.
         # Il `threshold` della barra laterale non entra qui, e non e' una dimenticanza -- muoverlo

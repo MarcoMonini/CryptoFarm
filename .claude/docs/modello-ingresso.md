@@ -127,6 +127,19 @@ senso operativo: un'operazione da 150 barre non sta dentro una da 20.
   aperta, 0 altrimenti. Resta solo lungo, come prima, e `entra`/`esci` non hanno effetto: la
   selettività sta nei metadata.
 - **La nota del riquadro** dice il numero che conta e contro cosa è misurato.
+- **La pagina lascia scegliere quale dei due**, `Fast (trades)` o `Slow (gates)`, e la scelta
+  arriva alla strategia come `ai_model_simulation(..., famiglia=...)`. Non è una taratura: sono
+  due strategie, e messe insieme non si vede in cosa differiscano. Le altre famiglie restano
+  scelte da `MODEL_PRECEDENCE`, cioè spostando gli artefatti.
+- **Il riquadro «Entry model: prediction vs realised return»** mette sullo stesso asse ciò che il
+  modello prevede su ogni candela e ciò che gli è stato insegnato — il rendimento delle prossime
+  `h` barre, che guarda avanti, quindi la coda esce vuota — più la soglia d'acquisto. Stesso asse
+  perché è **la stessa unità**: lo swing target vive in [-1, 1] e schiaccerebbe dei rendimenti
+  dell'ordine del centesimo, per questo resta in un riquadro suo.
+  Cosa ci si deve aspettare di vedere, misurato su cinque simboli dal 2024: le due curve **non si
+  somigliano** (IC di rango +0,0074 per il veloce, +0,0223 per il lento) e la media di tutte le
+  barre è −0,004%, ma sopra la soglia il realizzato medio è **+1,99%**. Una linea blu piatta e
+  scorrelata non è un guasto: è il modello che tace, ed è da lì che viene il vantaggio.
 
 ## 7. Cosa resta aperto
 

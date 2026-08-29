@@ -263,6 +263,37 @@ def _serie_etichetta(df, cache, valori):
     return {"swing_target": bersaglio, "swing_pivot": estremi}
 
 
+def _serie_previsione(df, cache, valori):
+    """Cosa il modello d'ingresso prevede su ogni candela, accanto a cio' che gli e' stato chiesto.
+
+    Le due serie sono **nella stessa unita'** -- rendimento logaritmico sullo stesso tratto di
+    calendario -- ed e' l'unico motivo per cui stanno sullo stesso asse. L'etichetta a swing sta
+    in un riquadro suo perche' vive in [-1, 1]: metterle insieme schiaccerebbe l'una sull'altra.
+
+    Il bersaglio guarda avanti di `h` barre e quindi la coda esce vuota: nessuna strategia lo puo'
+    operare, e il confronto e' diagnostico. La soglia disegnata e' quella dei metadata, cioe' la
+    riga sopra la quale il modello **compra**: e' l'unico modo di vedere sul grafico quanto e'
+    lontana la previsione dal far scattare un'operazione.
+    """
+    from cryptofarm.ml import signals
+    from cryptofarm.ml.entry_trainer import rendimento_futuro
+
+    nome, modello = valori.get("FAMIGLIA", ""), valori.get("MODELLO")
+    if modello is None or nome not in (signals.ENTRY_VELOCE, signals.ENTRY_LENTO):
+        return {}
+    servizio = signals.entry_metadata(nome)
+    # `h` dai metadata dell'etichetta e non dalla tenuta: sono due argomenti distinti del trainer,
+    # uguali solo per come e' stato lanciato finora.
+    h = int(signals.entry_metadata(nome, "labeling").get("h", servizio.get("tenuta", 20)))
+    previsto = signals.entry_predictions(df, modello, symbol=valori.get("SIMBOLO", ""))
+    bersaglio = rendimento_futuro(df["Close"].to_numpy(dtype=float), signals.barre_equivalenti(df.index, h))
+    return {
+        "entry_previsto": pd.Series(previsto, index=df.index),
+        "entry_bersaglio": pd.Series(bersaglio, index=df.index),
+        "entry_soglia": pd.Series(float(servizio.get("soglia", np.nan)), index=df.index),
+    }
+
+
 def _colonne(*nomi: str):
     """Le serie sono gia' colonne del frame: la sorgente piu' comune.
 
@@ -566,6 +597,23 @@ INDICATORI: dict[str, Indicatore] = {
             Traccia("swing_pivot", "Local extremes", BLU, modo="markers", dimensione=7.0),
         ),
     ),
+    # Nemmeno questo appartiene a una strategia: e' il modello d'ingresso messo accanto alla sua
+    # domanda, per vedere su queste candele quanto le due si somiglino. Riquadro separato da
+    # `etichetta_swing` perche' le unita' sono altre -- rendimenti, non una posizione in [-1, 1].
+    "previsione_ingresso": Indicatore(
+        etichetta="Entry model",
+        parametri=(),
+        pannello="Entry model: prediction vs realised return",
+        # Senza artefatto in `valori` non c'e' niente da disegnare, ed e' la condizione della
+        # produzione: `models/` e' vuoto per costruzione.
+        condizionale=True,
+        serie=_serie_previsione,
+        tracce=(
+            Traccia("entry_previsto", "Predicted", BLU, larghezza=2.0),
+            Traccia("entry_bersaglio", "Realised (looks ahead)", ACQUA, larghezza=1.5),
+            Traccia("entry_soglia", "Buy threshold", ARANCIO, tratteggio="dash", larghezza=1.2),
+        ),
+    ),
 }
 
 
@@ -626,7 +674,7 @@ STRATEGIE: dict[str, Strategia] = {
     "AI Model": Strategia(
         indicatori=(),
         esegui=lambda df, cache, v: strategies.ai_model_simulation(
-            df=df, model=v["MODELLO"], symbol=v.get("SIMBOLO", "")
+            df=df, model=v["MODELLO"], symbol=v.get("SIMBOLO", ""), famiglia=v.get("FAMIGLIA", "")
         ),
         note="Signals come from the trained model: nothing to plot. The entry model asks how much "
         "the next few hours pay, not what the chart looks like; the fast one trades and the slow "
@@ -743,7 +791,7 @@ CONFLUENZA = "Confluence"
 # `bande_atr` con finestra e moltiplicatore diversi. Mostrarli tutti metteva in legenda due
 # "EMA fast" e due "Upper band", cioe' due etichette identiche su linee diverse -- che e'
 # peggio di un'informazione mancante, perche' sembra un errore di lettura di chi guarda.
-PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama", "etichetta_swing")
+PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama", "etichetta_swing", "previsione_ingresso")
 
 
 # Quale misura copre quale intervallo. E' una **decisione**, scritta come dato invece che calcolata:
