@@ -408,6 +408,10 @@ SWING_ENTRA, SWING_ESCI = 0.35, 0.25
 # barre -- ma la pagina carica per default 240 ore, cioe' dieci barre giornaliere, e li' cadeva.
 SCALA_MINIMA_BARRE = 28
 
+# L'intervallo su cui il modello d'ingresso e' addestrato e misurato: la sua tenuta e' in barre
+# di questa durata, non in candele della pagina.
+BASE_INTERVAL_ENTRY = "5m"
+
 
 def swing_model_disponibile() -> bool:
     """Se l'artefatto del modello a swing e' su disco.
@@ -579,3 +583,98 @@ def swing_signals(
     """
     previsto = swing_predictions(df, model, symbol=symbol)
     return _eventi(swing_exposure(previsto, entra, esci, swing_cadenza(df.index)), df)
+
+
+# --- Il modello d'ingresso ------------------------------------------------------------------------
+
+# Il nome dell'artefatto veloce, quello che opera. Il lento resta `entry_model`: e' la stessa
+# famiglia addestrata su un altro orizzonte, non un modello di un'altra specie.
+ENTRY_VELOCE = "entry_model_veloce"
+
+
+def entry_metadata(nome: str = "entry_model") -> dict:
+    """Soglia, tenuta e orizzonte con cui l'artefatto e' stato misurato.
+
+    Non sono costanti di questo modulo di proposito: la soglia e' il quantile 0,98 delle previsioni
+    **sullo stima** e la tenuta e' l'orizzonte dell'etichetta. Servire il modello con altri due
+    numeri significa servire un'altra strategia, e i risultati fuori campione non descrivono piu'
+    niente. Chi riaddestra con `--h` diverso ottiene numeri diversi qui dentro, e va bene cosi'.
+    """
+    percorso = MODELS_DIR / f"{nome}.json"
+    if not percorso.exists():
+        return {}
+    import json
+
+    return json.loads(percorso.read_text()).get("servizio", {})
+
+
+def entry_model_disponibile(nome: str = "entry_model") -> bool:
+    """Se l'artefatto e i suoi metadata sono su disco. Servono **entrambi**: senza i metadata non
+    si conosce la soglia, e una soglia inventata seleziona un'altra popolazione di barre."""
+    return (MODELS_DIR / f"{nome}.joblib").exists() and bool(entry_metadata(nome))
+
+
+@lru_cache(maxsize=2)
+def entry_model(nome: str = "entry_model"):
+    """L'artefatto addestrato, o `None` se non c'e'. In cache come `swing_model`, e con lo stesso
+    rovescio: un riaddestramento si vede solo riavviando il processo."""
+    return load_model(MODELS_DIR / f"{nome}.joblib") if entry_model_disponibile(nome) else None
+
+
+def entry_tenuta(index: pd.DatetimeIndex, servizio: dict) -> int:
+    """La tenuta dei metadata, che e' in barre da 5 minuti, tradotta nelle barre della pagina.
+
+    Il modello e' addestrato e misurato a 5m: `tenuta=150` vuol dire dodici ore e mezza, non
+    centocinquanta candele di qualunque durata. Chi guarda il grafico a 1h deve vedere le stesse
+    dodici ore e mezza, cioe' tredici barre.
+    """
+    base = interval_to_minutes(BASE_INTERVAL_ENTRY)
+    minuti = interval_to_minutes(interval_from_index(index))
+    # Mezza barra si arrotonda in su: `round` in Python arrotonda al pari, e a 1h 12,5 barre
+    # diventerebbero 12 -- mezz'ora in meno di quanto il modello e' stato misurato tenere.
+    return max(int(int(servizio.get("tenuta", 150)) * base / minuti + 0.5), 1)
+
+
+def entry_exposure(previsto: np.ndarray, soglia: float, tenuta: int) -> np.ndarray:
+    """Dentro per `tenuta` barre da ogni segnale, **senza sovrapposizioni**. Vero per barra.
+
+    Mentre si e' dentro i segnali successivi si ignorano, che e' la stessa regola con cui il
+    modello e' stato misurato (`entry_trainer.operazioni`). Contarli tutti misurerebbe un capitale
+    che non si ha, e qui produrrebbe una posizione che non finisce mai.
+    """
+    dentro = np.zeros(len(previsto), dtype=bool)
+    libero = 0
+    for i in np.flatnonzero(np.nan_to_num(previsto, nan=-np.inf) >= soglia):
+        if i < libero:
+            continue
+        dentro[i : i + tenuta] = True
+        libero = i + tenuta
+    return dentro
+
+
+def entry_signals(df: pd.DataFrame, model, symbol: str = "", nome: str = "entry_model") -> tuple[list, list]:
+    """Ingresso sopra soglia, uscita dopo la tenuta. Nessuna barriera, nessuno stop.
+
+    **La tenuta fissa non e' pigrizia, e' il risultato.** Il vantaggio di questo modello sta nella
+    selettivita': segnalando il 10% delle barre il rendimento medio del segnalato e' +0,047%, cioe'
+    meno della commissione; segnalando lo 0,5% e' +2,07%. Un'uscita a segnale, o uno stop a
+    trailing, non e' cio' che e' stato misurato -- e sulla famiglia precedente ogni regola che
+    troncava il rialzo peggiorava il netto in modo monotono (`leg_signals`).
+
+    Le feature sono le stesse 41 del modello a swing, quindi passa da `swing_features`: una sola
+    definizione per i tre modelli che le usano.
+    """
+    servizio = entry_metadata(nome)
+    if not servizio:
+        return [], []
+    previsto = entry_predictions(df, model, symbol=symbol)
+    dentro = entry_exposure(previsto, float(servizio["soglia"]), entry_tenuta(df.index, servizio))
+    return _eventi(dentro, df)
+
+
+def entry_predictions(df: pd.DataFrame, model, symbol: str = "") -> np.ndarray:
+    """Il rendimento previsto delle prossime H barre, per ogni barra. NaN sul riscaldamento."""
+    frame = swing_features(df, symbol)
+    previsto = model.predict(frame.to_numpy(dtype=float))
+    previsto[frame["atr_rel"].isna().to_numpy()] = np.nan
+    return previsto
