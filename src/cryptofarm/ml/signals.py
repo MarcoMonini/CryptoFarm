@@ -590,6 +590,7 @@ def swing_signals(
 # Il nome dell'artefatto veloce, quello che opera. Il lento resta `entry_model`: e' la stessa
 # famiglia addestrata su un altro orizzonte, non un modello di un'altra specie.
 ENTRY_VELOCE = "entry_model_veloce"
+ENTRY_LENTO = "entry_model"
 
 
 def entry_metadata(nome: str = "entry_model") -> dict:
@@ -635,16 +636,25 @@ def entry_tenuta(index: pd.DatetimeIndex, servizio: dict) -> int:
     return max(int(int(servizio.get("tenuta", 150)) * base / minuti + 0.5), 1)
 
 
-def entry_exposure(previsto: np.ndarray, soglia: float, tenuta: int) -> np.ndarray:
+def entry_exposure(
+    previsto: np.ndarray, soglia: float, tenuta: int, consentito: np.ndarray | None = None
+) -> np.ndarray:
     """Dentro per `tenuta` barre da ogni segnale, **senza sovrapposizioni**. Vero per barra.
 
     Mentre si e' dentro i segnali successivi si ignorano, che e' la stessa regola con cui il
     modello e' stato misurato (`entry_trainer.operazioni`). Contarli tutti misurerebbe un capitale
     che non si ha, e qui produrrebbe una posizione che non finisce mai.
+
+    `consentito` e' il cancello del modello lento, e vale **solo sulla barra d'ingresso**: una
+    posizione gia' aperta non si chiude perche' il piano largo e' cambiato. La tenuta e' quella su
+    cui il rendimento e' misurato, e troncarla misura un'altra cosa.
     """
+    ammessi = np.nan_to_num(previsto, nan=-np.inf) >= soglia
+    if consentito is not None:
+        ammessi &= consentito
     dentro = np.zeros(len(previsto), dtype=bool)
     libero = 0
-    for i in np.flatnonzero(np.nan_to_num(previsto, nan=-np.inf) >= soglia):
+    for i in np.flatnonzero(ammessi):
         if i < libero:
             continue
         dentro[i : i + tenuta] = True
@@ -652,8 +662,27 @@ def entry_exposure(previsto: np.ndarray, soglia: float, tenuta: int) -> np.ndarr
     return dentro
 
 
-def entry_signals(df: pd.DataFrame, model, symbol: str = "", nome: str = "entry_model") -> tuple[list, list]:
-    """Ingresso sopra soglia, uscita dopo la tenuta. Nessuna barriera, nessuno stop.
+def entry_gate(df: pd.DataFrame, symbol: str = "") -> np.ndarray | None:
+    """Dove il modello lento dice che si e' dentro un movimento, barra per barra. `None` senza.
+
+    E' la composizione che l'utente aveva chiesto e che la misura conferma: il modello veloce fa
+    le operazioni, il lento dice **dentro quali movimenti** puo' farle. Fuori campione, su 15
+    simboli dal 2024, il veloce da solo rende +1,360% per operazione su 223 operazioni, filtrato
+    dal lento +2,071% su 148, e i simboli in utile passano da 12/15 a 14/15
+    (`scripts/entry_lab.py` rifa' la misura).
+
+    Senza l'artefatto lento il filtro non c'e' e il veloce opera da solo: e' una degradazione
+    misurata, non un caso limite: si torna a +1,360%.
+    """
+    servizio = entry_metadata(ENTRY_LENTO)
+    lento = entry_model(ENTRY_LENTO)
+    if lento is None or "cancello" not in servizio:
+        return None
+    return np.nan_to_num(entry_predictions(df, lento, symbol=symbol), nan=-np.inf) >= float(servizio["cancello"])
+
+
+def entry_signals(df: pd.DataFrame, model, symbol: str = "", nome: str = ENTRY_VELOCE) -> tuple[list, list]:
+    """Ingresso sopra soglia e col cancello aperto, uscita dopo la tenuta. Nessuno stop.
 
     **La tenuta fissa non e' pigrizia, e' il risultato.** Il vantaggio di questo modello sta nella
     selettivita': segnalando il 10% delle barre il rendimento medio del segnalato e' +0,047%, cioe'
@@ -668,7 +697,8 @@ def entry_signals(df: pd.DataFrame, model, symbol: str = "", nome: str = "entry_
     if not servizio:
         return [], []
     previsto = entry_predictions(df, model, symbol=symbol)
-    dentro = entry_exposure(previsto, float(servizio["soglia"]), entry_tenuta(df.index, servizio))
+    consentito = entry_gate(df, symbol=symbol) if nome != ENTRY_LENTO else None
+    dentro = entry_exposure(previsto, float(servizio["soglia"]), entry_tenuta(df.index, servizio), consentito)
     return _eventi(dentro, df)
 
 

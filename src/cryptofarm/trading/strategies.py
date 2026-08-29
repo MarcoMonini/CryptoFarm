@@ -16,6 +16,7 @@ from ta.trend import PSARIndicator
 
 from cryptofarm.ml.signals import (
     barrier_signals,
+    entry_signals,
     leg_signals,
     meta_signals,
     policy_signals,
@@ -823,6 +824,12 @@ def ai_model_simulation(df, model, threshold: float = None, symbol: str = ""):
     """
     threshold = threshold if threshold is not None else stored_decision_threshold()
     family = active_model_name()
+    if family in ("entry_model_veloce", "entry_model"):
+        # Soglia e tenuta stanno nei metadata dell'artefatto: sono il modello, non due manopole.
+        # Il `threshold` della barra laterale non entra qui, e non e' una dimenticanza -- muoverlo
+        # cambierebbe la popolazione di barre segnalata, cioe' la sola cosa da cui viene il
+        # vantaggio misurato.
+        return entry_signals(df, model, symbol=symbol, nome=family)
     if family == "rl_model":
         # La politica RL emette direttamente la posizione, e il costo di cambiarla e' gia' dentro
         # l'obiettivo con cui e' stata addestrata: soglia e barriere qui non hanno posto.

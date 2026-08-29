@@ -79,13 +79,46 @@ def test_senza_metadata_non_si_opera(candele, tmp_path, monkeypatch):
     """Soglia e tenuta stanno nell'artefatto. Senza, l'unica alternativa sarebbe inventarle -- e
     una soglia inventata seleziona un'altra popolazione di barre, in silenzio."""
     monkeypatch.setattr(signals, "MODELS_DIR", tmp_path)
+    signals.entry_model.cache_clear()
 
     assert signals.entry_signals(candele, ModelloFinto([1.0])) == ([], [])
 
 
+def test_il_cancello_vale_solo_sulla_barra_dingresso():
+    """Il lento dice dentro quali movimenti si opera, non quando uscire.
+
+    Chiudere una posizione perche' il piano largo e' cambiato troncherebbe la tenuta su cui il
+    rendimento e' misurato -- e' un'altra strategia, che nessun numero descrive.
+    """
+    previsto = np.array([1.0, 1.0, 1.0, 1.0])
+    consentito = np.array([True, False, False, False])
+
+    dentro = signals.entry_exposure(previsto, soglia=0.5, tenuta=3, consentito=consentito)
+
+    assert list(dentro) == [True, True, True, False]
+
+
+def test_il_cancello_chiuso_toglie_lingresso():
+    previsto = np.array([1.0, 1.0])
+
+    dentro = signals.entry_exposure(previsto, soglia=0.5, tenuta=1, consentito=np.array([False, True]))
+
+    assert list(dentro) == [False, True]
+
+
+def test_senza_il_lento_il_veloce_opera_da_solo(candele, tmp_path, monkeypatch):
+    """E' la condizione del servizio pubblico, dove `models/` e' vuoto di tutto tranne cio' che si
+    monta: il filtro non c'e' e il rendimento misurato scende da +2,071% a +1,360%."""
+    monkeypatch.setattr(signals, "MODELS_DIR", tmp_path)
+    signals.entry_model.cache_clear()
+
+    assert signals.entry_gate(candele) is None
+
+
 def test_i_segnali_sono_alternati_e_seguono_lesposizione(candele, tmp_path, monkeypatch):
     monkeypatch.setattr(signals, "MODELS_DIR", tmp_path)
-    (tmp_path / "entry_model.json").write_text(json.dumps({"servizio": {"soglia": 0.5, "tenuta": 12}}))
+    signals.entry_model.cache_clear()
+    (tmp_path / f"{signals.ENTRY_VELOCE}.json").write_text(json.dumps({"servizio": {"soglia": 0.5, "tenuta": 12}}))
     modello = ModelloFinto([1.0] + [0.0] * 47)
 
     acquisti, vendite = signals.entry_signals(candele, modello)

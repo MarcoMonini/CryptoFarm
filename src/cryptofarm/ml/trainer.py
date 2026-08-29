@@ -321,7 +321,17 @@ def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = Non
 # 15 fuori campione e **dimezza la discesa massima** (-48,8% contro -76,0% mediano) in entrambe
 # le finestre. Il *quando* sta sopra il caso a esposizione appaiata in tutte e due (rango 0,588 e
 # 0,602 contro 0,500) ma non raggiunge la significativita': va servito sapendolo.
-MODEL_PRECEDENCE = ("rl_model", "swing_model", "meta_model", MODEL_NAME)
+# `entry_model_veloce` sta in testa dal 2026-08-29, e con lui il lento `entry_model`. Cambia la
+# **domanda**, non il modello: le famiglie precedenti chiedevano che forma ha il grafico -- quanto
+# siamo vicini a un estremo locale -- e questa chiede quanto rende comprare qui. Sono cose diverse,
+# ed e' misurato: a pari selezione l'etichetta a gambe individua meglio i minimi (37,2% contro
+# 23,0%) e rende 2,4 volte meno. Il veloce e' quello che opera e il lento gli fa da cancello, che
+# e' la composizione misurata in `.claude/docs/modello-ingresso.md`: +2,071% netti per operazione
+# fuori campione contro +1,360% senza cancello, 14 simboli su 15 in utile, e -- per la prima volta
+# in questo progetto -- il 100° percentile contro ingressi a caso a pari esposizione. Il veloce
+# passa davanti al lento perche' e' quello che genera i segnali; il lento resta nella tupla perche'
+# da solo e' comunque una strategia misurata (+1,529% su tenuta 150).
+MODEL_PRECEDENCE = ("entry_model_veloce", "entry_model", "rl_model", "swing_model", "meta_model", MODEL_NAME)
 
 
 def stored_decision_threshold() -> float:

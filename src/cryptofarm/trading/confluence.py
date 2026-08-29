@@ -295,14 +295,28 @@ def _modello(df, cache, p):
     +0,0540), quindi non vale un parametro in piu' nella firma di tutti gli altri votanti.
 
     **Quale modello.** Quello in testa a `trainer.MODEL_PRECEDENCE`, non uno scelto qui: se
-    l'artefatto della politica RL c'e', vota quella, e `entra`/`esci` non hanno effetto perche' la
-    politica la sua soglia ce l'ha dentro l'obiettivo. Un secondo votante a modello sarebbe stato
+    c'e' il modello d'ingresso vota quello -- +1 mentre una sua operazione e' aperta -- altrimenti
+    la politica RL, altrimenti il modello a swing. Nei primi due casi `entra`/`esci` non hanno
+    effetto: la selettivita' del modello d'ingresso sta nei metadata del suo artefatto e la soglia
+    della politica sta dentro l'obiettivo con cui e' stata addestrata. Un secondo votante a modello sarebbe stato
     la scelta comoda, ed e' sbagliata due volte: i due rispondono alla stessa domanda a partire
     dalle stesse 41 colonne, quindi voterebbero insieme, e l'ampiezza si conta in famiglie proprio
     per non far pesare due volte la stessa opinione.
     """
+    nome = next((n for n in (signals.ENTRY_VELOCE, signals.ENTRY_LENTO) if signals.entry_model_disponibile(n)), "")
     politica = signals.rl_model()
-    if politica is not None:
+    if nome:
+        # Il modello d'ingresso vota +1 mentre una sua operazione e' aperta. Le due soglie non
+        # hanno effetto: qui la selettivita' viene dai metadata dell'artefatto, ed e' l'unica cosa
+        # da cui viene il vantaggio misurato.
+        servizio = signals.entry_metadata(nome)
+        dentro = signals.entry_exposure(
+            signals.entry_predictions(df, signals.entry_model(nome)),
+            float(servizio["soglia"]),
+            signals.entry_tenuta(df.index, servizio),
+            signals.entry_gate(df) if nome != signals.ENTRY_LENTO else None,
+        )
+    elif politica is not None:
         dentro = signals.rl_exposure(politica, df)
     else:
         modello = signals.swing_model()
@@ -420,7 +434,12 @@ def votanti_predefiniti() -> tuple[Votante, ...]:
     dal default non e' escluderlo dalla misura.
     """
     tutti = selezione()
-    if signals.rl_model_disponibile() or signals.swing_model_disponibile():
+    if (
+        signals.entry_model_disponibile(signals.ENTRY_VELOCE)
+        or signals.entry_model_disponibile(signals.ENTRY_LENTO)
+        or signals.rl_model_disponibile()
+        or signals.swing_model_disponibile()
+    ):
         return tutti
     return tuple(v for v in tutti if v.nome != "modello")
 

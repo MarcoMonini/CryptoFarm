@@ -667,7 +667,7 @@ def test_senza_artefatto_il_votante_a_modello_tace_e_resta_fuori_dal_default(can
     raggiunge per misurarlo.
     """
     monkeypatch.setattr(confluence.signals, "MODELS_DIR", Path("/nessun/modello/qui"))
-    for nome in ("swing_model", "rl_model"):
+    for nome in ("swing_model", "rl_model", "entry_model"):
         getattr(confluence.signals, nome).cache_clear()
         monkeypatch.setattr(confluence.signals, nome, getattr(confluence.signals, nome).__wrapped__)
 

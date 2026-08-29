@@ -76,6 +76,14 @@ OOS = "2024-01-01"
 QUANTILE = 0.98  # quanto si e' selettivi, sul quantile dello **stima**
 COMMISSIONE = 0.002
 ESTRAZIONI = 400
+# Il quantile del **cancello**, cioe' di quando questo modello fa da filtro alle operazioni di uno
+# piu' veloce invece di generarne di proprie. Misurato fuori campione sui due artefatti: il veloce
+# da solo rende +1,360% per operazione su 223 operazioni, filtrato dal lento +2,071% su 148 e i
+# simboli in utile passano da 12/15 a 14/15. La curva e' monotona fino al 98° (+2,464% su 100
+# operazioni): 0,90 e' scelto sulla **concordanza fra simboli**, non sul rendimento piu' alto, che
+# sarebbe scegliere il massimo del campione di verifica -- l'errore che questo progetto ha gia'
+# misurato altrove (correlazione -0,69 fra resa in stima e in verifica sulla rotazione).
+CANCELLO = 0.90
 
 
 def rendimento_futuro(close: np.ndarray, h: int) -> np.ndarray:
@@ -193,8 +201,13 @@ def addestra(args) -> None:
     X, y = np.vstack(Xs), np.concatenate(ys)
     print(f"\nStima {len(y):,} righe (embargo {args.h} barre prima di {args.stima})")
     modello = nuovo_modello().fit(X, y)
-    soglia = float(np.quantile(modello.predict(X), args.quantile))
-    print(f"Soglia dal quantile {args.quantile} dello stima: {soglia:+.5f}")
+    previsto_stima = modello.predict(X)
+    soglia = float(np.quantile(previsto_stima, args.quantile))
+    # Il **cancello**: la stessa previsione letta molto piu' larga, per far da filtro alle
+    # operazioni di un modello piu' veloce invece che generarne di proprie. Il quantile e' 0,90 e
+    # non 0,98 perche' un filtro deve lasciar passare, non selezionare una seconda volta.
+    cancello = float(np.quantile(previsto_stima, CANCELLO))
+    print(f"Soglia dal quantile {args.quantile} dello stima: {soglia:+.5f}  (cancello {cancello:+.5f})")
 
     esiti, quante, per_simbolo = [], {}, []
     for symbol, campione in campioni.items():
@@ -242,7 +255,13 @@ def addestra(args) -> None:
         "labeling": {"method": "rendimento_futuro", "h": args.h, "base_interval": BASE_INTERVAL},
         # Soglia e tenuta fanno parte del modello: servirlo senza queste due significa servire
         # un'altra strategia. `meta_parameters` legge di qui, non da costanti.
-        "servizio": {"soglia": soglia, "quantile": args.quantile, "tenuta": args.tenuta, "commissione": COMMISSIONE},
+        "servizio": {
+            "soglia": soglia,
+            "quantile": args.quantile,
+            "cancello": cancello,
+            "tenuta": args.tenuta,
+            "commissione": COMMISSIONE,
+        },
         "data": {
             "symbols": list(campioni),
             "since": args.since,
