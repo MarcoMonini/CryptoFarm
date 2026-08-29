@@ -46,6 +46,11 @@ from cryptofarm.ml.models import load_model
 from cryptofarm.paths import MODELS_DIR
 
 CANCELLI = (None, 0.5, 0.8, 0.9, 0.95, 0.98)
+# Quanto si opera, cioe' il quantile della soglia del veloce. Serve alla domanda «voglio piu'
+# operazioni su intervalli brevi»: la commissione e' fissa allo 0,2% e il rendimento no, quindi
+# abbassare la soglia non aggiunge operazioni allo stesso rendimento -- ne aggiunge di peggiori.
+# La tabella dice di quanto, invece di lasciarlo credere in un verso o nell'altro.
+SOGLIE = (0.95, 0.98, 0.99, 0.995, 0.999)
 ESTRAZIONI = 200
 
 
@@ -102,6 +107,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbols", nargs="*")
     parser.add_argument("--estrazioni", type=int, default=ESTRAZIONI)
+    parser.add_argument("--frequenza", action="store_true", help="quanto costa operare di piu'")
     args = parser.parse_args()
 
     servizio = signals.entry_metadata(signals.ENTRY_VELOCE)
@@ -111,6 +117,18 @@ def main() -> None:
     dati, stima = raccogli(args.symbols or list(DEFAULT_SYMBOLS), tenuta)
 
     intestazione = f"{'op':>5s} {'medio':>9s} {'utile':>8s} {'simboli':>7s} {'caso':>8s} {'perc':>6s}"
+
+    if args.frequenza:
+        # Il cancello resta quello servito: qui si muove una cosa sola, quanto si e' selettivi.
+        porta = float(np.quantile(stima, 0.90))
+        veloce = np.concatenate([d["veloce"] for d in dati.values()])
+        print(f"\n{'soglia del veloce':22s} {intestazione}")
+        for quantile in SOGLIE:
+            soglia = float(np.quantile(veloce, quantile))
+            esito = riga(dati, porta, soglia, tenuta, args.estrazioni)
+            print(f"{f'{1 - quantile:.1%} delle barre':22s} {esito}", flush=True)
+        return
+
     print(f"\n{'cancello del lento':22s} {intestazione}")
     for quantile in CANCELLI:
         porta = -np.inf if quantile is None else float(np.quantile(stima, quantile))

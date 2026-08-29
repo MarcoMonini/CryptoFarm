@@ -662,7 +662,7 @@ def entry_exposure(
     return dentro
 
 
-def entry_gate(df: pd.DataFrame, symbol: str = "") -> np.ndarray | None:
+def entry_gate(df: pd.DataFrame, symbol: str = "", frame: pd.DataFrame | None = None) -> np.ndarray | None:
     """Dove il modello lento dice che si e' dentro un movimento, barra per barra. `None` senza.
 
     E' la composizione che l'utente aveva chiesto e che la misura conferma: il modello veloce fa
@@ -678,7 +678,8 @@ def entry_gate(df: pd.DataFrame, symbol: str = "") -> np.ndarray | None:
     lento = entry_model(ENTRY_LENTO)
     if lento is None or "cancello" not in servizio:
         return None
-    return np.nan_to_num(entry_predictions(df, lento, symbol=symbol), nan=-np.inf) >= float(servizio["cancello"])
+    previsto = entry_predictions(df, lento, symbol=symbol, frame=frame)
+    return np.nan_to_num(previsto, nan=-np.inf) >= float(servizio["cancello"])
 
 
 def entry_signals(df: pd.DataFrame, model, symbol: str = "", nome: str = ENTRY_VELOCE) -> tuple[list, list]:
@@ -696,15 +697,20 @@ def entry_signals(df: pd.DataFrame, model, symbol: str = "", nome: str = ENTRY_V
     servizio = entry_metadata(nome)
     if not servizio:
         return [], []
-    previsto = entry_predictions(df, model, symbol=symbol)
-    consentito = entry_gate(df, symbol=symbol) if nome != ENTRY_LENTO else None
+    frame = swing_features(df, symbol)
+    previsto = entry_predictions(df, model, frame=frame)
+    consentito = entry_gate(df, frame=frame) if nome != ENTRY_LENTO else None
     dentro = entry_exposure(previsto, float(servizio["soglia"]), entry_tenuta(df.index, servizio), consentito)
     return _eventi(dentro, df)
 
 
-def entry_predictions(df: pd.DataFrame, model, symbol: str = "") -> np.ndarray:
-    """Il rendimento previsto delle prossime H barre, per ogni barra. NaN sul riscaldamento."""
-    frame = swing_features(df, symbol)
+def entry_predictions(df: pd.DataFrame, model, symbol: str = "", frame: pd.DataFrame | None = None) -> np.ndarray:
+    """Il rendimento previsto delle prossime H barre, per ogni barra. NaN sul riscaldamento.
+
+    `frame` si passa quando le 41 colonne sono gia' state calcolate: i due modelli d'ingresso
+    leggono le stesse, e ricostruirle due volte raddoppia la parte cara senza cambiare niente.
+    """
+    frame = swing_features(df, symbol) if frame is None else frame
     previsto = model.predict(frame.to_numpy(dtype=float))
     previsto[frame["atr_rel"].isna().to_numpy()] = np.nan
     return previsto

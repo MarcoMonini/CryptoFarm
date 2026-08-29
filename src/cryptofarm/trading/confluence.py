@@ -310,11 +310,12 @@ def _modello(df, cache, p):
         # hanno effetto: qui la selettivita' viene dai metadata dell'artefatto, ed e' l'unica cosa
         # da cui viene il vantaggio misurato.
         servizio = signals.entry_metadata(nome)
+        frame = signals.swing_features(df)
         dentro = signals.entry_exposure(
-            signals.entry_predictions(df, signals.entry_model(nome)),
+            signals.entry_predictions(df, signals.entry_model(nome), frame=frame),
             float(servizio["soglia"]),
             signals.entry_tenuta(df.index, servizio),
-            signals.entry_gate(df) if nome != signals.ENTRY_LENTO else None,
+            signals.entry_gate(df, frame=frame) if nome != signals.ENTRY_LENTO else None,
         )
     elif politica is not None:
         dentro = signals.rl_exposure(politica, df)
