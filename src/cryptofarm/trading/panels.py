@@ -247,23 +247,20 @@ def _serie_votanti(df, cache, valori):
 def _serie_etichetta(df, cache, valori):
     """L'etichetta con cui il modello a swing viene addestrato, sulle candele caricate.
 
-    Non e' un indicatore: `swing_target` guarda `window` barre **avanti**, quindi non e' operabile
-    e le ultime `window` barre escono vuote. Sta qui perche' e' l'unico modo di vedere, sulle
-    candele che si stanno guardando, quale numero il modello impara a prevedere su ognuna.
-
-    Le tre tracce sono la stessa formula su tre finestre: quella piena (cio' su cui il modello e'
-    addestrato), la sola meta' futura -- l'unica non ricavabile dal passato, e quindi il solo metro
-    onesto -- e la sola meta' passata, che e' uno Stochastic e si puo' calcolare senza modello.
+    Non e' un indicatore: `swing_leg_target` guarda avanti fino all'estremo successivo, quindi non
+    e' operabile e le barre dopo l'ultimo estremo confermato escono vuote. Sta qui perche' e'
+    l'unico modo di vedere, sulle candele che si stanno guardando, quale numero il modello impara
+    a prevedere su ognuna -- e dove cadono gli estremi che lo definiscono.
     """
-    from cryptofarm.ml.labeling import swing_target
+    from cryptofarm.ml.labeling import swing_leg_target, swing_pivots
 
     finestra = int(valori["SWING_TARGET_WINDOW"])
-    chiusura = df["Close"]
-    return {
-        "swing_target": swing_target(chiusura, finestra),
-        "swing_avanti": swing_target(chiusura, finestra, verso="avanti"),
-        "swing_dietro": swing_target(chiusura, finestra, verso="dietro"),
-    }
+    bersaglio = swing_leg_target(df["Close"], finestra, peso_tempo=float(valori["SWING_TARGET_TEMPO"]))
+    estremi = pd.Series(np.nan, index=df.index)
+    indici, _ = swing_pivots(df["Close"], finestra)
+    if len(indici):
+        estremi.iloc[indici] = bersaglio.to_numpy()[indici]
+    return {"swing_target": bersaglio, "swing_pivot": estremi}
 
 
 def _colonne(*nomi: str):
@@ -561,13 +558,12 @@ INDICATORI: dict[str, Indicatore] = {
     # riquadro come tutti gli altri.
     "etichetta_swing": Indicatore(
         etichetta="Swing target",
-        parametri=("SWING_TARGET_WINDOW",),
+        parametri=("SWING_TARGET_WINDOW", "SWING_TARGET_TEMPO"),
         pannello="Swing target (label, looks ahead)",
         serie=_serie_etichetta,
         tracce=(
             Traccia("swing_target", "Target", ACQUA, larghezza=2.0),
-            Traccia("swing_avanti", "Forward half", BLU, tratteggio="dot", larghezza=1.3),
-            Traccia("swing_dietro", "Backward half", ARANCIO, tratteggio="dot", larghezza=1.3),
+            Traccia("swing_pivot", "Local extremes", BLU, modo="markers", dimensione=7.0),
         ),
     ),
 }
@@ -912,6 +908,7 @@ ETICHETTE: dict[str, str] = {
     "NUM_CONDITIONS": "Conditions required",
     "PIVOT_WINDOW": "Swing window",
     "SWING_TARGET_WINDOW": "Target window (bars per side)",
+    "SWING_TARGET_TEMPO": "Time weight along the leg",
     "CONF_THETA_BASE": "Entry threshold",
     "CONF_THETA_MACRO": "Threshold relief from higher planes",
     "CONF_ISTERESI": "Exit hysteresis",

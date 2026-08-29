@@ -88,11 +88,15 @@ STOP_LOSS_PERCENT = Param(99.0, 0.1, 100.0, 1.0)
 NUM_CONDITIONS = Param(1, 1, 10, 1)
 PIVOT_WINDOW = Param(100, 2, 500, 2)
 
-# La finestra dell'etichetta del modello a swing, in **barre per lato**. 144 e' quella con cui il
-# modello e' addestrato, che a 5m sono dodici ore per lato: sulla pagina l'intervallo cambia, e con
-# esso il tratto di calendario che la finestra copre. Non e' un parametro di strategia -- l'etichetta
-# guarda avanti e non e' operabile -- ma il modo di guardare cosa il modello sta imparando.
-SWING_TARGET_WINDOW = Param(144, 4, 2000, 4)
+# L'etichetta del modello a swing. La finestra e' quella con cui si cercano gli estremi locali:
+# un massimo e' tale se e' il piu' alto fra le 50 barre prima e le 50 dopo. Non e' un parametro di
+# strategia -- l'etichetta guarda avanti fino all'estremo successivo e non e' operabile -- ma il
+# modo di guardare cosa il modello sta imparando.
+SWING_TARGET_WINDOW = Param(50, 4, 2000, 2)
+# Quanto del percorso fra due estremi lo dice il tempo e quanto il prezzo. A 0 e' solo prezzo, ed e'
+# il difetto della versione a rango: l'etichetta insegue. A 1 e' solo tempo, e ignora che il prezzo
+# possa tornare sui suoi passi.
+SWING_TARGET_TEMPO = Param(0.5, 0.0, 1.0, 0.1)
 
 # Le strategie nuove (`strategies_ls.py`), sempre solo lunghe nella pagina.
 # I default sono quelli con cui sono state misurate in `.claude/docs/strategie-nuove.md`: dove due

@@ -630,19 +630,22 @@ if __name__ == "__main__":
         "Show the swing model's target", value=False, key=f"target_{interval}"
     )
     if valori["MOSTRA_ETICHETTA"]:
-        valori["SWING_TARGET_WINDOW"] = st.sidebar.number_input(
-            label=panels.ETICHETTE["SWING_TARGET_WINDOW"],
-            key=f"par_SWING_TARGET_WINDOW_{interval}",
-            **config.SWING_TARGET_WINDOW.widget,
-        )
+        colonne = st.sidebar.columns(2)
+        for nome in ("SWING_TARGET_WINDOW", "SWING_TARGET_TEMPO"):
+            valori[nome] = colonne[nome == "SWING_TARGET_TEMPO"].number_input(
+                label=panels.ETICHETTE[nome],
+                key=f"par_{nome}_{interval}",
+                **getattr(config, nome).widget,
+            )
         finestra = int(valori["SWING_TARGET_WINDOW"])
         ore = finestra * interval_to_minutes(interval) / 60
         st.sidebar.caption(
-            f"+1 on a local high, -1 on a local low, ~0 in between: the centred rank of the close "
-            f"among the {finestra} bars each side, here **{ore:.0f} hours** each side. It reads "
-            f"{finestra} bars **into the future**, so the last {finestra} bars are empty and no "
-            "strategy can trade it. The model is trained on the full window; only the forward "
-            "half is not already knowable from the past."
+            f"-1 on a local low, +1 on the next local high, and it slides in between. An extreme "
+            f"is the highest close among the {finestra} bars each side, here **{ore:.0f} hours** "
+            "each side. How far along the leg is half price and half **elapsed bars**, so a price "
+            "that stalls still moves towards the extreme that is coming. The value at an extreme "
+            "is not always 1: it grows with how far the swing reaches beyond the local noise. It "
+            "looks ahead to the next extreme, so the tail is empty and no strategy can trade it."
         )
     valori["MODELLO"] = st.session_state["model"]
 

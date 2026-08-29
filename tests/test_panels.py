@@ -352,17 +352,22 @@ def test_l_etichetta_si_mostra_a_richiesta_e_non_entra_in_nessuna_strategia(
     assert "etichetta_swing" not in {c for s in panels.STRATEGIE.values() for c in s.indicatori}
 
 
-def test_l_etichetta_satura_sugli_estremi_e_lascia_vuota_la_coda(frame: pd.DataFrame) -> None:
-    """Le ultime `window` barre non sono etichettabili: la finestra futura non c'e' ancora."""
+def test_l_etichetta_va_da_estremo_a_estremo_e_lascia_vuota_la_coda(frame: pd.DataFrame) -> None:
+    """Il valore tocca gli estremi sui vertici e li interpola in mezzo, mai altrove."""
     finestra = 24
     valori = {**panels.valori_predefiniti(), "SWING_TARGET_WINDOW": finestra}
-    serie = panels.INDICATORI["etichetta_swing"].serie(frame, ExtraCache(frame), valori)["swing_target"]
+    serie = panels.INDICATORI["etichetta_swing"].serie(frame, ExtraCache(frame), valori)
+    bersaglio, estremi = serie["swing_target"], serie["swing_pivot"]
 
-    assert serie.tail(finestra).isna().all()
-    posizione = int(np.nanargmax(serie.to_numpy()))  # `argmax` si ferma sul primo NaN
-    finestra_attorno = frame["Close"].to_numpy()[posizione - finestra : posizione + finestra + 1]
-    assert serie.max() == pytest.approx(1.0)
-    assert frame["Close"].to_numpy()[posizione] == finestra_attorno.max()
+    # Dopo l'ultimo vertice confermato non c'e' etichetta: servirebbe il vertice successivo.
+    assert bersaglio.tail(finestra).isna().all()
+    # Il massimo e il minimo del target cadono su un vertice, non a meta' di una gamba.
+    assert not np.isnan(estremi.to_numpy()[int(np.nanargmax(bersaglio.to_numpy()))])
+    assert not np.isnan(estremi.to_numpy()[int(np.nanargmin(bersaglio.to_numpy()))])
+    # E quel vertice e' davvero un massimo locale del prezzo.
+    posizione = int(np.nanargmax(bersaglio.to_numpy()))
+    attorno = frame["Close"].to_numpy()[posizione - finestra : posizione + finestra + 1]
+    assert frame["Close"].to_numpy()[posizione] == attorno.max()
 
 
 def test_gli_overlay_non_usano_l_acquamarina() -> None:
