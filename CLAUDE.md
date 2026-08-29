@@ -27,6 +27,12 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
   estremi, le tre misure per cui il segnale esiste (IC +0,0385 fuori campione, 14/15 simboli
   concordi) ma non batte il caso a esposizione appaiata, e il §5.4 su **cosa è stato cablato e
   cosa deliberatamente no** nella pagina e in Confluence.
+- `.claude/docs/modello-ingresso.md` — **il modello in testa oggi, cablato (2026-08-29).** Cambia
+  la domanda: non «quanto siamo vicini a un estremo» ma «quanto rende comprare qui». Le misure che
+  hanno spostato il bersaglio (a pari selezione l'etichetta a gambe individua meglio i minimi e
+  rende 2,4 volte meno), la selettività come unica leva, e i **primi numeri di questo progetto che
+  passano il controllo a esposizione appaiata**: +2,071% netti per operazione fuori campione,
+  14/15 simboli in utile, 100° percentile. Il veloce opera, il lento gli fa da cancello.
 - `.claude/docs/INDEX.md` — ordine di lettura consigliato.
 
 Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
@@ -99,6 +105,12 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m cryptofarm.ml.swing_trainer --selfcheck  # gira senza store
 .venv312/bin/python -m cryptofarm.ml.swing_trainer              # ~12 minuti, 15 simboli dal 2018
 .venv312/bin/python -m scripts.swing_lab                        # decili, P&L, controllo casuale
+
+# Modello d'ingresso: quanto rende comprare qui (vedi .claude/docs/modello-ingresso.md)
+.venv312/bin/python -m cryptofarm.ml.entry_trainer --selfcheck  # gira senza store
+.venv312/bin/python -m cryptofarm.ml.entry_trainer              # ~12 minuti, il lento (H=150)
+.venv312/bin/python -m cryptofarm.ml.entry_trainer --h 20 --quantile 0.995 --nome entry_model_veloce
+.venv312/bin/python -m scripts.entry_lab                        # quanto vale il cancello del lento
 
 # Politica a rinforzo: sceglie la posizione col costo dentro la ricompensa (.claude/docs/politica-rl.md)
 .venv312/bin/python -m cryptofarm.ml.rl                         # selfcheck del solo algoritmo
@@ -254,12 +266,13 @@ Quattro cose da sapere prima di toccarla:
   griglia del banco, ed è quello il punto. L'unico elenco rimasto da tenere allineato a mano sono
   le tracce del riquadro *Voters* in `panels.INDICATORI`, e c'è un test che se ne accorge: conta
   le tracce col `·` contro `len(VOTANTI)`;
-- **il votante `modello` sta nel default solo se l'artefatto c'è.** `votanti_predefiniti()` lo
-  toglie quando `models/swing_model.joblib` manca, che è la condizione della produzione: i pesi si
-  normalizzano sui votanti presenti, quindi un ottavo che tace sempre alzerebbe di fatto la soglia
-  per gli altri sette. Nel registro ci resta, così `selezione("modello")` lo raggiunge. È anche
-  l'unico votante **solo lungo**: vota +1 o 0, mai −1, e la ragione è misurata (§5.1 di
-  `modello-swing.md`);
+- **il votante `modello` sta nel default solo se un artefatto c'è.** `votanti_predefiniti()` lo
+  toglie quando nessuno dei quattro (`entry_model_veloce`, `entry_model`, `rl_model`,
+  `swing_model`) è su disco, che è la condizione della produzione: i pesi si normalizzano sui
+  votanti presenti, quindi un ottavo che tace sempre alzerebbe di fatto la soglia per gli altri
+  sette. Nel registro ci resta, così `selezione("modello")` lo raggiunge. È anche l'unico votante
+  **solo lungo**: vota +1 o 0, mai −1. Col modello d'ingresso vota +1 mentre una sua operazione è
+  aperta e le due soglie non hanno effetto — la selettività sta nei metadata dell'artefatto;
 - **i parametri dei votanti si risolvono in tre strati**: default della funzione (`config.CONF_*`),
   valore misurato in `tuned_defaults` per l'intervallo del **piano** su cui il votante gira — non
   quello della pagina — e override di chi chiama. Il secondo strato è quello che si sbaglia
@@ -373,14 +386,23 @@ Per tornare al modello precedente basta spostare altrove l'artefatto di quello p
 dell'artefatto**, non da costanti: devono essere esattamente quelli con cui il modello è stato
 addestrato.
 
-**Il modello in testa oggi è `swing_model`, e non serve barriere.** Prevede la prossimità agli
-estremi locali, e la forma misurata di quel segnale è a U: *entrambi* i poli precedono rendimenti
+**Il modello in testa oggi è `entry_model_veloce`, e i due artefatti d'ingresso lavorano in
+coppia.** Prevede il rendimento delle prossime H barre — non la forma del grafico — e il suo
+vantaggio è la **selettività**: al 10% di barre segnalate il netto è sotto la commissione, allo
+0,5% è dieci volte sopra. Ne segue che soglia, cancello e tenuta stanno nei **metadata
+dell'artefatto** e non nei widget: cambiarli non regola una manopola, serve un'altra strategia.
+Il veloce (tenuta 20 barre) genera le operazioni, il lento (`entry_model`, tenuta 150) fa da
+cancello sulla sola barra d'ingresso: +2,071% netti per operazione fuori campione contro +1,360%
+senza, 14 simboli su 15 in utile, 100° percentile contro ingressi a caso a pari esposizione
+(`modello-ingresso.md`). Senza l'artefatto lento il veloce opera da solo, e si torna a +1,360%.
+
+Le famiglie precedenti restano nella catena sotto di lui. `swing_model` prevede la prossimità agli
+estremi locali e la forma misurata di quel segnale è a U: *entrambi* i poli precedono rendimenti
 sopra la media, quindi il segno **non dice il verso**. `ml/signals.swing_exposure` cabla l'unica
-lettura che la misura sostiene — `|previsione|` come interruttore di esposizione, con isteresi — e
-il votante `modello` di Confluence vota per questo +1 o 0, mai −1. Cablare `sign(previsione)`, che
-è la lettura naturale di un target in `[-1, 1]`, vende esattamente le barre migliori: è misurato
-in perdita a tutte le soglie e tutte le cadenze (`modello-swing.md` §5.1). Il modello **non batte
-il possesso passivo**, e la nota del riquadro lo dice a chi guarda il grafico.
+lettura che la misura sostiene — `|previsione|` come interruttore di esposizione, con isteresi.
+Cablare `sign(previsione)`, che è la lettura naturale di un target in `[-1, 1]`, vende esattamente
+le barre migliori: è misurato in perdita a tutte le soglie e tutte le cadenze
+(`modello-swing.md` §5.1). Quel modello **non batte il possesso passivo**.
 
 ## Data/model artifacts
 

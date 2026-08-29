@@ -25,7 +25,37 @@ Non riassumere quei contenuti: sono gia' scritti e aggiornati.
 
 ---
 
-## Ultima sessione (2026-08-28): il modello AI, rifatto e chiuso in negativo
+## Ultima sessione (2026-08-29): il modello d'ingresso, cablato in positivo
+
+Tutto in [`modello-ingresso.md`](modello-ingresso.md). Quattro cose prima di ripartire:
+
+1. **La catena in testa e' cambiata**: `entry_model_veloce`, poi `entry_model`, poi le famiglie
+   precedenti. Il veloce genera le operazioni, il lento fa da **cancello** sulla sola barra
+   d'ingresso.
+2. **La domanda e' cambiata, non il modello.** Non «quanto siamo vicini a un estremo locale» ma
+   «quanto rende comprare qui». A pari selezione la prima individua meglio i minimi (37,2% contro
+   23,0%) e rende **2,4 volte meno**. Precisione e denaro non sono la stessa cosa, ed e' la misura
+   che ha spostato il bersaglio.
+3. **Sono i primi numeri che passano il controllo a esposizione appaiata**: +2,071% netti per
+   operazione fuori campione, 148 operazioni, 14/15 simboli in utile, 100° percentile su 200
+   estrazioni. Il confronto col possesso passivo non conta -- fuori campione il passivo mediano fa
+   -34%, quindi stare fuori paga da solo.
+4. **La leva e' la selettivita', non l'accuratezza.** Al 10% di barre segnalate il netto e' sotto
+   la commissione, allo 0,5% e' dieci volte sopra. Per questo soglia, cancello e tenuta stanno nei
+   metadata dell'artefatto e non nei widget: muoverli serve un'altra strategia.
+
+**Due cose restano aperte e sono scritte al §7 di quel documento**: il controllo a blocchi (le
+righe si sovrappongono fra loro e fra simboli, ed e' gia' successo che questo ribaltasse un
+verdetto) e la griglia della confluenza con e senza il votante `modello`.
+
+**Trappola nuova:** riusare il nome di una variabile in un ciclo di stampa ha sovrascritto il
+rendimento medio complessivo con quello dell'ultimo simbolo, e il numero sbagliato e' finito nei
+metadata, cioe' nel servizio. C'e' un test che gira `addestra` su due simboli finti e pretende che
+il medio salvato stia **fra** le due medie per simbolo.
+
+---
+
+## Sessione precedente (2026-08-28): il modello AI, rifatto e chiuso in negativo
 
 Tutto in [`modello-swing.md`](modello-swing.md). Le tre cose da sapere prima di ripartire:
 

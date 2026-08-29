@@ -1,8 +1,15 @@
 # Il modello a swing — dalla barriera tripla alla forma degli estremi
 
-**Data:** 2026-08-28. **Stato:** modello addestrato, su disco e **cablato** — la voce «AI Model»
-della pagina e un votante di Confluence. Cablato *sapendo* cosa dice il §5: la regola non batte il
-caso a esposizione appaiata. Cosa è stato cablato, e cosa deliberatamente no, sta al §5.4.
+**Data:** 2026-08-28. **Stato:** superato il 2026-08-29 da `entry_model_veloce`
+(`modello-ingresso.md`), che sta davanti in `MODEL_PRECEDENCE`. Questo modello resta nella catena
+sotto di lui e torna a servire la pagina se gli artefatti d'ingresso non ci sono. Il documento
+resta valido come misura: è quello che ha stabilito che il segnale esiste ma non batte il caso a
+esposizione appaiata, ed è da lì che è nata la domanda nuova.
+
+Cablato all'epoca *sapendo* cosa dice il §5. Cosa era stato cablato, e cosa deliberatamente no,
+sta al §5.4. **Perché il modello nuovo non lo sostituisce per bravura ma per domanda**: a pari
+selezione l'etichetta a gambe individua i minimi meglio del rendimento futuro diretto (37,2%
+contro 23,0%) e rende 2,4 volte meno.
 
 Questo documento chiude tre cose in una sessione: l'audit del modello precedente (`leg_model`),
 la sostituzione dell'etichettatura, e la misura che dice cosa farne. Le tre parti vanno lette in
