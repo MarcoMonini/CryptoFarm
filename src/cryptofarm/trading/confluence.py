@@ -303,7 +303,12 @@ def _modello(df, cache, p):
     dalle stesse 41 colonne, quindi voterebbero insieme, e l'ampiezza si conta in famiglie proprio
     per non far pesare due volte la stessa opinione.
     """
-    nome = next((n for n in (signals.ENTRY_VELOCE, signals.ENTRY_LENTO) if signals.entry_model_disponibile(n)), "")
+    # Fuori dalla sua scala il modello d'ingresso non e' piu' quello misurato (`entry_fuori_misura`):
+    # li' si passa al successivo in `MODEL_PRECEDENCE` invece di votare con una soglia che a 1d
+    # marcherebbe una barra su quattro. A base 15m il piano d'innesco e' 15m e il caso non si pone;
+    # a base 1h si pone su tutti e quattro i piani.
+    utilizzabili = () if signals.entry_fuori_misura(df.index) else (signals.ENTRY_VELOCE, signals.ENTRY_LENTO)
+    nome = next((n for n in utilizzabili if signals.entry_model_disponibile(n)), "")
     politica = signals.rl_model()
     if nome:
         # Il modello d'ingresso vota +1 mentre una sua operazione e' aperta. Le due soglie non

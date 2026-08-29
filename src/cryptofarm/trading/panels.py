@@ -632,7 +632,10 @@ STRATEGIE: dict[str, Strategia] = {
         "the next few hours pay, not what the chart looks like; the fast one trades and the slow "
         "one gates it. Out of sample: +2.07% net per trade over 148 trades, 14 of 15 assets in "
         "profit, and the 100th percentile against exposure-matched random entries. Its edge is "
-        "selectivity, so threshold and holding time come from the artifact, not from a slider.",
+        "selectivity, so threshold and holding time come from the artifact, not from a slider — "
+        "and for the same reason it is calibrated on 5m bars and stays silent above 30m, where "
+        "that same threshold would flag 3% of bars at 1h and 28% at 1d instead of 0.5%. Being "
+        "this selective, it flags roughly one bar in 1,500: short windows will show no trades.",
     ),
     "Donchian Breakout": Strategia(
         indicatori=("donchian", "media_regime", "adx"),

@@ -32,7 +32,9 @@ class ModelloFinto:
 @pytest.fixture()
 def candele():
     n = 400
-    index = pd.date_range("2024-01-01", periods=n, freq="1h", name="Open time")
+    # 15m e non 1h: sopra la mezz'ora il modello non e' servibile (`entry_fuori_misura`), e una
+    # fixture fuori scala renderebbe verdi i test di questo file per la ragione sbagliata.
+    index = pd.date_range("2024-01-01", periods=n, freq="15min", name="Open time")
     close = 100 * np.exp(np.linspace(0, 0.3, n))
     return pd.DataFrame(
         {"Open": close, "High": close * 1.004, "Low": close * 0.996, "Close": close, "Volume": np.full(n, 1000.0)},
@@ -127,3 +129,28 @@ def test_i_segnali_sono_alternati_e_seguono_lesposizione(candele, tmp_path, monk
     assert len(acquisti) == len(vendite) or len(acquisti) == len(vendite) + 1
     tempi = [t for coppia in zip(acquisti, vendite) for t, _ in coppia]
     assert tempi == sorted(tempi), "un acquisto e la sua vendita devono essere in ordine"
+
+
+def test_sopra_la_mezzora_il_modello_tace(candele, tmp_path, monkeypatch):
+    """La soglia e' un rendimento, non un quantile: a 1h marca il 3% delle barre invece dello 0,5%.
+
+    Il modello prevede il rendimento delle prossime venti barre **da cinque minuti**. Su barre
+    piu' lunghe quelle venti barre sono un altro orizzonte, le previsioni crescono, e la stessa
+    soglia seleziona un'altra popolazione: misurato su cinque simboli dal 2024, marca lo 0,063%
+    delle barre a 5m e il 28,1% a 1d. Servirlo li' significa servire un'altra strategia col nome
+    di quella misurata, e il +2,07% per operazione non descriverebbe piu' niente.
+    """
+    monkeypatch.setattr(signals, "MODELS_DIR", tmp_path)
+    (tmp_path / f"{signals.ENTRY_VELOCE}.json").write_text(
+        json.dumps({"servizio": {"soglia": 0.0, "tenuta": 20, "cancello": 0.0}})
+    )
+    signals.entry_model.cache_clear()
+    modello = ModelloFinto([1.0])
+
+    # Soglia zero e previsione uno: qualunque barra ammessa entrerebbe.
+    assert signals.entry_signals(candele, modello)[0] != []
+
+    lente = candele.resample("4h").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"})
+    assert signals.entry_signals(lente, modello) == ([], [])
+    assert "0,5%" in signals.entry_fuori_misura(lente.index)
+    assert signals.entry_fuori_misura(candele.index) == ""

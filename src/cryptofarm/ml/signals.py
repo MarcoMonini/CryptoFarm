@@ -636,6 +636,35 @@ def entry_tenuta(index: pd.DatetimeIndex, servizio: dict) -> int:
     return max(int(int(servizio.get("tenuta", 150)) * base / minuti + 0.5), 1)
 
 
+SCALA_MASSIMA_ENTRY = 30
+
+
+def entry_fuori_misura(index: pd.DatetimeIndex) -> str:
+    """Perche' questo intervallo non e' servibile, o stringa vuota se lo e'.
+
+    La soglia dei metadata e' un **numero**, non un quantile: e' il rendimento previsto sopra il
+    quale si entra, e il modello e' addestrato a prevedere il rendimento delle prossime venti
+    barre da cinque minuti. Su barre piu' lunghe quelle venti barre sono un altro orizzonte, le
+    previsioni crescono, e la stessa soglia smette di selezionare le stesse barre. Misurato su
+    cinque simboli dal 2024, la quota di barre marcate dalla soglia servita e':
+
+        5m 0,063%   15m 0,270%   30m 0,722%   1h 2,98%   4h 14,1%   1d 28,1%
+
+    Il modello e' misurato per marcarne lo 0,5%. Da un'ora in su non e' piu' selettivo di poco: a
+    1d marca una barra su quattro, cioe' fa l'opposto di cio' per cui e' stato scelto, e il
+    +2,07% per operazione non descrive piu' niente. Meglio tacere e dirlo che servire un altro
+    modello con lo stesso nome.
+    """
+    minuti = interval_to_minutes(interval_from_index(index))
+    if minuti > SCALA_MASSIMA_ENTRY:
+        return (
+            f"il modello d'ingresso e' tarato su barre da {BASE_INTERVAL_ENTRY} e la sua soglia e' un "
+            f"rendimento, non un quantile: oltre i {SCALA_MASSIMA_ENTRY} minuti marca troppe barre "
+            f"(2,98% a 1h, 28% a 1d, contro lo 0,5% per cui e' misurato)"
+        )
+    return ""
+
+
 def entry_exposure(
     previsto: np.ndarray, soglia: float, tenuta: int, consentito: np.ndarray | None = None
 ) -> np.ndarray:
@@ -695,7 +724,7 @@ def entry_signals(df: pd.DataFrame, model, symbol: str = "", nome: str = ENTRY_V
     definizione per i tre modelli che le usano.
     """
     servizio = entry_metadata(nome)
-    if not servizio:
+    if not servizio or entry_fuori_misura(df.index):
         return [], []
     frame = swing_features(df, symbol)
     previsto = entry_predictions(df, model, frame=frame)

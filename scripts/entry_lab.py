@@ -54,21 +54,25 @@ SOGLIE = (0.95, 0.98, 0.99, 0.995, 0.999)
 ESTRAZIONI = 200
 
 
-def raccogli(simboli: list[str], h: int) -> tuple[dict, np.ndarray]:
-    """Previsioni dei due modelli sulle righe di verifica, piu' quelle del lento sullo stima.
+def raccogli(simboli: list[str], h: int) -> tuple[dict, dict[str, np.ndarray]]:
+    """Previsioni dei due modelli sulle righe di verifica, e le stesse sulle righe di stima.
 
-    Le seconde servono a fissare il cancello **dove e' lecito fissarlo**: un quantile preso sul
-    fuori campione sarebbe look-ahead, e sposterebbe il risultato senza che si veda.
+    Le seconde servono a fissare cancello e soglia **dove e' lecito fissarli**: un quantile preso
+    sul fuori campione sarebbe look-ahead, e sposterebbe il risultato senza che si veda. Non e' un
+    dettaglio da poco: il quantile 0,995 dello stima seleziona 223 operazioni, lo stesso quantile
+    preso sul fuori campione ne seleziona 615, perche' le previsioni fuori campione sono piu'
+    basse. Chi tara sul secondo si sta guardando le carte.
     """
     lento = load_model(MODELS_DIR / f"{signals.ENTRY_LENTO}.joblib")
     veloce = load_model(MODELS_DIR / f"{signals.ENTRY_VELOCE}.joblib")
-    dati, stima = {}, []
+    dati, stima = {}, {"lento": [], "veloce": []}
     for symbol in simboli:
         campione = campione_simbolo(symbol, SINCE, h, PASSO)
         if campione is None:
             continue
         dentro, fuori = separa(campione, STIMA, OOS, h)
-        stima.append(lento.predict(campione["X"][dentro]))
+        stima["lento"].append(lento.predict(campione["X"][dentro]))
+        stima["veloce"].append(veloce.predict(campione["X"][dentro]))
         dati[symbol] = {
             "close": campione["close"],
             "posizioni": campione["posizioni"],
@@ -79,7 +83,7 @@ def raccogli(simboli: list[str], h: int) -> tuple[dict, np.ndarray]:
         print(f"  {symbol}", flush=True)
     if not dati:
         raise SystemExit("nessun simbolo utilizzabile: serve lo store delle candele")
-    return dati, np.concatenate(stima)
+    return dati, {k: np.concatenate(v) for k, v in stima.items()}
 
 
 def riga(dati: dict, porta: float, soglia: float, tenuta: int, estrazioni: int) -> str:
@@ -120,18 +124,17 @@ def main() -> None:
 
     if args.frequenza:
         # Il cancello resta quello servito: qui si muove una cosa sola, quanto si e' selettivi.
-        porta = float(np.quantile(stima, 0.90))
-        veloce = np.concatenate([d["veloce"] for d in dati.values()])
+        porta = float(np.quantile(stima["lento"], 0.90))
         print(f"\n{'soglia del veloce':22s} {intestazione}")
         for quantile in SOGLIE:
-            soglia = float(np.quantile(veloce, quantile))
+            soglia = float(np.quantile(stima["veloce"], quantile))
             esito = riga(dati, porta, soglia, tenuta, args.estrazioni)
             print(f"{f'{1 - quantile:.1%} delle barre':22s} {esito}", flush=True)
         return
 
     print(f"\n{'cancello del lento':22s} {intestazione}")
     for quantile in CANCELLI:
-        porta = -np.inf if quantile is None else float(np.quantile(stima, quantile))
+        porta = -np.inf if quantile is None else float(np.quantile(stima["lento"], quantile))
         nome = "nessuno" if quantile is None else f"{quantile:.0%} dello stima"
         print(f"{nome:22s} {riga(dati, porta, float(servizio['soglia']), tenuta, args.estrazioni)}", flush=True)
 

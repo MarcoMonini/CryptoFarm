@@ -138,6 +138,59 @@ senso operativo: un'operazione da 150 barre non sta dentro una da 20.
   fra simboli; su `swing_model` un bootstrap a blocchi settimanali aveva spostato il verdetto. Qui
   la tenuta è più corta e le operazioni sono poche, ma la misura va rifatta in quella forma prima
   di dire «significativo».
-- **Sotto i 5 minuti e sopra il giorno non c'è misura.** Il modello è addestrato e misurato a 5m.
-  La pagina lo serve a qualunque intervallo scalando la tenuta, ma la distribuzione delle feature
-  cambia e la soglia assoluta no.
+- **Sotto i 5 minuti non c'è misura.** Il modello è addestrato e misurato a 5m. Sopra la
+  mezz'ora il punto è stato misurato e chiuso: vedi §8.
+
+## 8. Due cose misurate dopo il cablaggio
+
+### 8.1 Operare più spesso costa, e si sa quanto
+
+La domanda era esplicita: si vogliono operazioni sugli intervalli brevi, e il modello servito ne fa
+poche. Fare di più si può, e ha un prezzo. Qui si muove **solo** la soglia del veloce — presa sul
+campione di stima, non sul fuori campione — col cancello del lento fermo al 90°:
+
+| barre marcate | operazioni | netto medio | in utile | simboli in utile |
+|---|---|---|---|---|
+| 5,0% | 1.570 | +0,166% | 46,9% | 10/15 |
+| 2,0% | 677 | +0,523% | 51,8% | 13/15 |
+| 1,0% | 330 | +1,068% | 59,7% | 13/15 |
+| **0,5%** | **148** | **+2,071%** | **65,5%** | **14/15** |
+| 0,1% | 23 | +3,710% | 73,9% | 8/11 |
+
+Tutte al 100° percentile contro ingressi casuali a pari esposizione. Tre letture:
+
+- **la commissione è fissa allo 0,2%, il rendimento no.** Abbassare la soglia non aggiunge
+  operazioni allo stesso rendimento: ne aggiunge di peggiori, in modo monotono e ripido;
+- **il totale accumulato ha il massimo altrove.** Somma dei rendimenti per operazione: 261 a 5%,
+  354 a 2%, 352 a 1%, 307 a 0,5%. Chi vuole più operazioni *può* averle — 330 invece di 148 — e
+  l'accumulo non peggiora. Quello che peggiora è la qualità della singola operazione e la
+  concordanza fra simboli;
+- **0,5% resta la scelta**, e per la stessa ragione del cancello: 14/15 simboli in utile è il
+  massimo della colonna, e questo progetto ha già misurato che inseguire il massimo del
+  rendimento trasferisce peggio (correlazione −0,69 fra stima e verifica sulla rotazione).
+
+`scripts/entry_lab.py --frequenza` rifà la tabella.
+
+### 8.2 La soglia è un rendimento, e sopra la mezz'ora non vuol più dire la stessa cosa
+
+`entry_signals` scalava la tenuta con l'intervallo ma serviva la **stessa soglia assoluta**
+ovunque. La soglia però non è un quantile: è il rendimento previsto sopra il quale si entra, e il
+modello prevede il rendimento delle prossime **venti barre da cinque minuti**. Su barre più lunghe
+quelle venti barre sono un altro orizzonte, le previsioni crescono, e la soglia smette di
+selezionare le stesse barre. Misurato su cinque simboli dal 2024:
+
+| intervallo | 5m | 15m | 30m | 1h | 4h | 1d |
+|---|---|---|---|---|---|---|
+| barre marcate | 0,063% | 0,270% | 0,722% | 2,98% | 14,1% | 28,1% |
+
+A 1d il modello «selettivo» marcava una barra su quattro: l'opposto di ciò per cui è stato scelto,
+e il +2,07% per operazione non descriveva più niente. Da qui `signals.entry_fuori_misura`, che
+serve il modello **fino a 30 minuti** e sopra tace dicendo perché — stessa forma di
+`confluence.scala_fuori_misura`. Il votante `modello` fuori scala non tace: scende al successivo
+in `MODEL_PRECEDENCE`.
+
+Nota di lettura per il grafico: a 5m la soglia marca lo 0,063% delle barre, cioè **una su
+milleseicento**. Una finestra da 240 ore non contiene abbastanza barre perché un'operazione sia
+probabile, e su BTCUSDT — il simbolo con una sola operazione in tutto il fuori campione — la
+previsione massima su 2.880 barre resta sotto la soglia. Zero operazioni sul grafico è il
+comportamento atteso, non un guasto.
