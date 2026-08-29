@@ -7,6 +7,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 from scipy.signal import argrelextrema
 
+from cryptofarm.data.klines import interval_to_minutes
 from cryptofarm.ml.trainer import (
     active_model_name,
     load_signal_model,
@@ -162,7 +163,12 @@ def trading_analysis(
     # doveva sapere a memoria quali linee contassero. Ora la figura ha un riquadro per ogni
     # oscillatore che la strategia usa davvero, e sulle candele solo i suoi overlay.
     indicatori = panels.indicatori_di(strategia)
-    pannelli = panels.pannelli_di(strategia)
+    if valori.get("MOSTRA_ETICHETTA"):
+        # L'etichetta non appartiene a nessuna strategia -- guarda avanti, quindi non e' operabile
+        # -- e si aggiunge a qualunque vista: serve a vedere su queste candele quale numero il
+        # modello impara a prevedere, non a decidere niente.
+        indicatori = (*indicatori, "etichetta_swing")
+    pannelli = panels.pannelli_degli(indicatori)
     riga_di = {titolo: numero for numero, titolo in enumerate(pannelli, start=2)}
 
     ALTEZZA_CANDELE = 460
@@ -615,6 +621,28 @@ if __name__ == "__main__":
             "higher-plane average — what the live bot sees mid-period. Off, they wait for the "
             "long bar to close: it is the ablation that measures what reacting early is worth. "
             "The six voters decide at their own close either way."
+        )
+    # --- L'etichetta del modello, a richiesta -------------------------------------------------
+    # Non e' una strategia e non entra in nessun conto: e' la domanda che il modello a swing viene
+    # addestrato a rispondere, disegnata sulle stesse candele. Serve a guardarla prima di decidere
+    # come cambiarla.
+    valori["MOSTRA_ETICHETTA"] = st.sidebar.checkbox(
+        "Show the swing model's target", value=False, key=f"target_{interval}"
+    )
+    if valori["MOSTRA_ETICHETTA"]:
+        valori["SWING_TARGET_WINDOW"] = st.sidebar.number_input(
+            label=panels.ETICHETTE["SWING_TARGET_WINDOW"],
+            key=f"par_SWING_TARGET_WINDOW_{interval}",
+            **config.SWING_TARGET_WINDOW.widget,
+        )
+        finestra = int(valori["SWING_TARGET_WINDOW"])
+        ore = finestra * interval_to_minutes(interval) / 60
+        st.sidebar.caption(
+            f"+1 on a local high, -1 on a local low, ~0 in between: the centred rank of the close "
+            f"among the {finestra} bars each side, here **{ore:.0f} hours** each side. It reads "
+            f"{finestra} bars **into the future**, so the last {finestra} bars are empty and no "
+            "strategy can trade it. The model is trained on the full window; only the forward "
+            "half is not already knowable from the past."
         )
     valori["MODELLO"] = st.session_state["model"]
 

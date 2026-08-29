@@ -322,6 +322,49 @@ def test_il_numero_di_riquadri_segue_gli_oscillatori_usati(strategia: str, frame
     assert len(assi) == attesi, f"{strategia}: {len(assi)} riquadri invece di {attesi}"
 
 
+def test_l_etichetta_si_mostra_a_richiesta_e_non_entra_in_nessuna_strategia(
+    frame_laterale: pd.DataFrame,
+) -> None:
+    """Il riquadro dell'etichetta compare solo se lo si chiede, e su qualunque strategia.
+
+    Guarda avanti: se comparisse da solo accanto a un indicatore si leggerebbe come un segnale, e
+    sarebbe il piu' convincente del grafico -- e' la risposta, non una previsione.
+    """
+    from cryptofarm.trading.simulator import trading_analysis
+
+    candele = frame_laterale[["Open", "High", "Low", "Close", "Volume"]]
+
+    def tracce(valori: dict) -> set[str]:
+        figura, _, _ = trading_analysis(
+            asset="TEST",
+            interval="1h",
+            wallet=100.0,
+            valori=valori,
+            strategia="Trend Zones",
+            show=True,
+            market_data=candele,
+        )
+        return {traccia.name for traccia in figura.data}
+
+    nomi = {t.nome for t in panels.INDICATORI["etichetta_swing"].tracce}
+    assert not nomi & tracce({}), "l'etichetta compare senza che nessuno l'abbia chiesta"
+    assert nomi <= tracce({"MOSTRA_ETICHETTA": True}), "chiesta, l'etichetta non compare"
+    assert "etichetta_swing" not in {c for s in panels.STRATEGIE.values() for c in s.indicatori}
+
+
+def test_l_etichetta_satura_sugli_estremi_e_lascia_vuota_la_coda(frame: pd.DataFrame) -> None:
+    """Le ultime `window` barre non sono etichettabili: la finestra futura non c'e' ancora."""
+    finestra = 24
+    valori = {**panels.valori_predefiniti(), "SWING_TARGET_WINDOW": finestra}
+    serie = panels.INDICATORI["etichetta_swing"].serie(frame, ExtraCache(frame), valori)["swing_target"]
+
+    assert serie.tail(finestra).isna().all()
+    posizione = int(np.nanargmax(serie.to_numpy()))  # `argmax` si ferma sul primo NaN
+    finestra_attorno = frame["Close"].to_numpy()[posizione - finestra : posizione + finestra + 1]
+    assert serie.max() == pytest.approx(1.0)
+    assert frame["Close"].to_numpy()[posizione] == finestra_attorno.max()
+
+
 def test_gli_overlay_non_usano_l_acquamarina() -> None:
     """Sopra le candele l'acquamarina si confonde con il corpo rialzista.
 

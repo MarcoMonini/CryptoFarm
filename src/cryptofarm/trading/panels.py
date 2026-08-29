@@ -244,6 +244,28 @@ def _serie_votanti(df, cache, valori):
     return _serie(df.index, **risultato.voti) if risultato is not None else {}
 
 
+def _serie_etichetta(df, cache, valori):
+    """L'etichetta con cui il modello a swing viene addestrato, sulle candele caricate.
+
+    Non e' un indicatore: `swing_target` guarda `window` barre **avanti**, quindi non e' operabile
+    e le ultime `window` barre escono vuote. Sta qui perche' e' l'unico modo di vedere, sulle
+    candele che si stanno guardando, quale numero il modello impara a prevedere su ognuna.
+
+    Le tre tracce sono la stessa formula su tre finestre: quella piena (cio' su cui il modello e'
+    addestrato), la sola meta' futura -- l'unica non ricavabile dal passato, e quindi il solo metro
+    onesto -- e la sola meta' passata, che e' uno Stochastic e si puo' calcolare senza modello.
+    """
+    from cryptofarm.ml.labeling import swing_target
+
+    finestra = int(valori["SWING_TARGET_WINDOW"])
+    chiusura = df["Close"]
+    return {
+        "swing_target": swing_target(chiusura, finestra),
+        "swing_avanti": swing_target(chiusura, finestra, verso="avanti"),
+        "swing_dietro": swing_target(chiusura, finestra, verso="dietro"),
+    }
+
+
 def _colonne(*nomi: str):
     """Le serie sono gia' colonne del frame: la sorgente piu' comune.
 
@@ -534,6 +556,20 @@ INDICATORI: dict[str, Indicatore] = {
         serie=lambda df, cache, v: _serie(df.index, obv=cache.obv_slope(int(v["OBV_WINDOW"]))),
         tracce=(Traccia("obv", "OBV slope", ACQUA, larghezza=1.8),),
     ),
+    # Non e' un indicatore di nessuna strategia: e' l'etichetta del modello, e si mostra a
+    # richiesta (`MOSTRA_ETICHETTA`). Sta nel registro perche' da li' prende widget, colori e
+    # riquadro come tutti gli altri.
+    "etichetta_swing": Indicatore(
+        etichetta="Swing target",
+        parametri=("SWING_TARGET_WINDOW",),
+        pannello="Swing target (label, looks ahead)",
+        serie=_serie_etichetta,
+        tracce=(
+            Traccia("swing_target", "Target", ACQUA, larghezza=2.0),
+            Traccia("swing_avanti", "Forward half", BLU, tratteggio="dot", larghezza=1.3),
+            Traccia("swing_dietro", "Backward half", ARANCIO, tratteggio="dot", larghezza=1.3),
+        ),
+    ),
 }
 
 
@@ -707,7 +743,7 @@ CONFLUENZA = "Confluence"
 # `bande_atr` con finestra e moltiplicatore diversi. Mostrarli tutti metteva in legenda due
 # "EMA fast" e due "Upper band", cioe' due etichette identiche su linee diverse -- che e'
 # peggio di un'informazione mancante, perche' sembra un errore di lettura di chi guarda.
-PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama")
+PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama", "etichetta_swing")
 
 
 # Quale misura copre quale intervallo. E' una **decisione**, scritta come dato invece che calcolata:
@@ -831,8 +867,14 @@ def parametri_di(strategia: str) -> list[str]:
 
 def pannelli_di(strategia: str) -> list[str]:
     """I titoli dei riquadri sotto le candele, nell'ordine in cui vanno impilati."""
+    return pannelli_degli(indicatori_di(strategia))
+
+
+def pannelli_degli(chiavi) -> list[str]:
+    """Come sopra, ma per un elenco qualunque: la pagina puo' aggiungere l'etichetta del modello,
+    che non appartiene a nessuna strategia."""
     titoli: list[str] = []
-    for chiave in indicatori_di(strategia):
+    for chiave in chiavi:
         pannello = INDICATORI[chiave].pannello
         if pannello is not None and pannello not in titoli:
             titoli.append(pannello)
@@ -869,6 +911,7 @@ ETICHETTE: dict[str, str] = {
     "STOP_LOSS_PERCENT": "Stop loss %",
     "NUM_CONDITIONS": "Conditions required",
     "PIVOT_WINDOW": "Swing window",
+    "SWING_TARGET_WINDOW": "Target window (bars per side)",
     "CONF_THETA_BASE": "Entry threshold",
     "CONF_THETA_MACRO": "Threshold relief from higher planes",
     "CONF_ISTERESI": "Exit hysteresis",
