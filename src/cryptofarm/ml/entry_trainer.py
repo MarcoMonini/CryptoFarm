@@ -196,13 +196,15 @@ def addestra(args) -> None:
     soglia = float(np.quantile(modello.predict(X), args.quantile))
     print(f"Soglia dal quantile {args.quantile} dello stima: {soglia:+.5f}")
 
-    esiti, quante = [], {}
+    esiti, quante, per_simbolo = [], {}, []
     for symbol, campione in campioni.items():
         fuori = campione["fuori"]
         previsto = modello.predict(campione["X"][fuori])
         proprie = operazioni(campione["close"], fuori[previsto >= soglia], args.tenuta)
         quante[symbol] = len(proprie)
         esiti += proprie
+        if proprie:
+            per_simbolo.append((symbol, len(proprie), float(np.mean(proprie))))
     if not esiti:
         raise SystemExit("nessuna operazione fuori campione: soglia troppo alta")
 
@@ -220,7 +222,14 @@ def addestra(args) -> None:
     )
     print(f"  percentile del modello      {percentile:.1f}°   (sotto il 95° non e' un risultato)")
 
-    percorso = MODELS_DIR / f"{MODEL_NAME}.joblib"
+    # Un medio alto su quindici simboli puo' essere un simbolo solo. La riga che conta e' quanti
+    # simboli sono in utile, non la media: e' la differenza fra un modello e un episodio.
+    in_utile = sum(1 for _, _, medio in per_simbolo if medio > 0)
+    print(f"\n  per simbolo ({in_utile}/{len(per_simbolo)} in utile)")
+    for symbol, n, medio in sorted(per_simbolo, key=lambda r: -r[2]):
+        print(f"    {symbol:10s} {n:4d} op   medio {100 * medio:+7.3f}%")
+
+    percorso = MODELS_DIR / f"{args.nome}.joblib"
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     save_model(modello, percorso)
     metadata = {
@@ -245,9 +254,10 @@ def addestra(args) -> None:
             "medio_netto": round(medio, 5),
             "caso_medio": round(caso["media"], 5),
             "percentile": round(percentile, 1),
+            "simboli_in_utile": f"{in_utile}/{len(per_simbolo)}",
         },
     }
-    (MODELS_DIR / f"{MODEL_NAME}.json").write_text(json.dumps(metadata, indent=2, default=str))
+    (MODELS_DIR / f"{args.nome}.json").write_text(json.dumps(metadata, indent=2, default=str))
     print(f"\nSalvato {percorso.name} + metadata")
 
 
@@ -283,6 +293,7 @@ def main() -> None:
     parser.add_argument("--tenuta", type=int, default=None, help="barre di tenuta (default: --h)")
     parser.add_argument("--passo", type=int, default=PASSO)
     parser.add_argument("--quantile", type=float, default=QUANTILE)
+    parser.add_argument("--nome", default=MODEL_NAME, help="nome dell'artefatto salvato")
     args = parser.parse_args()
     args.tenuta = args.tenuta or args.h
     selfcheck() if args.selfcheck else addestra(args)
