@@ -281,3 +281,66 @@ __all__ = [
     "lift_over_base_rate",
     "signal_summary",
 ]
+
+
+# --- Il metro del modello a swing ---------------------------------------------------------------
+# L'IC contro l'etichetta non dice se il modello serve: misurato il 2026-08-29, un modello con IC
+# +0,50 contro l'etichetta a gambe segnalava minimi che rendevano +0,026% su 1,7 ore, contro lo
+# 0,765% dei minimi veri e lo 0,2% di commissione. Il difetto non si vedeva perche' l'IC medio
+# sulle barre premia l'interpolazione a meta' gamba, che e' l'80% del campione e non si opera.
+#
+# Qui il metro e' la **precisione sugli estremi**: delle barre che il modello segnala come minimi,
+# quante lo sono davvero, e quanto rendono. Con quota 0,1 il caso vale 10%; il modello del
+# 2026-08-29 valeva 30%, e serve circa il 50% perche' il segnalato copra le commissioni.
+
+
+def precisione_estremi(
+    previsto: np.ndarray,
+    etichetta: np.ndarray,
+    quota: float = 0.1,
+    rendimento: np.ndarray | None = None,
+) -> dict[str, float]:
+    """Quante delle barre segnalate come minimi lo sono davvero, e quanto rendono.
+
+    Segnalate e vere sono entrambe la coda bassa di ampiezza `quota`: i minimi, dove la previsione
+    e l'etichetta valgono -1. Per i massimi si passano i due vettori cambiati di segno.
+
+    `rendimento` sono i rendimenti futuri sull'orizzonte della gamba, e servono a tradurre la
+    precisione in denaro: `rendimento_segnalato` e' cio' che incasserebbe chi opera sul modello,
+    `rendimento_vero` il tetto dell'oracolo.
+    """
+    previsto, etichetta = np.asarray(previsto, float), np.asarray(etichetta, float)
+    if not 0.0 < quota < 1.0:
+        raise ValueError("quota deve stare fra 0 e 1")
+    if len(previsto) != len(etichetta):
+        raise ValueError("previsto ed etichetta devono avere la stessa lunghezza")
+    segnalate = previsto <= np.quantile(previsto, quota)
+    vere = etichetta <= np.quantile(etichetta, quota)
+    precisione = float((segnalate & vere).sum() / max(segnalate.sum(), 1))
+    esito = {
+        "segnalate": int(segnalate.sum()),
+        "precisione": precisione,
+        "caso": quota,
+        # Quante volte meglio del caso. E' la cifra confrontabile fra quote diverse.
+        "vantaggio": precisione / quota,
+    }
+    if rendimento is not None:
+        rendimento = np.asarray(rendimento, float)
+        buoni = np.isfinite(rendimento)
+        esito["rendimento_segnalato"] = float(np.mean(rendimento[segnalate & buoni]))
+        esito["rendimento_vero"] = float(np.mean(rendimento[vere & buoni]))
+    return esito
+
+
+def format_precisione(esito: dict[str, float]) -> str:
+    righe = [
+        f"  segnalate                {esito['segnalate']:>9,} barre",
+        f"  precisione               {100 * esito['precisione']:>8.1f}%   (caso {100 * esito['caso']:.0f}%, "
+        f"vantaggio {esito['vantaggio']:.1f}x)",
+    ]
+    if "rendimento_segnalato" in esito:
+        righe += [
+            f"  rendimento del segnalato {100 * esito['rendimento_segnalato']:>+8.3f}%   <- il numero che conta",
+            f"  rendimento dei minimi veri{100 * esito['rendimento_vero']:>+8.3f}%   (il tetto)",
+        ]
+    return "\n".join(righe)

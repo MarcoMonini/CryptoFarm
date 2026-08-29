@@ -6,7 +6,9 @@ import pytest
 from cryptofarm.ml.evaluate import (
     best_threshold,
     break_even_precision,
+    format_precisione,
     lift_over_base_rate,
+    precisione_estremi,
     threshold_sweep,
     trade_expectancy,
 )
@@ -113,3 +115,42 @@ def test_lift_measures_the_improvement_over_not_selecting_at_all():
 
     # Base rate is 20%; the selection is 100% buy, so the lift is 5x.
     assert lift_over_base_rate(y_true, probabilities, 0.5) == pytest.approx(5.0)
+
+
+def test_extreme_precision_reads_a_coin_flip_as_the_base_rate():
+    rng = np.random.default_rng(0)
+    label = rng.normal(size=20_000)
+
+    # A prediction independent of the label picks the bottom decile at random: 10% of it is
+    # genuinely a low. This is the number the swing model has to beat, and it beat it by 3x
+    # while still losing money — hence the return columns below.
+    esito = precisione_estremi(rng.normal(size=20_000), label)
+
+    assert esito["precisione"] == pytest.approx(0.1, abs=0.02)
+    assert esito["vantaggio"] == pytest.approx(1.0, abs=0.2)
+
+
+def test_extreme_precision_separates_being_right_from_being_paid():
+    label = np.linspace(-1.0, 1.0, 10_000)
+    # Perfect on the ranking, so precision is 1: every flagged bar is a real low.
+    esito = precisione_estremi(label.copy(), label, rendimento=-label * 0.01)
+
+    assert esito["precisione"] == pytest.approx(1.0)
+    assert esito["rendimento_segnalato"] == pytest.approx(esito["rendimento_vero"])
+
+    # Same precision computed on a payoff that dies before the bar is tradable: the ranking is
+    # untouched and the money is gone. The two columns cannot be collapsed into one.
+    povero = precisione_estremi(label.copy(), label, rendimento=np.full(10_000, 0.0001))
+    assert povero["precisione"] == pytest.approx(1.0)
+    assert povero["rendimento_segnalato"] == pytest.approx(0.0001)
+
+
+def test_extreme_precision_ignores_bars_whose_future_is_not_known_yet():
+    label = np.linspace(-1.0, 1.0, 1_000)
+    rendimento = -label * 0.01
+    rendimento[-200:] = np.nan  # la coda: il futuro non e' ancora arrivato
+
+    esito = precisione_estremi(label.copy(), label, rendimento=rendimento)
+
+    assert np.isfinite(esito["rendimento_segnalato"])
+    assert "precisione" in format_precisione(esito)
