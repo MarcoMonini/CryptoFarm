@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import argparse
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -88,3 +91,48 @@ def test_the_estimate_window_stops_a_full_horizon_before_the_split():
     # verifica, e il numero fuori campione e' gonfio senza che si veda da nessuna parte.
     assert quando[dentro[-1]] < quando[1_000] - 150 * pd.Timedelta(minutes=5)
     assert quando[fuori[0]] >= quando[1_500]
+
+
+def test_the_saved_summary_is_the_whole_sample_not_the_last_symbol(tmp_path, monkeypatch):
+    """I metadata sono cio' che il servizio legge: se riportano il simbolo peggiore, mente."""
+    from cryptofarm.ml import entry_trainer
+
+    def campione(symbol, since, h, passo):
+        # Due simboli con deriva diversa: la media complessiva deve stare **fra** le due.
+        rng = np.random.default_rng({"A": 1, "B": 2}[symbol])
+        deriva = {"A": 0.0006, "B": -0.0006}[symbol]
+        close = np.exp(np.cumsum(rng.normal(loc=deriva, scale=0.004, size=6_000))) * 100.0
+        righe = np.arange(0, 6_000, passo)
+        return {
+            "X": rng.normal(size=(6_000, len(entry_trainer.SWING_COLUMNS))).astype(np.float32),
+            "close": close,
+            "quando": pd.date_range("2019-01-01", periods=6_000, freq="5min"),
+            "avanti": entry_trainer.rendimento_futuro(close, h),
+            "posizioni": righe,
+        }
+
+    monkeypatch.setattr(entry_trainer, "campione_simbolo", campione)
+    monkeypatch.setattr(entry_trainer, "MODELS_DIR", tmp_path)
+    quando = pd.date_range("2019-01-01", periods=6_000, freq="5min")
+    args = argparse.Namespace(
+        symbols=["A", "B"],
+        since="2019-01-01",
+        stima=str(quando[3_000]),
+        oos=str(quando[3_500]),
+        h=20,
+        tenuta=20,
+        passo=12,
+        quantile=0.3,
+        nome="prova",
+    )
+
+    entry_trainer.addestra(args)
+
+    salvato = json.loads((tmp_path / "prova.json").read_text())["fuori_campione"]
+    assert salvato["operazioni"] > 0
+    # Il difetto che questo test guarda e' un nome riusato nel ciclo di stampa per simbolo, che
+    # sostituiva la media complessiva con quella dell'ultimo simbolo stampato -- il peggiore.
+    per_simbolo = salvato["per_simbolo"]
+    assert len(per_simbolo) == 2
+    assert min(per_simbolo.values()) < salvato["medio_netto"] < max(per_simbolo.values())
+    assert salvato["simboli_in_utile"].endswith("/2")

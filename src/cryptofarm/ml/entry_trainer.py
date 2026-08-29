@@ -224,10 +224,12 @@ def addestra(args) -> None:
 
     # Un medio alto su quindici simboli puo' essere un simbolo solo. La riga che conta e' quanti
     # simboli sono in utile, non la media: e' la differenza fra un modello e un episodio.
-    in_utile = sum(1 for _, _, medio in per_simbolo if medio > 0)
+    in_utile = sum(1 for _, _, suo in per_simbolo if suo > 0)
     print(f"\n  per simbolo ({in_utile}/{len(per_simbolo)} in utile)")
-    for symbol, n, medio in sorted(per_simbolo, key=lambda r: -r[2]):
-        print(f"    {symbol:10s} {n:4d} op   medio {100 * medio:+7.3f}%")
+    for symbol, n, suo in sorted(per_simbolo, key=lambda r: -r[2]):
+        # `suo` e non `medio`: quel nome tiene la media complessiva, e riusarlo qui la sovrascrive
+        # con quella dell'ultimo simbolo stampato -- che finisce nei metadata, cioe' nel servizio.
+        print(f"    {symbol:10s} {n:4d} op   medio {100 * suo:+7.3f}%")
 
     percorso = MODELS_DIR / f"{args.nome}.joblib"
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -255,6 +257,7 @@ def addestra(args) -> None:
             "caso_medio": round(caso["media"], 5),
             "percentile": round(percentile, 1),
             "simboli_in_utile": f"{in_utile}/{len(per_simbolo)}",
+            "per_simbolo": {symbol: round(suo, 5) for symbol, _, suo in per_simbolo},
         },
     }
     (MODELS_DIR / f"{args.nome}.json").write_text(json.dumps(metadata, indent=2, default=str))
