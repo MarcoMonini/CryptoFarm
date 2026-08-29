@@ -111,6 +111,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m cryptofarm.ml.entry_trainer              # ~12 minuti, il lento (H=150)
 .venv312/bin/python -m cryptofarm.ml.entry_trainer --h 20 --quantile 0.995 --nome entry_model_veloce
 .venv312/bin/python -m scripts.entry_lab                        # quanto vale il cancello del lento
+.venv312/bin/python -m scripts.entry_lab --frequenza           # quanto costa operare di piu'
 
 # Politica a rinforzo: sceglie la posizione col costo dentro la ricompensa (.claude/docs/politica-rl.md)
 .venv312/bin/python -m cryptofarm.ml.rl                         # selfcheck del solo algoritmo
@@ -395,6 +396,13 @@ Il veloce (tenuta 20 barre) genera le operazioni, il lento (`entry_model`, tenut
 cancello sulla sola barra d'ingresso: +2,071% netti per operazione fuori campione contro +1,360%
 senza, 14 simboli su 15 in utile, 100° percentile contro ingressi a caso a pari esposizione
 (`modello-ingresso.md`). Senza l'artefatto lento il veloce opera da solo, e si torna a +1,360%.
+
+**Si serve fino a 30 minuti e sopra tace.** La soglia è un rendimento, non un quantile, e il
+modello prevede quello delle prossime venti barre *da cinque minuti*: sulla stessa soglia le barre
+marcate passano da 0,063% a 5m a 2,98% a 1h e 28,1% a 1d, contro lo 0,5% per cui è misurato.
+`signals.entry_fuori_misura` è il cancello di scala, gemello di `confluence.scala_fuori_misura`.
+Conseguenza da conoscere prima di dire «non funziona»: a 5m marca **una barra su millecinquecento**,
+quindi su una finestra da 240 ore zero operazioni è il comportamento atteso.
 
 Le famiglie precedenti restano nella catena sotto di lui. `swing_model` prevede la prossimità agli
 estremi locali e la forma misurata di quel segnale è a U: *entrambi* i poli precedono rendimenti

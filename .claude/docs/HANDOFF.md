@@ -44,9 +44,22 @@ Tutto in [`modello-ingresso.md`](modello-ingresso.md). Quattro cose prima di rip
    la commissione, allo 0,5% e' dieci volte sopra. Per questo soglia, cancello e tenuta stanno nei
    metadata dell'artefatto e non nei widget: muoverli serve un'altra strategia.
 
+5. **Si serve fino a 30 minuti e sopra tace** (`signals.entry_fuori_misura`, §8.2). La soglia e'
+   un rendimento e non un quantile: sulla stessa soglia le barre marcate passano da 0,063% a 5m a
+   2,98% a 1h e 28,1% a 1d. Sopra la mezz'ora si serviva un'altra strategia col nome di quella
+   misurata.
+6. **Operare di piu' si puo' e si sa quanto costa** (§8.1). All'1% di barre marcate sono 330
+   operazioni invece di 148 e l'accumulo non peggiora, ma il netto per operazione dimezza e i
+   simboli in utile scendono a 13/15. `entry_lab --frequenza` rifa' la tabella.
+
 **Due cose restano aperte e sono scritte al §7 di quel documento**: il controllo a blocchi (le
 righe si sovrappongono fra loro e fra simboli, ed e' gia' successo che questo ribaltasse un
 verdetto) e la griglia della confluenza con e senza il votante `modello`.
+
+**Da non scambiare per un guasto:** a 5m il modello marca una barra su millecinquecento. Sulla
+finestra iniziale della pagina, 240 ore, zero operazioni e' cio' che ci si deve aspettare, e su
+BTCUSDT -- una sola operazione in tutto il fuori campione -- la previsione massima su 2.880 barre
+resta sotto la soglia.
 
 **Trappola nuova:** riusare il nome di una variabile in un ciclo di stampa ha sovrascritto il
 rendimento medio complessivo con quello dell'ultimo simbolo, e il numero sbagliato e' finito nei
