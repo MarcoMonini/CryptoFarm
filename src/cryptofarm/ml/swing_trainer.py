@@ -1,6 +1,7 @@
 """Modello a swing: prevede la **prossimita' agli estremi locali**, non l'ampiezza del movimento.
 
-Cosa cambia rispetto a `leg_trainer`, e perche'. La barriera tripla chiede «il prezzo si muove di
+Cosa cambia rispetto al modello a gambe che c'era prima (`.claude/docs/modello-swing.md` §1;
+il suo codice e' stato tolto una volta chiuso in negativo). La barriera tripla chiede «il prezzo si muove di
 1,5 ATR in su o in giu' entro l'orizzonte»: e' una domanda sulla **volatilita'**, e siccome le
 barriere sono gia' scalate sull'ATR l'etichetta normalizza via proprio la parte prevedibile.
 Qui l'etichetta e' `labeling.swing_target`, il rango centrato della chiusura: -1 su un minimo

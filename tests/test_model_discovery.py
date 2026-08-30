@@ -38,20 +38,21 @@ def test_the_most_recent_strategy_wins_when_several_are_trained(models_dir):
     assert trainer.active_model_name() == "meta_model"
 
 
-def test_the_three_action_policy_is_out_of_the_chain(models_dir):
-    """`policy_model` non deve piu' vincere per il solo fatto di esistere su disco.
+def test_le_famiglie_chiuse_in_negativo_non_governano_la_pagina(models_dir):
+    """Un artefatto vecchio in `models/` non deve riportare in servizio un disegno gia' chiuso.
 
-    Era il primo della precedenza, quindi bastava che l'artefatto fosse in `models/` perche' la
-    voce «AI Model» eseguisse la politica a tre azioni -- il disegno chiuso in negativo da
-    `strategy.md` §12-13. L'artefatto puo' restare sul disco senza governare la pagina.
+    Le due famiglie sono la politica a tre azioni (`strategy.md` §12-13) e il modello a gambe
+    (`.claude/docs/modello-swing.md` §1). Il loro codice e' stato tolto, quindi il ramo non c'e'
+    piu'; questa asserzione resta perche' e' il nome, non il ramo, a decidere cosa la pagina
+    carica, e chi rimettesse il nome qui otterrebbe `barrier_signals` in silenzio.
     """
     (models_dir / "policy_model.joblib").write_bytes(b"")
+    (models_dir / "leg_model.joblib").write_bytes(b"")
     assert trainer.active_model_name() is None
 
     (models_dir / "signal_model.joblib").write_bytes(b"")
     assert trainer.active_model_name() == "signal_model"
     assert "policy_model" not in trainer.MODEL_PRECEDENCE
-    # e nemmeno `leg_model`, misurato in perdita a ogni soglia
     assert "leg_model" not in trainer.MODEL_PRECEDENCE
 
 
@@ -120,7 +121,7 @@ def test_the_swing_model_leads_the_chain_when_it_is_on_disk(models_dir):
     """`swing_model` in testa: e' il piu' recente, ed e' quello che si vuole vedere sul grafico.
 
     Vale la stessa via d'uscita di sempre -- spostare l'artefatto altrove riporta la voce «AI
-    Model» al modello precedente -- e vale la stessa avvertenza di `leg_model`: stare in catena
+    Model» al modello precedente -- e vale la stessa avvertenza del modello a gambe: stare in catena
     non vuol dire essere redditizio, vuol dire essere servito. Cio' che rende accettabile
     servirlo e' che la regola cablata sia quella misurata (`|previsione|` come esposizione) e non
     quella che il tipo dell'etichetta suggerisce (il segno come direzione).

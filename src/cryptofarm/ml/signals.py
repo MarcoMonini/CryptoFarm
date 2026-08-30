@@ -217,188 +217,14 @@ def meta_signals(
     return buy_signals, sell_signals
 
 
-def policy_signals(df: pd.DataFrame, model, threshold: float = 0.5) -> tuple[list, list]:
-    """Segnali della politica a tre azioni, per il simulatore.
-
-    A differenza di `barrier_signals` qui **non si predice in blocco**: l'azione di adesso decide
-    lo stato di dopo, quindi la serie va percorsa una barra alla volta riempendo a ogni passo le
-    tre colonne di posizione. E' la ragione per cui questo modello non entra nel percorso
-    esistente senza un adattatore.
-
-    L'uscita non viene dalle barriere ma dal modello stesso: e' lui a emettere SELL. I segnali
-    risultano alternati per costruzione, perche' il mascheramento delle azioni non valide rende
-    impossibile comprare due volte di fila.
-
-    **Il P&L che il simulatore mostrera' e' peggiore di quello di `strategy.md` §12**, e non e'
-    un'incoerenza: li' il costo e' 0,08% andata e ritorno in modalita' maker, mentre il simulatore
-    applica per default lo 0,1% per lato, cioe' 0,2%. Il modello perde in entrambi i casi
-    (§13), ma di quanto dipende dal costo che si applica.
-    """
-    from cryptofarm.ml.dagger import episode_bounds, rollout
-    from cryptofarm.ml.directional_change import BUY, SELL
-    from cryptofarm.ml.policy import FLAT, LONG
-
-    features = build_feature_frame(df, interval_from_index(df.index))
-    matrix = build_design_matrix(features)
-    matrix = matrix[matrix.notna().all(axis=1)]
-    if len(matrix) < 2:
-        return [], []
-
-    close = features.loc[matrix.index, "Close"].to_numpy(float)
-    # Un unico episodio: il simulatore mostra una finestra continua, e spezzarla azzererebbe la
-    # posizione a meta' grafico per una ragione che non ha niente a che vedere col mercato.
-    visited = rollout(model, matrix.to_numpy(), close, bounds=episode_bounds([len(close)], len(close)))
-
-    entries = visited[(visited["state"] == FLAT) & (visited["action"] == BUY)]["row"].to_numpy()
-    exits = visited[(visited["state"] == LONG) & (visited["action"] == SELL)]["row"].to_numpy()
-    pairs = min(len(entries), len(exits))
-    if pairs == 0:
-        return [], []
-
-    stamps = matrix.index
-    buy_signals = [(stamps[row], float(close[row])) for row in entries[:pairs]]
-    sell_signals = [(stamps[row], float(close[row])) for row in exits[:pairs]]
-    return buy_signals, sell_signals
-
-
-def leg_signals(
-    df: pd.DataFrame,
-    model,
-    threshold: float,
-    symbol: str = "",
-    uscita_su_modello: bool = True,
-    soglia_uscita: float | None = None,
-    cross: dict | None = None,
-) -> tuple[list[tuple], list[tuple]]:
-    """Segnali del modello delle gambe: entra su `P(su)`, esce su `P(giu)` o sulla barriera.
-
-    E' l'unico percorso in cui questo progetto emette un segnale di vendita **dal modello**, ed e'
-    possibile solo perche' le barriere dell'etichetta sono simmetriche: `P(giu)` significa «scende
-    di k x ATR prima di salirne altrettanti», non «lo stop di una posizione lunga verrebbe
-    toccato». La differenza e' spiegata in `ml/leg_trainer`.
-
-    ## Non c'e' nessun take profit, ed e' una scelta misurata
-
-    L'uscita e' la prima fra tre condizioni: lo **stop duro** a `k x ATR`, `P(giu)` sopra soglia, e
-    l'orizzonte. Nessuna barriera superiore.
-
-    Il take profit c'era e ne e' uscito misurando. Sulla stessa popolazione di ingressi (tutte le
-    barre, un ingresso al giorno) e con lo stesso stop duro, netto medio per ingresso, mediana su
-    cinque asset a 4h:
-
-    | uscita | netto |
-    |---|---|
-    | nessun take profit, fino all'orizzonte | **+0,074%** |
-    | TP 3 ATR | -0,226% |
-    | TP 1,5 ATR | -0,303% |
-    | TP 1,5 poi trailing 2,5 ATR | -0,454% |
-    | trailing 4 ATR | -0,473% |
-    | trailing 2,5 ATR | -0,753% |
-
-    L'ordine e' monotono: **piu' si interrompe il rialzo, piu' si perde**, e lo stop a trailing e'
-    il peggiore. La ragione e' che la coda destra delle gambe cripto *e'* l'aspettativa, e
-    qualunque regola che la tronchi taglia via cio' che paga. Lo stop duro resta perche' e' una
-    regola di rischio -- limita la coda *sinistra*, che non paga niente.
-
-    Ne segue che `P(giu)` non e' un ornamento: e' **l'unica uscita al rialzo**. Il modello deve
-    dire che la gamba e' finita, o si resta fino all'orizzonte.
-
-    `uscita_su_modello=False` toglie anche quella e lascia solo stop e orizzonte: e' l'ablazione
-    che misura quanto valga la testa `P(giu)`, e va riportata accanto a qualunque risultato.
-
-    ## Due soglie, non una
-
-    `threshold` vale su `P(su)`, `soglia_uscita` su `P(giu)`, e **non possono essere lo stesso
-    numero**. Le due teste hanno distribuzioni diverse: misurato su BTC a 4h, 0,55 su `P(su)`
-    seleziona l'8% delle barre e lo stesso 0,55 su `P(giu)` ne seleziona l'80%. Usare un solo
-    valore produceva un'uscita alla barra successiva a ogni ingresso -- operazioni tutte lunghe
-    una candela, con gli ingressi giusti e le uscite immediate. Senza `soglia_uscita` esplicita si
-    legge quella dei metadata dell'artefatto, che l'addestramento calibra sulla distribuzione di
-    `P(giu)` e non su quella di `P(su)`.
-
-    `cross` sono le tre colonne trasversali, che dipendono dagli **altri** asset e quindi non
-    sono calcolabili da un simbolo solo. Senza, restano NaN -- ed e' uno stato che il modello
-    vede in addestramento (`leg_trainer` ne maschera una quota apposta), quindi lo tratta come
-    "non so", non come ribasso.
-
-    `symbol` serve alle due feature di posizionamento; senza, restano NaN e il modello a gradienti
-    le tratta come una categoria a se'. E' la condizione in cui gira il simulatore su un simbolo
-    caricato dall'exchange invece che dallo store.
-    """
-    from cryptofarm.ml.bar_features import FEATURE_COLUMNS, build_bar_features, cross_from_store
-    from cryptofarm.ml.leg_trainer import BARRIERA_ATR, GIRO, PAVIMENTO, _orizzonte
-    from cryptofarm.ml.trainer import stored_exit_threshold
-
-    interval = interval_from_index(df.index)
-    soglia_uscita = soglia_uscita if soglia_uscita is not None else stored_exit_threshold()
-    # Le trasversali dipendono dagli altri asset: chi passa un simbolo solo non puo' calcolarle, e
-    # senza il risultato crolla (mediana da +1,9% a -39,5% fuori campione). Se lo store locale
-    # c'e', si ricavano da li'; se non c'e' restano NaN e il modello degrada in modo controllato.
-    cross = cross if cross is not None else cross_from_store(interval)
-    feature = build_bar_features(symbol, df, interval, cross=cross)
-    matrice = feature[FEATURE_COLUMNS]
-    utilizzabile = matrice.notna().any(axis=1).to_numpy()
-    if not utilizzabile.any():
-        return [], []
-
-    probabilita = predict_proba(model, matrice.to_numpy(dtype=float))
-    p_su, p_giu = probabilita[:, BUY], probabilita[:, 2]
-
-    # Solo la barriera inferiore: `barrier_widths` restituisce anche quella superiore e qui non
-    # viene usata. Lo stop conserva il pavimento sulle commissioni -- uno stop piu' stretto del
-    # proprio giro si fa toccare dal rumore e paga per farlo.
-    _, stop_loss = barrier_widths(
-        feature["atr_rel"] * 100.0,
-        tp_multiple=BARRIERA_ATR,
-        sl_multiple=BARRIERA_ATR,
-        round_trip_fee=GIRO,
-        fee_floor_multiple=PAVIMENTO,
-    )
-    orizzonte = _orizzonte(interval)
-    low = df["Low"].to_numpy(dtype=float)
-    close = df["Close"].to_numpy(dtype=float)
-    quando = df.index
-
-    acquisti: list[tuple] = []
-    vendite: list[tuple] = []
-    posizione = 0
-    while posizione < len(close):
-        # Nessun ingresso dove lo stop non e' calcolabile: sulle barre di riscaldamento l'ATR non
-        # c'e' ancora, e una posizione senza stop -- o con lo stop del pavimento -- non e' quella
-        # che il modello e' stato addestrato a valutare.
-        if not (p_su[posizione] >= threshold) or not np.isfinite(stop_loss[posizione]):
-            posizione += 1
-            continue
-
-        ingresso = close[posizione]
-        stop = ingresso * (1.0 - stop_loss[posizione])
-        scadenza = min(posizione + orizzonte, len(close) - 1)
-        acquisti.append((quando[posizione], float(ingresso), f"P(su)={p_su[posizione]:.2f}"))
-
-        uscita, prezzo, motivo = scadenza, close[scadenza], "horizon"
-        for passo in range(posizione + 1, scadenza + 1):
-            # Lo stop per primo: dentro una candela l'OHLC non dice l'ordine degli eventi, e la
-            # convenzione pessimistica e' la stessa dell'etichettatura.
-            if low[passo] <= stop:
-                uscita, prezzo, motivo = passo, stop, "stop"
-                break
-            if uscita_su_modello and p_giu[passo] >= soglia_uscita:
-                uscita, prezzo, motivo = passo, close[passo], f"P(giu)={p_giu[passo]:.2f}"
-                break
-
-        vendite.append((quando[uscita], float(prezzo), motivo))
-        posizione = uscita + 1
-
-    return acquisti, vendite
-
-
 # --- Il modello a swing --------------------------------------------------------------------------
 
 # Le soglie della regola a esposizione, scelte **sulla validazione** e non fuori campione.
 # `.claude/docs/modello-swing.md` §5.2 misura che nessuna coppia va bene in entrambe le finestre:
 # 0,50/0,40 rende fuori campione e perde in validazione, 0,35/0,25 il contrario. Prendere la prima
 # perche' e' quella che rende sul 2024-2026 sarebbe tararsi sul campione di verifica -- il difetto
-# per cui `leg_model` e' uscito dalla catena. Si prende quindi quella scelta dove e' lecito
+# per cui il modello a gambe e' uscito dalla catena (`modello-swing.md` §1, e il suo codice non
+# e' piu' qui). Si prende quindi quella scelta dove e' lecito
 # sceglierla, sapendo che fuori campione ha reso -0,191% per operazione.
 SWING_ENTRA, SWING_ESCI = 0.35, 0.25
 
@@ -728,7 +554,7 @@ def entry_signals(df: pd.DataFrame, model, symbol: str = "", nome: str = ENTRY_V
     selettivita': segnalando il 10% delle barre il rendimento medio del segnalato e' +0,047%, cioe'
     meno della commissione; segnalando lo 0,5% e' +2,07%. Un'uscita a segnale, o uno stop a
     trailing, non e' cio' che e' stato misurato -- e sulla famiglia precedente ogni regola che
-    troncava il rialzo peggiorava il netto in modo monotono (`leg_signals`).
+    troncava il rialzo peggiorava il netto in modo monotono (misurato sul modello a gambe che c'era prima).
 
     Le feature sono le stesse 41 del modello a swing, quindi passa da `swing_features`: una sola
     definizione per i tre modelli che le usano.

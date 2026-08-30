@@ -17,9 +17,7 @@ from ta.trend import PSARIndicator
 from cryptofarm.ml.signals import (
     barrier_signals,
     entry_signals,
-    leg_signals,
     meta_signals,
-    policy_signals,
     rl_signals,
     swing_signals,
 )
@@ -845,13 +843,6 @@ def ai_model_simulation(df, model, threshold: float = None, symbol: str = "", fa
         # e la forma misurata di quel segnale e' a U. L'uscita e' la stessa condizione
         # dell'ingresso letta al contrario, quindi qui non entrano ne' barriere ne' soglia.
         return swing_signals(df, model, symbol=symbol)
-    if family == "leg_model":
-        # Il modello delle gambe emette anche l'uscita (`P(giu)`), quindi non c'e' take profit:
-        # e' `ml/signals.leg_signals` a decidere, e la ragione e' misurata li'.
-        return leg_signals(df, model, threshold=threshold, symbol=symbol)
-    if family == "policy_model":
-        # La politica a tre azioni decide anche l'uscita, quindi le barriere qui non entrano.
-        return policy_signals(df, model, threshold=threshold)
     if family == "meta_model":
         return meta_signals(df, model, threshold=threshold, **meta_parameters())
     return barrier_signals(df, model, threshold=threshold)

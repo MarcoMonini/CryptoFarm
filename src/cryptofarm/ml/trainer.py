@@ -292,20 +292,18 @@ def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = Non
     return result
 
 
-# Precedenza: modello delle gambe, poi meta-labeling, poi il classificatore di segnale
-# originale. Il modello della strategia piu' recente e' quello che si vuole vedere sul grafico;
+# Precedenza: il modello della strategia piu' recente e' quello che si vuole vedere sul grafico;
 # per tornare al precedente basta spostarne l'artefatto altrove.
 #
-# **`policy_model` non e' piu' in catena.** Restava per primo, quindi bastava che l'artefatto
-# esistesse in `models/` perche' la voce «AI Model» eseguisse la politica a tre azioni -- il
-# disegno chiuso in negativo da `strategy.md` §12-13, con la causa misurata in §13.1 (entrare e
-# uscire alla conferma cattura zero in media, su ogni simbolo e a ogni soglia, prima dei costi).
-# L'artefatto non viene cancellato: se serve rivederlo, si rimette il nome in questa tupla.
-# `leg_model` e' **fuori dalla catena di proposito**, pur avendo l'artefatto su disco. Il ciclo di
-# dubbio del 2026-08-28 ha misurato che il suo netto medio per ingresso e' negativo a tutte e sei
-# le soglie provate, e che il verdetto «PASSA» si accontentava di battere un p95 anch'esso
-# negativo. Finche' non e' rivalidato non deve servire la voce «AI Model» della pagina: bastava
-# spostare l'artefatto, ma cosi' la ragione resta scritta dove qualcuno la rilegge.
+# **Due famiglie sono state chiuse in negativo e il loro codice non e' piu' qui.** La politica a
+# tre azioni (`policy_model`) e' il disegno chiuso da `strategy.md` §12-13, con la causa misurata
+# in §13.1: entrare e uscire alla conferma cattura zero in media, su ogni simbolo e a ogni soglia,
+# prima dei costi. Il modello a gambe (`leg_model`) e' caduto nell'audit del 2026-08-28
+# (`.claude/docs/modello-swing.md` §1): netto medio per ingresso negativo a tutte e sei le soglie
+# provate, e il verdetto «PASSA» si accontentava di battere un p95 anch'esso negativo. Finche'
+# restavano nel dispatch bastava un artefatto su disco perche' la pagina li servisse; ora non
+# c'e' piu' il ramo, e rimetterli in questa tupla non basta a farli girare. La misura che li ha
+# chiusi sta nei documenti, che e' dove va riletta prima di rifarli.
 # `swing_model` e' il piu' recente e sta in testa. Cablarlo e' stata una decisione, non un
 # automatismo: `.claude/docs/modello-swing.md` §5 lo lasciava fuori perche' la sua regola a
 # esposizione non batte il caso a esposizione appaiata (1 simbolo su 15, contro 0,75 attesi). Cio'
@@ -356,7 +354,7 @@ def stored_exit_threshold() -> float:
     le due teste hanno distribuzioni diverse, quindi un valore che sulla prima seleziona l'8%
     delle barre sulla seconda ne seleziona l'80%, e ogni posizione si chiude alla barra dopo
     averla aperta. Il default alto e' deliberato: senza una calibrazione l'uscita a modello deve
-    quasi non scattare, perche' l'ablazione la misura dannosa (vedi `ml/signals.leg_signals`).
+    quasi non scattare, perche' l'ablazione la misura dannosa (`.claude/docs/modello-swing.md` §1).
     """
     for name in MODEL_PRECEDENCE:
         metadata_path = MODELS_DIR / f"{name}.json"

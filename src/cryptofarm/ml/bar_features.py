@@ -49,7 +49,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from cryptofarm.data.klines import BASE_INTERVAL, interval_to_minutes
 from cryptofarm.data.positioning import load_positioning
 from cryptofarm.trading.indicators_extra import ExtraCache
 
@@ -71,9 +70,7 @@ ASSET_COLUMNS = [
 CROSS_COLUMNS = ["rango_forza", "ampiezza_mercato", "forza_su_btc"]
 # Quante barre al massimo si puo' riportare avanti un valore trasversale preso da uno store piu'
 # vecchio delle candele. Oltre, e' meglio un NaN dichiarato di un numero vecchio.
-CROSS_STALENESS_BARS = 42
 POSITIONING_COLUMNS = ["affollamento_conti", "affollamento_posizioni"]
-FEATURE_COLUMNS = [*ASSET_COLUMNS, *CROSS_COLUMNS, *POSITIONING_COLUMNS, "timeframe"]
 
 
 def asset_features(candles: pd.DataFrame, cache: ExtraCache) -> pd.DataFrame:
@@ -142,34 +139,6 @@ def cross_features(closes: pd.DataFrame, lookback: int = 30) -> dict[str, pd.Dat
     return {"rango_forza": rank, "ampiezza_mercato": breadth, "forza_su_btc": btc_rel}
 
 
-def cross_from_store(interval: str, universe: list[str] | None = None) -> dict | None:
-    """Le tre colonne trasversali ricavate dallo store locale, o `None` se lo store non basta.
-
-    Servono a chi carica **un simbolo alla volta** -- il simulatore prende le candele
-    dall'exchange e non ha modo di sapere come stanno gli altri quindici. Senza, quelle colonne
-    restano NaN, e il modello e' calibrato per non impazzirci (`leg_trainer` ne maschera una quota
-    in addestramento) ma **rende molto meno**: misurato fuori campione a 4h, la mediana passa da
-    +1,9% a -39,5%. La differenza non e' un dettaglio di implementazione, e' la leva che
-    `ricerca-quant-ml.md` §1.5.1 indica come la piu' forte.
-
-    Restituisce `None` invece di un dizionario di NaN quando lo store non c'e', cosi' il chiamante
-    puo' **dirlo** invece di girare in silenzio nella configurazione degradata. E' la condizione
-    del servizio pubblico, dove non c'e' disco persistente.
-    """
-    from cryptofarm.data.klines import DEFAULT_SYMBOLS, load_klines
-
-    chiusure = {}
-    for symbol in universe or DEFAULT_SYMBOLS:
-        candele = load_klines(symbol, interval)
-        if not candele.empty:
-            chiusure[symbol] = candele["Close"]
-    # Meno di tre asset non e' una sezione trasversale: un rango percentile su due elementi vale
-    # sempre 0 o 1, e l'ampiezza di mercato e' la media di se stessa.
-    if len(chiusure) < 3 or "BTCUSDT" not in chiusure:
-        return None
-    return cross_features(pd.DataFrame(chiusure).sort_index())
-
-
 def positioning_features(symbol: str, index: pd.DatetimeIndex) -> pd.DataFrame:
     """Quanto sono affollati i lunghi, fra i conti al dettaglio e fra i top trader.
 
@@ -191,50 +160,6 @@ def positioning_features(symbol: str, index: pd.DatetimeIndex) -> pd.DataFrame:
             },
             index=index,
         ).replace([np.inf, -np.inf], np.nan)
-
-
-def timeframe_feature(interval: str) -> float:
-    """log2 del rapporto col timeframe base, diviso 4: 1h -> 0,90, 4h -> 1,40, 1d -> 1,79.
-
-    Sta nello stesso ordine di grandezza delle altre feature invece di dominarle.
-    """
-    return float(np.log2(interval_to_minutes(interval) / interval_to_minutes(BASE_INTERVAL)) / 4.0)
-
-
-def build_bar_features(
-    symbol: str,
-    candles: pd.DataFrame,
-    interval: str,
-    cross: dict | None = None,
-    cache: ExtraCache | None = None,
-) -> pd.DataFrame:
-    """Tutte le feature per ogni barra di un simbolo. E' il punto d'ingresso unico.
-
-    `cross` viene da `cross_features` sull'intero universo e va passato dall'esterno: dipende
-    dagli **altri** asset, quindi non e' calcolabile guardando questo solo. Senza, le tre colonne
-    trasversali restano NaN -- che e' il comportamento giusto per il simulatore, dove si carica un
-    simbolo alla volta, invece di inventare un rango su un universo di uno.
-    """
-    cache = cache if cache is not None else ExtraCache(candles)
-    frame = asset_features(candles, cache)
-
-    for column in CROSS_COLUMNS:
-        if cross is None or symbol not in getattr(cross[column], "columns", [symbol]):
-            frame[column] = np.nan
-        else:
-            serie = cross[column]
-            serie = serie[symbol] if isinstance(serie, pd.DataFrame) else serie
-            # `ffill` con un tetto: le candele della pagina arrivano dall'exchange e possono
-            # essere piu' recenti dello store da cui viene la sezione trasversale, quindi le
-            # barre piu' nuove -- proprio quelle che si guardano -- resterebbero senza. La forza
-            # relativa fra asset si muove su scale di settimane, quindi riportarla avanti di
-            # qualche barra e' fedele; riportarla avanti di mesi no, ed e' per questo che c'e' un
-            # limite invece di un `ffill` aperto.
-            frame[column] = serie.reindex(candles.index, method="ffill", limit=CROSS_STALENESS_BARS)
-
-    frame[POSITIONING_COLUMNS] = positioning_features(symbol, candles.index)
-    frame["timeframe"] = timeframe_feature(interval)
-    return frame[FEATURE_COLUMNS]
 
 
 # --- Le colonne del modello a swing -------------------------------------------------------------

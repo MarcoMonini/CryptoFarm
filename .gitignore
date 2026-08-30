@@ -166,3 +166,8 @@ cython_debug/
 .venv312/
 market_data/
 analysis_cache/
+
+# Artefatti del plugin headroom, finiti in un commit per sbaglio.
+.claude/.headroom_*
+# Lockfile di uv: qui si installa con pip da pyproject.toml.
+uv.lock
