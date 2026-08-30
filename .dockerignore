@@ -13,8 +13,6 @@ models/*
 !models/README.md
 !models/.gitignore
 
-# Codice archiviato, escluso anche da lint e format.
-
 # Ambienti locali e cache
 .venv/
 .venv312/

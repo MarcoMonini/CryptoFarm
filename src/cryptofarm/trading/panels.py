@@ -86,6 +86,11 @@ class Traccia:
     modo: str = "lines"
     simbolo: str = "circle"
     dimensione: float = 5.0  # solo per i marcatori
+    # Dichiara che la serie puo' mancare **legittimamente**, e non e' un dettaglio di disegno:
+    # `simulator` salta da se' qualunque serie assente, quindi senza questo campo la differenza
+    # fra «l'artefatto non c'e'» e «il nome della colonna e' sbagliato» non esiste piu' per
+    # nessuno. E' il test che la legge, ed e' l'unico posto da cui si puo' leggere.
+    condizionale: bool = False
 
 
 @dataclass(frozen=True)
@@ -469,9 +474,10 @@ INDICATORI: dict[str, Indicatore] = {
             # Il votante a modello e' l'unico che non scende mai sotto zero: vota +1 quando
             # `|previsione|` e' alta e 0 altrimenti, perche' la forma misurata del segnale non
             # dice il verso. Una linea che sta solo in [0, 1] si legge a colpo d'occhio come
-            # diversa dalle altre, ed e' giusto cosi'. Se l'artefatto non c'e' la serie non
-            # esiste e la traccia si salta da se'.
-            Traccia("modello", "Swing model · trigger", ACQUA, tratteggio="dot", larghezza=1.4),
+            # diversa dalle altre, ed e' giusto cosi'. Se l'artefatto non c'e' `votanti_predefiniti`
+            # lo toglie dal default, la serie non esiste e la traccia si salta da se' -- che e' la
+            # condizione della produzione, dove `models/` e' vuoto per costruzione.
+            Traccia("modello", "Swing model · trigger", ACQUA, tratteggio="dot", larghezza=1.4, condizionale=True),
         ),
     ),
     "media_regime": Indicatore(

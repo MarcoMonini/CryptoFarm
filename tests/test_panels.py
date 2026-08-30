@@ -101,7 +101,15 @@ def test_ogni_strategia_riferisce_indicatori_e_parametri_esistenti(nome: str) ->
 
 @pytest.mark.parametrize("chiave", sorted(panels.INDICATORI))
 def test_le_serie_dichiarate_esistono_davvero_nel_frame(chiave: str, frame: pd.DataFrame) -> None:
-    """E' il controllo che intercetta un nome di colonna sbagliato, come la vecchia `EMA200`."""
+    """E' il controllo che intercetta un nome di colonna sbagliato, come la vecchia `EMA200`.
+
+    Le tracce marcate `condizionale` non si pretendono presenti, ma nemmeno si saltano: se la
+    serie c'e' vale tutto il resto. Senza quel campo questo test **cambiava esito con il
+    contenuto di `models/`** -- passava sulla macchina di chi ha addestrato e falliva in CI, che
+    e' la condizione della produzione. Il caso e' il votante a modello, che senza artefatto resta
+    fuori dal default della confluenza; che la sua traccia sia raggiungibile lo tiene fermo
+    `test_confluence.test_il_riquadro_dei_votanti_ha_una_traccia_per_votante`.
+    """
     indicatore = panels.INDICATORI[chiave]
     prodotte = indicatore.serie(frame, ExtraCache(frame), panels.valori_predefiniti())
     if indicatore.condizionale and not prodotte:
@@ -109,6 +117,8 @@ def test_le_serie_dichiarate_esistono_davvero_nel_frame(chiave: str, frame: pd.D
         # esiste solo dove c'e' una posizione), e su questo frame non ce ne sono.
         return
     for traccia in indicatore.tracce:
+        if traccia.condizionale and traccia.serie not in prodotte:
+            continue
         assert traccia.serie in prodotte, f"{chiave}: la traccia '{traccia.nome}' non ha la serie {traccia.serie}"
         assert prodotte[traccia.serie].notna().any(), f"{chiave}: la serie {traccia.serie} e' tutta vuota"
 

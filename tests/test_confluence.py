@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cryptofarm.trading import confluence
+from cryptofarm.trading import confluence, panels
 from cryptofarm.trading.indicators_extra import ExtraCache
 
 
@@ -197,6 +197,19 @@ def test_la_pagina_mostra_la_decisione_e_i_votanti(candele):
     assert {"Score", "Threshold"} <= nomi, "manca il riquadro della decisione"
     assert {"Regime plane (gate)", "Structure plane"} <= nomi, "mancano i piani lunghi"
     assert sum("·" in (n or "") for n in nomi) == len(confluence.VOTANTI), "manca un votante"
+
+
+def test_il_riquadro_dei_votanti_ha_una_traccia_per_votante():
+    """I nomi delle serie sono quelli del **registro**, non quelli del default.
+
+    Il test qui sopra conta le tracce disegnate, e ne conta giuste anche se un nome e' sbagliato:
+    un votante che non ha una traccia e una traccia che non ha un votante si compensano. Questo
+    confronta gli insiemi, e lo fa contro `REGISTRO` invece che contro `VOTANTI` perche' il
+    secondo dipende da cosa c'e' in `models/`: e' l'unico modo di verificare la traccia del
+    votante a modello anche dove l'artefatto non c'e', cioe' in CI e in produzione.
+    """
+    dichiarate = {traccia.serie for traccia in panels.INDICATORI["votanti"].tracce}
+    assert dichiarate == set(confluence.REGISTRO)
 
 
 def test_ogni_segnale_dice_chi_l_ha_generato(candele):
