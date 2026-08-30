@@ -86,6 +86,11 @@ class Traccia:
     modo: str = "lines"
     simbolo: str = "circle"
     dimensione: float = 5.0  # solo per i marcatori
+    # Dichiara che la serie puo' mancare **legittimamente**, e non e' un dettaglio di disegno:
+    # `simulator` salta da se' qualunque serie assente, quindi senza questo campo la differenza
+    # fra «l'artefatto non c'e'» e «il nome della colonna e' sbagliato» non esiste piu' per
+    # nessuno. E' il test che la legge, ed e' l'unico posto da cui si puo' leggere.
+    condizionale: bool = False
 
 
 @dataclass(frozen=True)
@@ -146,6 +151,13 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
     caso della pagina appena aperta con poche ore di dati, e va detto invece che sollevato.
     """
     global _ULTIMA_CONFLUENZA
+
+    # `valori` puo' arrivare **parziale**: la barra laterale lo costruisce da zero mettendoci solo
+    # cio' che disegna, e chi chiama da fuori la pagina passa quel che ha. `trading_analysis`
+    # riempie i buchi per conto suo, ma non e' l'unico chiamante -- `diagnosi_confluenza` riceve il
+    # dizionario della barra laterale cosi' com'e', e cadeva con `KeyError` proprio nel caso per cui
+    # esiste, quello senza operazioni. Riempirli qui copre tutti i chiamanti in una volta.
+    valori = {**valori_predefiniti(), **valori}
 
     parametri = {
         "theta_base": float(valori["CONF_THETA_BASE"]),
@@ -235,6 +247,56 @@ def _serie_stop(df, cache, valori):
 def _serie_votanti(df, cache, valori):
     risultato = confluenza_di(df, valori)
     return _serie(df.index, **risultato.voti) if risultato is not None else {}
+
+
+def _serie_etichetta(df, cache, valori):
+    """L'etichetta con cui il modello a swing viene addestrato, sulle candele caricate.
+
+    Non e' un indicatore: `swing_leg_target` guarda avanti fino all'estremo successivo, quindi non
+    e' operabile e le barre dopo l'ultimo estremo confermato escono vuote. Sta qui perche' e'
+    l'unico modo di vedere, sulle candele che si stanno guardando, quale numero il modello impara
+    a prevedere su ognuna -- e dove cadono gli estremi che lo definiscono.
+    """
+    from cryptofarm.ml.labeling import swing_leg_target, swing_pivots
+
+    finestra = int(valori["SWING_TARGET_WINDOW"])
+    bersaglio = swing_leg_target(df["Close"], finestra, peso_tempo=float(valori["SWING_TARGET_TEMPO"]))
+    estremi = pd.Series(np.nan, index=df.index)
+    indici, _ = swing_pivots(df["Close"], finestra)
+    if len(indici):
+        estremi.iloc[indici] = bersaglio.to_numpy()[indici]
+    return {"swing_target": bersaglio, "swing_pivot": estremi}
+
+
+def _serie_previsione(df, cache, valori):
+    """Cosa il modello d'ingresso prevede su ogni candela, accanto a cio' che gli e' stato chiesto.
+
+    Le due serie sono **nella stessa unita'** -- rendimento logaritmico sullo stesso tratto di
+    calendario -- ed e' l'unico motivo per cui stanno sullo stesso asse. L'etichetta a swing sta
+    in un riquadro suo perche' vive in [-1, 1]: metterle insieme schiaccerebbe l'una sull'altra.
+
+    Il bersaglio guarda avanti di `h` barre e quindi la coda esce vuota: nessuna strategia lo puo'
+    operare, e il confronto e' diagnostico. La soglia disegnata e' quella dei metadata, cioe' la
+    riga sopra la quale il modello **compra**: e' l'unico modo di vedere sul grafico quanto e'
+    lontana la previsione dal far scattare un'operazione.
+    """
+    from cryptofarm.ml import signals
+    from cryptofarm.ml.entry_trainer import rendimento_futuro
+
+    nome, modello = valori.get("FAMIGLIA", ""), valori.get("MODELLO")
+    if modello is None or nome not in (signals.ENTRY_VELOCE, signals.ENTRY_LENTO):
+        return {}
+    servizio = signals.entry_metadata(nome)
+    # `h` dai metadata dell'etichetta e non dalla tenuta: sono due argomenti distinti del trainer,
+    # uguali solo per come e' stato lanciato finora.
+    h = int(signals.entry_metadata(nome, "labeling").get("h", servizio.get("tenuta", 20)))
+    previsto = signals.entry_predictions(df, modello, symbol=valori.get("SIMBOLO", ""))
+    bersaglio = rendimento_futuro(df["Close"].to_numpy(dtype=float), signals.barre_equivalenti(df.index, h))
+    return {
+        "entry_previsto": pd.Series(previsto, index=df.index),
+        "entry_bersaglio": pd.Series(bersaglio, index=df.index),
+        "entry_soglia": pd.Series(float(servizio.get("soglia", np.nan)), index=df.index),
+    }
 
 
 def _colonne(*nomi: str):
@@ -397,12 +459,25 @@ INDICATORI: dict[str, Indicatore] = {
         pannello="Voters",
         serie=_serie_votanti,
         tracce=(
+            # Il colore dice la **famiglia**, il tratteggio il **piano**. Prima erano sei votanti
+            # in sei famiglie e la distinzione non aveva niente da codificare; adesso due famiglie
+            # hanno due votanti ciascuna -- le stesse bande a due scale, le stesse zone a due
+            # piani -- e il colore condiviso e' cio' che si vuole leggere a colpo d'occhio,
+            # perche' e' quello che `k_famiglie` conta.
             Traccia("ichimoku", "Ichimoku · structure", BLU, larghezza=1.4),
-            Traccia("donchian", "Donchian · structure", BLU, tratteggio="dash", larghezza=1.4),
             Traccia("flusso", "Volume flow · structure", ARANCIO, larghezza=1.4),
-            Traccia("squeeze", "Squeeze · confirmation", ARANCIO, tratteggio="dash", larghezza=1.4),
             Traccia("pullback", "Pullback · confirmation", ACQUA, larghezza=1.4),
-            Traccia("reversione", "Mean reversion · trigger", ACQUA, tratteggio="dash", larghezza=1.4),
+            Traccia("bande_conferma", "ATR bands · confirmation", BLU, tratteggio="dash", larghezza=1.4),
+            Traccia("bande_innesco", "ATR bands · trigger", BLU, tratteggio="dot", larghezza=1.4),
+            Traccia("zone_regime", "Trend zones · regime", ARANCIO, tratteggio="dash", larghezza=1.4),
+            Traccia("zone_struttura", "Trend zones · structure", ARANCIO, tratteggio="dot", larghezza=1.4),
+            # Il votante a modello e' l'unico che non scende mai sotto zero: vota +1 quando
+            # `|previsione|` e' alta e 0 altrimenti, perche' la forma misurata del segnale non
+            # dice il verso. Una linea che sta solo in [0, 1] si legge a colpo d'occhio come
+            # diversa dalle altre, ed e' giusto cosi'. Se l'artefatto non c'e' `votanti_predefiniti`
+            # lo toglie dal default, la serie non esiste e la traccia si salta da se' -- che e' la
+            # condizione della produzione, dove `models/` e' vuoto per costruzione.
+            Traccia("modello", "Swing model · trigger", ACQUA, tratteggio="dot", larghezza=1.4, condizionale=True),
         ),
     ),
     "media_regime": Indicatore(
@@ -515,6 +590,36 @@ INDICATORI: dict[str, Indicatore] = {
         serie=lambda df, cache, v: _serie(df.index, obv=cache.obv_slope(int(v["OBV_WINDOW"]))),
         tracce=(Traccia("obv", "OBV slope", ACQUA, larghezza=1.8),),
     ),
+    # Non e' un indicatore di nessuna strategia: e' l'etichetta del modello, e si mostra a
+    # richiesta (`MOSTRA_ETICHETTA`). Sta nel registro perche' da li' prende widget, colori e
+    # riquadro come tutti gli altri.
+    "etichetta_swing": Indicatore(
+        etichetta="Swing target",
+        parametri=("SWING_TARGET_WINDOW", "SWING_TARGET_TEMPO"),
+        pannello="Swing target (label, looks ahead)",
+        serie=_serie_etichetta,
+        tracce=(
+            Traccia("swing_target", "Target", ACQUA, larghezza=2.0),
+            Traccia("swing_pivot", "Local extremes", BLU, modo="markers", dimensione=7.0),
+        ),
+    ),
+    # Nemmeno questo appartiene a una strategia: e' il modello d'ingresso messo accanto alla sua
+    # domanda, per vedere su queste candele quanto le due si somiglino. Riquadro separato da
+    # `etichetta_swing` perche' le unita' sono altre -- rendimenti, non una posizione in [-1, 1].
+    "previsione_ingresso": Indicatore(
+        etichetta="Entry model",
+        parametri=(),
+        pannello="Entry model: prediction vs realised return",
+        # Senza artefatto in `valori` non c'e' niente da disegnare, ed e' la condizione della
+        # produzione: `models/` e' vuoto per costruzione.
+        condizionale=True,
+        serie=_serie_previsione,
+        tracce=(
+            Traccia("entry_previsto", "Predicted", BLU, larghezza=2.0),
+            Traccia("entry_bersaglio", "Realised (looks ahead)", ACQUA, larghezza=1.5),
+            Traccia("entry_soglia", "Buy threshold", ARANCIO, tratteggio="dash", larghezza=1.2),
+        ),
+    ),
 }
 
 
@@ -574,8 +679,17 @@ STRATEGIE: dict[str, Strategia] = {
     ),
     "AI Model": Strategia(
         indicatori=(),
-        esegui=lambda df, cache, v: strategies.ai_model_simulation(df=df, model=v["MODELLO"]),
-        note="Signals come from the trained model: nothing to plot.",
+        esegui=lambda df, cache, v: strategies.ai_model_simulation(
+            df=df, model=v["MODELLO"], symbol=v.get("SIMBOLO", ""), famiglia=v.get("FAMIGLIA", "")
+        ),
+        note="Signals come from the trained model: nothing to plot. The entry model asks how much "
+        "the next few hours pay, not what the chart looks like; the fast one trades and the slow "
+        "one gates it. Out of sample: +2.07% net per trade over 148 trades, 14 of 15 assets in "
+        "profit, and the 100th percentile against exposure-matched random entries. Its edge is "
+        "selectivity, so threshold and holding time come from the artifact, not from a slider — "
+        "and for the same reason it is calibrated on 5m bars and stays silent above 30m, where "
+        "that same threshold would flag 3% of bars at 1h and 28% at 1d instead of 0.5%. Being "
+        "this selective, it flags roughly one bar in 1,500: short windows will show no trades.",
     ),
     "Donchian Breakout": Strategia(
         indicatori=("donchian", "media_regime", "adx"),
@@ -683,7 +797,7 @@ CONFLUENZA = "Confluence"
 # `bande_atr` con finestra e moltiplicatore diversi. Mostrarli tutti metteva in legenda due
 # "EMA fast" e due "Upper band", cioe' due etichette identiche su linee diverse -- che e'
 # peggio di un'informazione mancante, perche' sembra un errore di lettura di chi guarda.
-PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama")
+PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama", "etichetta_swing", "previsione_ingresso")
 
 
 # Quale misura copre quale intervallo. E' una **decisione**, scritta come dato invece che calcolata:
@@ -807,8 +921,14 @@ def parametri_di(strategia: str) -> list[str]:
 
 def pannelli_di(strategia: str) -> list[str]:
     """I titoli dei riquadri sotto le candele, nell'ordine in cui vanno impilati."""
+    return pannelli_degli(indicatori_di(strategia))
+
+
+def pannelli_degli(chiavi) -> list[str]:
+    """Come sopra, ma per un elenco qualunque: la pagina puo' aggiungere l'etichetta del modello,
+    che non appartiene a nessuna strategia."""
     titoli: list[str] = []
-    for chiave in indicatori_di(strategia):
+    for chiave in chiavi:
         pannello = INDICATORI[chiave].pannello
         if pannello is not None and pannello not in titoli:
             titoli.append(pannello)
@@ -845,6 +965,8 @@ ETICHETTE: dict[str, str] = {
     "STOP_LOSS_PERCENT": "Stop loss %",
     "NUM_CONDITIONS": "Conditions required",
     "PIVOT_WINDOW": "Swing window",
+    "SWING_TARGET_WINDOW": "Target window (bars per side)",
+    "SWING_TARGET_TEMPO": "Time weight along the leg",
     "CONF_THETA_BASE": "Entry threshold",
     "CONF_THETA_MACRO": "Threshold relief from higher planes",
     "CONF_ISTERESI": "Exit hysteresis",
@@ -862,33 +984,27 @@ ETICHETTE: dict[str, str] = {
     "CONF_ICHIMOKU_SLOW": "Kijun (slow)",
     "CONF_ICHIMOKU_SPAN": "Cloud span",
     "CONF_ICHIMOKU_CLOUD": "Require cloud (1 = yes)",
-    "CONF_DONCHIAN_CHANNEL": "Channel length",
-    "CONF_DONCHIAN_ADX_WINDOW": "ADX window",
-    "CONF_DONCHIAN_ADX_MIN": "ADX minimum",
-    "CONF_DONCHIAN_ATR_WINDOW": "ATR window",
-    "CONF_DONCHIAN_ATR_MULT": "Stop distance (ATR)",
-    "CONF_DONCHIAN_REGIME_EMA": "Regime EMA (0 = off)",
     "CONF_FLOW_WINDOW": "OBV and MFI window",
     "CONF_FLOW_MFI_ALTO": "MFI ceiling for longs",
     "CONF_FLOW_MFI_BASSO": "MFI floor for shorts",
-    "CONF_SQUEEZE_BB_WINDOW": "Bollinger window",
-    "CONF_SQUEEZE_BB_DEV": "Bollinger deviations",
-    "CONF_SQUEEZE_KC_WINDOW": "Keltner window",
-    "CONF_SQUEEZE_KC_MULT": "Keltner multiplier",
-    "CONF_SQUEEZE_ATR_WINDOW": "ATR window",
-    "CONF_SQUEEZE_ATR_MULT": "Stop distance (ATR)",
-    "CONF_SQUEEZE_VOLUME": "Confirm with volume (1 = yes)",
-    "CONF_SQUEEZE_OBV_WINDOW": "OBV window",
     "CONF_PULLBACK_REGIME_EMA": "Regime EMA",
     "CONF_PULLBACK_STOCH_WINDOW": "StochRSI window",
     "CONF_PULLBACK_STOCH_SMOOTH": "StochRSI smoothing",
     "CONF_PULLBACK_OVERSOLD": "Oversold level",
     "CONF_PULLBACK_OVERBOUGHT": "Overbought level",
     "CONF_PULLBACK_ATR_MULT": "Stop distance (ATR)",
-    "CONF_REVERSION_KAMA": "KAMA window",
-    "CONF_REVERSION_BAND_MULT": "Band width (ATR)",
-    "CONF_REVERSION_ADX_MAX": "ADX maximum (range required)",
-    "CONF_REVERSION_STOP_MULT": "Stop distance (ATR)",
+    "CONF_BANDE_KAMA": "KAMA window (confirmation)",
+    "CONF_BANDE_BAND_MULT": "Band width (ATR, confirmation)",
+    "CONF_BANDE_STOP_MULT": "Stop distance (ATR, confirmation)",
+    "CONF_BANDE_KAMA_VELOCE": "KAMA window (trigger)",
+    "CONF_BANDE_BAND_MULT_VELOCE": "Band width (ATR, trigger)",
+    "CONF_BANDE_STOP_MULT_VELOCE": "Stop distance (ATR, trigger)",
+    "CONF_ZONE_FAST": "Fast EMA (regime)",
+    "CONF_ZONE_SLOW": "Slow EMA (regime)",
+    "CONF_ZONE_FAST_STRUTTURA": "Fast EMA (structure)",
+    "CONF_ZONE_SLOW_STRUTTURA": "Slow EMA (structure)",
+    "CONF_MODELLO_ENTRA": "Model |prediction| in",
+    "CONF_MODELLO_ESCI": "Model |prediction| out",
     "ADX_WINDOW": "ADX window",
     "ADX_MIN": "ADX minimum (trend required)",
     "ADX_MAX": "ADX maximum (range required)",

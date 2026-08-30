@@ -398,10 +398,140 @@ def band_reversion_gated(
     return events
 
 
+def atr_band_bounce(
+    candles: pd.DataFrame,
+    cache: ExtraCache,
+    kama_window: int = 10,
+    atr_window: int = 14,
+    band_multiplier: float = 2.5,
+    stop_multiplier: float = 3.0,
+    regime_ema: int = 0,
+    allow_short: bool = False,
+) -> list:
+    """Rimbalzo **da banda a banda** sulle bande ATR, senza cancello di range.
+
+    E' la variante che manca, non un doppione di `band_reversion_gated`. Le due condividono le
+    bande -- `KAMA` piu' o meno `band_multiplier` ATR, le stesse che il menu chiama «ATR Bands» --
+    e differiscono nelle due scelte che contano:
+
+    - **l'obiettivo**. Li' si esce tornando alla media (KAMA), qui alla **banda opposta**. Il primo
+      prende il pezzo sicuro e frequente di un'oscillazione, il secondo tutta l'ampiezza: meno
+      operazioni chiuse in utile, ma quelle che chiudono valgono il doppio. Su una distribuzione a
+      coda destra le due cose non si equivalgono affatto;
+    - **il cancello**. Li' si opera solo con `adx < adx_max`, cioe' solo dentro un range dichiarato.
+      Quel filtro e' la ragione per cui quel votante quasi non parla -- necessarieta' 0,037 misurata
+      su cinque asset. Qui non c'e': il regime lo decide il cancello dell'insieme, che e' il posto
+      in cui il disegno vuole quella decisione, invece di ripeterla dentro ogni votante.
+
+    Il tocco si valuta sull'**estremo** della barra, non sulla chiusura: una banda attraversata e
+    rientrata dentro la stessa candela e' stata comunque toccata, ed e' li' che l'ordine a limite
+    sarebbe stato eseguito. Lo stop resta a `stop_multiplier` ATR dall'ingresso, e usa l'ATR di
+    `i-1` come tutte le altre di questo modulo -- se usasse quello della barra su cui viene
+    testato, la barra che fa scattare lo stop deciderebbe anche dove stava.
+    """
+    index, highs, lows, closes = _arrays(candles)
+    kama = cache.kama(kama_window)
+    atr = cache.atr(atr_window)
+    regime = cache.ema(regime_ema) if regime_ema else None
+
+    events: list = []
+    position = 0
+    stop_price = 0.0
+    start = max(kama_window, atr_window, regime_ema or 0) + 2
+
+    for i in range(start, len(closes)):
+        if np.isnan(atr[i - 1]) or np.isnan(kama[i]):
+            continue
+        upper = kama[i] + band_multiplier * atr[i]
+        lower = kama[i] - band_multiplier * atr[i]
+
+        if position > 0:
+            if lows[i] <= stop_price:
+                events.append((index[i], float(stop_price), 0))
+                position = 0
+            elif highs[i] >= upper:
+                events.append((index[i], float(upper), 0))
+                position = 0
+        elif position < 0:
+            if highs[i] >= stop_price:
+                events.append((index[i], float(stop_price), 0))
+                position = 0
+            elif lows[i] <= lower:
+                events.append((index[i], float(lower), 0))
+                position = 0
+
+        if position != 0:
+            continue
+        price = closes[i]
+        if lows[i] <= lower and (regime is None or price > regime[i]):
+            events.append((index[i], float(lower), 1))
+            position = 1
+            stop_price = lower - stop_multiplier * atr[i - 1]
+        elif allow_short and highs[i] >= upper and (regime is None or price < regime[i]):
+            events.append((index[i], float(upper), -1))
+            position = -1
+            stop_price = upper + stop_multiplier * atr[i - 1]
+
+    return events
+
+
+def trend_zone(
+    candles: pd.DataFrame,
+    cache: ExtraCache,
+    fast: int = 20,
+    slow: int = 100,
+    allow_short: bool = True,
+) -> list:
+    """La macrostruttura come **stato**, non come operazione: sopra o sotto, sempre.
+
+    Le altre di questo modulo cercano un'occasione e poi stanno fuori. Questa non sta mai fuori:
+    dice soltanto da che parte della struttura si trova il prezzo, e cambia idea quando le due
+    medie si incrociano. E' la forma giusta per un votante di struttura, per due ragioni:
+
+    - **un voto che dice «niente» non e' un voto neutro**, e' un voto assente, e nell'insieme
+      abbassa il punteggio esattamente come un voto contrario. Una macrostruttura deve poter
+      sostenere il punteggio per tutta la durata di un trend, non solo alla rottura;
+    - **`decayed_vote` decade dall'ultimo scatto**, quindi anche uno stato permanente vota forte
+      all'incrocio e poi sfuma. La memoria non serve a tenerlo acceso per sempre: serve a dargli
+      peso finche' l'incrocio e' recente, che e' quando conta.
+
+    Niente stop e niente obiettivo, di proposito: e' un'opinione sulla struttura, e chiuderla
+    sarebbe pretendere che una struttura «vada in stop». Il rischio lo governa l'insieme.
+
+    ## Il primo evento non e' un incrocio, ed e' voluto
+
+    Appena le due medie sono calcolabili il votante dichiara lo stato in cui si trova gia', anche
+    se nessun incrocio e' appena avvenuto: senza, `held_state` resterebbe a zero fino al primo
+    incrocio vero e la struttura risulterebbe «sconosciuta» per meta' finestra, che e' falso --
+    quello stato e' noto. Il prezzo da pagare e' che `decayed_vote` legge quella dichiarazione
+    come uno scatto e le da' forza piena: e' un artefatto di **riscaldamento**, non un segnale.
+    Si esaurisce in poche emivite (a struttura, 6 x 16 = 96 barre di base) e non tocca il resto
+    della finestra, ma chi misura su finestre corte deve saperlo.
+    """
+    index = candles.index
+    closes = candles["Close"].to_numpy()
+    ema_fast, ema_slow = cache.ema(fast), cache.ema(slow)
+
+    events: list = []
+    position = 0
+    for i in range(max(fast, slow) + 1, len(closes)):
+        if np.isnan(ema_fast[i]) or np.isnan(ema_slow[i]):
+            continue
+        rialzo = ema_fast[i] >= ema_slow[i]
+        obiettivo = 1 if rialzo else (-1 if allow_short else 0)
+        if obiettivo != position:
+            events.append((index[i], float(closes[i]), obiettivo))
+            position = obiettivo
+
+    return events
+
+
 STRATEGIES = {
     "donchian_breakout": donchian_breakout,
     "squeeze_breakout": squeeze_breakout,
     "trend_pullback": trend_pullback,
     "ichimoku_trend": ichimoku_trend,
     "band_reversion_gated": band_reversion_gated,
+    "atr_band_bounce": atr_band_bounce,
+    "trend_zone": trend_zone,
 }

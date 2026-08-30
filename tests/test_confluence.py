@@ -8,11 +8,14 @@ perche' troncando fra le barre corte la barra lunga incriminata resta identica. 
 precedenti non si spostino di un capello.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from cryptofarm.trading import confluence
+from cryptofarm.trading import confluence, panels
+from cryptofarm.trading.indicators_extra import ExtraCache
 
 
 def _candele(giorni: int = 120, seme: int = 0) -> pd.DataFrame:
@@ -194,6 +197,19 @@ def test_la_pagina_mostra_la_decisione_e_i_votanti(candele):
     assert {"Score", "Threshold"} <= nomi, "manca il riquadro della decisione"
     assert {"Regime plane (gate)", "Structure plane"} <= nomi, "mancano i piani lunghi"
     assert sum("·" in (n or "") for n in nomi) == len(confluence.VOTANTI), "manca un votante"
+
+
+def test_il_riquadro_dei_votanti_ha_una_traccia_per_votante():
+    """I nomi delle serie sono quelli del **registro**, non quelli del default.
+
+    Il test qui sopra conta le tracce disegnate, e ne conta giuste anche se un nome e' sbagliato:
+    un votante che non ha una traccia e una traccia che non ha un votante si compensano. Questo
+    confronta gli insiemi, e lo fa contro `REGISTRO` invece che contro `VOTANTI` perche' il
+    secondo dipende da cosa c'e' in `models/`: e' l'unico modo di verificare la traccia del
+    votante a modello anche dove l'artefatto non c'e', cioe' in CI e in produzione.
+    """
+    dichiarate = {traccia.serie for traccia in panels.INDICATORI["votanti"].tracce}
+    assert dichiarate == set(confluence.REGISTRO)
 
 
 def test_ogni_segnale_dice_chi_l_ha_generato(candele):
@@ -488,9 +504,9 @@ def test_la_pazienza_ha_un_motivo_suo(candele):
 
 
 def test_si_puo_scegliere_un_sottoinsieme_di_votanti(candele):
-    tre = confluence.evaluate(candele, "15m", votanti=confluence.selezione("ichimoku", "flusso", "reversione"))
-    assert list(tre.voti) == ["ichimoku", "flusso", "reversione"]
-    assert set(tre.necessarieta) == {"ichimoku", "flusso", "reversione"}
+    tre = confluence.evaluate(candele, "15m", votanti=confluence.selezione("ichimoku", "flusso", "bande_innesco"))
+    assert list(tre.voti) == ["ichimoku", "flusso", "bande_innesco"]
+    assert set(tre.necessarieta) == {"ichimoku", "flusso", "bande_innesco"}
     assert abs(sum(tre.pesi.values()) - 1.0) < 1e-12, "i pesi si rinormalizzano sui votanti scelti"
 
 
@@ -573,3 +589,103 @@ def test_i_pesi_sommano_a_uno_con_qualunque_numero_di_votanti(quanti):
     nomi = [f"v{i}" for i in range(quanti)]
     pesi = confluence._pesi(nomi, w_max=0.30)
     assert abs(sum(pesi.values()) - 1.0) < 1e-12, f"{quanti} votanti: somma {sum(pesi.values())}"
+
+
+def test_la_diagnosi_regge_il_dizionario_parziale_della_barra_laterale():
+    """La pagina passa **solo cio' che disegna**, non tutti i parametri di `config`.
+
+    Il test precedente passa `valori_predefiniti()`, cioe' un dizionario completo che la barra
+    laterale non produce mai: con quello un parametro mancante sembra presente e il `KeyError` che
+    la pagina solleva davvero non si vede. Qui il dizionario si costruisce dai nomi dei widget
+    numerici, che e' la forma minima con cui `confluenza_di` puo' essere chiamata.
+    """
+    from cryptofarm.trading import config, panels
+
+    iniziali = panels.valori_predefiniti(config.CONFLUENCE_STRATEGY, "15m")
+    dalla_barra = {nome: iniziali[nome] for _, nomi in panels.gruppi_di(config.CONFLUENCE_STRATEGY) for nome in nomi}
+    assert "CONF_IN_FORMAZIONE" not in dalla_barra
+
+    assert "not enough history" in panels.diagnosi_confluenza(_candele(giorni=10), dalla_barra, "15m")
+
+
+def test_la_necessarieta_vale_quanto_la_definizione_che_la_descrive(candele):
+    """Il valore, non solo la forma: la riscrittura veloce deve dare gli stessi numeri.
+
+    `_necessarieta` costruiva le serie **intere** una volta per ogni coppia (votante, ingresso)
+    per poi leggerne un elemento solo: su sette anni di barre da quindici minuti erano l'86% del
+    tempo di `evaluate`, e nessuna di quelle serie serviva oltre la barra d'ingresso. Ritagliare
+    prima e contare dopo da' per costruzione lo stesso risultato, ma «per costruzione» e' esatta-
+    mente cio' che va verificato: qui la definizione lenta sta scritta nel test e i due numeri si
+    confrontano. Se qualcuno riscrive di nuovo quel ciclo, questo test dice se ha cambiato idea.
+    """
+    risultato = confluence.evaluate(candele, "15m")
+    voti, pesi, soglia = risultato.voti, risultato.pesi, risultato.soglia
+    famiglie = {v.nome: v.famiglia for v in confluence.VOTANTI}
+
+    # La definizione, trascritta senza furbizie: per ogni votante, la frazione di ingressi in cui
+    # azzerarlo avrebbe impedito l'ingresso -- per punteggio sotto soglia o per ampiezza sotto il
+    # minimo di famiglie.
+    barre = np.array([risultato.indice.get_loc(q) for q, _, obiettivo in risultato.eventi if obiettivo != 0])
+    assert len(barre) > 10, "servono abbastanza ingressi perche' il confronto significhi qualcosa"
+    verso = np.sign(sum(pesi[n] * voti[n] for n in voti)[barre])
+    verso[verso == 0] = 1
+    atteso = {}
+    for nome in voti:
+        restanti = {n: v for n, v in voti.items() if n != nome}
+        punteggio = sum(pesi[n] * restanti[n] for n in restanti)[barre]
+        sotto_soglia = punteggio * verso < soglia[barre]
+        ampiezza = np.array(
+            [confluence._famiglie_concordi(restanti, famiglie, int(v))[b] for b, v in zip(barre, verso)]
+        )
+        atteso[nome] = float(np.mean(sotto_soglia | (ampiezza < risultato.k_famiglie)))
+
+    assert risultato.necessarieta == pytest.approx(atteso)
+
+
+# --- il votante a modello -------------------------------------------------------------------------
+
+
+def test_il_votante_a_modello_non_vota_mai_corto(candele, monkeypatch):
+    """La proprieta' che non si vede dai tipi, e che un refactoring distratto romperebbe.
+
+    Il modello a swing prevede la prossimita' a un estremo locale e la forma misurata di quel
+    segnale e' a U: entrambi i poli precedono rendimenti sopra la media
+    (`.claude/docs/modello-swing.md` §5.1). Far votare `sign(previsione)` -- la lettura naturale
+    di un target in [-1, 1] -- darebbe un voto **corto** proprio sulle barre che rendono di piu'.
+    Il votante vota quindi +1 o 0, mai -1, e questo test e' cio' che lo tiene fermo.
+
+    Il modello finto mette i due poli a blocchi di una cadenza, cosi' che la decisione ne veda sia
+    di negativi sia di positivi, e ogni terzo blocco al centro, cosi' che ci siano anche uscite.
+    """
+    cadenza = confluence.signals.swing_cadenza(candele.index)
+
+    class Poli:
+        def predict(self, X):
+            blocco = np.arange(len(X)) // cadenza
+            return np.where(blocco % 2 == 0, -1.0, 1.0) * np.where(blocco % 3 == 2, 0.1, 0.9)
+
+    monkeypatch.setattr(confluence.signals, "swing_model", lambda: Poli())
+    eventi = confluence._modello(candele, ExtraCache(candele), {"entra": 0.5, "esci": 0.4})
+
+    stati = {stato for _, _, stato in eventi}
+    assert stati == {0, 1}, f"servono ingressi e uscite per misurare qualcosa, visti {stati}"
+
+
+def test_senza_artefatto_il_votante_a_modello_tace_e_resta_fuori_dal_default(candele, monkeypatch):
+    """In produzione `models/` e' vuoto, e li' la confluenza deve restare quella misurata.
+
+    Non basta che il votante si astenga: i pesi si normalizzano sui votanti **presenti**, quindi
+    un ottavo che tace sempre alzerebbe di fatto la soglia per gli altri sette. Deve proprio
+    restare fuori dall'insieme di default -- pur restando nel registro, cosi' `selezione` lo
+    raggiunge per misurarlo.
+    """
+    monkeypatch.setattr(confluence.signals, "MODELS_DIR", Path("/nessun/modello/qui"))
+    for nome in ("swing_model", "rl_model", "entry_model"):
+        getattr(confluence.signals, nome).cache_clear()
+        monkeypatch.setattr(confluence.signals, nome, getattr(confluence.signals, nome).__wrapped__)
+
+    assert confluence._modello(candele, ExtraCache(candele), {"entra": 0.5, "esci": 0.4}) == []
+    nomi = [v.nome for v in confluence.votanti_predefiniti()]
+    assert "modello" not in nomi
+    assert len(nomi) == len(confluence.REGISTRO) - 1
+    assert confluence.selezione("modello")[0].nome == "modello", "il registro lo tiene comunque"

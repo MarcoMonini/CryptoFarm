@@ -1,7 +1,7 @@
 [project]
 name = "cryptofarm"
 version = "0.1.0"
-description = "Crypto trading simulator, live Binance bot, and LSTM-based signal model."
+description = "Simulatore di trading su dati Binance, bot live, e i modelli di segnale che lo governano."
 readme = "README.md"
 requires-python = ">=3.12"
 # Il nucleo: feature, etichette, modelli gbdt, bot live. Lo store delle candele e
@@ -33,7 +33,6 @@ data = [
 # testa al modulo, quindi il default `gbdt` gira senza. Circa 1 GB installato.
 dl = [
     "tensorflow==2.19.0",
-    "keras-tuner==1.4.7",
 ]
 dev = [
     "pytest==9.1.1",
@@ -56,12 +55,10 @@ testpaths = ["tests"]
 [tool.black]
 line-length = 120
 target-version = ["py312"]
-extend-exclude = "backup/"
 
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = ["backup"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

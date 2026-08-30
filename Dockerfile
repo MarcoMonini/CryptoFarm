@@ -104,7 +104,7 @@ FROM runtime AS dl
 
 USER root
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install tensorflow==2.19.0 keras-tuner==1.4.7
+    pip install tensorflow==2.19.0
 USER cryptofarm
 
 CMD ["python", "-m", "cryptofarm.ml.trainer", "--model", "gru"]

@@ -32,7 +32,6 @@ services:
         - ".claude/**"
         - ".github/**"
         - "tests/**"
-        - "backup/**"
         - ".devcontainer/**"
     envVars:
       # glibc alloca un'arena per thread e Streamlit e' multi-thread: senza tetto, su

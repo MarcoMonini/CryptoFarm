@@ -13,18 +13,37 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
   configurazioni, sensibilità ai parametri, tenuta fuori campione, difetti trovati misurando.
 - `.claude/docs/strategia-confluenza.md` — la strategia multi-timeframe a più segnali: quattro
   piani con domande disgiunte, sei votanti scelti per famiglia, memoria del segnale, soglia decisa
-  dai piani alti. **Il codice c'è e gira; la misura su dati veri no.**
+  dai piani alti. **Misurata (2026-08-28) su 15 asset e sette anni: non batte il possesso passivo.**
+  Niente look-ahead, votanti non correlati, ma il gradiente di ogni parametro punta al non-operare.
+  Le conclusioni e cosa farne stanno in fondo a quel documento.
 - `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
   2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
-- `.claude/docs/INDEX.md` — ordine di lettura consigliato.
+- `.claude/docs/politica-rl.md` — **la politica a rinforzo, cablata (2026-08-28).** Le tre misure
+  che escludono lo stop e indicano la commissione come causa, la ricompensa col costo dentro, e i
+  risultati: batte il possesso passivo 11/15 fuori campione e **dimezza la discesa massima**, ma il
+  *quando* sta sopra il caso solo debolmente.
+- `.claude/docs/modello-swing.md` — **il modello AI rifatto, misurato e cablato (2026-08-28).**
+  L'audit che ha tolto `leg_model` dalla catena, l'etichettatura nuova a prossimità degli
+  estremi, le tre misure per cui il segnale esiste (IC +0,0385 fuori campione, 14/15 simboli
+  concordi) ma non batte il caso a esposizione appaiata, e il §5.4 su **cosa è stato cablato e
+  cosa deliberatamente no** nella pagina e in Confluence.
+- `.claude/docs/modello-ingresso.md` — **il modello in testa oggi, cablato (2026-08-29).** Cambia
+  la domanda: non «quanto siamo vicini a un estremo» ma «quanto rende comprare qui». Le misure che
+  hanno spostato il bersaglio (a pari selezione l'etichetta a gambe individua meglio i minimi e
+  rende 2,4 volte meno), la selettività come unica leva, e i **primi numeri di questo progetto che
+  passano il controllo a esposizione appaiata**: +2,071% netti per operazione fuori campione,
+  14/15 simboli in utile, 100° percentile. Il veloce opera, il lento gli fa da cancello.
+- `.claude/docs/README.md` — ordine di lettura consigliato.
 
 Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
 esplicitamente diverse strade che sembrano ragionevoli a prima vista.
 
 ## Ambiente
 
-Usare **`.venv312/bin/python`**. Il `.venv` preesistente è Python 3.9 senza `scikit-learn`,
-mentre il progetto richiede Python >= 3.12.
+Usare **`.venv312/bin/python`**: è l'unico ambiente completo, e il progetto richiede Python
+>= 3.12. In locale ne resta un secondo, `.venv3.12`, che è l'interprete registrato in PyCharm
+(«Python 3.12 (CryptoFarm)») e per questo non è stato cancellato con gli altri il 2026-08-30 —
+ma è fermo a luglio 2025. Chi lavora dall'IDE lo aggiorni o lo ripunti a `.venv312`.
 
 L'installazione è divisa in extra: `pip install -e ".[app,data,dev]"` è il caso normale. Il nucleo
 (`pip install -e .`) basta a feature, etichette, modelli `gbdt` e bot live; `[app]` aggiunge
@@ -39,8 +58,10 @@ Streamlit e Plotly (solo `trading/simulator.py` e i moduli che decora con `st.ca
 
 CryptoFarm trains a signal model on Binance market data and backtests trading strategies against it.
 There are two things that matter — **`trading/simulator.py`** (research) and **`ml/trainer.py`**
-(training) — plus their dependencies, plus one live bot. Anything not reachable from those was moved
-to `backup/unused/` in 2026-08; see `backup/unused/README.md` for what and why.
+(training) — plus their dependencies, plus one live bot. Ciò che non era raggiungibile da lì è
+stato **cancellato** (2026-08-30): git è l'archivio, e una cartella di codice morto che nessun test
+esegue costa più di quanto valga. Ogni cartella ha un `README.md` che elenca i suoi file e le loro
+funzioni; questo documento tiene solo ciò che vale per tutto il progetto.
 
 ```
 src/cryptofarm/
@@ -56,7 +77,6 @@ src/cryptofarm/
     ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
     │                     e `simulate_positions` (long/short, con leva e costo di mantenimento)
     ├── mtf.py            allineamento fra intervalli: legge la barra lunga **chiusa**, mai quella corrente
-    ├── live_frames.py    le barre lunghe *in formazione*, in forma chiusa — **oggi non lo importa nessuno**
     ├── voters.py         da cambi di posizione a voto per barra, con memoria e decadimento
     ├── confluence.py     la strategia a confluenza: sei votanti su quattro piani, soglia dinamica
     ├── portfolio.py      un capitale solo su più asset: si apre sul primo che parla
@@ -78,10 +98,28 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m cryptofarm.ml.trainer               # default: gbdt
 .venv312/bin/python -m cryptofarm.ml.trainer --model gru   # modello sequenziale
 .venv312/bin/python -m cryptofarm.ml.meta_trainer          # meta-labeling
-.venv312/bin/python -m cryptofarm.ml.policy_trainer        # politica a tre azioni
 
 # Store delle candele (prerequisito dell'addestramento)
 .venv312/bin/python -m cryptofarm.data.klines --update
+
+# Modello a swing: prossimità agli estremi locali (vedi .claude/docs/modello-swing.md)
+.venv312/bin/python -m cryptofarm.data.positioning --update     # posizionamento futures, 400 MB
+.venv312/bin/python -m cryptofarm.ml.swing_trainer --selfcheck  # gira senza store
+.venv312/bin/python -m cryptofarm.ml.swing_trainer              # ~12 minuti, 15 simboli dal 2018
+.venv312/bin/python -m scripts.swing_lab                        # decili, P&L, controllo casuale
+
+# Modello d'ingresso: quanto rende comprare qui (vedi .claude/docs/modello-ingresso.md)
+.venv312/bin/python -m cryptofarm.ml.entry_trainer --selfcheck  # gira senza store
+.venv312/bin/python -m cryptofarm.ml.entry_trainer              # ~12 minuti, il lento (H=150)
+.venv312/bin/python -m cryptofarm.ml.entry_trainer --h 20 --quantile 0.995 --nome entry_model_veloce
+.venv312/bin/python -m scripts.entry_lab                        # quanto vale il cancello del lento
+.venv312/bin/python -m scripts.entry_lab --frequenza           # quanto costa operare di piu'
+
+# Politica a rinforzo: sceglie la posizione col costo dentro la ricompensa (.claude/docs/politica-rl.md)
+.venv312/bin/python -m cryptofarm.ml.rl                         # selfcheck del solo algoritmo
+.venv312/bin/python -m cryptofarm.ml.rl_trainer --selfcheck     # gira senza store
+.venv312/bin/python -m cryptofarm.ml.rl_trainer                 # ~5 minuti, 15 simboli dal 2019
+.venv312/bin/python -m scripts.rl_lab                           # controllo a blocchi rimescolati
 
 # Misure di strategy.md
 .venv312/bin/python -m scripts.analysis
@@ -115,8 +153,8 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (911 test in 26 file, tutti verificati). Lint/format: `ruff check src tests` e
-`black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
+Test: `.venv312/bin/python -m pytest` (35 file: 1.019 passati, 3 saltati). Lint/format:
+`ruff check src scripts tests` e `black src scripts tests` (config in `pyproject.toml`).
 
 ## Il simulatore
 
@@ -223,12 +261,21 @@ Tre cose da sapere prima di toccarlo:
 
 `trading/confluence.py` è l'unica voce del menu che non è una strategia a indicatore: legge
 **quattro piani temporali ricavati dall'intervallo scelto** (`FATTORI` — ×1 innesco, ×4 conferma,
-×16 struttura, ×96 regime, cioè 15m/1h/4h/1d partendo da 15m) e fa votare sei strategie diverse.
+×16 struttura, ×96 regime, cioè 15m/1h/4h/1d partendo da 15m) e fa votare otto strategie diverse.
 Quattro cose da sapere prima di toccarla:
 
-- **aggiungere un votante è `confluence.registra(Votante(...))`, e basta.** Da lì si adattano da
-  soli famiglie, pesi, necessarietà, riquadri della barra laterale, parametri della strategia e
-  griglia del banco: non c'è nessun elenco da tenere allineato a mano, ed è quello il punto;
+- **aggiungere un votante è `confluence.registra(Votante(...))`, quasi e basta.** Da lì si adattano
+  da soli famiglie, pesi, necessarietà, riquadri della barra laterale, parametri della strategia e
+  griglia del banco, ed è quello il punto. L'unico elenco rimasto da tenere allineato a mano sono
+  le tracce del riquadro *Voters* in `panels.INDICATORI`, e c'è un test che se ne accorge: conta
+  le tracce col `·` contro `len(VOTANTI)`;
+- **il votante `modello` sta nel default solo se un artefatto c'è.** `votanti_predefiniti()` lo
+  toglie quando nessuno dei quattro (`entry_model_veloce`, `entry_model`, `rl_model`,
+  `swing_model`) è su disco, che è la condizione della produzione: i pesi si normalizzano sui
+  votanti presenti, quindi un ottavo che tace sempre alzerebbe di fatto la soglia per gli altri
+  sette. Nel registro ci resta, così `selezione("modello")` lo raggiunge. È anche l'unico votante
+  **solo lungo**: vota +1 o 0, mai −1. Col modello d'ingresso vota +1 mentre una sua operazione è
+  aperta e le due soglie non hanno effetto — la selettività sta nei metadata dell'artefatto;
 - **i parametri dei votanti si risolvono in tre strati**: default della funzione (`config.CONF_*`),
   valore misurato in `tuned_defaults` per l'intervallo del **piano** su cui il votante gira — non
   quello della pagina — e override di chi chiama. Il secondo strato è quello che si sbaglia
@@ -249,14 +296,6 @@ Quattro cose da sapere prima di toccarla:
   Il test che lo protegge taglia **dentro** una barra lunga già cominciata e confronta gli stati:
   un taglio allineato ai confini passa anche col difetto reintrodotto, ed è com'era scritto la
   prima volta;
-- **`live_frames.py` oggi non lo importa nessuno.** Era lo stadio S1 e serviva a sollevare i piani
-  lunghi a valore provvisorio; scrivendo la confluenza si e' visto che su un confronto di *segno* il
-  sollevamento e' algebricamente un non-fare (`confluence._sign_su_media` lo dimostra in tre
-  righe), e che sollevare una *strategia* qualunque non e' generico. Il modulo resta perche' e' il
-  pezzo che serve appena un votante debba leggere il **valore** di una barra lunga parziale -- una
-  distanza, una banda, uno stop -- e perche' contiene il test contro il difetto da tre caratteri
-  (`transform("max")` invece di `cummax`). Se si decide che non servira', si cancella: e' codice
-  vivo solo nei suoi test, e va detto invece che lasciato credere il contrario;
 - **zero operazioni non e' un risultato, e' una domanda.** Le condizioni d'ingresso sono quattro in
   `and` e `Confluenza.perche_non_entra()` dice quale non si e' mai avverata, con i numeri. Serve
   perche' il caso piu' comune non e' la prudenza della strategia ma la storia: a 15m il piano di
@@ -325,7 +364,13 @@ solo in laterale. Togliere uno scenario scopre delle strategie.
 stanno in `features.py`, le etichette in `labeling.py` e `directional_change.py`, la matrice in
 `dataset.py`, i modelli in `models.py`, le metriche in `evaluate.py`, la validazione in
 `validation.py`, l'esecuzione simulata in `execution.py`. `meta.py` + `meta_trainer.py` fanno il
-meta-labeling; `policy.py` + `dagger.py` + `policy_trainer.py` la politica a tre azioni.
+meta-labeling. `ml/README.md` elenca file per file le funzioni pubbliche di ognuno.
+
+**Due famiglie sono state chiuse in negativo e il loro codice non è più qui**: la politica a tre
+azioni (`policy.py`, `dagger.py`, `policy_trainer.py` — `strategy.md` §12-13) e il modello a gambe
+(`leg_trainer.py` — `modello-swing.md` §1). Rimetterne il nome in `MODEL_PRECEDENCE` non basta a
+farli girare, perché il ramo di dispatch non c'è più, e un test lo verifica. La misura che li ha
+chiusi sta nei documenti, ed è lì che va riletta prima di rifarli.
 
 Il modello di default è **`gbdt`** (`HistGradientBoostingClassifier`), non più un LSTM; `models.py`
 tiene ancora `gru`/`cnn`/`lstm` dietro `--model`. Prerequisito dell'addestramento è lo store di
@@ -333,7 +378,7 @@ candele (`data/klines.py`), non un download al volo.
 
 ### Quale modello usa il simulatore
 
-`ml/trainer.MODEL_PRECEDENCE` è `("policy_model", "meta_model", "signal_model")` e
+`ml/trainer.MODEL_PRECEDENCE` è `("rl_model", "swing_model", "meta_model", "signal_model")` e
 `active_model_name()` è l'unica fonte di verità: `load_signal_model` carica quel modello e
 `ai_model_simulation` sceglie la strategia in base a quel nome, quindi i due non possono divergere.
 Per tornare al modello precedente basta spostare altrove l'artefatto di quello più recente.
@@ -341,6 +386,36 @@ Per tornare al modello precedente basta spostare altrove l'artefatto di quello p
 `meta_parameters()` legge barriere, soglia CUSUM e parametri di esecuzione **dai metadata
 dell'artefatto**, non da costanti: devono essere esattamente quelli con cui il modello è stato
 addestrato.
+
+**Il modello in testa oggi è `entry_model_veloce`, e i due artefatti d'ingresso lavorano in
+coppia.** Prevede il rendimento delle prossime H barre — non la forma del grafico — e il suo
+vantaggio è la **selettività**: al 10% di barre segnalate il netto è sotto la commissione, allo
+0,5% è dieci volte sopra. Ne segue che soglia, cancello e tenuta stanno nei **metadata
+dell'artefatto** e non nei widget: cambiarli non regola una manopola, serve un'altra strategia.
+Il veloce (tenuta 20 barre) genera le operazioni, il lento (`entry_model`, tenuta 150) fa da
+cancello sulla sola barra d'ingresso: +2,071% netti per operazione fuori campione contro +1,360%
+senza, 14 simboli su 15 in utile, 100° percentile contro ingressi a caso a pari esposizione
+(`modello-ingresso.md`). Senza l'artefatto lento il veloce opera da solo, e si torna a +1,360%.
+
+**Si serve fino a 30 minuti e sopra tace.** La soglia è un rendimento, non un quantile, e il
+modello prevede quello delle prossime venti barre *da cinque minuti*: sulla stessa soglia le barre
+marcate passano da 0,063% a 5m a 2,98% a 1h e 28,1% a 1d, contro lo 0,5% per cui è misurato.
+`signals.entry_fuori_misura` è il cancello di scala, gemello di `confluence.scala_fuori_misura`.
+Sulla pagina i due artefatti si scelgono da un interruttore (`Fast (trades)` / `Slow (gates)`) e la
+scelta arriva alla strategia come `ai_model_simulation(..., famiglia=...)`: sono due strategie, non
+due tarature. Il riquadro *Entry model* affianca previsione e bersaglio nella stessa unità — le due
+curve non si somigliano (IC di rango +0,007) e non è un guasto: sopra la soglia il realizzato medio
+è +1,99% contro −0,004% su tutte le barre.
+Conseguenza da conoscere prima di dire «non funziona»: a 5m marca **una barra su millecinquecento**,
+quindi su una finestra da 240 ore zero operazioni è il comportamento atteso.
+
+Le famiglie precedenti restano nella catena sotto di lui. `swing_model` prevede la prossimità agli
+estremi locali e la forma misurata di quel segnale è a U: *entrambi* i poli precedono rendimenti
+sopra la media, quindi il segno **non dice il verso**. `ml/signals.swing_exposure` cabla l'unica
+lettura che la misura sostiene — `|previsione|` come interruttore di esposizione, con isteresi.
+Cablare `sign(previsione)`, che è la lettura naturale di un target in `[-1, 1]`, vende esattamente
+le barre migliori: è misurato in perdita a tutte le soglie e tutte le cadenze
+(`modello-swing.md` §5.1). Quel modello **non batte il possesso passivo**.
 
 ## Data/model artifacts
 
@@ -440,10 +515,11 @@ il `ref` su un commit più recente, deliberatamente — non succede da solo.
 Le skill dei plugin sono disponibili dalla sessione successiva all'installazione, non da quella in
 cui si modifica il file.
 
-## Archived
+## Cosa è stato cancellato, e come si ritrova
 
-- `backup/unused/` — moduli rimossi da `src/` perché nessuno li importava (dashboard live, bot a due
-  account, grid search, visualizzatore dei risultati, dashboard di analisi). `git mv` li rimette a
-  posto con la storia intatta.
-- `backup/v2/` — simulatore multi-timeframe, precedente riscrittura. Materiale di riferimento in sola
-  lettura, escluso da lint e format.
+Non c'è più nessun archivio nel repository. `backup/unused/` (dashboard live, bot a due account,
+grid search, visualizzatore dei risultati, dashboard di analisi), `backup/v2/` (il simulatore
+multi-timeframe della riscrittura precedente), `trading/live_frames.py` e le due famiglie di
+modelli chiuse in negativo sono stati cancellati il 2026-08-30. **git è l'archivio**: `git log
+--diff-filter=D --name-only` li trova, e `git checkout <commit>^ -- <percorso>` li rimette con la
+storia intatta.

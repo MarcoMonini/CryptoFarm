@@ -2,7 +2,15 @@
 
 Deciso il **2026-08-27** con l'utente, in `AskUserQuestion`, sul branch
 `claude/ricerca-quant-ml-cinque-asset`. Sostituisce la lista "cosa farei dopo" di
-[`sessione-2026-08-27.md`](sessione-2026-08-27.md), che resta come contesto.
+[`HANDOFF.md`](HANDOFF.md), che resta come contesto.
+
+> **Stato al 2026-08-30.** Il passo 1 (molteplicità, `scripts/multiplicity.py`) è fatto e i suoi
+> numeri stanno qui sotto. Il passo 2bis è diventato `trading/confluence.py`, misurato e
+> **negativo** (`strategia-confluenza.md`). I passi 2, 3, 4 e 5 **non sono stati eseguiti**: il
+> lavoro si è spostato sul filone modello, che nel frattempo ha prodotto l'unico risultato positivo
+> del progetto (`modello-ingresso.md`). Restano proposte valide e non scadute — in particolare il
+> passo 5, il ciclo 2017-2020, che è **l'ultima finestra di verifica pulita rimasta** e va speso
+> deliberatamente. Le "due decisioni prese, da non riaprire" qui sotto valgono ancora.
 
 ## Da dove nasce
 

@@ -1,7 +1,7 @@
 # Handoff — CryptoFarm
 
-Data: **2026-08-27**. Branch di lavoro: **`claude/ricerca-quant-ml-cinque-asset`**
-(spinto). Il precedente
+Data: **2026-08-30**. Branch di lavoro: **`claude/audit-confluenza`**.
+Il precedente `claude/ricerca-quant-ml-cinque-asset` era spinto. Il precedente
 `claude/trading-strategies-performance-fb39oc` e' stato unito in `main` con la PR #7.
 Il branch precedente `ai-labeling-rewrite` (pipeline ML a 3 stati) e' **chiuso con esito negativo**
 e non e' mai stato unito: vedi `.claude/docs/strategy.md` §10-13 e la sezione "Il filone ML" qui
@@ -11,12 +11,15 @@ sotto.
 
 | documento | cosa contiene |
 |---|---|
-| `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render |
+| `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render. **Ogni cartella ha poi il suo `README.md`** con i file e le funzioni che contiene |
+| `.claude/docs/README.md` | l'ordine di lettura di tutto il resto |
+| `.claude/docs/modello-ingresso.md` | **il documento da leggere per primo sul filone modello** (2026-08-29). Il modello in testa oggi, e i primi numeri del progetto che passano il controllo a esposizione appaiata |
+| `.claude/docs/modello-swing.md` | (2026-08-28) l'audit che ha chiuso `leg_model`, l'etichetta a prossimita' degli estremi, e le misure per cui quel modello **non** batte il caso a esposizione appaiata |
+| `.claude/docs/politica-rl.md` | (2026-08-28) la politica a rinforzo, cablata: batte il possesso passivo 11/15 fuori campione e dimezza la discesa massima, ma il *quando* sta sopra il caso solo debolmente |
+| `.claude/docs/strategia-confluenza.md` | (2026-08-27, **misurata il 2026-08-28**) la strategia multi-timeframe a piu' segnali. Niente look-ahead, votanti non correlati, e **non batte il possesso passivo**: il gradiente di ogni parametro punta al non-operare. Le conclusioni stanno in fondo |
+| `.claude/docs/ricerca-quant-ml.md` | (2026-08-26) stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
+| `.claude/docs/strategie-nuove.md` | le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
 | `.claude/docs/backtest-strategie.md` | **le strategie del simulatore misurate su nove anni.** 3.129 configurazioni, sensibilita' ai parametri, tenuta fuori campione, quattro difetti del codice trovati misurando (§8, ora corretti) |
-| `.claude/docs/strategie-nuove.md` | **lo stato piu' recente del filone trading.** Le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
-| `.claude/docs/sessione-2026-08-27.md` | **chiusura dell'ultima sessione**: le due decisioni prese con l'utente, le trappole d'ambiente scoperte misurando, i due test che passavano a vuoto e come sono stati corretti, e cosa farei dopo in ordine |
-| `.claude/docs/strategia-confluenza.md` | **il filone piu' recente (2026-08-27): la strategia multi-timeframe a piu' segnali.** Disegno, sei votanti, memoria del segnale, soglia decisa dai piani alti, paniere a capitale condiviso, e le tre cose che scrivendola si sono rivelate diverse dal disegno. **Il codice c'e' e gira; la misura su dati veri no** |
-| `.claude/docs/ricerca-quant-ml.md` | **il documento piu' recente (2026-08-26), e quello da leggere per primo sui risultati.** Stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
 | `.claude/docs/strategy.md` | fonte di verita' delle decisioni sul **filone ML** (etichettatura, feature, modello, validazione). Chiuso in negativo, ma le trappole valgono ancora |
 | `git log main..HEAD` | i messaggi di commit spiegano il *perche'* di ogni scelta e i bug trovati |
 
@@ -24,12 +27,128 @@ Non riassumere quei contenuti: sono gia' scritti e aggiornati.
 
 ---
 
+## Ultima sessione (2026-08-30): semplificazione e documentazione
+
+Nessuna misura nuova e nessun cambio di comportamento: **−9.570 righe** di codice e un `README.md`
+in ogni cartella.
+
+**Cancellato** (git e' l'archivio, `git log --diff-filter=D --name-only` lo ritrova): tutto
+`backup/` (`unused/` e `v2/`, ~7.100 righe che nessun test eseguiva), le due famiglie chiuse in
+negativo con i loro test (`policy.py`, `dagger.py`, `policy_trainer.py`, `leg_trainer.py`, e i due
+rami di dispatch in `ml/signals.py` e `trading/strategies.py`), `trading/live_frames.py`,
+`uv.lock` e `requirements.txt` (nessuno dei due era letto da niente), i due handoff datati.
+Ogni commento che puntava a quel codice e' stato **ripuntato al documento che tiene la misura**,
+non cancellato: la misura vale ancora, il codice no.
+
+**Documentato**: quattordici `README.md` nuovi o rifatti, uno per cartella, con l'elenco dei file
+e delle loro funzioni pubbliche — ricavato leggendo l'albero sintattico, non a memoria.
+`models/README.md` descriveva ancora l'era keras; `reports/README.md` non citava le tabelle
+`cs_*` e `meta_*`; il `README.md` di radice dichiarava `policy_model` come modello attivo.
+`.claude/docs/INDEX.md` e' diventato `README.md`.
+
+**I dati locali, cancellati su approvazione**: 4,7 GB, da 9,3 a 4,6. Sono usciti
+`market_data/rl_stati.pkl` (3,5 GB di cache chiavata sulla firma dell'artefatto, la rifa'
+`scripts/rl_lab.py`), `swing_previsioni.pkl`, `tuner_logs/` (keras-tuner non e' piu' una
+dipendenza), `.venv` e `.venv3.13`, gli artefatti in `models/` delle due famiglie chiuse e i tre
+`.keras` dell'era precedente, `.claude/RESUME.md` e le cache di pytest/ruff.
+
+**Quattro cose che sembravano cancellabili e non lo erano**, ognuna trovata verificando invece che
+fidandosi della dimensione:
+
+| | perche' resta |
+|---|---|
+| `.venv3.12` (1,9 GB) | e' l'interprete del progetto in PyCharm (`Python 3.12 (CryptoFarm)`), non `.venv312`. Cancellarlo rompe l'IDE in silenzio |
+| `analysis_cache/` (31 MB) | non e' solo uscita: `scripts/multiplicity.py --cache` **legge** `analysis_cache/*/*_annuale.parquet` come ingresso |
+| `.claude/.headroom_*` | stato di un processo vivo (PID 69612), non residui |
+| `.serena/` | configurazione di progetto di uno strumento in uso |
+
+`models/.gitignore` nominava ancora `policy_trainer` fra i modi di rigenerare gli artefatti.
+
+---
+
+## Sessione precedente (2026-08-29): il modello d'ingresso, cablato in positivo
+
+Tutto in [`modello-ingresso.md`](modello-ingresso.md). Quattro cose prima di ripartire:
+
+1. **La catena in testa e' cambiata**: `entry_model_veloce`, poi `entry_model`, poi le famiglie
+   precedenti. Il veloce genera le operazioni, il lento fa da **cancello** sulla sola barra
+   d'ingresso.
+2. **La domanda e' cambiata, non il modello.** Non «quanto siamo vicini a un estremo locale» ma
+   «quanto rende comprare qui». A pari selezione la prima individua meglio i minimi (37,2% contro
+   23,0%) e rende **2,4 volte meno**. Precisione e denaro non sono la stessa cosa, ed e' la misura
+   che ha spostato il bersaglio.
+3. **Sono i primi numeri che passano il controllo a esposizione appaiata**: +2,071% netti per
+   operazione fuori campione, 148 operazioni, 14/15 simboli in utile, 100° percentile su 200
+   estrazioni. Il confronto col possesso passivo non conta -- fuori campione il passivo mediano fa
+   -34%, quindi stare fuori paga da solo.
+4. **La leva e' la selettivita', non l'accuratezza.** Al 10% di barre segnalate il netto e' sotto
+   la commissione, allo 0,5% e' dieci volte sopra. Per questo soglia, cancello e tenuta stanno nei
+   metadata dell'artefatto e non nei widget: muoverli serve un'altra strategia.
+
+5. **Si serve fino a 30 minuti e sopra tace** (`signals.entry_fuori_misura`, §8.2). La soglia e'
+   un rendimento e non un quantile: sulla stessa soglia le barre marcate passano da 0,063% a 5m a
+   2,98% a 1h e 28,1% a 1d. Sopra la mezz'ora si serviva un'altra strategia col nome di quella
+   misurata.
+6. **Operare di piu' si puo' e si sa quanto costa** (§8.1). All'1% di barre marcate sono 330
+   operazioni invece di 148 e l'accumulo non peggiora, ma il netto per operazione dimezza e i
+   simboli in utile scendono a 13/15. `entry_lab --frequenza` rifa' la tabella.
+
+**Due cose restano aperte e sono scritte al §7 di quel documento**: il controllo a blocchi (le
+righe si sovrappongono fra loro e fra simboli, ed e' gia' successo che questo ribaltasse un
+verdetto) e la griglia della confluenza con e senza il votante `modello`.
+
+**Da non scambiare per un guasto:** a 5m il modello marca una barra su millecinquecento. Sulla
+finestra iniziale della pagina, 240 ore, zero operazioni e' cio' che ci si deve aspettare, e su
+BTCUSDT -- una sola operazione in tutto il fuori campione -- la previsione massima su 2.880 barre
+resta sotto la soglia.
+
+**Trappola nuova:** riusare il nome di una variabile in un ciclo di stampa ha sovrascritto il
+rendimento medio complessivo con quello dell'ultimo simbolo, e il numero sbagliato e' finito nei
+metadata, cioe' nel servizio. C'e' un test che gira `addestra` su due simboli finti e pretende che
+il medio salvato stia **fra** le due medie per simbolo.
+
+---
+
+## Sessione (2026-08-28): il modello AI, rifatto e chiuso in negativo
+
+Tutto in [`modello-swing.md`](modello-swing.md). Le tre cose da sapere prima di ripartire:
+
+1. **`leg_model` e' fuori da `MODEL_PRECEDENCE`, di proposito.** Un revisore in contesto fresco ha
+   trovato che le sue due soglie erano tarate sul campione di verifica, che il controllo casuale
+   campionava righe i.i.d. da una popolazione sovrapposta per 7/8 dell'orizzonte, e che il netto
+   medio per ingresso e' **negativo a tutte e sei le soglie**. L'artefatto resta su disco; la
+   ragione sta scritta accanto alla costante. Chi lo rimette dentro deve prima rifare il metro.
+2. **`swing_model` esiste, e' addestrato, e non e' cablato.** Il segnale statistico c'e' -- IC
+   +0,0385 fuori campione contro un riferimento causale di +0,0297, 14/15 simboli concordi -- ma
+   contro un controllo casuale **a esposizione appaiata** vince 1 simbolo su 15, cioe' il caso.
+   Il vantaggio apparente sul possesso passivo era interamente «stare fuori dal mercato».
+3. **Il segnale ha forma a U, e questo cambia come si usa.** Il polo +1 non e' «vendi»: e'
+   «tendenza forte in corso», e in cripto la continuazione paga. Vendere sui massimi previsti --
+   la lettura naturale di un target in [-1, 1] -- vende le barre migliori. Chi riprende deve
+   partire da qui, non dalla regola direzionale.
+
+**Trappola nuova da conoscere:** `swing_target` guarda `W` barre nel futuro, quindi non si mette
+fra le feature se non ritardato di **almeno `W`+1**. Al ritardo di una barra l'IC passa da 0,050 a
+**0,673**, che non e' un modello ma la fuga. E' scritto nel docstring e c'e' un test.
+
+**Tre strade non provate**, in ordine di costo: dimensionare la posizione con `|previsione|`
+invece di usarla come interruttore; portare la decisione a scala giornaliera; usare il modello
+come **votante** dentro Confluence, dove non deve battere il possesso passivo da solo.
+
+---
+
 ## Stato del lavoro corrente: il filone trading
 
 Tre sessioni consecutive. **La terza (2026-08-26/27) e' quella piu' recente e in parte corregge le
-prime due**: sta in [`sessione-2026-08-27.md`](sessione-2026-08-27.md) per lo stato operativo e in
-[`ricerca-quant-ml.md`](ricerca-quant-ml.md) per le misure. Le due sezioni qui sotto restano perche'
-descrivono come ci si e' arrivati, non perche' siano l'ultima parola.
+prime due**; le sue misure stanno in [`ricerca-quant-ml.md`](ricerca-quant-ml.md). Le due sezioni
+qui sotto restano perche' descrivono come ci si e' arrivati, non perche' siano l'ultima parola.
+
+Due scelte di quella sessione sono state prese **con l'utente** in `AskUserQuestion`, con risposta
+esplicita, e non vanno riaperte senza chiedere: potare il menu con un «taglio medio» (sette voci
+fuori, i tre casi limite dentro -- vedi `CLAUDE.md`, «Funzioni di `strategies.py` che il menu non
+raggiunge»), e aggiungere la rotazione trasversale **come vista della pagina**, non come solo
+script. Resta offerta e non decisa una cosa sola: se togliere del tutto l'universo largo a 15
+asset dalla vista di rotazione, dove oggi serve da controllo di cio' che peggiora.
 
 ### Sessione 1 — misurare le strategie esistenti (`d82b3db`, `8f4ccd8`)
 
@@ -161,17 +280,18 @@ il piano gratuito di Render non ha dischi persistenti.
 
 Lo stesso guasto nascondeva la raccolta di `tests/test_simulator_page.py`, che lo esercita a
 livello di modulo. In questa sessione avevo attribuito quella raccolta fallita alla versione di
-Python: **era sbagliato**. Con la correzione la suite gira intera, 911 test, senza `--ignore`.
+Python: **era sbagliato**. Con la correzione la suite gira intera, senza `--ignore` (oggi 1.022 test).
 
-### La confluenza (2026-08-27) — scritta, non misurata
+### La confluenza (2026-08-27, misurata il 2026-08-28)
 
-Il filone piu' recente. Il disegno completo sta in
-[`strategia-confluenza.md`](strategia-confluenza.md); qui solo cosa esiste e cosa manca.
+Il disegno completo e **il verdetto** stanno in
+[`strategia-confluenza.md`](strategia-confluenza.md): misurata su 15 asset e sette anni,
+**non batte il possesso passivo**. Niente look-ahead e votanti non correlati, ma il gradiente di
+ogni parametro punta al non-operare. Qui resta solo la mappa di cosa esiste.
 
 | file | cosa |
 |---|---|
 | `trading/mtf.py` | `align_to_lower`: legge la barra lunga **chiusa**, spostandola di un periodo. E' l'unica difesa contro il look-ahead fra intervalli |
-| `trading/live_frames.py` | le barre lunghe *in formazione*, in forma chiusa (`groupby` + `cummax`/`cummin`/`cumsum`). 103 ms per cinque anni e tre intervalli, contro ore del ciclo ingenuo |
 | `trading/voters.py` | `held_state` (eventi → stato tenuto) e `decayed_vote` (stato → voto che sfuma). E' la memoria del segnale, cioe' cio' che rende la confluenza capace di innescare |
 | `trading/confluence.py` | la strategia: sei votanti su quattro piani, punteggio pesato, ampiezza per famiglie, soglia che si muove coi piani alti, uscita a tre condizioni. `stati_dei_votanti` isola la parte cara |
 | `trading/portfolio.py` | un capitale solo su piu' asset, con occasioni perse e concentrazione |

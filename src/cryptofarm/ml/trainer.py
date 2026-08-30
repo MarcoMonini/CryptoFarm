@@ -292,10 +292,44 @@ def get_model_predictions(df: pd.DataFrame, model, threshold: float | None = Non
     return result
 
 
-# Precedenza alla strategia piu' recente: politica a tre azioni, poi meta-labeling, poi il
-# classificatore di segnale originale. Il modello della strategia piu' recente e' quello che si
-# vuole vedere sul grafico; per tornare al precedente basta spostarne l'artefatto altrove.
-MODEL_PRECEDENCE = ("policy_model", "meta_model", MODEL_NAME)
+# Precedenza: il modello della strategia piu' recente e' quello che si vuole vedere sul grafico;
+# per tornare al precedente basta spostarne l'artefatto altrove.
+#
+# **Due famiglie sono state chiuse in negativo e il loro codice non e' piu' qui.** La politica a
+# tre azioni (`policy_model`) e' il disegno chiuso da `strategy.md` §12-13, con la causa misurata
+# in §13.1: entrare e uscire alla conferma cattura zero in media, su ogni simbolo e a ogni soglia,
+# prima dei costi. Il modello a gambe (`leg_model`) e' caduto nell'audit del 2026-08-28
+# (`.claude/docs/modello-swing.md` §1): netto medio per ingresso negativo a tutte e sei le soglie
+# provate, e il verdetto «PASSA» si accontentava di battere un p95 anch'esso negativo. Finche'
+# restavano nel dispatch bastava un artefatto su disco perche' la pagina li servisse; ora non
+# c'e' piu' il ramo, e rimetterli in questa tupla non basta a farli girare. La misura che li ha
+# chiusi sta nei documenti, che e' dove va riletta prima di rifarli.
+# `swing_model` e' il piu' recente e sta in testa. Cablarlo e' stata una decisione, non un
+# automatismo: `.claude/docs/modello-swing.md` §5 lo lasciava fuori perche' la sua regola a
+# esposizione non batte il caso a esposizione appaiata (1 simbolo su 15, contro 0,75 attesi). Cio'
+# che la pagina serve non e' quindi una strategia dichiarata redditizia, ma la sola lettura che la
+# misura sostiene -- `|previsione|` come interruttore, mai `sign(previsione)` come direzione. Chi
+# guarda il grafico deve sapere che il riferimento da battere e' il possesso passivo e che questa
+# regola non lo batte: la nota del riquadro lo dice, e `ml/signals.swing_exposure` spiega perche'.
+# `rl_model` sta in testa dal 2026-08-28. Risponde alla stessa domanda del modello a swing --
+# quando stare esposti -- ma con il **costo dentro la ricompensa** invece che fuori: la banda di
+# non-fare emerge dall'obiettivo invece di essere due soglie scritte a mano, e la classe di
+# politiche contiene il possesso passivo, che e' il riferimento da battere. Il motivo per cui
+# passa davanti sta in `.claude/docs/politica-rl.md`: batte il possesso passivo su 11 simboli su
+# 15 fuori campione e **dimezza la discesa massima** (-48,8% contro -76,0% mediano) in entrambe
+# le finestre. Il *quando* sta sopra il caso a esposizione appaiata in tutte e due (rango 0,588 e
+# 0,602 contro 0,500) ma non raggiunge la significativita': va servito sapendolo.
+# `entry_model_veloce` sta in testa dal 2026-08-29, e con lui il lento `entry_model`. Cambia la
+# **domanda**, non il modello: le famiglie precedenti chiedevano che forma ha il grafico -- quanto
+# siamo vicini a un estremo locale -- e questa chiede quanto rende comprare qui. Sono cose diverse,
+# ed e' misurato: a pari selezione l'etichetta a gambe individua meglio i minimi (37,2% contro
+# 23,0%) e rende 2,4 volte meno. Il veloce e' quello che opera e il lento gli fa da cancello, che
+# e' la composizione misurata in `.claude/docs/modello-ingresso.md`: +2,071% netti per operazione
+# fuori campione contro +1,360% senza cancello, 14 simboli su 15 in utile, e -- per la prima volta
+# in questo progetto -- il 100° percentile contro ingressi a caso a pari esposizione. Il veloce
+# passa davanti al lento perche' e' quello che genera i segnali; il lento resta nella tupla perche'
+# da solo e' comunque una strategia misurata (+1,529% su tenuta 150).
+MODEL_PRECEDENCE = ("entry_model_veloce", "entry_model", "rl_model", "swing_model", "meta_model", MODEL_NAME)
 
 
 def stored_decision_threshold() -> float:
@@ -308,6 +342,28 @@ def stored_decision_threshold() -> float:
             except Exception:
                 continue
     return DEFAULT_DECISION_THRESHOLD
+
+
+DEFAULT_EXIT_THRESHOLD = 0.90
+
+
+def stored_exit_threshold() -> float:
+    """Soglia d'**uscita**, che vale su `P(giu)` e non su `P(su)`.
+
+    Non e' la stessa di `stored_decision_threshold`, e confonderle e' un difetto gia' capitato:
+    le due teste hanno distribuzioni diverse, quindi un valore che sulla prima seleziona l'8%
+    delle barre sulla seconda ne seleziona l'80%, e ogni posizione si chiude alla barra dopo
+    averla aperta. Il default alto e' deliberato: senza una calibrazione l'uscita a modello deve
+    quasi non scattare, perche' l'ablazione la misura dannosa (`.claude/docs/modello-swing.md` §1).
+    """
+    for name in MODEL_PRECEDENCE:
+        metadata_path = MODELS_DIR / f"{name}.json"
+        if metadata_path.exists():
+            try:
+                return float(json.loads(metadata_path.read_text())["exit_threshold"])
+            except Exception:
+                continue
+    return DEFAULT_EXIT_THRESHOLD
 
 
 def _meta_metadata() -> dict | None:

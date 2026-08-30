@@ -88,6 +88,16 @@ STOP_LOSS_PERCENT = Param(99.0, 0.1, 100.0, 1.0)
 NUM_CONDITIONS = Param(1, 1, 10, 1)
 PIVOT_WINDOW = Param(100, 2, 500, 2)
 
+# L'etichetta del modello a swing. La finestra e' quella con cui si cercano gli estremi locali:
+# un massimo e' tale se e' il piu' alto fra le 50 barre prima e le 50 dopo. Non e' un parametro di
+# strategia -- l'etichetta guarda avanti fino all'estremo successivo e non e' operabile -- ma il
+# modo di guardare cosa il modello sta imparando.
+SWING_TARGET_WINDOW = Param(50, 4, 2000, 2)
+# Quanto del percorso fra due estremi lo dice il tempo e quanto il prezzo. A 0 e' solo prezzo, ed e'
+# il difetto della versione a rango: l'etichetta insegue. A 1 e' solo tempo, e ignora che il prezzo
+# possa tornare sui suoi passi.
+SWING_TARGET_TEMPO = Param(0.5, 0.0, 1.0, 0.1)
+
 # Le strategie nuove (`strategies_ls.py`), sempre solo lunghe nella pagina.
 # I default sono quelli con cui sono state misurate in `.claude/docs/strategie-nuove.md`: dove due
 # strategie usano lo stesso indicatore con un default diverso -- il moltiplicatore dell'ATR e' 3,0
@@ -180,6 +190,30 @@ CONF_REVERSION_KAMA = Param(10, 2, 100, 1)
 CONF_REVERSION_BAND_MULT = Param(2.5, 0.5, 8.0, 0.1)
 CONF_REVERSION_ADX_MAX = Param(20.0, 0.0, 100.0, 1.0)
 CONF_REVERSION_STOP_MULT = Param(2.0, 0.5, 12.0, 0.1)
+
+# Le bande ATR, senza il cancello di range che tiene zitto `reversione`. Registrate due volte su
+# due piani con moltiplicatori diversi: la stessa domanda posta a due scale, che e' il motivo per
+# cui la famiglia esiste come concetto separato dal votante.
+CONF_BANDE_KAMA = Param(10, 2, 100, 1)
+CONF_BANDE_BAND_MULT = Param(2.5, 0.5, 8.0, 0.1)
+CONF_BANDE_STOP_MULT = Param(3.0, 0.5, 12.0, 0.1)
+CONF_BANDE_KAMA_VELOCE = Param(6, 2, 100, 1)
+CONF_BANDE_BAND_MULT_VELOCE = Param(1.8, 0.5, 8.0, 0.1)
+CONF_BANDE_STOP_MULT_VELOCE = Param(2.5, 0.5, 12.0, 0.1)
+
+# Le zone di trend: la macrostruttura come stato. Anche queste due volte, sul piano di regime e su
+# quello di struttura, perche' «sopra o sotto» a un giorno e a quattro ore non sono la stessa cosa.
+CONF_ZONE_FAST = Param(20, 2, 200, 1)
+CONF_ZONE_SLOW = Param(100, 5, 400, 1)
+CONF_ZONE_FAST_STRUTTURA = Param(12, 2, 200, 1)
+CONF_ZONE_SLOW_STRUTTURA = Param(50, 5, 400, 1)
+
+# Le due soglie del votante a modello, sulla stessa scala della previsione ([-1, 1] in valore
+# assoluto). Sono i valori scelti sulla validazione in `ml/signals.SWING_ENTRA/SWING_ESCI`; qui
+# sono manopole perche' §5.2 misura che la coppia buona cambia da una finestra all'altra, e
+# tenerla nascosta in una costante farebbe credere che ne esista una giusta.
+CONF_MODELLO_ENTRA = Param(0.35, 0.0, 1.0, 0.05)
+CONF_MODELLO_ESCI = Param(0.25, 0.0, 1.0, 0.05)
 
 ICHIMOKU_FAST = Param(9, 2, 100, 1)
 ICHIMOKU_SLOW = Param(26, 2, 200, 1)

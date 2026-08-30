@@ -22,7 +22,7 @@ cadere su intervalli mai misurati, e allora restano i default scritti a mano del
 ## Cosa e' *davvero* in formazione, e cosa no
 
 Il bot live alle 10:00 non aspetta la mezzanotte: vede una barra 1D parziale, e quella non e'
-look-ahead (`live_frames.py`). Ma sollevare a valore provvisorio una *strategia* qualunque non e'
+look-ahead. Ma sollevare a valore provvisorio una *strategia* qualunque non e'
 generico -- ogni indicatore ricorsivo va sollevato a mano -- e il disegno **congela i votanti**,
 cioe' vieta di riscriverli. Quindi:
 
@@ -59,6 +59,7 @@ import numpy as np
 import pandas as pd
 
 from cryptofarm.data.klines import interval_to_minutes, resample_klines
+from cryptofarm.ml import signals
 from cryptofarm.trading import strategies_ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.mtf import align_to_lower
@@ -237,6 +238,20 @@ def _reversione(df, cache, p):
     )
 
 
+def _bande(df, cache, p):
+    return strategies_ls.atr_band_bounce(
+        df,
+        cache,
+        kama_window=int(p["kama_window"]),
+        band_multiplier=float(p["band_multiplier"]),
+        stop_multiplier=float(p["stop_multiplier"]),
+    )
+
+
+def _zone(df, cache, p):
+    return strategies_ls.trend_zone(df, cache, fast=int(p["fast"]), slow=int(p["slow"]))
+
+
 def _flusso(df, cache, p):
     """Il votante di flusso: l'unico che non legge il prezzo, e per questo l'unico che decorrela.
 
@@ -251,6 +266,71 @@ def _flusso(df, cache, p):
     corto = (pendenza < 0) & (mfi > float(p["mfi_basso"]))
     stato = np.where(lungo, 1, np.where(corto, -1, 0)).astype(np.int8)
     stato[np.isnan(pendenza) | np.isnan(mfi)] = 0
+    cambi = np.flatnonzero(np.diff(stato, prepend=np.int8(0)))
+    chiusure = df["Close"].to_numpy()
+    return [(df.index[i], float(chiusure[i]), int(stato[i])) for i in cambi]
+
+
+def _modello(df, cache, p):
+    """Il votante a modello: **solo lungo, o zitto**, e non e' una semplificazione.
+
+    Il modello a swing prevede la prossimita' a un estremo locale, e la forma misurata di quel
+    segnale e' a U: sia il polo -1 (vicino a un minimo) sia il polo +1 (tendenza forte in corso)
+    precedono rendimenti sopra la media, il centro sta sotto
+    (`.claude/docs/modello-swing.md` §5.1). Il segno **non** dice il verso, quindi far votare
+    `sign(previsione)` darebbe alla confluenza un voto corto sulle barre che rendono di piu'.
+    Cio' che il modello sa dire e' *quanto* stare esposti, e qui lo dice votando +1 quando
+    `|previsione|` e' alta e 0 quando e' bassa. Non vota mai corto.
+
+    Ne segue che il suo contributo e' asimmetrico: sui ribassi non aggiunge, si toglie di mezzo.
+    E' l'unico votante che ha questa forma, ed e' anche il motivo per cui sta in una famiglia sua:
+    l'ampiezza minima si conta in famiglie, e un votante che non sa dire il verso non deve poter
+    completare un consenso corto.
+
+    Senza artefatto restituisce zero eventi. Non e' un caso limite da tollerare, e' la condizione
+    del servizio pubblico, dove `models/` e' vuoto.
+
+    Le due colonne di posizionamento restano NaN: `esegui` riceve le candele, non il simbolo. La
+    perdita e' misurata e vale un decimillesimo di IC (§4, «senza posizionamento» +0,0539 contro
+    +0,0540), quindi non vale un parametro in piu' nella firma di tutti gli altri votanti.
+
+    **Quale modello.** Quello in testa a `trainer.MODEL_PRECEDENCE`, non uno scelto qui: se
+    c'e' il modello d'ingresso vota quello -- +1 mentre una sua operazione e' aperta -- altrimenti
+    la politica RL, altrimenti il modello a swing. Nei primi due casi `entra`/`esci` non hanno
+    effetto: la selettivita' del modello d'ingresso sta nei metadata del suo artefatto e la soglia
+    della politica sta dentro l'obiettivo con cui e' stata addestrata. Un secondo votante a modello sarebbe stato
+    la scelta comoda, ed e' sbagliata due volte: i due rispondono alla stessa domanda a partire
+    dalle stesse 41 colonne, quindi voterebbero insieme, e l'ampiezza si conta in famiglie proprio
+    per non far pesare due volte la stessa opinione.
+    """
+    # Fuori dalla sua scala il modello d'ingresso non e' piu' quello misurato (`entry_fuori_misura`):
+    # li' si passa al successivo in `MODEL_PRECEDENCE` invece di votare con una soglia che a 1d
+    # marcherebbe una barra su quattro. A base 15m il piano d'innesco e' 15m e il caso non si pone;
+    # a base 1h si pone su tutti e quattro i piani.
+    utilizzabili = () if signals.entry_fuori_misura(df.index) else (signals.ENTRY_VELOCE, signals.ENTRY_LENTO)
+    nome = next((n for n in utilizzabili if signals.entry_model_disponibile(n)), "")
+    politica = signals.rl_model()
+    if nome:
+        # Il modello d'ingresso vota +1 mentre una sua operazione e' aperta. Le due soglie non
+        # hanno effetto: qui la selettivita' viene dai metadata dell'artefatto, ed e' l'unica cosa
+        # da cui viene il vantaggio misurato.
+        servizio = signals.entry_metadata(nome)
+        frame = signals.swing_features(df)
+        dentro = signals.entry_exposure(
+            signals.entry_predictions(df, signals.entry_model(nome), frame=frame),
+            float(servizio["soglia"]),
+            signals.entry_tenuta(df.index, servizio),
+            signals.entry_gate(df, frame=frame) if nome != signals.ENTRY_LENTO else None,
+        )
+    elif politica is not None:
+        dentro = signals.rl_exposure(politica, df)
+    else:
+        modello = signals.swing_model()
+        if modello is None:
+            return []
+        previsto = signals.swing_predictions(df, modello)
+        dentro = signals.swing_exposure(previsto, float(p["entra"]), float(p["esci"]), signals.swing_cadenza(df.index))
+    stato = dentro.astype(np.int8)
     cambi = np.flatnonzero(np.diff(stato, prepend=np.int8(0)))
     chiusure = df["Close"].to_numpy()
     return [(df.index[i], float(chiusure[i]), int(stato[i])) for i in cambi]
@@ -271,21 +351,6 @@ for _votante in (
         "Ichimoku Trend",
     ),
     Votante(
-        "donchian",
-        "rottura",
-        "struttura",
-        _donchian,
-        (
-            Par("CONF_DONCHIAN_CHANNEL", "channel", "DONCHIAN_CHANNEL"),
-            Par("CONF_DONCHIAN_ADX_WINDOW", "adx_window", "ADX_WINDOW"),
-            Par("CONF_DONCHIAN_ADX_MIN", "adx_min", "ADX_MIN"),
-            Par("CONF_DONCHIAN_ATR_WINDOW", "atr_window", "TRAIL_ATR_WINDOW"),
-            Par("CONF_DONCHIAN_ATR_MULT", "atr_multiplier", "DONCHIAN_ATR_MULT"),
-            Par("CONF_DONCHIAN_REGIME_EMA", "regime_ema", "REGIME_EMA"),
-        ),
-        "Donchian Breakout",
-    ),
-    Votante(
         "flusso",
         "volume",
         "struttura",
@@ -294,23 +359,6 @@ for _votante in (
             Par("CONF_FLOW_WINDOW", "finestra", "OBV_WINDOW"),
             Par("CONF_FLOW_MFI_ALTO", "mfi_alto"),
             Par("CONF_FLOW_MFI_BASSO", "mfi_basso"),
-        ),
-        "Squeeze Breakout",
-    ),
-    Votante(
-        "squeeze",
-        "volatilita",
-        "conferma",
-        _squeeze,
-        (
-            Par("CONF_SQUEEZE_BB_WINDOW", "bb_window", "BB_WINDOW"),
-            Par("CONF_SQUEEZE_BB_DEV", "bb_dev", "BB_DEV"),
-            Par("CONF_SQUEEZE_KC_WINDOW", "kc_window", "KC_WINDOW"),
-            Par("CONF_SQUEEZE_KC_MULT", "kc_multiplier", "KC_MULTIPLIER"),
-            Par("CONF_SQUEEZE_ATR_WINDOW", "atr_window", "TRAIL_ATR_WINDOW"),
-            Par("CONF_SQUEEZE_ATR_MULT", "atr_multiplier", "SQUEEZE_ATR_MULT"),
-            Par("CONF_SQUEEZE_VOLUME", "confirm_volume", "CONFIRM_VOLUME"),
-            Par("CONF_SQUEEZE_OBV_WINDOW", "obv_window", "OBV_WINDOW"),
         ),
         "Squeeze Breakout",
     ),
@@ -329,21 +377,80 @@ for _votante in (
         ),
     ),
     Votante(
-        "reversione",
-        "ritorno_media",
-        "innesco",
-        _reversione,
+        "bande_conferma",
+        "bande",
+        "conferma",
+        _bande,
         (
-            Par("CONF_REVERSION_KAMA", "kama_window"),
-            Par("CONF_REVERSION_BAND_MULT", "band_multiplier"),
-            Par("CONF_REVERSION_ADX_MAX", "adx_max"),
-            Par("CONF_REVERSION_STOP_MULT", "stop_multiplier"),
+            Par("CONF_BANDE_KAMA", "kama_window"),
+            Par("CONF_BANDE_BAND_MULT", "band_multiplier"),
+            Par("CONF_BANDE_STOP_MULT", "stop_multiplier"),
         ),
+    ),
+    Votante(
+        "bande_innesco",
+        "bande",
+        "innesco",
+        _bande,
+        (
+            Par("CONF_BANDE_KAMA_VELOCE", "kama_window"),
+            Par("CONF_BANDE_BAND_MULT_VELOCE", "band_multiplier"),
+            Par("CONF_BANDE_STOP_MULT_VELOCE", "stop_multiplier"),
+        ),
+    ),
+    Votante(
+        "zone_regime",
+        "macrostruttura",
+        "regime",
+        _zone,
+        (Par("CONF_ZONE_FAST", "fast"), Par("CONF_ZONE_SLOW", "slow")),
+    ),
+    Votante(
+        "zone_struttura",
+        "macrostruttura",
+        "struttura",
+        _zone,
+        (Par("CONF_ZONE_FAST_STRUTTURA", "fast"), Par("CONF_ZONE_SLOW_STRUTTURA", "slow")),
+    ),
+    Votante(
+        "modello",
+        "modello",
+        # Sul piano di base, che e' il piu' vicino ai 5m su cui il modello e' addestrato. E' anche
+        # l'unico piano su cui `_stato_del_votante` non passa da `align_to_lower`, e va bene:
+        # `build_swing_features` allinea da se' le proprie scale lunghe, quindi il ritardo c'e'
+        # gia' dove serve e aggiungerne un altro sposterebbe il segnale senza renderlo piu' onesto.
+        "innesco",
+        _modello,
+        (Par("CONF_MODELLO_ENTRA", "entra"), Par("CONF_MODELLO_ESCI", "esci")),
     ),
 ):
     registra(_votante)
 
-VOTANTI: tuple[Votante, ...] = selezione()
+
+def votanti_predefiniti() -> tuple[Votante, ...]:
+    """I votanti con cui la confluenza gira quando nessuno ne indica altri.
+
+    Il votante a modello resta **fuori** quando l'artefatto non c'e', e non e' prudenza: i pesi si
+    normalizzano sui votanti presenti, quindi un ottavo votante che si astiene sempre alzerebbe
+    di fatto la soglia per gli altri sette. In produzione `models/` e' vuoto per costruzione -- gli
+    artefatti sono gitignorati -- e li' la confluenza deve restare **esattamente** quella misurata
+    su quindici asset e sette anni, non una sua versione silenziosamente piu' rigida.
+
+    Resta comunque nel registro, cosi' `selezione("modello", ...)` lo raggiunge sempre: escluderlo
+    dal default non e' escluderlo dalla misura.
+    """
+    tutti = selezione()
+    if (
+        signals.entry_model_disponibile(signals.ENTRY_VELOCE)
+        or signals.entry_model_disponibile(signals.ENTRY_LENTO)
+        or signals.rl_model_disponibile()
+        or signals.swing_model_disponibile()
+    ):
+        return tutti
+    return tuple(v for v in tutti if v.nome != "modello")
+
+
+VOTANTI: tuple[Votante, ...] = votanti_predefiniti()
 
 
 @dataclass
@@ -877,14 +984,21 @@ def _necessarieta(voti, famiglie, pesi, soglia, ingressi, k_famiglie) -> dict[st
     if not ingressi:
         return {nome: 0.0 for nome in voti}
     barre = np.array(ingressi)
-    verso = np.sign(sum(pesi[n] * voti[n] for n in voti)[barre])
+    # Si ritaglia **prima** di contare. La domanda riguarda solo le barre d'ingresso, ma la
+    # versione precedente costruiva le serie intere una volta per ogni coppia (votante, ingresso)
+    # per leggerne un elemento: su sette anni a quindici minuti erano 6.800 passate da 267.000
+    # barre ciascuna, cioe' l'86% del tempo di `evaluate` speso su valori buttati via subito.
+    # `_famiglie_concordi` lavora elemento per elemento, quindi accetta il `verso` come vettore e
+    # una passata sola sostituisce le seimila.
+    ai_bordi = {nome: voto[barre] for nome, voto in voti.items()}
+    verso = np.sign(sum(pesi[n] * ai_bordi[n] for n in ai_bordi))
     verso[verso == 0] = 1
 
     conteggi = {}
     for nome in voti:
-        restanti = {n: v for n, v in voti.items() if n != nome}
-        punteggio = sum(pesi[n] * restanti[n] for n in restanti)[barre] if restanti else np.zeros(len(barre))
+        restanti = {n: v for n, v in ai_bordi.items() if n != nome}
+        punteggio = sum(pesi[n] * restanti[n] for n in restanti) if restanti else np.zeros(len(barre))
         sotto_soglia = punteggio * verso < soglia[barre]
-        ampiezza = np.array([_famiglie_concordi(restanti, famiglie, int(v))[b] for b, v in zip(barre, verso)])
+        ampiezza = _famiglie_concordi(restanti, famiglie, verso)
         conteggi[nome] = float(np.mean(sotto_soglia | (ampiezza < k_famiglie)))
     return conteggi

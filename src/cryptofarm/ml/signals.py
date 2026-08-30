@@ -19,6 +19,8 @@ vendita, il successivo acquisto), che e' anche l'unico modo in cui l'accoppiamen
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 import pandas as pd
 
@@ -26,7 +28,8 @@ from cryptofarm.data.klines import interval_to_minutes
 from cryptofarm.ml.dataset import build_design_matrix, cusum_events
 from cryptofarm.ml.features import build_feature_frame
 from cryptofarm.ml.labeling import BUY, HORIZON_BARS, SL_ATR_MULTIPLE, TP_ATR_MULTIPLE, barrier_widths
-from cryptofarm.ml.models import predict_proba
+from cryptofarm.ml.models import load_model, predict_proba
+from cryptofarm.paths import MODELS_DIR
 
 
 def interval_from_index(index: pd.DatetimeIndex) -> str:
@@ -214,45 +217,365 @@ def meta_signals(
     return buy_signals, sell_signals
 
 
-def policy_signals(df: pd.DataFrame, model, threshold: float = 0.5) -> tuple[list, list]:
-    """Segnali della politica a tre azioni, per il simulatore.
+# --- Il modello a swing --------------------------------------------------------------------------
 
-    A differenza di `barrier_signals` qui **non si predice in blocco**: l'azione di adesso decide
-    lo stato di dopo, quindi la serie va percorsa una barra alla volta riempendo a ogni passo le
-    tre colonne di posizione. E' la ragione per cui questo modello non entra nel percorso
-    esistente senza un adattatore.
+# Le soglie della regola a esposizione, scelte **sulla validazione** e non fuori campione.
+# `.claude/docs/modello-swing.md` §5.2 misura che nessuna coppia va bene in entrambe le finestre:
+# 0,50/0,40 rende fuori campione e perde in validazione, 0,35/0,25 il contrario. Prendere la prima
+# perche' e' quella che rende sul 2024-2026 sarebbe tararsi sul campione di verifica -- il difetto
+# per cui il modello a gambe e' uscito dalla catena (`modello-swing.md` §1, e il suo codice non
+# e' piu' qui). Si prende quindi quella scelta dove e' lecito
+# sceglierla, sapendo che fuori campione ha reso -0,191% per operazione.
+SWING_ENTRA, SWING_ESCI = 0.35, 0.25
 
-    L'uscita non viene dalle barriere ma dal modello stesso: e' lui a emettere SELL. I segnali
-    risultano alternati per costruzione, perche' il mascheramento delle azioni non valide rende
-    impossibile comprare due volte di fila.
+# Quante barre deve avere una scala lunga perche' sia calcolabile. Non e' un margine prudenziale:
+# `ExtraCache.adx(14)` passa da `ta`, che con meno di due finestre solleva `IndexError` invece
+# di restituire NaN. In addestramento non si vede -- le serie sono di centinaia di migliaia di
+# barre -- ma la pagina carica per default 240 ore, cioe' dieci barre giornaliere, e li' cadeva.
+SCALA_MINIMA_BARRE = 28
 
-    **Il P&L che il simulatore mostrera' e' peggiore di quello di `strategy.md` §12**, e non e'
-    un'incoerenza: li' il costo e' 0,08% andata e ritorno in modalita' maker, mentre il simulatore
-    applica per default lo 0,1% per lato, cioe' 0,2%. Il modello perde in entrambi i casi
-    (§13), ma di quanto dipende dal costo che si applica.
+# L'intervallo su cui il modello d'ingresso e' addestrato e misurato: la sua tenuta e' in barre
+# di questa durata, non in candele della pagina.
+BASE_INTERVAL_ENTRY = "5m"
+
+
+def swing_model_disponibile() -> bool:
+    """Se l'artefatto del modello a swing e' su disco.
+
+    Separata da `swing_model` perche' la risposta serve **prima** di caricare: la confluenza deve
+    decidere se il votante a modello fa parte dell'insieme di default, e in produzione gli
+    artefatti sono gitignorati. Legge `MODELS_DIR` a ogni chiamata, invece di ricordarselo, cosi'
+    la variabile d'ambiente che lo sposta continua a valere.
     """
-    from cryptofarm.ml.dagger import episode_bounds, rollout
-    from cryptofarm.ml.directional_change import BUY, SELL
-    from cryptofarm.ml.policy import FLAT, LONG
+    return (MODELS_DIR / "swing_model.joblib").exists()
 
-    features = build_feature_frame(df, interval_from_index(df.index))
-    matrix = build_design_matrix(features)
-    matrix = matrix[matrix.notna().all(axis=1)]
-    if len(matrix) < 2:
+
+@lru_cache(maxsize=1)
+def swing_model():
+    """Il modello a swing addestrato, o `None` se l'artefatto non c'e'.
+
+    In cache perche' il votante della confluenza lo chiede una volta per configurazione della
+    griglia. Il rovescio e' che un riaddestramento si vede solo riavviando il processo: e' la
+    stessa condizione della pagina, che il modello lo carica una volta in `st.session_state`.
+    """
+    return load_model(MODELS_DIR / "swing_model.joblib") if swing_model_disponibile() else None
+
+
+def swing_features(df: pd.DataFrame, symbol: str = "") -> pd.DataFrame:
+    """Le 41 colonne, nell'ordine di `SWING_COLUMNS`, dalle candele che la pagina ha in mano.
+
+    Una sola definizione per i due modelli che le usano -- quello a swing e la politica RL --
+    perche' sono state addestrate sulla stessa matrice e un ordine diverso non solleva niente:
+    sposta soltanto i numeri.
+
+    Le scale lunghe sono **quelle piu' lunghe della base**, non sempre `1h` e `1d`: a 4h aggregare
+    a un'ora vorrebbe dire ricampionare all'insu', cioe' inventare barre. Le colonne che restano
+    fuori diventano NaN, che il modello a gradienti tratta come categoria a se'.
+    """
+    from cryptofarm.ml.bar_features import SWING_COLUMNS, SWING_SCALES, build_swing_features
+
+    minuti = interval_to_minutes(interval_from_index(df.index))
+    scale = tuple(
+        s
+        for s in SWING_SCALES
+        if interval_to_minutes(s) > minuti and len(df) * minuti >= SCALA_MINIMA_BARRE * interval_to_minutes(s)
+    )
+    return build_swing_features(symbol, df, scales=scale).reindex(columns=SWING_COLUMNS)
+
+
+def swing_predictions(df: pd.DataFrame, model, symbol: str = "") -> np.ndarray:
+    """La previsione del modello a swing per ogni barra: -1 su un minimo locale, +1 su un massimo.
+
+    Le scale lunghe sono **quelle piu' lunghe della base**, non sempre `1h` e `1d`: a 4h
+    aggregare a un'ora vorrebbe dire ricampionare all'insu', cioe' inventare barre. Le colonne
+    che restano fuori diventano NaN, che il modello a gradienti tratta come categoria a se' --
+    ed e' una degradazione **misurata**, non sperata: senza `@1d` l'IC passa da +0,0540 a +0,0524,
+    senza `@1h` e `@1d` a +0,0542 (`.claude/docs/modello-swing.md` §4).
+
+    `symbol` serve alle due colonne di posizionamento; senza, restano NaN e l'IC misurato scende
+    di un decimillesimo. Non e' un percorso degradato da evitare, e' la condizione normale della
+    pagina.
+    """
+    frame = swing_features(df, symbol)
+    previsto = model.predict(frame.to_numpy(dtype=float))
+    # `atr_rel` NaN sono le barre di riscaldamento, dove le feature strutturali non esistono
+    # ancora: e' lo stesso criterio con cui `swing_trainer.campione_simbolo` le scarta.
+    previsto[frame["atr_rel"].isna().to_numpy()] = np.nan
+    return previsto
+
+
+def swing_exposure(previsto: np.ndarray, entra: float, esci: float, cadenza: int) -> np.ndarray:
+    """Dentro quando `|previsione|` e' alta, fuori quando e' bassa: vero per barra.
+
+    **Non e' una regola direzionale, ed e' il punto.** Il segno della previsione non dice il
+    verso: `.claude/docs/modello-swing.md` §5.1 misura che *entrambi* i poli precedono rendimenti
+    sopra la media -- il polo +1 non e' «vendi» ma «tendenza forte in corso», e in cripto la
+    continuazione paga. Comprare i minimi previsti e vendere i massimi perde a tutte le soglie e
+    tutte le cadenze, in validazione come fuori campione. Cio' che la forma a U sostiene e' solo
+    *quanto* stare esposti, non da che parte.
+
+    L'isteresi non e' un abbellimento: con `entra == esci` ogni oscillazione della previsione
+    attorno alla soglia costa un giro di commissioni. La decisione si prende una volta ogni
+    `cadenza` barre e resta ferma in mezzo.
+    """
+    dentro = np.zeros(len(previsto), dtype=bool)
+    stato, inizio = False, 0
+    for i in range(0, len(previsto), max(int(cadenza), 1)):
+        forza = abs(previsto[i])
+        if not np.isfinite(forza):
+            continue
+        nuovo = bool(forza >= (esci if stato else entra))
+        if nuovo != stato:
+            dentro[inizio:i] = stato
+            stato, inizio = nuovo, i
+    dentro[inizio:] = stato
+    return dentro
+
+
+def rl_model_disponibile() -> bool:
+    """Se l'artefatto della politica RL e' su disco. Come per il modello a swing, la risposta serve
+    **prima** di caricare: in produzione gli artefatti sono gitignorati."""
+    return (MODELS_DIR / "rl_model.joblib").exists()
+
+
+@lru_cache(maxsize=1)
+def rl_model():
+    """I due regressori `Q[0]` e `Q[1]` della politica, o `None` se l'artefatto non c'e'."""
+    return load_model(MODELS_DIR / "rl_model.joblib") if rl_model_disponibile() else None
+
+
+def rl_exposure(Q, df: pd.DataFrame, symbol: str = "", cadenza: int | None = None) -> np.ndarray:
+    """Dentro o fuori per barra, secondo la politica appresa. Vero per barra.
+
+    La decisione si prende una volta al giorno -- la cadenza a cui la politica e' stata addestrata
+    e misurata -- e resta ferma in mezzo. Cambiarla non regola una manopola: cambia il problema,
+    perche' il costo dentro la ricompensa e' calibrato su quel passo.
+
+    Le barre di riscaldamento, dove `atr_rel` non esiste ancora, sono fuori: e' lo stesso criterio
+    con cui l'addestramento le scarta, e senza, la politica deciderebbe su uno stato di soli NaN.
+    """
+    from cryptofarm.ml.rl import posizioni
+
+    frame = swing_features(df, symbol)
+    stato = frame.to_numpy(dtype=float)
+    passo = max(int(cadenza or swing_cadenza(df.index)), 1)
+    decisioni = np.arange(0, len(stato), passo)
+    pronte = decisioni[frame["atr_rel"].to_numpy()[decisioni] == frame["atr_rel"].to_numpy()[decisioni]]
+    dentro = np.zeros(len(stato), dtype=bool)
+    if not len(pronte):
+        return dentro
+    azioni = posizioni(Q, stato[pronte])
+    for i, (inizio, azione) in enumerate(zip(pronte, azioni)):
+        fine = pronte[i + 1] if i + 1 < len(pronte) else len(stato)
+        dentro[inizio:fine] = bool(azione)
+    return dentro
+
+
+def rl_signals(Q, df: pd.DataFrame, symbol: str = "") -> tuple[list[tuple], list[tuple]]:
+    """La politica tradotta in acquisti e vendite alternati, come `swing_signals`."""
+    return _eventi(rl_exposure(Q, df, symbol=symbol), df)
+
+
+def _eventi(dentro: np.ndarray, df: pd.DataFrame) -> tuple[list[tuple], list[tuple]]:
+    """Da esposizione per barra a due liste alternate di `(quando, prezzo)`.
+
+    Se l'ultima posizione e' ancora aperta a fine serie non le si inventa una vendita: resta un
+    acquisto spaiato, che `pnl` ignora accoppiando per indice.
+    """
+    cambi = np.flatnonzero(np.diff(dentro.astype(np.int8), prepend=np.int8(0)))
+    close = df["Close"].to_numpy(dtype=float)
+    eventi = [(df.index[i], float(close[i])) for i in cambi]
+    return eventi[::2], eventi[1::2]
+
+
+def swing_cadenza(index: pd.DatetimeIndex) -> int:
+    """Una decisione al giorno, in barre. E' la cadenza con cui il modello e' stato misurato."""
+    return max(round(1440 / interval_to_minutes(interval_from_index(index))), 1)
+
+
+def swing_signals(
+    df: pd.DataFrame,
+    model,
+    entra: float = SWING_ENTRA,
+    esci: float = SWING_ESCI,
+    symbol: str = "",
+) -> tuple[list[tuple], list[tuple]]:
+    """La regola a esposizione tradotta in acquisti e vendite alternati.
+
+    Nessuna barriera e nessuno stop: qui l'uscita e' la stessa condizione dell'ingresso letta al
+    contrario, perche' e' la sola forma su cui il modello sia stato misurato. Se l'ultima
+    posizione e' ancora aperta a fine serie non le si inventa una vendita: resta un acquisto
+    spaiato, che `pnl` ignora accoppiando per indice.
+    """
+    previsto = swing_predictions(df, model, symbol=symbol)
+    return _eventi(swing_exposure(previsto, entra, esci, swing_cadenza(df.index)), df)
+
+
+# --- Il modello d'ingresso ------------------------------------------------------------------------
+
+# Il nome dell'artefatto veloce, quello che opera. Il lento resta `entry_model`: e' la stessa
+# famiglia addestrata su un altro orizzonte, non un modello di un'altra specie.
+ENTRY_VELOCE = "entry_model_veloce"
+ENTRY_LENTO = "entry_model"
+
+
+def entry_metadata(nome: str = "entry_model", blocco: str = "servizio") -> dict:
+    """Soglia, tenuta e orizzonte con cui l'artefatto e' stato misurato.
+
+    Non sono costanti di questo modulo di proposito: la soglia e' il quantile 0,98 delle previsioni
+    **sullo stima** e la tenuta e' l'orizzonte dell'etichetta. Servire il modello con altri due
+    numeri significa servire un'altra strategia, e i risultati fuori campione non descrivono piu'
+    niente. Chi riaddestra con `--h` diverso ottiene numeri diversi qui dentro, e va bene cosi'.
+
+    `blocco="labeling"` da' invece l'etichetta: il metodo e l'orizzonte `h`. Serve a chi vuole
+    **disegnare** cio' che il modello ha imparato a prevedere accanto a cio' che prevede, e `h`
+    non e' deducibile dalla tenuta -- sono due argomenti distinti del trainer, uguali solo per
+    come e' stato lanciato finora.
+    """
+    percorso = MODELS_DIR / f"{nome}.json"
+    if not percorso.exists():
+        return {}
+    import json
+
+    return json.loads(percorso.read_text()).get(blocco, {})
+
+
+def entry_model_disponibile(nome: str = "entry_model") -> bool:
+    """Se l'artefatto e i suoi metadata sono su disco. Servono **entrambi**: senza i metadata non
+    si conosce la soglia, e una soglia inventata seleziona un'altra popolazione di barre."""
+    return (MODELS_DIR / f"{nome}.joblib").exists() and bool(entry_metadata(nome))
+
+
+@lru_cache(maxsize=2)
+def entry_model(nome: str = "entry_model"):
+    """L'artefatto addestrato, o `None` se non c'e'. In cache come `swing_model`, e con lo stesso
+    rovescio: un riaddestramento si vede solo riavviando il processo."""
+    return load_model(MODELS_DIR / f"{nome}.joblib") if entry_model_disponibile(nome) else None
+
+
+def barre_equivalenti(index: pd.DatetimeIndex, barre_5m: int) -> int:
+    """Un conteggio di barre da 5 minuti, tradotto nelle barre della pagina a durata uguale."""
+    base = interval_to_minutes(BASE_INTERVAL_ENTRY)
+    minuti = interval_to_minutes(interval_from_index(index))
+    # Mezza barra si arrotonda in su: `round` in Python arrotonda al pari, e a 1h 12,5 barre
+    # diventerebbero 12 -- mezz'ora in meno di quanto il modello e' stato misurato tenere.
+    return max(int(barre_5m * base / minuti + 0.5), 1)
+
+
+def entry_tenuta(index: pd.DatetimeIndex, servizio: dict) -> int:
+    """La tenuta dei metadata, che e' in barre da 5 minuti, tradotta nelle barre della pagina.
+
+    Il modello e' addestrato e misurato a 5m: `tenuta=150` vuol dire dodici ore e mezza, non
+    centocinquanta candele di qualunque durata. Chi guarda il grafico a 1h deve vedere le stesse
+    dodici ore e mezza, cioe' tredici barre.
+    """
+    return barre_equivalenti(index, int(servizio.get("tenuta", 150)))
+
+
+SCALA_MASSIMA_ENTRY = 30
+
+
+def entry_fuori_misura(index: pd.DatetimeIndex) -> str:
+    """Perche' questo intervallo non e' servibile, o stringa vuota se lo e'.
+
+    La soglia dei metadata e' un **numero**, non un quantile: e' il rendimento previsto sopra il
+    quale si entra, e il modello e' addestrato a prevedere il rendimento delle prossime venti
+    barre da cinque minuti. Su barre piu' lunghe quelle venti barre sono un altro orizzonte, le
+    previsioni crescono, e la stessa soglia smette di selezionare le stesse barre. Misurato su
+    cinque simboli dal 2024, la quota di barre marcate dalla soglia servita e':
+
+        5m 0,063%   15m 0,270%   30m 0,722%   1h 2,98%   4h 14,1%   1d 28,1%
+
+    Il modello e' misurato per marcarne lo 0,5%. Da un'ora in su non e' piu' selettivo di poco: a
+    1d marca una barra su quattro, cioe' fa l'opposto di cio' per cui e' stato scelto, e il
+    +2,07% per operazione non descrive piu' niente. Meglio tacere e dirlo che servire un altro
+    modello con lo stesso nome.
+    """
+    minuti = interval_to_minutes(interval_from_index(index))
+    if minuti > SCALA_MASSIMA_ENTRY:
+        return (
+            f"il modello d'ingresso e' tarato su barre da {BASE_INTERVAL_ENTRY} e la sua soglia e' un "
+            f"rendimento, non un quantile: oltre i {SCALA_MASSIMA_ENTRY} minuti marca troppe barre "
+            f"(2,98% a 1h, 28% a 1d, contro lo 0,5% per cui e' misurato)"
+        )
+    return ""
+
+
+def entry_exposure(
+    previsto: np.ndarray, soglia: float, tenuta: int, consentito: np.ndarray | None = None
+) -> np.ndarray:
+    """Dentro per `tenuta` barre da ogni segnale, **senza sovrapposizioni**. Vero per barra.
+
+    Mentre si e' dentro i segnali successivi si ignorano, che e' la stessa regola con cui il
+    modello e' stato misurato (`entry_trainer.operazioni`). Contarli tutti misurerebbe un capitale
+    che non si ha, e qui produrrebbe una posizione che non finisce mai.
+
+    `consentito` e' il cancello del modello lento, e vale **solo sulla barra d'ingresso**: una
+    posizione gia' aperta non si chiude perche' il piano largo e' cambiato. La tenuta e' quella su
+    cui il rendimento e' misurato, e troncarla misura un'altra cosa.
+    """
+    ammessi = np.nan_to_num(previsto, nan=-np.inf) >= soglia
+    if consentito is not None:
+        ammessi &= consentito
+    dentro = np.zeros(len(previsto), dtype=bool)
+    libero = 0
+    for i in np.flatnonzero(ammessi):
+        if i < libero:
+            continue
+        dentro[i : i + tenuta] = True
+        libero = i + tenuta
+    return dentro
+
+
+def entry_gate(df: pd.DataFrame, symbol: str = "", frame: pd.DataFrame | None = None) -> np.ndarray | None:
+    """Dove il modello lento dice che si e' dentro un movimento, barra per barra. `None` senza.
+
+    E' la composizione che l'utente aveva chiesto e che la misura conferma: il modello veloce fa
+    le operazioni, il lento dice **dentro quali movimenti** puo' farle. Fuori campione, su 15
+    simboli dal 2024, il veloce da solo rende +1,360% per operazione su 223 operazioni, filtrato
+    dal lento +2,071% su 148, e i simboli in utile passano da 12/15 a 14/15
+    (`scripts/entry_lab.py` rifa' la misura).
+
+    Senza l'artefatto lento il filtro non c'e' e il veloce opera da solo: e' una degradazione
+    misurata, non un caso limite: si torna a +1,360%.
+    """
+    servizio = entry_metadata(ENTRY_LENTO)
+    lento = entry_model(ENTRY_LENTO)
+    if lento is None or "cancello" not in servizio:
+        return None
+    previsto = entry_predictions(df, lento, symbol=symbol, frame=frame)
+    return np.nan_to_num(previsto, nan=-np.inf) >= float(servizio["cancello"])
+
+
+def entry_signals(df: pd.DataFrame, model, symbol: str = "", nome: str = ENTRY_VELOCE) -> tuple[list, list]:
+    """Ingresso sopra soglia e col cancello aperto, uscita dopo la tenuta. Nessuno stop.
+
+    **La tenuta fissa non e' pigrizia, e' il risultato.** Il vantaggio di questo modello sta nella
+    selettivita': segnalando il 10% delle barre il rendimento medio del segnalato e' +0,047%, cioe'
+    meno della commissione; segnalando lo 0,5% e' +2,07%. Un'uscita a segnale, o uno stop a
+    trailing, non e' cio' che e' stato misurato -- e sulla famiglia precedente ogni regola che
+    troncava il rialzo peggiorava il netto in modo monotono (misurato sul modello a gambe che c'era prima).
+
+    Le feature sono le stesse 41 del modello a swing, quindi passa da `swing_features`: una sola
+    definizione per i tre modelli che le usano.
+    """
+    servizio = entry_metadata(nome)
+    if not servizio or entry_fuori_misura(df.index):
         return [], []
+    frame = swing_features(df, symbol)
+    previsto = entry_predictions(df, model, frame=frame)
+    consentito = entry_gate(df, frame=frame) if nome != ENTRY_LENTO else None
+    dentro = entry_exposure(previsto, float(servizio["soglia"]), entry_tenuta(df.index, servizio), consentito)
+    return _eventi(dentro, df)
 
-    close = features.loc[matrix.index, "Close"].to_numpy(float)
-    # Un unico episodio: il simulatore mostra una finestra continua, e spezzarla azzererebbe la
-    # posizione a meta' grafico per una ragione che non ha niente a che vedere col mercato.
-    visited = rollout(model, matrix.to_numpy(), close, bounds=episode_bounds([len(close)], len(close)))
 
-    entries = visited[(visited["state"] == FLAT) & (visited["action"] == BUY)]["row"].to_numpy()
-    exits = visited[(visited["state"] == LONG) & (visited["action"] == SELL)]["row"].to_numpy()
-    pairs = min(len(entries), len(exits))
-    if pairs == 0:
-        return [], []
+def entry_predictions(df: pd.DataFrame, model, symbol: str = "", frame: pd.DataFrame | None = None) -> np.ndarray:
+    """Il rendimento previsto delle prossime H barre, per ogni barra. NaN sul riscaldamento.
 
-    stamps = matrix.index
-    buy_signals = [(stamps[row], float(close[row])) for row in entries[:pairs]]
-    sell_signals = [(stamps[row], float(close[row])) for row in exits[:pairs]]
-    return buy_signals, sell_signals
+    `frame` si passa quando le 41 colonne sono gia' state calcolate: i due modelli d'ingresso
+    leggono le stesse, e ricostruirle due volte raddoppia la parte cara senza cambiare niente.
+    """
+    frame = swing_features(df, symbol) if frame is None else frame
+    previsto = model.predict(frame.to_numpy(dtype=float))
+    previsto[frame["atr_rel"].isna().to_numpy()] = np.nan
+    return previsto

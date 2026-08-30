@@ -121,7 +121,14 @@ def predict_proba(model, X: np.ndarray) -> np.ndarray:
 
 
 def save_model(model, path) -> None:
-    if _is_probabilistic(model):
+    """Salva riconoscendo il formato dall'**estensione**, come fa `load_model`.
+
+    Prima il criterio era `_is_probabilistic`, cioe' «ha `predict_proba`». Regge finche' tutti i
+    modelli sklearn sono classificatori: il primo regressore (`swing_trainer`) cade nel ramo Keras
+    e muore su `model.save`, dopo aver addestrato. Le due funzioni devono usare lo stesso criterio,
+    altrimenti si puo' salvare qualcosa che non si rilegge.
+    """
+    if str(path).endswith(".joblib"):
         import joblib
 
         joblib.dump(model, path)

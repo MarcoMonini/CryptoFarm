@@ -1,257 +1,134 @@
 # CryptoFarm
 
-Trains a signal model on Binance market data and backtests trading strategies against it, with one
-headless bot that can trade the result live.
+Addestra modelli di segnale su dati Binance e li verifica contro strategie a indicatori, su nove
+anni di storico e quindici asset. C'è anche un bot headless che può operare dal vivo.
 
-Two files matter — `trading/simulator.py` (research) and `ml/trainer.py` (training) — plus their
-dependencies. Everything not reachable from those lives in `backup/unused/`.
+**Il risultato in una riga.** Quasi tutto ciò che è stato provato non batte il possesso passivo, ed
+è scritto dove è stato misurato. L'unica cosa che passa il controllo a esposizione appaiata è il
+modello d'ingresso: **+2,071% netti per operazione fuori campione, 14 simboli su 15 in utile**, e
+il suo vantaggio non è la previsione ma la **selettività** — marca una barra su duecento.
 
-## Project structure
+## Come è fatto
 
 ```
 src/cryptofarm/
-├── paths.py                  where models/, market_data/ and friends live
-├── data/
-│   └── klines.py             local candle store, built from Binance bulk dumps
-├── ml/                       training pipeline
-│   ├── features.py           per-bar features (returns, RSI, STOCH, ATR, TSI, volume)
-│   ├── dataset.py            design matrix, lags, CUSUM events, time splits
-│   ├── labeling.py           ATR-based triple barrier
-│   ├── directional_change.py confirmed pivots and soft labels
-│   ├── models.py             model construction (gbdt default; gru/cnn/lstm behind --model)
-│   ├── evaluate.py           per-class and per-score-quantile metrics
-│   ├── validation.py         purged k-fold, CPCV, embargo, PBO, Deflated Sharpe
-│   ├── execution.py          fill simulation (maker entry, taker exit)
-│   ├── meta.py               cost-net meta-labelling targets
-│   ├── policy.py             position state and the three-action policy
-│   ├── dagger.py             DAgger rollouts and state coverage
-│   ├── signals.py            from model to signals, for the simulator
-│   ├── trainer.py            * trains the signal classifier
-│   ├── meta_trainer.py       trains the meta-labelling secondary
-│   └── policy_trainer.py     trains the three-action policy
-└── trading/
-    ├── market_data.py        one-off Binance downloads for the page
-    ├── indicators.py         indicators + the numpy ATR/EMA core, PSAR
-    ├── strategies.py         from indicator table to (buy_signals, sell_signals)
-    ├── pnl.py                from signals to trades, fees included
-    ├── config.py             starting values for the sidebar widgets
-    ├── simulator.py          * Streamlit page: trading_analysis + layout
-    └── live_bot.py           headless bot that places real orders
-
-scripts/analysis.py           reproducible measurements behind .claude/docs/strategy.md
-scripts/confluence_lab.py     the confluence bench: wide grids, shared-capital basket, benchmarks
-tests/                        911 tests; test_simulator_golden.py pins the simulator
-models/                       .joblib artifacts + .json metadata (untracked)
-backup/unused/                modules removed from src/ because nothing imported them
-backup/v2/                    multi-timeframe simulator, read-only reference
+├── data/      lo store locale delle candele (dump bulk, parquet)
+├── ml/        feature → etichette → modello → valutazione → servizio
+└── trading/   strategie, conto del profitto, la pagina Streamlit, il bot live
+scripts/       diciotto banchi di misura: producono i numeri dei documenti
+tests/         1.022 casi, nessuna rete, nessuno store richiesto
+.claude/docs/  le decisioni e le misure che le giustificano
 ```
 
-Dependencies inside `trading/` form a DAG: `market_data`, `indicators`, `pnl` and `config` depend on
-nothing, `strategies` depends on `indicators`, `simulator` on all of them. There is no re-export
-facade — each strategy is imported from the module that holds it.
+Ogni cartella ha il suo README con l'elenco dei file e delle funzioni:
+[`src/cryptofarm/data/`](src/cryptofarm/data/) ·
+[`src/cryptofarm/ml/`](src/cryptofarm/ml/) ·
+[`src/cryptofarm/trading/`](src/cryptofarm/trading/) ·
+[`scripts/`](scripts/) · [`tests/`](tests/) · [`models/`](models/) · [`reports/`](reports/)
 
-## Running
+Due cose contano davvero: **`trading/simulator.py`** (la ricerca) e **`ml/trainer.py`**
+(l'addestramento), più le loro dipendenze e un bot.
 
-Python >= 3.12. Use `.venv312/bin/python` — the older `.venv` is 3.9 and lacks `scikit-learn`.
+## Far partire
+
+Python >= 3.12, ambiente **`.venv312`** — il `.venv` preesistente è 3.9 e non ha `scikit-learn`.
 
 ```bash
-pip install -e ".[app,data,dev]"   # see "Dependency extras" below
+pip install -e ".[app,data,dev]"
 
-# Backtest / strategy simulator
+# La pagina: due viste, "quando stare dentro" e "quale asset tenere"
 streamlit run src/cryptofarm/trading/simulator.py
 
-# Kline store first, then train
+# Lo store delle candele, prerequisito di ogni addestramento (~10 minuti)
 .venv312/bin/python -m cryptofarm.data.klines --update
-.venv312/bin/python -m cryptofarm.ml.trainer                # gbdt by default
-.venv312/bin/python -m cryptofarm.ml.meta_trainer
-.venv312/bin/python -m cryptofarm.ml.policy_trainer
 
-# Measurements (--help lists every measure)
-.venv312/bin/python -m scripts.analysis --barrier-capacity
+# Il modello in testa oggi: il veloce opera, il lento gli fa da cancello
+.venv312/bin/python -m cryptofarm.ml.entry_trainer --selfcheck   # gira senza store
+.venv312/bin/python -m cryptofarm.ml.entry_trainer               # il lento (H=150)
+.venv312/bin/python -m cryptofarm.ml.entry_trainer --h 20 --quantile 0.995 --nome entry_model_veloce
+.venv312/bin/python -m scripts.entry_lab                         # quanto vale il cancello
 
-# The confluence strategy: runs without the kline store, on synthetic data
-.venv312/bin/python -m scripts.confluence_lab --selfcheck
-.venv312/bin/python -m scripts.confluence_lab --grid coordinate --symbol BTCUSDT --interval 15m
-.venv312/bin/python -m scripts.confluence_lab --grid veloce --paniere majors
-
-# Live bot — places real orders, needs env vars
+# Il bot live — piazza ordini veri, vuole le variabili di .env.example
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Tests: `.venv312/bin/python -m pytest` (911 tests in 26 files). Lint/format: `ruff check src tests`,
-`black src tests`.
+Test: `.venv312/bin/python -m pytest`. Lint: `ruff check src scripts tests` e
+`black src scripts tests`.
 
-### Dependency extras
+Gli altri comandi — gli altri modelli, gli sweep delle strategie, i banchi di misura — stanno in
+[`CLAUDE.md`](CLAUDE.md) e nei README di [`scripts/`](scripts/) e [`src/cryptofarm/ml/`](src/cryptofarm/ml/).
 
-The install is split so each image carries only what it runs.
+## Gli extra di installazione
 
-| extra | contents | needed by |
+| extra | cosa contiene | serve a |
 |---|---|---|
-| (core) | numpy, pandas, scipy, ta, requests, python-binance, scikit-learn, colorama | features, labels, gbdt models, live bot |
-| `app` | streamlit, plotly | `trading/simulator.py` and the modules it decorates with `st.cache_data` |
-| `data` | pyarrow (141 MB) | the parquet kline store — `data/klines.py` and `scripts/analysis.py`; arrives anyway with `app`, since streamlit requires `pyarrow>=7.0` |
-| `dl` | tensorflow, keras-tuner (~1 GB) | only `--model gru|cnn|lstm`; `ml/models.py` imports keras inside the functions |
+| (nucleo) | numpy, pandas, scipy, ta, requests, python-binance, scikit-learn | feature, etichette, modelli `gbdt`, bot live |
+| `app` | streamlit, plotly | solo `trading/simulator.py` e i moduli che decora con `st.cache_data` |
+| `data` | pyarrow (141 MB) | il motore parquet dello store: `data/klines.py`, `scripts/analysis.py` |
+| `dl` | tensorflow (~1 GB) | solo `--model gru\|cnn\|lstm` |
 | `dev` | pytest, ruff, black, pre-commit | |
 
-`data` is separate because the core install has no reason to carry a parquet engine — not because
-the deployed image can shed it. Streamlit depends on pyarrow, so any image with the page has it.
+Un'immagine più magra per la sola pagina non si ottiene togliendo pyarrow: `streamlit` dipende da
+`pyarrow>=7.0`, quindi i 141 MB ci sono comunque.
 
-## Docker
+## Docker e deploy
 
 ```bash
-mkdir -p models market_data          # first run only, so the bind mounts exist
-
-docker compose up simulator                     # http://localhost:8501
-docker compose --profile data  run --rm klines  # populate the kline store
-docker compose --profile train run --rm trainer # train (gbdt)
-docker compose --profile ci    run --rm tests   # the suite, in the CI image
+mkdir -p models market_data                      # i bind mount devono esistere
+docker compose up simulator                      # http://localhost:8501
+docker compose --profile data  run --rm klines
+docker compose --profile train run --rm trainer
+docker compose --profile ci    run --rm tests
 ```
 
-One `Dockerfile`, four targets:
+Un solo `Dockerfile`, quattro target: `runtime` (pagina, trainer, store), `dev` (`runtime` +
+pytest/ruff/black, l'immagine della CI), `dl` (`runtime` + TensorFlow) e **`web`**, che è quello
+che va in produzione. **`web` è l'ultimo stage e deve restarci**: una build senza `--target` prende
+l'ultimo, e Render non ha un campo per sceglierlo. Uno stage nuovo va aggiunto sopra, mai sotto —
+e la CI costruisce anche senza `--target` proprio per accorgersene.
 
-| target | contents | for |
-|---|---|---|
-| `runtime` | core + `app` + `data` | simulator, trainers, kline store, analysis |
-| `dev` | `runtime` + pytest/ruff/black | the image CI runs |
-| `dl` | `runtime` + TensorFlow | `--model gru|cnn|lstm` |
-| **`web`** | same as `runtime` | **production — it is the file's last stage, so a plain `docker build .` produces it** |
+Il deploy pubblico sta in [`render.yaml`](render.yaml), piano gratuito, regione **`frankfurt`**:
+Binance blocca gli IP statunitensi su `api.binance.com`, che è da dove il simulatore prende le
+candele, quindi la regione non è un dettaglio. Il piano gratuito non ha dischi persistenti, e
+`models/*.joblib` è gitignorato: **online girano le strategie classiche**, e la pagina toglie da sé
+la voce «AI Model» dal menu invece di cadere.
 
-The stage order matters: a build without `--target` takes the last stage, and Render has no field
-to choose one. `web` exists to occupy that position, so the platform gets the page image instead of
-the TensorFlow one — CI builds without `--target` and fails if that stops being true. Any new stage
-belongs above it.
+## Cosa sapere prima di modificare
 
-`models/` and `market_data/` are bind-mounted from the host, so artifacts and the hundreds of MB of
-candles survive `docker compose down`. Inside the image they live at `/app/models` and
-`/app/market_data`, pointed there by `CRYPTOFARM_MODELS_DIR` and `CRYPTOFARM_MARKET_DATA_DIR` —
-`paths.py` reads both, because the package is installed in `site-packages` and the project root it
-would otherwise derive from its own location points inside the virtualenv.
+**`.claude/docs/` contiene misure che escludono esplicitamente diverse strade che sembrano
+ragionevoli a prima vista.** L'ordine di lettura sta in [`.claude/docs/README.md`](.claude/docs/README.md);
+chi riprende a freddo legge [`HANDOFF.md`](.claude/docs/HANDOFF.md) e basta. Chi tocca la pipeline
+ML legge prima [`strategy.md`](.claude/docs/strategy.md).
 
-The container runs as uid 1000. On Linux, if your user has a different uid, the bind-mounted files
-will be written as 1000; uncomment the `user:` line in `compose.yaml` to avoid it.
+**Il golden master va rispettato.** `tests/test_simulator_golden.py` fissa il comportamento di 21
+funzioni: deve passare prima di una modifica a `trading/` e passare ancora dopo, **senza essere
+rigenerato**. Rigenerarlo accetta qualunque differenza, anche una regressione.
 
-The live bot is deliberately not a compose service: `live_bot.py` runs its loop at import time with
-no `main()` and no signal handling, so it is not safe to restart automatically. Containerising it
-needs that refactor first.
+**I valori di partenza sono centrali, non ottimi.** Cercare il massimo in campione trasferisce
+peggio che prendere una configurazione a caso: sulla rotazione la correlazione fra resa in stima e
+resa in verifica è **−0,69**. Chi cambia i default in «quelli che rendono di più nel grafico» sta
+facendo esattamente l'errore misurato.
 
-## Deploy (Render, free plan)
+**Le letture per riga passano da array numpy** estratti prima del ciclo, non da
+`df["Col"].iloc[i]`: da lì viene il grosso della velocità (il simulatore intero: 4295 ms → 125 ms).
+E `indicators._atr_ema` replica in numpy le formule di `ta` 0.11 riga per riga — se si cambia, va
+riverificato contro `ta`, perché una divergenza silenziosa lì sposta ogni segnale.
 
-`render.yaml` describes the public service: the simulator alone, built from the Dockerfile's last
-stage. Points worth knowing before touching it:
+## Un difetto noto
 
-- **Port.** Render assigns the port through `$PORT` (10000 by default) and requires binding to
-  `0.0.0.0`. The image's command reads `${PORT:-8501}`, so the same image serves Render and
-  `docker compose` locally.
-- **Region `frankfurt`.** Binance blocks US IP addresses on `api.binance.com`, which is where the
-  simulator fetches candles on every interaction. A US region silently breaks the page.
-- **No model artifact.** The free plan has no persistent disk and `models/*.joblib` is gitignored,
-  so the deployed page runs the classic strategies. The model is optional: `available_strategies`
-  drops "AI Model" from the menu when `models/` holds no artifact, and a sidebar caption says why.
-  The same happens in a fresh clone, where nothing has been trained yet.
-- **Memory.** The free instance has 512 MB. `MALLOC_ARENA_MAX=2` caps glibc's per-thread arenas,
-  and the `st.cache_data` decorators carry `ttl`/`max_entries` — an unbounded cache filled by
-  sliding the sidebar widgets is what pushes the process into an OOM restart.
-- **What the plan still costs you.** Free services spin down after 15 minutes idle and take about a
-  minute to wake. Nothing in the image changes that; only a paid instance does.
+`buy_sell_limits_simulation` legge la colonna `MACD`, che resta commentata in
+`add_technical_indicator`: solleva `KeyError` appena chiamata. Nessuna voce del menu la raggiunge.
+Renderla usabile vuol dire ripristinare il blocco `MACD` **e** aggiungere la voce.
 
-The runtime of an existing service *can* be changed: Settings → Build → Source → Edit, then set
-Language to Docker and point Dockerfile Path at `./Dockerfile`. The URL survives. The region cannot
-be changed, so a service in a US region has to be recreated.
+## Configurazione
 
-A service created by hand is not managed by a Blueprint, so editing `render.yaml` does not
-reconfigure it — the file documents the intended configuration and applies only to services created
-from it. Set Health Check Path and Auto-Deploy by hand on such a service; the environment variables
-are already `ENV` in the image.
+Solo variabili d'ambiente, vedi [`.env.example`](.env.example) — niente nel repository carica
+`.env` da solo. `API_KEY`/`API_SECRET` e i parametri della strategia li legge il solo
+`live_bot.py`; `MARKET_DATA_CSV` è il CSV storico della pagina. Il simulatore e i trainer usano gli
+endpoint pubblici di Binance e non vogliono credenziali.
 
-## CI
+## Lingua
 
-`.github/workflows/ci.yml` runs on every pull request and on pushes to `main`, in two jobs:
-
-- **quality** — installs `.[app,dev]` on Python 3.12 and runs `ruff check`, `black --check` and
-  `pytest` over `src`, `tests` and `scripts`. No network and no kline store: the tests are synthetic
-  data and monkeypatches.
-- **docker** — builds the `runtime` and `dev` targets with buildx (GitHub Actions cache), checks the
-  image can import the package and resolves its data directories to `/app/...`, then runs the suite
-  inside the `dev` image.
-
-Nothing is pushed anywhere: image publishing and deployment come when there is somewhere to deploy.
-
-## The model the simulator uses
-
-`ml/trainer.MODEL_PRECEDENCE` is `("policy_model", "meta_model", "signal_model")`; `active_model_name()`
-is the single source of truth for both loading and strategy dispatch, so they cannot diverge. To fall
-back to an earlier model, move the newer artifact out of `models/`.
-
-**Currently active: `policy_model`** — the three-action, position-conditioned policy. `ai_model_simulation`
-routes it to `policy_signals`, which decides entries *and* exits (the barriers do not apply).
-
-| | |
-|---|---|
-| Type | `HistGradientBoostingClassifier`, 3 classes (hold / buy / sell) |
-| Trained | 2026-08-20, 36 min fit |
-| Input features | 83 |
-| Boosting iterations | 400 (no early stop) — 1.200 trees, 150.000 nodes, 75.600 leaves, max depth 27 |
-| Hyperparameters | `learning_rate=0.06`, `max_leaf_nodes=63`, `min_samples_leaf=200`, `l2=1.0` |
-| Labelling | directional change, `capture=0.30`, 8–12 confirmed extremes/day |
-| Data | 15 symbols, 5m bars since 2022-01-01 — 3.653.165 rows, plus 2,4 M added over 2 DAgger rounds |
-| Decision threshold | 0.50 · assumed round-trip cost 0,08% |
-
-A gradient boosting has no weights: the closest analogue to a parameter count is the leaf count
-(~75.600 values) plus the split thresholds. It is not comparable to an LSTM's parameter count.
-
-### Measured performance — negative
-
-No artifact stores accuracy, and it would mislead here: with these class balances a model that always
-says "hold" scores well and trades nothing. What is recorded:
-
-| Model | Metric | Value |
-|---|---|---|
-| `policy_model` | holdout, 10.483 trades | gross −0,123%, **net −0,203%/trade**, win rate 32,6% |
-| `policy_model` | in-sample, 58.866 trades | gross +0,032%, net −0,048%/trade |
-| `policy_bassa` | holdout, 63.293 trades | net −0,091%/trade, win rate 33,5% |
-| `meta_model` | CPCV, 28 splits | PBO 0,00 · Deflated Sharpe 1,00 · net +0,097%/trade |
-| `signal_model` | validation | **AUC 0,5401** · win rate 39,6% vs break-even 47,3% |
-
-The in-sample gross edge of +0,032% sits below the 0,08% round-trip cost. That gap — not a modelling
-failure — is why none of this is profitable; see §13 of `.claude/docs/strategy.md`.
-
-Three caveats worth carrying:
-
-- `meta_model`'s PBO of 0,00 and Deflated Sharpe of 1,00 are saturated values. Its
-  `mean_uniqueness` is 0,034, meaning each label overlaps ~29 others, so the effective sample is far
-  smaller than 1,5 M events and significance metrics skew optimistic.
-- The policy artifacts were trained with `--no-cpcv`, so they carry holdout numbers only. The CPCV
-  figures in `strategy.md` §12.1/§12.3 predate a leak fix in `_cpcv` and **need rerunning**; the
-  negative verdict stands, the values do not. See §14 of `strategy.md`.
-- `policy_alta.joblib` is byte-identical to `policy_model.joblib` — the same operating point saved
-  twice.
-
-## Configuration
-
-Environment variables only — see `.env.example`. Nothing loads `.env` automatically.
-`API_KEY`/`API_SECRET` and the strategy parameters are read by `live_bot.py`; `MARKET_DATA_CSV`
-points the Streamlit page at a historical CSV. The simulator and the trainers use Binance's public
-endpoints and need no credentials.
-
-## Known issue
-
-`add_technical_indicator` still has its `MACD` block commented out, and `buy_sell_limits_simulation`
-reads that column, so it raises `KeyError` when called. No menu entry reaches it — the dispatch binds
-it to `"Buy/Sell Limits"`, which is not in `config.STRATEGIES`, as with `"ATR Bands"` and the
-`"Dinamic *"` variants. Making it usable means restoring the `MACD` block *and* adding the menu entry.
-
-`PSAR` was in the same state and has been restored: `"Close ATR"` and the `"ATR Live Trade"`
-stop-loss no longer raise.
-
-## Notes for contributors
-
-`tests/test_simulator_golden.py` pins the simulator's behaviour against
-`tests/data/simulator_golden.json`. It must pass before and after any change to `trading/`, without
-being regenerated. Regenerating accepts any behaviour change, so do it only deliberately.
-
-Row-wise reads in `trading/` go through numpy arrays hoisted out of the loop, not
-`df["Col"].iloc[i]`; that is where the simulator's speed comes from (4295 ms → 125 ms). Keep the
-style.
-
-`indicators._atr_ema` reproduces `ta` 0.11's ATR and EMA formulas in numpy. If you change it,
-re-verify against `ta` — a silent divergence there moves every signal.
+I documenti di questo progetto sono in italiano, il codice e i nomi delle funzioni in inglese dove
+sono di dominio (`simulate_positions`, `swing_target`) e in italiano dove descrivono una decisione
+presa qui (`perche_non_entra`, `scala_fuori_misura`, `votanti_predefiniti`).

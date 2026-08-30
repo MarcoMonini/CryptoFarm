@@ -16,6 +16,8 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+from cryptofarm.ml import signals
+from cryptofarm.ml.signals import entry_model_disponibile
 from cryptofarm.trading import config, rotation
 
 PAGINA = "src/cryptofarm/trading/simulator.py"
@@ -115,3 +117,46 @@ def test_la_vista_di_rotazione_senza_store_avvisa_invece_di_rompersi(monkeypatch
     # senza che la toppa arrivi alla pagina.
     assert any("candle store is empty" in avviso.value for avviso in prova.warning), [w.value for w in prova.warning]
     assert not prova.metric
+
+
+def test_la_confluenza_offre_l_interruttore_delle_barre_in_formazione(pagina: AppTest) -> None:
+    """`CONF_IN_FORMAZIONE` decide se il cancello legge il prezzo di adesso o aspetta la chiusura
+    del piano lungo: e' l'ablazione che il banco misura, e la pagina deve poterla girare.
+
+    Finche' non aveva un widget non entrava nel dizionario della barra laterale, e
+    `panels.diagnosi_confluenza` cadeva con `KeyError` proprio quando serviva -- senza operazioni.
+    La chiave porta l'intervallo per la ragione di `test_cambiare_intervallo_ricarica_i_valori_di_partenza`.
+    """
+    menu = next(box for box in pagina.selectbox if box.label == "Strategy")
+    menu.set_value(config.CONFLUENCE_STRATEGY).run()
+
+    intervallo = next(box for box in pagina.selectbox if box.label == "Candle interval").value
+    interruttore = next(c for c in pagina.checkbox if c.label.startswith("React inside forming"))
+    assert interruttore.value is config.CONF_IN_FORMAZIONE
+    assert interruttore.key.endswith(f"_{intervallo}")
+
+
+@pytest.mark.skipif(
+    not all(entry_model_disponibile(n) for n in (signals.ENTRY_VELOCE, signals.ENTRY_LENTO)),
+    reason="servono entrambi gli artefatti d'ingresso, che il repository non traccia",
+)
+def test_la_strategia_ai_lascia_scegliere_fra_i_due_modelli(pagina: AppTest) -> None:
+    """I due artefatti sono due strategie, non due tarature: la pagina deve poterle separare.
+
+    In servizio lavorano insieme -- il veloce opera, il lento fa da cancello -- e messi insieme
+    non si vede in cosa differiscano. Il riquadro della previsione e' l'altra meta': mostra sullo
+    stesso asse cio' che il modello prevede e cio' che gli e' stato insegnato, e per farlo deve
+    aprirsi senza sollevare, che e' il livello da cui e' passato il guasto in produzione.
+    """
+    menu = next(box for box in pagina.selectbox if box.label == "Strategy")
+    menu.set_value(config.AI_STRATEGY).run()
+
+    scelta = next(r for r in pagina.radio if r.label == "Entry model")
+    assert list(scelta.options) == ["Fast (trades)", "Slow (gates)"]
+
+    next(c for c in pagina.checkbox if c.label.startswith("Show prediction")).set_value(True).run()
+    assert not pagina.exception
+
+    scelta = next(r for r in pagina.radio if r.label == "Entry model")
+    scelta.set_value("Slow (gates)").run()
+    assert not pagina.exception

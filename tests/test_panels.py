@@ -101,7 +101,15 @@ def test_ogni_strategia_riferisce_indicatori_e_parametri_esistenti(nome: str) ->
 
 @pytest.mark.parametrize("chiave", sorted(panels.INDICATORI))
 def test_le_serie_dichiarate_esistono_davvero_nel_frame(chiave: str, frame: pd.DataFrame) -> None:
-    """E' il controllo che intercetta un nome di colonna sbagliato, come la vecchia `EMA200`."""
+    """E' il controllo che intercetta un nome di colonna sbagliato, come la vecchia `EMA200`.
+
+    Le tracce marcate `condizionale` non si pretendono presenti, ma nemmeno si saltano: se la
+    serie c'e' vale tutto il resto. Senza quel campo questo test **cambiava esito con il
+    contenuto di `models/`** -- passava sulla macchina di chi ha addestrato e falliva in CI, che
+    e' la condizione della produzione. Il caso e' il votante a modello, che senza artefatto resta
+    fuori dal default della confluenza; che la sua traccia sia raggiungibile lo tiene fermo
+    `test_confluence.test_il_riquadro_dei_votanti_ha_una_traccia_per_votante`.
+    """
     indicatore = panels.INDICATORI[chiave]
     prodotte = indicatore.serie(frame, ExtraCache(frame), panels.valori_predefiniti())
     if indicatore.condizionale and not prodotte:
@@ -109,6 +117,8 @@ def test_le_serie_dichiarate_esistono_davvero_nel_frame(chiave: str, frame: pd.D
         # esiste solo dove c'e' una posizione), e su questo frame non ce ne sono.
         return
     for traccia in indicatore.tracce:
+        if traccia.condizionale and traccia.serie not in prodotte:
+            continue
         assert traccia.serie in prodotte, f"{chiave}: la traccia '{traccia.nome}' non ha la serie {traccia.serie}"
         assert prodotte[traccia.serie].notna().any(), f"{chiave}: la serie {traccia.serie} e' tutta vuota"
 
@@ -320,6 +330,54 @@ def test_il_numero_di_riquadri_segue_gli_oscillatori_usati(strategia: str, frame
     attesi = 1 + len(panels.pannelli_di(strategia))
     assi = {traccia.yaxis or "y" for traccia in figura.data}
     assert len(assi) == attesi, f"{strategia}: {len(assi)} riquadri invece di {attesi}"
+
+
+def test_l_etichetta_si_mostra_a_richiesta_e_non_entra_in_nessuna_strategia(
+    frame_laterale: pd.DataFrame,
+) -> None:
+    """Il riquadro dell'etichetta compare solo se lo si chiede, e su qualunque strategia.
+
+    Guarda avanti: se comparisse da solo accanto a un indicatore si leggerebbe come un segnale, e
+    sarebbe il piu' convincente del grafico -- e' la risposta, non una previsione.
+    """
+    from cryptofarm.trading.simulator import trading_analysis
+
+    candele = frame_laterale[["Open", "High", "Low", "Close", "Volume"]]
+
+    def tracce(valori: dict) -> set[str]:
+        figura, _, _ = trading_analysis(
+            asset="TEST",
+            interval="1h",
+            wallet=100.0,
+            valori=valori,
+            strategia="Trend Zones",
+            show=True,
+            market_data=candele,
+        )
+        return {traccia.name for traccia in figura.data}
+
+    nomi = {t.nome for t in panels.INDICATORI["etichetta_swing"].tracce}
+    assert not nomi & tracce({}), "l'etichetta compare senza che nessuno l'abbia chiesta"
+    assert nomi <= tracce({"MOSTRA_ETICHETTA": True}), "chiesta, l'etichetta non compare"
+    assert "etichetta_swing" not in {c for s in panels.STRATEGIE.values() for c in s.indicatori}
+
+
+def test_l_etichetta_va_da_estremo_a_estremo_e_lascia_vuota_la_coda(frame: pd.DataFrame) -> None:
+    """Il valore tocca gli estremi sui vertici e li interpola in mezzo, mai altrove."""
+    finestra = 24
+    valori = {**panels.valori_predefiniti(), "SWING_TARGET_WINDOW": finestra}
+    serie = panels.INDICATORI["etichetta_swing"].serie(frame, ExtraCache(frame), valori)
+    bersaglio, estremi = serie["swing_target"], serie["swing_pivot"]
+
+    # Dopo l'ultimo vertice confermato non c'e' etichetta: servirebbe il vertice successivo.
+    assert bersaglio.tail(finestra).isna().all()
+    # Il massimo e il minimo del target cadono su un vertice, non a meta' di una gamba.
+    assert not np.isnan(estremi.to_numpy()[int(np.nanargmax(bersaglio.to_numpy()))])
+    assert not np.isnan(estremi.to_numpy()[int(np.nanargmin(bersaglio.to_numpy()))])
+    # E quel vertice e' davvero un massimo locale del prezzo.
+    posizione = int(np.nanargmax(bersaglio.to_numpy()))
+    attorno = frame["Close"].to_numpy()[posizione - finestra : posizione + finestra + 1]
+    assert frame["Close"].to_numpy()[posizione] == attorno.max()
 
 
 def test_gli_overlay_non_usano_l_acquamarina() -> None:

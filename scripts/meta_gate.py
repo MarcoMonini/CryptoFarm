@@ -39,12 +39,13 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 
 from cryptofarm.data.klines import load_klines
+from cryptofarm.ml.bar_features import ASSET_COLUMNS, CROSS_COLUMNS, asset_features, cross_features
 from cryptofarm.ml.validation import PurgedKFold
 from cryptofarm.paths import PROJECT_ROOT
 from cryptofarm.trading import strategies_ls as ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.pnl import simulate_positions
-from scripts.cross_section import MAJORS, WIDE
+from cryptofarm.trading.rotation import MAJORS, WIDE
 
 SINCE = "2021-01-01"
 WALLET = 100.0
@@ -85,62 +86,11 @@ PRIMARY_PARAMS = {
 # ---------------------------------------------------------------------------------------------
 
 
-def features_frame(candles: pd.DataFrame, cache: ExtraCache) -> pd.DataFrame:
-    """Contesto dell'asset alla barra `t`, in unita' confrontabili fra BTC e DOGE.
-
-    Niente prezzi assoluti, niente ATR grezzo: un modello unico su quindici asset con feature
-    dimensionali impara l'identita' dell'asset, non il suo comportamento (`ml/features.py` dice la
-    stessa cosa, ed e' la ragione per cui questo modulo non riusa quelle feature -- servono qui gli
-    indicatori di `indicators_extra`, non quelli della pipeline vecchia).
-    """
-    close = candles["Close"].to_numpy(dtype=float)
-    high = candles["High"].to_numpy(dtype=float)
-    low = candles["Low"].to_numpy(dtype=float)
-    volume = candles["Volume"].to_numpy(dtype=float)
-
-    atr = cache.atr(14)
-    ema50, ema200 = cache.ema(50), cache.ema(200)
-    upper, lower = cache.donchian(20)
-    boll_up, boll_mid, boll_low = cache.bollinger(20, 2.0)
-
-    with np.errstate(divide="ignore", invalid="ignore"):
-        frame = pd.DataFrame(
-            {
-                # dove sta il prezzo rispetto alla struttura, misurato in ATR
-                "dist_ema50_atr": (close - ema50) / atr,
-                "dist_ema200_atr": (close - ema200) / atr,
-                "pos_canale": (close - lower) / (upper - lower),
-                "pos_bollinger": (close - boll_low) / (boll_up - boll_low),
-                # quanto e' volatile e quanto e' direzionale
-                "atr_rel": atr / close,
-                "adx": cache.adx(14),
-                "larghezza_bollinger": (boll_up - boll_low) / boll_mid,
-                # oscillatori e volume
-                "stochrsi": cache.stochrsi(14, 3),
-                "mfi": cache.mfi(14),
-                "obv_pendenza": cache.obv_slope(20),
-                "volume_rel": volume / pd.Series(volume).rolling(96).median().to_numpy(),
-                "escursione_rel": (high - low) / close,
-                # regime dell'asset: da quante barre sta sopra la media lunga
-                "sopra_ema200": (close > ema200).astype(float),
-            },
-            index=candles.index,
-        )
-    return frame.replace([np.inf, -np.inf], np.nan)
-
-
-def cross_features(closes: pd.DataFrame, lookback: int = 30) -> dict[str, pd.DataFrame]:
-    """Contesto **trasversale**: come sta questo asset rispetto agli altri, e come sta il mercato.
-
-    E' l'informazione che nessuna misura precedente del progetto ha mai dato a un modello, perche'
-    tutte guardavano un simbolo alla volta.
-    """
-    returns = closes / closes.shift(lookback) - 1.0
-    # Rango percentile fra 0 e 1 sulla riga: 1 = il piu' forte dell'universo quel giorno.
-    rank = returns.rank(axis=1, pct=True)
-    breadth = (closes > closes.rolling(50).mean()).mean(axis=1)
-    btc_rel = (closes.div(closes["BTCUSDT"], axis=0)).pipe(lambda f: f / f.shift(lookback) - 1.0)
-    return {"rango_forza": rank, "ampiezza_mercato": breadth, "forza_su_btc": btc_rel}
+# `features_frame` e `cross_features` **vivono nel pacchetto**, non qui: le usano anche
+# `ml/bar_features.py` e il modello nuovo, e due copie della stessa costruzione sono il modo in cui
+# addestramento e inferenza divergono senza dare segno. Qui restano i nomi con cui questo script e
+# `scripts/ai_voter.py` le hanno sempre chiamate.
+features_frame = asset_features
 
 
 # ---------------------------------------------------------------------------------------------
@@ -211,24 +161,9 @@ def build_samples(
     return samples.dropna(subset=["netto_%"])
 
 
-FEATURE_COLUMNS = [
-    "dist_ema50_atr",
-    "dist_ema200_atr",
-    "pos_canale",
-    "pos_bollinger",
-    "atr_rel",
-    "adx",
-    "larghezza_bollinger",
-    "stochrsi",
-    "mfi",
-    "obv_pendenza",
-    "volume_rel",
-    "escursione_rel",
-    "sopra_ema200",
-    "rango_forza",
-    "ampiezza_mercato",
-    "forza_su_btc",
-]
+# Le 16 di questo script: struttura dell'asset piu' contesto trasversale. Il modello nuovo ne usa
+# tre in piu' (posizionamento e timeframe) e per questo tiene il proprio elenco in `bar_features`.
+FEATURE_COLUMNS = [*ASSET_COLUMNS, *CROSS_COLUMNS]
 
 
 # ---------------------------------------------------------------------------------------------

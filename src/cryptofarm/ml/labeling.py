@@ -105,6 +105,13 @@ def triple_barrier_events(
     - `t_exit`     timestamp della candela di uscita
     - `exit_return` rendimento realizzato, lordo di commissioni
     - `tp_width` / `sl_width`  ampiezza effettiva delle barriere, in frazione del prezzo
+    - `ambiguous` le due barriere sono state toccate nella **stessa** candela
+
+    `ambiguous` esiste perche' la convenzione pessimistica non e' universale. Con barriere
+    asimmetriche e un consumatore solo lungo, assegnare SELL e' la scelta prudente. Con barriere
+    **simmetriche** e un modello che sceglie la direzione, quelle righe direbbero al modello
+    "scende" mentre il dato non dice niente: chi etichetta in modo simmetrico le toglie invece di
+    crederci, e senza questa colonna non puo' nemmeno sapere quante sono.
 
     `t_exit` non e' un dettaglio diagnostico: e' il dato senza cui il **purging** della
     cross-validation non e' calcolabile. Due osservazioni le cui vite si sovrappongono
@@ -122,6 +129,7 @@ def triple_barrier_events(
     labels = np.zeros(total, dtype=np.int8)
     exit_bar = np.arange(total, dtype=np.int64)
     exit_return = np.zeros(total, dtype=float)
+    ambiguous = np.zeros(total, dtype=bool)
 
     labelable = total - horizon
     if labelable <= 0:
@@ -133,6 +141,7 @@ def triple_barrier_events(
                 "exit_return": exit_return,
                 "tp_width": take_profit,
                 "sl_width": stop_loss,
+                "ambiguous": ambiguous,
             },
             index=df.index,
         )
@@ -174,6 +183,10 @@ def triple_barrier_events(
         bars[lost] = first_lower[lost] + 1
         returns[lost] = -stop_loss[start:stop][lost]
 
+        # Stessa candela per entrambe le barriere: l'OHLC non dice in che ordine il prezzo le ha
+        # toccate. La riga resta SELL per la convenzione pessimistica, ma viene segnalata.
+        ambiguous[start:stop] = (first_lower == first_upper) & (first_lower != never)
+
         labels[start:stop] = chunk
         exit_bar[start:stop] = np.arange(start, stop) + bars
         exit_return[start:stop] = returns
@@ -190,6 +203,7 @@ def triple_barrier_events(
             "exit_return": exit_return,
             "tp_width": take_profit,
             "sl_width": stop_loss,
+            "ambiguous": ambiguous,
         },
         index=df.index,
     )
@@ -275,3 +289,170 @@ def extrema_labels(
     labels.iloc[argrelextrema(df["Low"].values, np.less, order=order)[0]] = BUY
     labels = filter_labels_by_future_return(df, labels, min_return, return_horizon)
     return apply_label_cooldown(labels, cooldown)
+
+
+# --- Prossimita' agli estremi locali ------------------------------------------------------------
+
+
+def swing_target(close: pd.Series | np.ndarray, window: int, verso: str = "entrambi") -> pd.Series:
+    """Target continuo in [-1, 1]: +1 su un massimo locale, -1 su un minimo, ~0 dove non c'e'.
+
+    E' il **rango centrato** della chiusura dentro la finestra di `window` barre per lato,
+    riscalato. Chiede al modello una domanda diversa dalla barriera tripla: quella chiede «di
+    quanto si muove il prezzo», che e' una proprieta' della volatilita'; questa chiede «dove sta
+    questa barra rispetto alle sue vicine», che e' la forma.
+
+    La proprieta' che la rende adatta e' il comportamento **dentro una tendenza**: in una salita
+    regolare la barra centrale ha meta' finestra sopra e meta' sotto per costruzione, quindi il
+    target vale circa 0 e non +1. Satura solo dove la salita si esaurisce. Un massimo dei prezzi
+    futuri, o una distanza da quel massimo, non hanno questa proprieta' e marcherebbero come
+    «vicino al massimo» tutta la salita, che e' l'errore che rende quelle etichette inservibili.
+
+    **Guarda `window` barre nel futuro, per costruzione**, e da qui tre vincoli per chi la usa:
+    le ultime `window` barre non sono etichettabili (escono NaN da sole), il taglio fra stima e
+    verifica vuole un embargo di `window` barre, e se il target rientra fra le feature va ritardato
+    di **almeno `window` + 1** barre -- ritardarlo di una sola inserisce look-ahead quasi puro.
+
+    `verso` serve a separare le due meta', ed e' la cosa piu' importante di questa funzione.
+    Il rango centrato usa anche le `window` barre **passate**, che le feature gia' descrivono:
+    misurato, uno Stochastic senza modello ne spiega IC 0,70, cioe' il 93%. Valutare un modello
+    contro il target pieno misura quindi soprattutto la sua capacita' di rifare uno Stochastic --
+    e infatti il modello ne prende 0,67, meno dell'indicatore. Il metro va preso contro
+    `verso="avanti"`, dove sia lo Stochastic sia il modello stanno attorno a 0,05.
+
+    Il rango si ricava da due rolling causali invece che da una finestra centrata: quello
+    all'indietro da' la posizione fra le `window` barre precedenti, quello sulla serie rovesciata
+    fra le successive, e la somma meno uno e' il rango centrato esatto. Costa O(n log window)
+    invece di materializzare n x (2 window + 1) valori, che a 5m su quindici simboli non ci sta.
+    """
+    if window < 1:
+        raise ValueError("window deve essere >= 1")
+    serie = pd.Series(close).astype(float)
+    dietro = serie.rolling(window + 1).rank().to_numpy()
+    avanti = serie[::-1].rolling(window + 1).rank().to_numpy()[::-1]
+    if verso == "dietro":  # la meta' gia' nota: e' uno Stochastic, serve come riferimento
+        return pd.Series((dietro - 1.0) / window * 2.0 - 1.0, index=serie.index, name="Target")
+    if verso == "avanti":  # la meta' non conoscibile: e' l'unico metro onesto
+        return pd.Series((avanti - 1.0) / window * 2.0 - 1.0, index=serie.index, name="Target")
+    if verso != "entrambi":
+        raise ValueError(f"verso sconosciuto: {verso!r}")
+    rango = dietro + avanti - 1.0  # rango centrato esatto, in [1, 2*window + 1]
+    return pd.Series((rango - 1.0) / window - 1.0, index=serie.index, name="Target")
+
+
+# --- Le gambe fra un estremo e il successivo ----------------------------------------------------
+#
+# `swing_target` chiede «dove sta questa barra fra le sue vicine», ed e' un rango: misurato su BTC
+# a 5m con la finestra dell'addestramento, `|target| > 0,9` cade in 6.501 episodi da tre barre --
+# nove «estremi» al giorno da un quarto d'ora l'uno. Sono microstruttura, non le cime e i fondi
+# delle gambe, e la meta' passata del rango e' uno Stochastic, cioe' una funzione del prezzo
+# recente che il target insegue invece di anticipare.
+#
+# Qui la domanda cambia: **fra quale coppia di estremi ci troviamo, e a che punto della gamba**.
+# Gli estremi si cercano una volta sola con una finestra larga, si alternano per costruzione, e il
+# target scorre da -1 a +1 fra un minimo e il massimo successivo, e viceversa. Due cose che il
+# rango non ha:
+#
+# - **il tempo entra**. Meta' del percorso e' il prezzo, meta' sono le barre trascorse dall'estremo
+#   precedente. Un prezzo fermo a meta' gamba non resta fermo a meta' scala: si avvicina all'estremo
+#   che sta per arrivare. E' cio' che rende l'etichetta un'anticipazione e non un inseguimento;
+# - **l'ampiezza conta**. Il valore agli estremi non e' +-1 per tutti: e' +-tanh(prominenza /
+#   riferimento), dove la prominenza e' la piu' piccola delle due gambe adiacenti -- un estremo e'
+#   tale solo se il prezzo ci arriva e poi se ne va -- e il riferimento e' quanto si muoverebbe in
+#   `window` barre una passeggiata casuale con la volatilita' locale. Un'oscillazione dentro il
+#   rumore vale 0,3, una gamba vera satura. Senza questa scala i quindici simboli e i loro anni
+#   non sono confrontabili: la stessa gamba del 5% e' enorme su una stablecoin e rumore su una
+#   altcoin nel 2021.
+
+
+def swing_pivots(close: pd.Series | np.ndarray, window: int = 50) -> tuple[np.ndarray, np.ndarray]:
+    """Gli estremi locali, **alternati**: posizioni e verso (+1 massimo, -1 minimo).
+
+    `argrelextrema` da' massimi e minimi separatamente, e nulla garantisce che si alternino: due
+    massimi di fila senza un minimo in mezzo sono comuni appena la finestra e' larga. Qui si
+    fondono in una sequenza sola e, quando due estremi dello stesso verso si susseguono, resta il
+    piu' estremo dei due -- l'altro non e' il vertice di nessuna gamba.
+    """
+    if window < 1:
+        raise ValueError("window deve essere >= 1")
+    prezzi = pd.Series(close).astype(float).to_numpy()
+    candidati = sorted(
+        [(int(i), 1) for i in argrelextrema(prezzi, np.greater, order=window)[0]]
+        + [(int(i), -1) for i in argrelextrema(prezzi, np.less, order=window)[0]]
+    )
+    # Ai bordi `argrelextrema` confronta con indici ritagliati (`mode="clip"`), cioe' con la barra
+    # stessa ripetuta: dichiara estremi che il futuro non ha ancora confermato. Le ultime `window`
+    # barre non sono etichettabili per costruzione, e queste sarebbero l'unico punto in cui
+    # l'etichetta sa qualcosa che il tempo non ha ancora detto.
+    candidati = [(i, verso) for i, verso in candidati if window <= i < len(prezzi) - window]
+    indici: list[int] = []
+    versi: list[int] = []
+    for posizione, verso in candidati:
+        if versi and versi[-1] == verso:
+            if (prezzi[posizione] - prezzi[indici[-1]]) * verso > 0:
+                indici[-1] = posizione
+            continue
+        indici.append(posizione)
+        versi.append(verso)
+    return np.array(indici, dtype=int), np.array(versi, dtype=int)
+
+
+def swing_leg_target(
+    close: pd.Series | np.ndarray,
+    window: int = 50,
+    peso_tempo: float = 0.5,
+    saturazione: float = 1.0,
+) -> pd.Series:
+    """Target continuo in [-1, 1] che scorre fra un estremo locale e il successivo.
+
+    Vale `-forza` su un minimo, `+forza` sul massimo che segue, e in mezzo interpola: meta' su
+    quanto prezzo manca all'estremo che arriva, meta' su quante barre. `forza` sta in (0, 1) e
+    dice quanto l'estremo e' pronunciato rispetto al rumore di quel tratto, cosi' una gamba vera
+    satura e un'oscillazione dentro la volatilita' locale no.
+
+    `peso_tempo` a 1 ignora il prezzo (rampa lineare fra gli estremi), a 0 ignora il tempo. A 0,5,
+    il valore di partenza, un prezzo che ritraccia a meta' gamba ma consuma tre quarti delle barre
+    sta gia' oltre meta' scala: e' li' che l'etichetta smette di inseguire il prezzo.
+
+    `saturazione` moltiplica il riferimento su cui si misura la prominenza: alzarla chiede gambe
+    piu' grandi per lo stesso valore.
+
+    **Guarda avanti fino all'estremo successivo**, che e' un orizzonte variabile e non limitato da
+    `window`: le barre dopo l'ultimo estremo confermato escono NaN, e sono almeno `window`. Per lo
+    stesso motivo il taglio fra stima e verifica vuole un embargo di almeno una gamba tipica, non
+    di `window` barre.
+    """
+    serie = pd.Series(close).astype(float)
+    fuori = pd.Series(np.nan, index=serie.index, name="Target")
+    indici, versi = swing_pivots(serie, window)
+    if len(indici) < 2:
+        return fuori
+
+    log_prezzi = np.log(serie.to_numpy())
+    # Il riferimento e' quanto si muove in `window` barre una passeggiata casuale con la
+    # volatilita' locale, sigma * sqrt(window): e' causale (la finestra finisce sull'estremo) e
+    # rende la prominenza un numero senza unita', confrontabile fra simboli e fra anni.
+    sigma = pd.Series(log_prezzi).diff().rolling(window, min_periods=window // 2).std().to_numpy()
+    riferimento = np.maximum(sigma[indici] * np.sqrt(window) * saturazione, 1e-9)
+
+    gambe = np.abs(np.diff(log_prezzi[indici]))
+    # La prominenza di un estremo e' la piu' piccola delle due gambe che lo toccano: un vertice
+    # raggiunto da una salita enorme e lasciato da una discesa minima non e' un vertice, e' una
+    # sosta. Ai due estremi della serie c'e' una gamba sola, e vale quella.
+    prominenza = np.minimum(np.append(gambe, gambe[-1]), np.insert(gambe, 0, gambe[0]))
+    valori = versi * np.tanh(prominenza / riferimento)
+
+    risultato = np.full(len(serie), np.nan)
+    for k in range(len(indici) - 1):
+        a, b = indici[k], indici[k + 1]
+        passo = b - a
+        avanzamento_tempo = np.arange(passo + 1) / passo
+        salto = log_prezzi[b] - log_prezzi[a]
+        if salto == 0:
+            avanzamento = avanzamento_tempo
+        else:
+            avanzamento_prezzo = np.clip((log_prezzi[a : b + 1] - log_prezzi[a]) / salto, 0.0, 1.0)
+            avanzamento = peso_tempo * avanzamento_tempo + (1.0 - peso_tempo) * avanzamento_prezzo
+        risultato[a : b + 1] = valori[k] + avanzamento * (valori[k + 1] - valori[k])
+    fuori.iloc[:] = risultato
+    return fuori

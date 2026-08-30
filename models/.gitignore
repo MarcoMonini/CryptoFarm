@@ -1,5 +1,6 @@
 # Gli artefatti addestrati non si tracciano: si rigenerano con i trainer
-# (`cryptofarm.ml.trainer`, `meta_trainer`, `policy_trainer`) e pesano decine di MB.
+# (`cryptofarm.ml.trainer`, `meta_trainer`, `entry_trainer`, `rl_trainer`, `swing_trainer`)
+# e pesano decine di MB.
 *.keras
 *.joblib
 *.json
