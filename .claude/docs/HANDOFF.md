@@ -14,7 +14,6 @@ sotto.
 | `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render |
 | `.claude/docs/backtest-strategie.md` | **le strategie del simulatore misurate su nove anni.** 3.129 configurazioni, sensibilita' ai parametri, tenuta fuori campione, quattro difetti del codice trovati misurando (§8, ora corretti) |
 | `.claude/docs/strategie-nuove.md` | **lo stato piu' recente del filone trading.** Le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
-| `.claude/docs/sessione-2026-08-27.md` | **chiusura dell'ultima sessione**: le due decisioni prese con l'utente, le trappole d'ambiente scoperte misurando, i due test che passavano a vuoto e come sono stati corretti, e cosa farei dopo in ordine |
 | `.claude/docs/strategia-confluenza.md` | **il filone piu' recente (2026-08-27): la strategia multi-timeframe a piu' segnali.** Disegno, sei votanti, memoria del segnale, soglia decisa dai piani alti, paniere a capitale condiviso, e le tre cose che scrivendola si sono rivelate diverse dal disegno. **Il codice c'e' e gira; la misura su dati veri no** |
 | `.claude/docs/ricerca-quant-ml.md` | **il documento piu' recente (2026-08-26), e quello da leggere per primo sui risultati.** Stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
 | `.claude/docs/modello-swing.md` | **il documento piu' recente (2026-08-28), e quello da leggere per primo sul filone modello.** L'audit di `leg_model`, l'etichettatura nuova a prossimita' degli estremi, le tre decisioni di disegno prese misurando, e le tre misure per cui il modello non e' cablato |
@@ -99,9 +98,15 @@ come **votante** dentro Confluence, dove non deve battere il possesso passivo da
 ## Stato del lavoro corrente: il filone trading
 
 Tre sessioni consecutive. **La terza (2026-08-26/27) e' quella piu' recente e in parte corregge le
-prime due**: sta in [`sessione-2026-08-27.md`](sessione-2026-08-27.md) per lo stato operativo e in
-[`ricerca-quant-ml.md`](ricerca-quant-ml.md) per le misure. Le due sezioni qui sotto restano perche'
-descrivono come ci si e' arrivati, non perche' siano l'ultima parola.
+prime due**; le sue misure stanno in [`ricerca-quant-ml.md`](ricerca-quant-ml.md). Le due sezioni
+qui sotto restano perche' descrivono come ci si e' arrivati, non perche' siano l'ultima parola.
+
+Due scelte di quella sessione sono state prese **con l'utente** in `AskUserQuestion`, con risposta
+esplicita, e non vanno riaperte senza chiedere: potare il menu con un «taglio medio» (sette voci
+fuori, i tre casi limite dentro -- vedi `CLAUDE.md`, «Funzioni di `strategies.py` che il menu non
+raggiunge»), e aggiungere la rotazione trasversale **come vista della pagina**, non come solo
+script. Resta offerta e non decisa una cosa sola: se togliere del tutto l'universo largo a 15
+asset dalla vista di rotazione, dove oggi serve da controllo di cio' che peggiora.
 
 ### Sessione 1 — misurare le strategie esistenti (`d82b3db`, `8f4ccd8`)
 

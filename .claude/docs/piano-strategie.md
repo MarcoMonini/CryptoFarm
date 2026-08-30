@@ -2,7 +2,7 @@
 
 Deciso il **2026-08-27** con l'utente, in `AskUserQuestion`, sul branch
 `claude/ricerca-quant-ml-cinque-asset`. Sostituisce la lista "cosa farei dopo" di
-[`sessione-2026-08-27.md`](sessione-2026-08-27.md), che resta come contesto.
+[`HANDOFF.md`](HANDOFF.md), che resta come contesto.
 
 ## Da dove nasce
 

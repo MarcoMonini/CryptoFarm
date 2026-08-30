@@ -3,33 +3,36 @@
 Tutto ciò che serve per riprendere il lavoro sta qui. `CLAUDE.md` nella radice resta dov'è perché
 Claude Code lo carica automaticamente da lì, e rimanda a questa cartella.
 
+## Ordine di lettura
+
+Chi riprende da zero legge **`HANDOFF.md`** e basta: è lo stato corrente, e gli altri documenti li
+referenzia. Chi deve toccare un pezzo preciso salta al documento di quel pezzo.
+
+Chi vuole capire *dove è arrivato il progetto*, in ordine cronologico di risultato:
+`backtest-strategie.md` → `strategie-nuove.md` → `ricerca-quant-ml.md` → `strategia-confluenza.md`
+→ `politica-rl.md` → `modello-swing.md` → **`modello-ingresso.md`**, che è l'unico con numeri che
+passano il controllo a esposizione appaiata.
+
+## I documenti
+
 | documento | quando serve |
 |---|---|
-| [`strategy.md`](strategy.md) | **fonte di verità delle decisioni.** Analisi, misure, piano a fasi con gate, risultati ottenuti. Ha una tabella di revisione in testa che elenca cosa è stato corretto e perché. È il documento da leggere per primo e da aggiornare quando si decide qualcosa. |
-| [`HANDOFF.md`](HANDOFF.md) | ripartire da zero in una sessione nuova: stato dei due filoni (trading e ML) con i risultati piu' recenti, cosa resta aperto, trappole ambientali e di misura, regole di ingaggio. Non duplica gli altri documenti, li referenzia. **Da aggiornare a fine sessione.** |
-| [`backtest-strategie.md`](backtest-strategie.md) | **le strategie a indicatori, misurate.** 3.129 configurazioni su nove anni di BTC: cosa rende, quanto dipende dai parametri, cosa resta fuori campione, e i difetti del codice trovati misurando. Le tabelle complete stanno in `reports/`, gli script che le producono in `scripts/strategy_sweep.py`, `scripts/sweep_report.py`, `scripts/strategy_focus.py`. |
-| [`strategie-nuove.md`](strategie-nuove.md) | **seguito operativo del backtest.** Le quattro correzioni al codice e cosa hanno cambiato, la scelta del ciclo 2021-2026 come dataset, cinque strategie nuove (Donchian+ADX, squeeze Bollinger/Keltner, rientro StochRSI, Ichimoku, ritorno alla media con filtro ADX) e il motore a due versi con lo short. Tabelle `lab_*` in `reports/`. |
-| [`ricerca-quant-ml.md`](ricerca-quant-ml.md) | **lo stato dell'arte letto nei repository, e i due filoni misurati su cinque asset.** Chiude i punti aperti di `strategie-nuove.md` (SOL e BNB, lo stop a trailing), corregge due sue conclusioni che non generalizzano, e apre due famiglie nuove: rotazione trasversale (`scripts/cross_section.py`) e filtro meta sopra una primaria vera (`scripts/meta_gate.py`). Tabelle `cs_*` e `meta_*` in `reports/`. |
-| [`piano-strategie.md`](piano-strategie.md) | **il piano in corso (2026-08-27).** Cinque passi decisi con l'utente per migliorare le strategie e farne di nuove: molteplicita' (DSR/PBO sulle griglie gia' misurate), ensemble di griglia, volatility targeting, momentum residuo, e il ciclo 2017-2020 come verifica finale. Ogni passo ha il suo criterio di successo dichiarato **prima** della misura. Chiude anche cosa il piano non fa e perche'. |
-| [`strategia-confluenza.md`](strategia-confluenza.md) | **il disegno della strategia multi-timeframe a piu' segnali** (2026-08-27, ipotesi non ancora misurata). Quattro piani con domande disgiunte (1D regime, 4H struttura, 1H conferma, 15m innesco), sei votanti scelti per famiglia, soglia decisa dai piani alti invece che tarata, conteggio dei parametri liberi, e i tre modi dichiarati in cui puo' fallire. **Il codice c'e' tutto e gira** -- `trading/{mtf,live_frames,voters,confluence,portfolio}.py`, la voce «Confluence» nel simulatore, il banco `scripts/confluence_lab.py` -- **la misura su dati veri no.** Il documento registra anche le tre cose che scrivendolo si sono rivelate diverse dal disegno, fra cui un parametro che sembrava un meccanismo ed era algebricamente un non-fare. |
-| [`politica-rl.md`](politica-rl.md) | **la politica a rinforzo, cablata** (2026-08-28). Parte da una premessa dell'utente -- «il modello compra poco prima dei crolli» -- e la misura falsa: gli ingressi hanno lo stesso drawdown a tre giorni di una barra qualunque, e ogni livello di stop peggiora il netto. La causa e' la commissione (lordo +401%, netto -201%, 3.009 giri). Da li' la forma dell'agente: `r = a·log(P'/P) - costo·|a-p|`, con la posizione nello stato e il possesso passivo dentro la classe di politiche. Fitted Q-iteration in `ml/rl.py`, banco a blocchi rimescolati in `scripts/rl_lab.py`. Batte il possesso passivo 11/15 fuori campione e dimezza la discesa massima; il *quando* sta sopra il caso (rango 0,588 e 0,602) senza raggiungere la significativita'. |
-| [`modello-swing.md`](modello-swing.md) | **il modello AI, rifatto e misurato** (2026-08-28). L'audit in contesto fresco che ha tolto `leg_model` dalla catena (soglie tarate sul campione di verifica, controllo casuale senza potenza, netto negativo a tutte le soglie); l'etichettatura nuova `labeling.swing_target` e la ragione per cui il 93% di quel target e' gratis; le tre decisioni di disegno prese misurando (niente storico esplicito, niente Target fra le feature, aggregazione a 1h e 1d); e le tre misure di `scripts/swing_lab.py` che spiegano perche' il modello **non e' cablato**: il segnale ha forma a U, nessuna soglia trasferisce fra validazione e verifica, e contro il caso a esposizione appaiata vince 1 simbolo su 15. |
-| [`modello-ingresso.md`](modello-ingresso.md) | **il modello in testa oggi, cablato** (2026-08-29). Nasce da una contestazione dell'utente alla misura precedente, verificata e in parte confermata: il tetto c'era (+0,765% sui minimi veri), il modello ne prendeva un terzo. La correzione non e' piu' precisione ma un'altra domanda -- non «e' un minimo» ma «quanto rende comprare qui» -- e le due puntano in direzioni diverse (a pari selezione l'etichetta a gambe individua meglio i minimi e rende 2,4 volte meno). La leva e' la **selettivita'**, non l'accuratezza. Sono i primi numeri di questo progetto che passano il controllo a esposizione appaiata: +2,071% netti per operazione fuori campione, 14/15 simboli in utile, 100° percentile. Il veloce opera, il lento gli fa da cancello; `scripts/entry_lab.py` rifa' la tabella. |
-| [`MAPPA-modello-ai.md`](MAPPA-modello-ai.md) | la mappa delle capacita' del lavoro sul modello AI e le decisioni prese con l'utente: quali dati di posizionamento entrano, quali scale, una testa sola. I criteri di successo sono scritti **prima** delle misure. |
-| [`sessione-2026-08-27.md`](sessione-2026-08-27.md) | **chiusura dell'ultima sessione.** Le due decisioni prese con l'utente, le trappole d'ambiente scoperte misurando (fra cui: `analysis_cache/` e' gitignorata ed e' l'input di `tune_defaults`), i due test che passavano a vuoto, e cosa fare dopo in ordine. Ha una sezione "Suggested skills". |
-| [`sessione-2026-08-21.md`](sessione-2026-08-21.md) | chiusura di una singola sessione: cosa era aperto al momento di staccare e cosa va confermato con l'utente prima di riprendere. Ne nasce uno per sessione, datato; non sostituisce `HANDOFF.md`, che resta il documento sempre valido. |
-| `RESUME.md` (cartella sopra) | generato da Claude Code, non modificarlo a mano |
+| [`HANDOFF.md`](HANDOFF.md) | **da leggere per primo.** Stato dei due filoni con i risultati più recenti, cosa resta aperto, trappole ambientali e di misura, regole di ingaggio. Non duplica gli altri, li referenzia. **Da aggiornare a fine sessione.** |
+| [`strategy.md`](strategy.md) | **fonte di verità delle decisioni** su labeling, feature, modello e validazione, con le misure che le giustificano. Ha una tabella di revisione in testa. Da aggiornare in luogo quando si decide qualcosa. |
+| [`backtest-strategie.md`](backtest-strategie.md) | **le strategie a indicatori, misurate.** 3.129 configurazioni su nove anni di BTC: cosa rende, quanto dipende dai parametri, cosa resta fuori campione, e i difetti del codice trovati misurando. Le tabelle stanno in `reports/`, gli script che le producono in `scripts/{strategy_sweep,sweep_report,strategy_focus}.py`. |
+| [`strategie-nuove.md`](strategie-nuove.md) | **seguito operativo del backtest.** Le quattro correzioni al codice e cosa hanno cambiato, il ciclo 2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto (`trading/strategies_ls.py`, `pnl.simulate_positions`). |
+| [`ricerca-quant-ml.md`](ricerca-quant-ml.md) | le misure su cinque asset: rotazione trasversale (`scripts/cross_section.py`) e filtro meta (`scripts/meta_gate.py`), più §2, che è la ragione per cui sette voci sono uscite dal menu. |
+| [`piano-strategie.md`](piano-strategie.md) | il piano deciso con l'utente il 2026-08-27: cosa il piano **non** fa, e perché. Il controllo di molteplicità (DSR/PBO) sta qui. |
+| [`strategia-confluenza.md`](strategia-confluenza.md) | **la strategia multi-timeframe a più segnali, misurata.** Quattro piani con domande disgiunte, sei votanti scelti per famiglia, soglia decisa dai piani alti. Su 15 asset e sette anni **non batte il possesso passivo**: niente look-ahead, votanti non correlati, ma il gradiente di ogni parametro punta al non-operare. Le conclusioni stanno in fondo. |
+| [`politica-rl.md`](politica-rl.md) | **la politica a rinforzo, cablata** (2026-08-28). Parte da una premessa dell'utente — «compra poco prima dei crolli» — e la misura falsa: gli ingressi hanno lo stesso drawdown di una barra qualunque, e ogni livello di stop peggiora il netto. La causa è la commissione. Da lì la forma dell'agente, con il costo dentro la ricompensa. Batte il possesso passivo 11/15 fuori campione e **dimezza la discesa massima**; il *quando* sta sopra il caso solo debolmente. |
+| [`modello-swing.md`](modello-swing.md) | **il modello AI rifatto e misurato** (2026-08-28). L'audit che ha chiuso il modello a gambe (§1), l'etichetta nuova `labeling.swing_target` e perché il 93% di quel target è gratis, e le misure per cui il segnale esiste ma **non batte il caso a esposizione appaiata** (1 simbolo su 15). §5.4: cosa è stato cablato e cosa deliberatamente no. |
+| [`modello-ingresso.md`](modello-ingresso.md) | **il modello in testa oggi, cablato** (2026-08-29). Cambia la domanda: non «quanto siamo vicini a un estremo» ma «quanto rende comprare qui». La leva è la **selettività**, non l'accuratezza. Sono i primi numeri del progetto che passano il controllo a esposizione appaiata: +2,071% netti per operazione fuori campione, 14/15 simboli in utile, 100° percentile. Il veloce opera, il lento gli fa da cancello. |
+| [`MAPPA-modello-ai.md`](MAPPA-modello-ai.md) | i criteri di successo del lavoro sul modello AI, **dichiarati prima delle misure**. Sta qui apposta: serve a verificare che il bersaglio non sia stato spostato dopo. |
 
-## Ordine di lettura consigliato
+## Regole
 
-1. `CLAUDE.md` nella radice — architettura del repo e comandi
-2. `HANDOFF.md` — dove siamo e cosa non è ovvio
-3. `piano-strategie.md` — dove stiamo andando, e cosa si è deciso di non fare
-4. `strategy.md` — perché le scelte sono quelle
-5. `git log main..HEAD` — i messaggi di commit spiegano ogni decisione e i bug trovati
-
-## Regola di manutenzione
-
-`strategy.md` va **aggiornato in luogo**, non riscritto: la tabella di revisione in testa serve a
-rendere visibile cosa è cambiato e perché. Le decisioni prese in una sessione e non scritte lì
-vanno perse alla successiva.
+- ciò che si decide va scritto **nel documento del pezzo**, non solo nel messaggio di commit;
+- `git log` resta la fonte più densa sul *perché* di ogni scelta: i messaggi sono lunghi apposta;
+- le misure vanno con i numeri e con il comando che le rifà, altrimenti non sono verificabili;
+- un risultato negativo si scrive come si scrive uno positivo. Metà di questi documenti chiude
+  una strada, ed è quello che impedisce di riaprirla per la terza volta.
