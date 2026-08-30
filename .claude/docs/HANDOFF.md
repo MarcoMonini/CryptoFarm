@@ -46,9 +46,23 @@ e delle loro funzioni pubbliche — ricavato leggendo l'albero sintattico, non a
 `cs_*` e `meta_*`; il `README.md` di radice dichiarava `policy_model` come modello attivo.
 `.claude/docs/INDEX.md` e' diventato `README.md`.
 
-**Cosa e' rimasto fuori, deliberatamente**: i dati locali non recuperabili da git
-(`market_data/rl_stati.pkl` 3,5 GB di cache, `tuner_logs/` 307 MB, i tre virtualenv obsoleti, gli
-artefatti in `models/` delle famiglie chiuse). Sono elencati per l'utente, non cancellati.
+**I dati locali, cancellati su approvazione**: 4,7 GB, da 9,3 a 4,6. Sono usciti
+`market_data/rl_stati.pkl` (3,5 GB di cache chiavata sulla firma dell'artefatto, la rifa'
+`scripts/rl_lab.py`), `swing_previsioni.pkl`, `tuner_logs/` (keras-tuner non e' piu' una
+dipendenza), `.venv` e `.venv3.13`, gli artefatti in `models/` delle due famiglie chiuse e i tre
+`.keras` dell'era precedente, `.claude/RESUME.md` e le cache di pytest/ruff.
+
+**Quattro cose che sembravano cancellabili e non lo erano**, ognuna trovata verificando invece che
+fidandosi della dimensione:
+
+| | perche' resta |
+|---|---|
+| `.venv3.12` (1,9 GB) | e' l'interprete del progetto in PyCharm (`Python 3.12 (CryptoFarm)`), non `.venv312`. Cancellarlo rompe l'IDE in silenzio |
+| `analysis_cache/` (31 MB) | non e' solo uscita: `scripts/multiplicity.py --cache` **legge** `analysis_cache/*/*_annuale.parquet` come ingresso |
+| `.claude/.headroom_*` | stato di un processo vivo (PID 69612), non residui |
+| `.serena/` | configurazione di progetto di uno strumento in uso |
+
+`models/.gitignore` nominava ancora `policy_trainer` fra i modi di rigenerare gli artefatti.
 
 ---
 

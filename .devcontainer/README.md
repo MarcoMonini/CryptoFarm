@@ -14,4 +14,4 @@ relative alla radice del repository, mentre nell'immagine sta in `site-packages`
 
 Due conseguenze da conoscere: il container parte **senza store delle candele e senza modelli**,
 quindi la pagina si apre in modalità degradata (strategie classiche sì, «AI Model» e rotazione no);
-e Python è 3.12, come in CI, non il 3.9 del `.venv` preesistente in locale.
+e Python è 3.12, come in CI e come `.venv312`.

@@ -40,8 +40,10 @@ esplicitamente diverse strade che sembrano ragionevoli a prima vista.
 
 ## Ambiente
 
-Usare **`.venv312/bin/python`**. Il `.venv` preesistente è Python 3.9 senza `scikit-learn`,
-mentre il progetto richiede Python >= 3.12.
+Usare **`.venv312/bin/python`**: è l'unico ambiente completo, e il progetto richiede Python
+>= 3.12. In locale ne resta un secondo, `.venv3.12`, che è l'interprete registrato in PyCharm
+(«Python 3.12 (CryptoFarm)») e per questo non è stato cancellato con gli altri il 2026-08-30 —
+ma è fermo a luglio 2025. Chi lavora dall'IDE lo aggiorni o lo ripunti a `.venv312`.
 
 L'installazione è divisa in extra: `pip install -e ".[app,data,dev]"` è il caso normale. Il nucleo
 (`pip install -e .`) basta a feature, etichette, modelli `gbdt` e bot live; `[app]` aggiunge
