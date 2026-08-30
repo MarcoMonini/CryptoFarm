@@ -1186,9 +1186,16 @@ impara da un evento irripetibile.
 
 ## 11. La politica a tre azioni: costruzione e punti di lavoro
 
-Implementata in `ml/policy.py` (stato e mascheramento), `ml/dagger.py` (rollout iterativo) e
-`ml/policy_trainer.py` (dataset, addestramento, CPCV economico). `ml/trainer.py` resta quello della
-strategia precedente e non va toccato finche' il simulatore lo carica.
+> **Il codice di questa sezione non c'e' piu' (cancellato il 2026-08-30).** La famiglia e' chiusa
+> in negativo dai §12-13, con la causa misurata in §13.1, e i tre moduli che la implementavano
+> (`ml/policy.py`, `ml/dagger.py`, `ml/policy_trainer.py`) sono stati tolti insieme al ramo di
+> dispatch che li serviva: un artefatto `policy_model.joblib` rimasto su disco non riporta piu' la
+> pagina su questo disegno, e un test lo verifica. **La misura resta valida e per questo la
+> sezione resta scritta** — e' cio' che impedisce di rifare la stessa cosa una terza volta.
+> `git log --diff-filter=D --name-only` ritrova il codice, se mai servisse rileggerlo.
+
+Era implementata in `ml/policy.py` (stato e mascheramento), `ml/dagger.py` (rollout iterativo) e
+`ml/policy_trainer.py` (dataset, addestramento, CPCV economico).
 
 ### 11.1 Perche' lo stato entra nel modello
 
@@ -1506,8 +1513,9 @@ in cache in `analysis_cache/` (gitignorata, rigenerabile):
 Il flag di ogni misura e' il suo nome in `MEASURES` con i trattini bassi sostituiti da trattini:
 `barrier_capacity` diventa `--barrier-capacity`. `python -m scripts.analysis --help` li elenca.
 
-La pagina Streamlit che le visualizzava (`app/analysis_dashboard.py`) e' stata spostata in
-`backup/unused/` nel 2026-08 insieme al resto di `app/`: le stesse misure escono da riga di comando.
+La pagina Streamlit che le visualizzava (`app/analysis_dashboard.py`) e' stata tolta da `src/` nel
+2026-08 insieme al resto di `app/`, e cancellata il 2026-08-30: le stesse misure escono da riga di
+comando.
 
 | misura | funzione in `scripts/analysis.py` | sezione |
 |---|---|---|

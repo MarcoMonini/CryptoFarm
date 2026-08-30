@@ -56,8 +56,10 @@ Streamlit e Plotly (solo `trading/simulator.py` e i moduli che decora con `st.ca
 
 CryptoFarm trains a signal model on Binance market data and backtests trading strategies against it.
 There are two things that matter — **`trading/simulator.py`** (research) and **`ml/trainer.py`**
-(training) — plus their dependencies, plus one live bot. Anything not reachable from those was moved
-to `backup/unused/` in 2026-08; see `backup/unused/README.md` for what and why.
+(training) — plus their dependencies, plus one live bot. Ciò che non era raggiungibile da lì è
+stato **cancellato** (2026-08-30): git è l'archivio, e una cartella di codice morto che nessun test
+esegue costa più di quanto valga. Ogni cartella ha un `README.md` che elenca i suoi file e le loro
+funzioni; questo documento tiene solo ciò che vale per tutto il progetto.
 
 ```
 src/cryptofarm/
@@ -73,7 +75,6 @@ src/cryptofarm/
     ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
     │                     e `simulate_positions` (long/short, con leva e costo di mantenimento)
     ├── mtf.py            allineamento fra intervalli: legge la barra lunga **chiusa**, mai quella corrente
-    ├── live_frames.py    le barre lunghe *in formazione*, in forma chiusa — **oggi non lo importa nessuno**
     ├── voters.py         da cambi di posizione a voto per barra, con memoria e decadimento
     ├── confluence.py     la strategia a confluenza: sei votanti su quattro piani, soglia dinamica
     ├── portfolio.py      un capitale solo su più asset: si apre sul primo che parla
@@ -95,7 +96,6 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m cryptofarm.ml.trainer               # default: gbdt
 .venv312/bin/python -m cryptofarm.ml.trainer --model gru   # modello sequenziale
 .venv312/bin/python -m cryptofarm.ml.meta_trainer          # meta-labeling
-.venv312/bin/python -m cryptofarm.ml.policy_trainer        # politica a tre azioni
 
 # Store delle candele (prerequisito dell'addestramento)
 .venv312/bin/python -m cryptofarm.data.klines --update
@@ -151,8 +151,8 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (994 test in 36 file, tutti verificati). Lint/format: `ruff check src tests` e
-`black src tests` (config in `pyproject.toml`; `backup/` è escluso da entrambi).
+Test: `.venv312/bin/python -m pytest` (35 file: 1.019 passati, 3 saltati). Lint/format:
+`ruff check src scripts tests` e `black src scripts tests` (config in `pyproject.toml`).
 
 ## Il simulatore
 
@@ -294,14 +294,6 @@ Quattro cose da sapere prima di toccarla:
   Il test che lo protegge taglia **dentro** una barra lunga già cominciata e confronta gli stati:
   un taglio allineato ai confini passa anche col difetto reintrodotto, ed è com'era scritto la
   prima volta;
-- **`live_frames.py` oggi non lo importa nessuno.** Era lo stadio S1 e serviva a sollevare i piani
-  lunghi a valore provvisorio; scrivendo la confluenza si e' visto che su un confronto di *segno* il
-  sollevamento e' algebricamente un non-fare (`confluence._sign_su_media` lo dimostra in tre
-  righe), e che sollevare una *strategia* qualunque non e' generico. Il modulo resta perche' e' il
-  pezzo che serve appena un votante debba leggere il **valore** di una barra lunga parziale -- una
-  distanza, una banda, uno stop -- e perche' contiene il test contro il difetto da tre caratteri
-  (`transform("max")` invece di `cummax`). Se si decide che non servira', si cancella: e' codice
-  vivo solo nei suoi test, e va detto invece che lasciato credere il contrario;
 - **zero operazioni non e' un risultato, e' una domanda.** Le condizioni d'ingresso sono quattro in
   `and` e `Confluenza.perche_non_entra()` dice quale non si e' mai avverata, con i numeri. Serve
   perche' il caso piu' comune non e' la prudenza della strategia ma la storia: a 15m il piano di
@@ -370,7 +362,13 @@ solo in laterale. Togliere uno scenario scopre delle strategie.
 stanno in `features.py`, le etichette in `labeling.py` e `directional_change.py`, la matrice in
 `dataset.py`, i modelli in `models.py`, le metriche in `evaluate.py`, la validazione in
 `validation.py`, l'esecuzione simulata in `execution.py`. `meta.py` + `meta_trainer.py` fanno il
-meta-labeling; `policy.py` + `dagger.py` + `policy_trainer.py` la politica a tre azioni.
+meta-labeling. `ml/README.md` elenca file per file le funzioni pubbliche di ognuno.
+
+**Due famiglie sono state chiuse in negativo e il loro codice non è più qui**: la politica a tre
+azioni (`policy.py`, `dagger.py`, `policy_trainer.py` — `strategy.md` §12-13) e il modello a gambe
+(`leg_trainer.py` — `modello-swing.md` §1). Rimetterne il nome in `MODEL_PRECEDENCE` non basta a
+farli girare, perché il ramo di dispatch non c'è più, e un test lo verifica. La misura che li ha
+chiusi sta nei documenti, ed è lì che va riletta prima di rifarli.
 
 Il modello di default è **`gbdt`** (`HistGradientBoostingClassifier`), non più un LSTM; `models.py`
 tiene ancora `gru`/`cnn`/`lstm` dietro `--model`. Prerequisito dell'addestramento è lo store di
@@ -515,10 +513,11 @@ il `ref` su un commit più recente, deliberatamente — non succede da solo.
 Le skill dei plugin sono disponibili dalla sessione successiva all'installazione, non da quella in
 cui si modifica il file.
 
-## Archived
+## Cosa è stato cancellato, e come si ritrova
 
-- `backup/unused/` — moduli rimossi da `src/` perché nessuno li importava (dashboard live, bot a due
-  account, grid search, visualizzatore dei risultati, dashboard di analisi). `git mv` li rimette a
-  posto con la storia intatta.
-- `backup/v2/` — simulatore multi-timeframe, precedente riscrittura. Materiale di riferimento in sola
-  lettura, escluso da lint e format.
+Non c'è più nessun archivio nel repository. `backup/unused/` (dashboard live, bot a due account,
+grid search, visualizzatore dei risultati, dashboard di analisi), `backup/v2/` (il simulatore
+multi-timeframe della riscrittura precedente), `trading/live_frames.py` e le due famiglie di
+modelli chiuse in negativo sono stati cancellati il 2026-08-30. **git è l'archivio**: `git log
+--diff-filter=D --name-only` li trova, e `git checkout <commit>^ -- <percorso>` li rimette con la
+storia intatta.

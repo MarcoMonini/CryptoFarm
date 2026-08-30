@@ -127,7 +127,8 @@ configurazione.** Su una griglia non si esegue.
 Non serve, perché la barra in formazione ha forma chiusa: dentro il periodo l'apertura è la prima,
 il massimo è il massimo *corrente*, il minimo il minimo corrente, la chiusura è il prezzo di adesso
 e il volume la somma corrente. `groupby` più `cummax`/`cummin`/`cumsum` le producono tutte senza
-nessun ciclo Python. Misurato: **103 ms per cinque anni e tre intervalli** (`trading/live_frames.py`).
+nessun ciclo Python. Misurato: **103 ms per cinque anni e tre intervalli** (in `trading/live_frames.py`,
+cancellato il 2026-08-30 — vedi in fondo: la misura resta, il modulo no).
 
 Due proprietà rendono la cosa economica anche sulla griglia:
 
@@ -143,7 +144,7 @@ Due proprietà rendono la cosa economica anche sulla griglia:
 
 `groupby.transform("max")` restituisce il massimo dell'**intero** periodo, incluse barre non ancora
 accadute. Contro `cummax` è un errore di tre caratteri, non lo segnala nessun tipo, e trasforma il
-backtest in una macchina che conosce il futuro. `tests/test_live_frames.py` lo intercetta —
+backtest in una macchina che conosce il futuro. `tests/test_live_frames.py` lo intercettava —
 verificato reintroducendolo: cadono due test su sei. **Il test che confronta la barra alla chiusura
 con quella aggregata continua a passare**, ed è il motivo per cui non basta.
 
@@ -236,7 +237,7 @@ scrive e ci si ferma li'.
 | | cosa | stato |
 |---|---|---|
 | **S0** | correlazione fra i sei stati barra-per-barra | **misurato** (2026-08-28): media +0,156, massima 0,476 — i votanti sono vari |
-| **S1** | allineamento a barre chiuse e barre in formazione | **scritto** (`trading/mtf.py` + `trading/live_frames.py`, 11 test) |
+| **S1** | allineamento a barre chiuse e barre in formazione | **scritto** (`trading/mtf.py`, 5 test; la parte in formazione stava in `trading/live_frames.py`, cancellato il 2026-08-30 perche' nessun votante ne aveva bisogno) |
 | **S2** | adattatore da cambi di posizione a stato per barra, con memoria e decadimento | **scritto** (`trading/voters.py`, 10 test) |
 | **S3** | punteggio a peso uguale, soglia fissa, ampiezza minima, un asset | **scritto e misurato** (`trading/confluence.py`) — non batte il passivo |
 | **S4** | soglia dinamica dai piani alti | **scritto e misurato**: `theta_macro` — **toglie valore**, meglio a 0 |
@@ -291,13 +292,15 @@ operazioni. Ora `panels.confluenza_di` riempie da sé i buchi di ciò che riceve
 trappola non si ripresenta col prossimo parametro senza widget.
 
 Il sollevamento resta utile dove conta il **valore** e non il lato — una distanza, una banda, uno
-stop — e `provisional_ema` resta in `live_frames.py` per quando servirà.
+stop — ma nessun votante lo chiede, quindi `provisional_ema` e' andata via con il modulo.
 
-**Conseguenza da dichiarare: `live_frames.py` oggi non lo importa nessuno.** È vivo solo nei suoi
-sei test. Sopravvive per due ragioni, e se nessuna delle due regge va cancellato invece che tenuto
-per affezione: è il pezzo che serve appena un votante debba leggere il *valore* di una barra lunga
-parziale, e contiene il test contro il difetto da tre caratteri (`transform("max")` invece di
-`cummax`, che trasforma il backtest in una macchina che conosce il futuro).
+**Conseguenza dichiarata, e poi eseguita: `live_frames.py` non lo importava nessuno.** Era vivo
+solo nei suoi sei test, e la regola scritta qui era che andasse cancellato invece che tenuto per
+affezione se nessuna delle sue due ragioni avesse retto. **Cancellato il 2026-08-30.** Le due
+ragioni restano vere e sono il motivo per cui vale saperlo esistito: è il pezzo che serve appena un
+votante debba leggere il *valore* di una barra lunga parziale, e conteneva il test contro il difetto
+da tre caratteri (`transform("max")` invece di `cummax`, che trasforma il backtest in una macchina
+che conosce il futuro). `git log --diff-filter=D --name-only` lo ritrova con i suoi test.
 
 ### 2. I sei votanti non reagiscono dentro il periodo, e questo è il limite dichiarato
 

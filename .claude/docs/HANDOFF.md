@@ -1,6 +1,6 @@
 # Handoff — CryptoFarm
 
-Data: **2026-08-28**. Branch di lavoro: **`claude/audit-confluenza`**.
+Data: **2026-08-30**. Branch di lavoro: **`claude/audit-confluenza`**.
 Il precedente `claude/ricerca-quant-ml-cinque-asset` era spinto. Il precedente
 `claude/trading-strategies-performance-fb39oc` e' stato unito in `main` con la PR #7.
 Il branch precedente `ai-labeling-rewrite` (pipeline ML a 3 stati) e' **chiuso con esito negativo**
@@ -11,12 +11,15 @@ sotto.
 
 | documento | cosa contiene |
 |---|---|
-| `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render |
+| `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render. **Ogni cartella ha poi il suo `README.md`** con i file e le funzioni che contiene |
+| `.claude/docs/README.md` | l'ordine di lettura di tutto il resto |
+| `.claude/docs/modello-ingresso.md` | **il documento da leggere per primo sul filone modello** (2026-08-29). Il modello in testa oggi, e i primi numeri del progetto che passano il controllo a esposizione appaiata |
+| `.claude/docs/modello-swing.md` | (2026-08-28) l'audit che ha chiuso `leg_model`, l'etichetta a prossimita' degli estremi, e le misure per cui quel modello **non** batte il caso a esposizione appaiata |
+| `.claude/docs/politica-rl.md` | (2026-08-28) la politica a rinforzo, cablata: batte il possesso passivo 11/15 fuori campione e dimezza la discesa massima, ma il *quando* sta sopra il caso solo debolmente |
+| `.claude/docs/strategia-confluenza.md` | (2026-08-27, **misurata il 2026-08-28**) la strategia multi-timeframe a piu' segnali. Niente look-ahead, votanti non correlati, e **non batte il possesso passivo**: il gradiente di ogni parametro punta al non-operare. Le conclusioni stanno in fondo |
+| `.claude/docs/ricerca-quant-ml.md` | (2026-08-26) stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
+| `.claude/docs/strategie-nuove.md` | le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
 | `.claude/docs/backtest-strategie.md` | **le strategie del simulatore misurate su nove anni.** 3.129 configurazioni, sensibilita' ai parametri, tenuta fuori campione, quattro difetti del codice trovati misurando (§8, ora corretti) |
-| `.claude/docs/strategie-nuove.md` | **lo stato piu' recente del filone trading.** Le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
-| `.claude/docs/strategia-confluenza.md` | **il filone piu' recente (2026-08-27): la strategia multi-timeframe a piu' segnali.** Disegno, sei votanti, memoria del segnale, soglia decisa dai piani alti, paniere a capitale condiviso, e le tre cose che scrivendola si sono rivelate diverse dal disegno. **Il codice c'e' e gira; la misura su dati veri no** |
-| `.claude/docs/ricerca-quant-ml.md` | **il documento piu' recente (2026-08-26), e quello da leggere per primo sui risultati.** Stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
-| `.claude/docs/modello-swing.md` | **il documento piu' recente (2026-08-28), e quello da leggere per primo sul filone modello.** L'audit di `leg_model`, l'etichettatura nuova a prossimita' degli estremi, le tre decisioni di disegno prese misurando, e le tre misure per cui il modello non e' cablato |
 | `.claude/docs/strategy.md` | fonte di verita' delle decisioni sul **filone ML** (etichettatura, feature, modello, validazione). Chiuso in negativo, ma le trappole valgono ancora |
 | `git log main..HEAD` | i messaggi di commit spiegano il *perche'* di ogni scelta e i bug trovati |
 
@@ -24,7 +27,32 @@ Non riassumere quei contenuti: sono gia' scritti e aggiornati.
 
 ---
 
-## Ultima sessione (2026-08-29): il modello d'ingresso, cablato in positivo
+## Ultima sessione (2026-08-30): semplificazione e documentazione
+
+Nessuna misura nuova e nessun cambio di comportamento: **−9.570 righe** di codice e un `README.md`
+in ogni cartella.
+
+**Cancellato** (git e' l'archivio, `git log --diff-filter=D --name-only` lo ritrova): tutto
+`backup/` (`unused/` e `v2/`, ~7.100 righe che nessun test eseguiva), le due famiglie chiuse in
+negativo con i loro test (`policy.py`, `dagger.py`, `policy_trainer.py`, `leg_trainer.py`, e i due
+rami di dispatch in `ml/signals.py` e `trading/strategies.py`), `trading/live_frames.py`,
+`uv.lock` e `requirements.txt` (nessuno dei due era letto da niente), i due handoff datati.
+Ogni commento che puntava a quel codice e' stato **ripuntato al documento che tiene la misura**,
+non cancellato: la misura vale ancora, il codice no.
+
+**Documentato**: quattordici `README.md` nuovi o rifatti, uno per cartella, con l'elenco dei file
+e delle loro funzioni pubbliche — ricavato leggendo l'albero sintattico, non a memoria.
+`models/README.md` descriveva ancora l'era keras; `reports/README.md` non citava le tabelle
+`cs_*` e `meta_*`; il `README.md` di radice dichiarava `policy_model` come modello attivo.
+`.claude/docs/INDEX.md` e' diventato `README.md`.
+
+**Cosa e' rimasto fuori, deliberatamente**: i dati locali non recuperabili da git
+(`market_data/rl_stati.pkl` 3,5 GB di cache, `tuner_logs/` 307 MB, i tre virtualenv obsoleti, gli
+artefatti in `models/` delle famiglie chiuse). Sono elencati per l'utente, non cancellati.
+
+---
+
+## Sessione precedente (2026-08-29): il modello d'ingresso, cablato in positivo
 
 Tutto in [`modello-ingresso.md`](modello-ingresso.md). Quattro cose prima di ripartire:
 
@@ -67,7 +95,7 @@ il medio salvato stia **fra** le due medie per simbolo.
 
 ---
 
-## Sessione precedente (2026-08-28): il modello AI, rifatto e chiuso in negativo
+## Sessione (2026-08-28): il modello AI, rifatto e chiuso in negativo
 
 Tutto in [`modello-swing.md`](modello-swing.md). Le tre cose da sapere prima di ripartire:
 
@@ -238,17 +266,18 @@ il piano gratuito di Render non ha dischi persistenti.
 
 Lo stesso guasto nascondeva la raccolta di `tests/test_simulator_page.py`, che lo esercita a
 livello di modulo. In questa sessione avevo attribuito quella raccolta fallita alla versione di
-Python: **era sbagliato**. Con la correzione la suite gira intera, 911 test, senza `--ignore`.
+Python: **era sbagliato**. Con la correzione la suite gira intera, senza `--ignore` (oggi 1.022 test).
 
-### La confluenza (2026-08-27) — scritta, non misurata
+### La confluenza (2026-08-27, misurata il 2026-08-28)
 
-Il filone piu' recente. Il disegno completo sta in
-[`strategia-confluenza.md`](strategia-confluenza.md); qui solo cosa esiste e cosa manca.
+Il disegno completo e **il verdetto** stanno in
+[`strategia-confluenza.md`](strategia-confluenza.md): misurata su 15 asset e sette anni,
+**non batte il possesso passivo**. Niente look-ahead e votanti non correlati, ma il gradiente di
+ogni parametro punta al non-operare. Qui resta solo la mappa di cosa esiste.
 
 | file | cosa |
 |---|---|
 | `trading/mtf.py` | `align_to_lower`: legge la barra lunga **chiusa**, spostandola di un periodo. E' l'unica difesa contro il look-ahead fra intervalli |
-| `trading/live_frames.py` | le barre lunghe *in formazione*, in forma chiusa (`groupby` + `cummax`/`cummin`/`cumsum`). 103 ms per cinque anni e tre intervalli, contro ore del ciclo ingenuo |
 | `trading/voters.py` | `held_state` (eventi → stato tenuto) e `decayed_vote` (stato → voto che sfuma). E' la memoria del segnale, cioe' cio' che rende la confluenza capace di innescare |
 | `trading/confluence.py` | la strategia: sei votanti su quattro piani, punteggio pesato, ampiezza per famiglie, soglia che si muove coi piani alti, uscita a tre condizioni. `stati_dei_votanti` isola la parte cara |
 | `trading/portfolio.py` | un capitale solo su piu' asset, con occasioni perse e concentrazione |

@@ -1,6 +1,14 @@
 # Mappa delle capacità — riaddestramento del modello AI (2026-08-28)
 
-Stato: **in attesa di approvazione**. Nessuna spec di modulo va scritta prima che questa mappa
+> **Stato: eseguita, e il bersaglio si è mosso due volte da qui.** Questo documento resta come
+> **preregistrazione**: dichiara i criteri di successo *prima* delle misure, ed è ciò che permette
+> di verificare che non siano stati riscritti dopo averli visti. Cosa è successo davvero:
+> `model-legs` è stato chiuso in negativo (`modello-swing.md` §1) e il suo codice cancellato;
+> `model-swing` l'ha sostituito e non ha battuto il caso a esposizione appaiata; il modello in
+> testa oggi è quello d'ingresso (`modello-ingresso.md`), che pone una domanda diversa da tutte e
+> due — non «quanto siamo vicini a un estremo» ma «quanto rende comprare qui».
+> Gli unici moduli di questa mappa che sono in servizio oggi sono `positioning` e `features-bar`.
+> **Non è una specifica da eseguire: è il metro con cui giudicare quanto è stato eseguito.** Nessuna spec di modulo va scritta prima che questa mappa
 sia approvata: sbagliare i confini costa, rivedere quindici righe no.
 
 ## Perché una mappa e non una spec sola

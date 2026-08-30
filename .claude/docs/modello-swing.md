@@ -19,6 +19,13 @@ quest'ordine, perché ognuna è la ragione della successiva.
 
 ## 1. Perché `leg_model` è uscito dalla catena
 
+> **Il codice di questa sezione non c'è più (cancellato il 2026-08-30).** `ml/leg_trainer.py`, la
+> funzione `signals.leg_signals` e il ramo di dispatch che la serviva sono stati tolti: un
+> `leg_model.joblib` rimasto su disco non riporta più la pagina su questo modello, e un test lo
+> verifica. `labeling.swing_leg_target` invece **resta**, perché è l'etichetta che
+> `modello-ingresso.md` usa come termine di confronto. La misura sotto vale ancora ed è il motivo
+> per cui la sezione resta scritta.
+
 Un revisore in contesto fresco, senza le conclusioni dell'autore, ha esaminato
 `leg_trainer.py`, `bar_features.py`, `positioning.py`, `leg_signals` e `barrier_widths` contro un
 contratto di nove requisiti. Su una ventina di rilievi il rumore è stato **zero**. I quattro

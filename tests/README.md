@@ -1,4 +1,4 @@
-# `tests/` — 1.022 test in 35 file
+# `tests/` — 35 file, 1.022 casi (1.019 passati, 3 saltati)
 
 > I numeri fra parentesi sono i casi **raccolti** da pytest, non le funzioni scritte: dove c'è
 > `parametrize` i due divergono molto (`test_panels.py` ha 25 funzioni e 410 casi).
