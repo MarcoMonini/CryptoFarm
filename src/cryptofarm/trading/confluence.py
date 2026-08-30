@@ -22,7 +22,7 @@ cadere su intervalli mai misurati, e allora restano i default scritti a mano del
 ## Cosa e' *davvero* in formazione, e cosa no
 
 Il bot live alle 10:00 non aspetta la mezzanotte: vede una barra 1D parziale, e quella non e'
-look-ahead (`live_frames.py`). Ma sollevare a valore provvisorio una *strategia* qualunque non e'
+look-ahead. Ma sollevare a valore provvisorio una *strategia* qualunque non e'
 generico -- ogni indicatore ricorsivo va sollevato a mano -- e il disegno **congela i votanti**,
 cioe' vieta di riscriverli. Quindi:
 

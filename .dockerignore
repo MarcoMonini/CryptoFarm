@@ -14,7 +14,6 @@ models/*
 !models/.gitignore
 
 # Codice archiviato, escluso anche da lint e format.
-backup/
 
 # Ambienti locali e cache
 .venv/

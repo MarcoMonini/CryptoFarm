@@ -33,7 +33,6 @@ data = [
 # testa al modulo, quindi il default `gbdt` gira senza. Circa 1 GB installato.
 dl = [
     "tensorflow==2.19.0",
-    "keras-tuner==1.4.7",
 ]
 dev = [
     "pytest==9.1.1",
@@ -56,12 +55,10 @@ testpaths = ["tests"]
 [tool.black]
 line-length = 120
 target-version = ["py312"]
-extend-exclude = "backup/"
 
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = ["backup"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
