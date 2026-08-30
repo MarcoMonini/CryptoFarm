@@ -4,9 +4,19 @@ Cosa cambia rispetto al modello a gambe che c'era prima (`.claude/docs/modello-s
 il suo codice e' stato tolto una volta chiuso in negativo). La barriera tripla chiede «il prezzo si muove di
 1,5 ATR in su o in giu' entro l'orizzonte»: e' una domanda sulla **volatilita'**, e siccome le
 barriere sono gia' scalate sull'ATR l'etichetta normalizza via proprio la parte prevedibile.
-Qui l'etichetta e' `labeling.swing_target`, il rango centrato della chiusura: -1 su un minimo
-locale, +1 su un massimo, 0 dentro una tendenza regolare. E' una domanda sulla **forma**, ed e'
-quella che serve a comprare prima di una gamba invece che a meta'.
+Qui l'etichetta e' `labeling.swing_leg_target`: -1 su un minimo locale, +1 sul massimo che segue,
+e in mezzo scorre lungo la gamba. E' una domanda sulla **forma**, ed e' quella che serve a
+comprare prima di una gamba invece che a meta'.
+
+**Lo smoothing temporale (`peso_tempo`, 0,7) e' la parte che si perde piu' facilmente**, ed e'
+gia' successo: fino al 2026-08-30 il trainer imparava `swing_target`, il rango centrato dentro una
+finestra fissa, mentre il grafico della pagina disegnava la gamba con lo smoothing. Due etichette
+diverse chiamate con lo stesso nome. La differenza non e' cosmetica: nel rango il valore dipende
+solo da dove sta il prezzo fra i suoi vicini, quindi a prezzo fermo l'etichetta resta ferma e il
+modello impara a **inseguire**; nella gamba con `peso_tempo=0,7` il 70% del percorso lo dicono le
+barre trascorse dall'estremo precedente, quindi un prezzo che stalla si avvicina lo stesso
+all'estremo che arriva, ed e' quella la parte che si puo' anticipare. Chi tocca questo modulo
+tenga i tre usi -- addestramento, grafico, misura -- agganciati alla stessa `labeling.TIME_WEIGHT`.
 
 **Il metro.** Il rango centrato guarda anche le `W` barre passate, che le feature gia' descrivono:
 uno Stochastic senza modello prende IC 0,70 contro il target pieno. Valutare li' misurerebbe la
@@ -48,7 +58,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 
 from cryptofarm.data.klines import DEFAULT_SYMBOLS, load_klines
 from cryptofarm.ml.bar_features import SWING_COLUMNS, build_swing_features
-from cryptofarm.ml.labeling import swing_target
+from cryptofarm.ml.labeling import TIME_WEIGHT, swing_leg_target, swing_target
 from cryptofarm.ml.models import save_model
 from cryptofarm.paths import MODELS_DIR
 
@@ -67,14 +77,32 @@ QUOTA_VALIDAZIONE = 0.15
 GIRI = 3  # quanti riaddestramenti su etichette riviste provare
 PIEGHE = 3
 ALPHA = 0.3  # quanto pesa la predizione fuori piega nella nuova etichetta
+# Lo smoothing temporale dell'etichetta, ereditato da `labeling.TIME_WEIGHT` invece di essere
+# riscritto qui: il grafico della pagina legge la stessa costante, e le due curve devono essere
+# la stessa curva.
+PESO_TEMPO = TIME_WEIGHT
+# L'embargo fra stima e verifica, in multipli di `W`. L'etichetta a gambe guarda avanti fino
+# all'**estremo successivo**, che e' un orizzonte variabile e non limitato da `W`: un embargo di
+# `W` barre -- quello che bastava al rango centrato -- lascerebbe le ultime righe dello stima con
+# un target che legge dentro la verifica. Tre finestre coprono la gamba mediana misurata (5,9 ore
+# a W=50 su BTC, cioe' circa 1,4 finestre) con margine.
+EMBARGO_FINESTRE = 3
 
 
 def nuovo_modello(seme: int = 0) -> HistGradientBoostingRegressor:
     return HistGradientBoostingRegressor(max_iter=300, learning_rate=0.06, random_state=seme)
 
 
-def campione_simbolo(symbol: str, since: str, w: int, passo: int) -> pd.DataFrame | None:
-    """Feature, target pieno e meta' futura per un simbolo, gia' diradati."""
+def campione_simbolo(
+    symbol: str, since: str, w: int, passo: int, peso_tempo: float = PESO_TEMPO
+) -> pd.DataFrame | None:
+    """Feature, etichetta a gambe e meta' futura per un simbolo, gia' diradati.
+
+    `Target` e' cio' che il modello impara, `avanti` e' il metro con cui si misura, e **non sono
+    la stessa serie di proposito**: il target usa anche il passato (dove sta l'estremo da cui la
+    gamba parte), che le feature gia' descrivono, mentre `avanti` e' la sola meta' non conoscibile.
+    Valutare contro il target misurerebbe soprattutto la capacita' di rifare uno Stochastic.
+    """
     candele = load_klines(symbol, BASE_INTERVAL)
     if candele.empty:
         return None
@@ -82,7 +110,7 @@ def campione_simbolo(symbol: str, since: str, w: int, passo: int) -> pd.DataFram
     if len(candele) < 20_000:
         return None
     frame = build_swing_features(symbol, candele)
-    frame["Target"] = swing_target(candele["Close"], w)
+    frame["Target"] = swing_leg_target(candele["Close"], w, peso_tempo=peso_tempo)
     frame["avanti"] = swing_target(candele["Close"], w, verso="avanti")
     frame = frame.iloc[::passo]
     # `atr_rel` NaN sono le barre di riscaldamento: li' le feature strutturali non esistono ancora.
@@ -93,11 +121,11 @@ def campione_simbolo(symbol: str, since: str, w: int, passo: int) -> pd.DataFram
     return frame
 
 
-def costruisci(symbols, since=SINCE, w=W, passo=PASSO, verboso=True) -> pd.DataFrame:
+def costruisci(symbols, since=SINCE, w=W, passo=PASSO, peso_tempo=PESO_TEMPO, verboso=True) -> pd.DataFrame:
     pezzi = []
     for i, symbol in enumerate(symbols, 1):
         t0 = time.time()
-        frame = campione_simbolo(symbol, since, w, passo)
+        frame = campione_simbolo(symbol, since, w, passo, peso_tempo)
         if frame is None:
             if verboso:
                 print(f"  [{i}/{len(symbols)}] {symbol}: saltato, storico insufficiente")
@@ -112,14 +140,16 @@ def costruisci(symbols, since=SINCE, w=W, passo=PASSO, verboso=True) -> pd.DataF
     return pd.concat(pezzi).sort_index()
 
 
-def taglia(dati: pd.DataFrame, oos: str, w: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Stima e verifica, con **embargo di `w` barre** prima del taglio.
+def taglia(dati: pd.DataFrame, oos: str, w: int, finestre: int = EMBARGO_FINESTRE) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Stima e verifica, con embargo di **`finestre` x `w` barre** prima del taglio.
 
     Senza, le ultime righe dello stima hanno un target che guarda dentro la verifica: le due parti
-    condividono futuro e il numero fuori campione e' gonfio.
+    condividono futuro e il numero fuori campione e' gonfio. Il multiplo non e' prudenza generica:
+    l'etichetta a gambe guarda avanti fino all'estremo successivo, che dista **piu'** di `w` barre
+    per costruzione -- `w` sole basterebbero al rango centrato, che si ferma li'.
     """
     confine = pd.Timestamp(oos)
-    embargo = confine - w * pd.Timedelta(minutes=5)
+    embargo = confine - finestre * w * pd.Timedelta(minutes=5)
     return dati[dati.index < embargo], dati[dati.index >= confine]
 
 
@@ -168,19 +198,23 @@ def giri_di_rinforzo(X, y, giri: int, seme: int = 0):
 
 def addestra(args) -> None:
     simboli = args.symbols or list(DEFAULT_SYMBOLS)
-    print(f"Campione: {len(simboli)} simboli a {BASE_INTERVAL}, da {args.since}, W={args.w}")
-    dati = costruisci(simboli, args.since, args.w, args.passo)
+    print(
+        f"Campione: {len(simboli)} simboli a {BASE_INTERVAL}, da {args.since}, "
+        f"W={args.w}, smoothing temporale={args.peso_tempo}"
+    )
+    dati = costruisci(simboli, args.since, args.w, args.passo, args.peso_tempo)
     dentro, fuori = taglia(dati, args.oos, args.w)
     if len(dentro) < 10_000 or len(fuori) < 5_000:
         raise SystemExit(f"campione insufficiente: stima {len(dentro):,}, verifica {len(fuori):,}")
 
     # La coda dello stima serve a scegliere i giri. Anche qui l'embargo, per la stessa ragione.
+    barre_embargo = EMBARGO_FINESTRE * args.w
     confine = dentro.index[int(len(dentro) * (1 - QUOTA_VALIDAZIONE))]
-    fit = dentro[dentro.index < confine - args.w * pd.Timedelta(minutes=5)]
+    fit = dentro[dentro.index < confine - barre_embargo * pd.Timedelta(minutes=5)]
     val = dentro[dentro.index >= confine]
     print(
         f"\nRighe: stima {len(fit):,} | validazione {len(val):,} | verifica {len(fuori):,}"
-        f"  (taglio {args.oos}, embargo {args.w} barre)"
+        f"  (taglio {args.oos}, embargo {barre_embargo} barre)"
     )
 
     riferimento = ic(val["pos_canale"].to_numpy(), val["avanti"].to_numpy())
@@ -218,7 +252,15 @@ def addestra(args) -> None:
         "model_kind": "gbdt_regressor",
         "model_path": percorso.name,
         "features": SWING_COLUMNS,
-        "labeling": {"method": "swing_target", "window": args.w, "base_interval": BASE_INTERVAL},
+        # `peso_tempo` sta qui perche' il grafico della pagina deve poter ridisegnare **la stessa**
+        # etichetta su cui questo artefatto e' stato addestrato, non quella di default.
+        "labeling": {
+            "method": "swing_leg_target",
+            "window": args.w,
+            "peso_tempo": args.peso_tempo,
+            "embargo_finestre": EMBARGO_FINESTRE,
+            "base_interval": BASE_INTERVAL,
+        },
         "data": {
             "symbols": simboli,
             "since": args.since,
@@ -243,16 +285,25 @@ def selfcheck() -> None:
     rng = np.random.default_rng(0)
     n = 20_000
     close = pd.Series(rng.normal(size=n).cumsum() + 1000.0)
-    target = swing_target(close, 48)
+    target = swing_leg_target(close, 48, peso_tempo=PESO_TEMPO)
     avanti = swing_target(close, 48, verso="avanti")
     dietro = swing_target(close, 48, verso="dietro")
     valide = target.notna()
     assert abs(float(target[valide].mean())) < 0.05, "il target deve essere simmetrico"
     assert -1.0 <= float(target[valide].min()) and float(target[valide].max()) <= 1.0
-    # La meta' passata spiega il target pieno; la meta' futura no. E' l'intero argomento del metro.
-    assert ic(dietro[valide].to_numpy(), target[valide].to_numpy()) > 0.6
+    # La meta' passata spiega il rango centrato; la meta' futura no. E' l'intero argomento del
+    # metro, e vale sul rango perche' e' li' che la simmetria e' esatta.
+    pieno = swing_target(close, 48)
+    assert ic(dietro[pieno.notna()].to_numpy(), pieno[pieno.notna()].to_numpy()) > 0.6
     assert abs(ic(dietro[valide].to_numpy(), avanti[valide].to_numpy())) < 0.1
-    print("selfcheck ok: target simmetrico, meta' passata separata dalla meta' futura")
+
+    # Lo smoothing temporale deve *fare* qualcosa: a peso 0 l'etichetta e' una funzione del solo
+    # prezzo percorso, a 0,7 il tempo trascorso ne muove il valore. Se questa uguaglianza passasse,
+    # il parametro sarebbe cablato a zero da qualche parte -- che e' com'era, prima.
+    solo_prezzo = swing_leg_target(close, 48, peso_tempo=0.0)
+    entrambi = valide & solo_prezzo.notna()
+    assert not np.allclose(target[entrambi], solo_prezzo[entrambi]), "lo smoothing temporale non morde"
+    print(f"selfcheck ok: target simmetrico, meta' futura separata, smoothing temporale a {PESO_TEMPO} attivo")
 
 
 def main() -> None:
@@ -264,6 +315,7 @@ def main() -> None:
     parser.add_argument("--w", type=int, default=W)
     parser.add_argument("--passo", type=int, default=PASSO)
     parser.add_argument("--giri", type=int, default=GIRI)
+    parser.add_argument("--peso-tempo", type=float, default=PESO_TEMPO, dest="peso_tempo")
     args = parser.parse_args()
     selfcheck() if args.selfcheck else addestra(args)
 

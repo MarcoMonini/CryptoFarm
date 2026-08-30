@@ -1,17 +1,18 @@
 # `.devcontainer/`
 
-Un file solo: **`devcontainer.json`**, per GitHub Codespaces e per «Reopen in Container» di VS Code.
+A single file: **`devcontainer.json`**, for GitHub Codespaces and for VS Code's "Reopen in
+Container".
 
-Parte da `mcr.microsoft.com/devcontainers/python:1-3.12-bullseye`, installa il pacchetto in
-editable con tutti gli extra (`pip install --user -e ".[app,data,dev]"`) e **all'attacco avvia da
-sé il simulatore** sulla 8501, che viene inoltrata e aperta in anteprima.
+It starts from `mcr.microsoft.com/devcontainers/python:1-3.12-bullseye`, installs the package in
+editable mode with all the extras (`pip install --user -e ".[app,data,dev]"`) and **on attach starts
+the simulator by itself** on 8501, which is forwarded and opened in preview.
 
-Non è il `Dockerfile` del progetto e non lo sostituisce: quello serve a spedire l'immagine in
-produzione (quattro target, `web` in fondo), questo serve solo ad avere un ambiente di sviluppo
-pronto. La differenza pratica è che qui il pacchetto è in editable e le directory dei dati restano
-relative alla radice del repository, mentre nell'immagine sta in `site-packages` e servono
-`CRYPTOFARM_MODELS_DIR` e `CRYPTOFARM_MARKET_DATA_DIR`.
+It is not the project's `Dockerfile` and does not replace it: that one ships the image to production
+(four targets, `web` last), this one only provides a ready development environment. The practical
+difference is that here the package is editable and the data directories stay relative to the
+repository root, whereas in the image it lives in `site-packages` and `CRYPTOFARM_MODELS_DIR` and
+`CRYPTOFARM_MARKET_DATA_DIR` are needed.
 
-Due conseguenze da conoscere: il container parte **senza store delle candele e senza modelli**,
-quindi la pagina si apre in modalità degradata (strategie classiche sì, «AI Model» e rotazione no);
-e Python è 3.12, come in CI e come `.venv312`.
+Two consequences to know: the container starts **with no candle store and no models**, so the page
+opens in degraded mode (classic strategies yes, "AI Model" and rotation no); and Python is 3.12, as
+in CI and as in `.venv312`.

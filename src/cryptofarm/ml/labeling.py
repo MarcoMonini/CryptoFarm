@@ -364,6 +364,15 @@ def swing_target(close: pd.Series | np.ndarray, window: int, verso: str = "entra
 #   non sono confrontabili: la stessa gamba del 5% e' enorme su una stablecoin e rumore su una
 #   altcoin nel 2021.
 
+# Lo smoothing temporale: quanta parte del percorso lungo la gamba la dice il **tempo trascorso**
+# invece del prezzo. E' l'unico parametro dell'etichetta che vale per tutti e tre i suoi usi --
+# addestramento, servizio del grafico e misura -- e sta qui perche' i tre non possono divergere:
+# un modello addestrato a 0,7 e un grafico disegnato a 0,5 mostrano due curve diverse chiamandole
+# entrambe «l'etichetta». A 0 e' solo prezzo, ed e' il difetto della versione a rango, dove
+# l'etichetta insegue il prezzo invece di anticiparlo; a 1 e' solo tempo, e ignora che il prezzo
+# possa tornare sui suoi passi.
+TIME_WEIGHT = 0.7
+
 
 def swing_pivots(close: pd.Series | np.ndarray, window: int = 50) -> tuple[np.ndarray, np.ndarray]:
     """Gli estremi locali, **alternati**: posizioni e verso (+1 massimo, -1 minimo).
@@ -400,7 +409,7 @@ def swing_pivots(close: pd.Series | np.ndarray, window: int = 50) -> tuple[np.nd
 def swing_leg_target(
     close: pd.Series | np.ndarray,
     window: int = 50,
-    peso_tempo: float = 0.5,
+    peso_tempo: float = TIME_WEIGHT,
     saturazione: float = 1.0,
 ) -> pd.Series:
     """Target continuo in [-1, 1] che scorre fra un estremo locale e il successivo.
@@ -410,9 +419,11 @@ def swing_leg_target(
     dice quanto l'estremo e' pronunciato rispetto al rumore di quel tratto, cosi' una gamba vera
     satura e un'oscillazione dentro la volatilita' locale no.
 
-    `peso_tempo` a 1 ignora il prezzo (rampa lineare fra gli estremi), a 0 ignora il tempo. A 0,5,
-    il valore di partenza, un prezzo che ritraccia a meta' gamba ma consuma tre quarti delle barre
-    sta gia' oltre meta' scala: e' li' che l'etichetta smette di inseguire il prezzo.
+    `peso_tempo` a 1 ignora il prezzo (rampa lineare fra gli estremi), a 0 ignora il tempo. Il
+    valore di partenza e' `TIME_WEIGHT` = 0,7: un prezzo che ritraccia a meta' gamba ma consuma
+    tre quarti delle barre sta a 0,68 di scala invece che a 0,5, cioe' l'etichetta lo dichiara
+    gia' vicino all'estremo che arriva. E' li' che smette di inseguire il prezzo. Non e' una
+    manopola libera: e' il valore con cui `swing_model` e' addestrato, e il grafico lo eredita.
 
     `saturazione` moltiplica il riferimento su cui si misura la prominenza: alzarla chiede gambe
     piu' grandi per lo stesso valore.

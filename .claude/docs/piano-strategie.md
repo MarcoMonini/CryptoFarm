@@ -1,235 +1,235 @@
-# Piano — migliorare le strategie, e farne di nuove
+# Plan — improving the strategies, and making new ones
 
-Deciso il **2026-08-27** con l'utente, in `AskUserQuestion`, sul branch
-`claude/ricerca-quant-ml-cinque-asset`. Sostituisce la lista "cosa farei dopo" di
-[`HANDOFF.md`](HANDOFF.md), che resta come contesto.
+Decided on **2026-08-27** with the user, via `AskUserQuestion`, on branch
+`claude/ricerca-quant-ml-cinque-asset`. It replaces the "what I would do next" list in
+[`HANDOFF.md`](HANDOFF.md), which remains as context.
 
-> **Stato al 2026-08-30.** Il passo 1 (molteplicità, `scripts/multiplicity.py`) è fatto e i suoi
-> numeri stanno qui sotto. Il passo 2bis è diventato `trading/confluence.py`, misurato e
-> **negativo** (`strategia-confluenza.md`). I passi 2, 3, 4 e 5 **non sono stati eseguiti**: il
-> lavoro si è spostato sul filone modello, che nel frattempo ha prodotto l'unico risultato positivo
-> del progetto (`modello-ingresso.md`). Restano proposte valide e non scadute — in particolare il
-> passo 5, il ciclo 2017-2020, che è **l'ultima finestra di verifica pulita rimasta** e va speso
-> deliberatamente. Le "due decisioni prese, da non riaprire" qui sotto valgono ancora.
+> **Status as of 2026-08-30.** Step 1 (multiplicity, `scripts/multiplicity.py`) is done and its
+> numbers are below. Step 2bis became `trading/confluence.py`, measured and **negative**
+> (`strategia-confluenza.md`). Steps 2, 3, 4 and 5 have **not been executed**: the work moved to the
+> model strand, which meanwhile produced the project's only positive result
+> (`modello-ingresso.md`). They remain valid, unexpired proposals — in particular step 5, the
+> 2017-2020 cycle, which is **the last clean verification window left** and must be spent
+> deliberately. The "two decisions taken, not to be reopened" below still hold.
 
-## Da dove nasce
+## Where it comes from
 
-Le misure su cinque asset dicono tre cose che insieme scelgono il piano:
+The measurements on five assets say three things that together choose the plan:
 
-- **la tempificazione per-asset e' quasi morta**: 24% delle celle fuori campione batte il possesso
-  passivo, e 9 di quelle 12 vittorie stanno in finestre dove il passivo perdeva;
-- **la sezione trasversale e' l'unica famiglia che trasferisce**: 89% di configurazioni in utile
-  fuori campione, e il vantaggio vero e' sul rischio (DD 45,7% contro 91,0%), non sul rendimento;
-- **scegliere i parametri danneggia**: ρ = −0,69 fra resa in stima e in verifica.
+- **per-asset timing is nearly dead**: 24% of out-of-sample cells beat passive holding, and 9 of
+  those 12 wins are in windows where passive was losing;
+- **the cross section is the only family that transfers**: 89% of configurations profitable out of
+  sample, and the real advantage is on risk (DD 45.7% against 91.0%), not on return;
+- **choosing the parameters is harmful**: ρ = −0.69 between in-sample and out-of-sample return.
 
-Il terzo punto e' quello che nessuno ha ancora preso sul serio fino in fondo. Se selezionare
-peggiora, la risposta non e' "prendere valori centrali" — e' **non selezionare affatto**.
+The third point is the one nobody has yet taken fully seriously. If selecting makes things worse, the
+answer is not "take central values" — it is **not selecting at all**.
 
-## Due decisioni prese, da non riaprire
+## Two decisions taken, not to be reopened
 
-1. **Il ciclo 2017-2020 si spende dopo i passi 2-4**, non subito. E' l'ultima finestra di verifica
-   pulita rimasta: bruciarla sul disegno attuale la toglie al disegno nuovo. Costo accettato: i
-   passi 2-4 si costruiscono sopra un risultato non ancora confermato su un secondo ciclo.
-2. **Si parte dal passo 1**, la molteplicita', perche' e' il prerequisito degli altri: senza, ogni
-   numero che i passi 2-4 produrranno e' di nuovo un massimo di griglia non corretto.
+1. **The 2017-2020 cycle is spent after steps 2-4**, not now. It is the last clean verification
+   window left: burning it on the current design takes it away from the new one. Accepted cost: steps
+   2-4 are built on top of a result not yet confirmed on a second cycle.
+2. **Start from step 1**, multiplicity, because it is the prerequisite for the others: without it,
+   every number steps 2-4 produce is again an uncorrected grid maximum.
 
 ---
 
-## Passo 1 — molteplicita' *(in corso, commit `d49f46c`)*
+## Step 1 — multiplicity *(in progress, commit `d49f46c`)*
 
-**Cosa.** `deflated_sharpe_ratio` accetta `trial_variance`; `scripts/multiplicity.py` applica DSR
-alle griglie di `reports/cs_*.csv` e PBO combinatorio alle matrici (anno × configurazione) gia' in
-`analysis_cache/*/*_annuale.parquet`. Nessuno sweep da rieseguire.
+**What.** `deflated_sharpe_ratio` accepts `trial_variance`; `scripts/multiplicity.py` applies DSR to
+the grids in `reports/cs_*.csv` and combinatorial PBO to the (year × configuration) matrices already
+in `analysis_cache/*/*_annuale.parquet`. No sweep needs re-running.
 
-**Fatto qui**, sulla rotazione trasversale (160 configurazioni, 2021-2026, 2057 osservazioni):
+**Done here**, on the cross-sectional rotation (160 configurations, 2021-2026, 2,057 observations):
 
-| prove contate | soglia del caso | DSR del massimo | DSR della mediana |
+| trials counted | chance threshold | DSR of the maximum | DSR of the median |
 |---|---|---|---|
-| 160 (la sola famiglia) | 0,77 annuo | **0,976** | 0,811 |
-| 12.000 (tutto il progetto) | 1,12 annuo | 0,875 | 0,523 |
-| fuori campione 2024-2026 | 0,84 annuo | 0,736 | 0,486 |
+| 160 (the family alone) | 0.77 annual | **0.976** | 0.811 |
+| 12,000 (the whole project) | 1.12 annual | 0.875 | 0.523 |
+| out of sample 2024-2026 | 0.84 annual | 0.736 | 0.486 |
 
-**Come si legge.** Il massimo sopravvive solo contando le prove della sola famiglia. Con il conto
-onesto non sopravvive, e **la mediana non sopravvive in nessuno dei due conti** — ed e' la mediana
-la configurazione che si terrebbe, visto che ottimizzare danneggia. Non e' una condanna della
-rotazione: l'82% della griglia supera la soglia del caso, che e' un fatto sulla *famiglia* e non
-sulla cella fortunata. E' una condanna del leggere quella griglia dal suo massimo.
+**How to read it.** The maximum only survives if you count the trials of the family alone. With the
+honest count it does not survive, and **the median survives under neither count** — and the median is
+the configuration one would keep, given that optimising is harmful. It is not a condemnation of the
+rotation: 82% of the grid clears the chance threshold, which is a fact about the *family* and not
+about the lucky cell. It is a condemnation of reading that grid from its maximum.
 
-**Cosa manca**, e non e' eseguibile ne' qui ne' dall'utente finche' non e' sulla macchina che ha
-il clone (`analysis_cache/` e' gitignorata, e la sessione remota non ha ne' candele ne' rete verso
-gli exchange):
+**What is missing**, and is not runnable here or by the user until it is on the machine holding the
+clone (`analysis_cache/` is gitignored, and the remote session has neither candles nor network access
+to the exchanges):
 
 ```bash
-python -m scripts.multiplicity --cache          # PBO su tutte le griglie gia' in cache
-python -m scripts.multiplicity --selfcheck      # 5 controlli, gira ovunque
+python -m scripts.multiplicity --cache          # PBO over all the grids already cached
+python -m scripts.multiplicity --selfcheck      # 5 checks, runs anywhere
 ```
 
-Se il PBO esce sopra 0,5 su una famiglia, quella famiglia va letta **solo** per mediana: la sua
-procedura di selezione fa peggio del caso, ed e' una misura, non un'opinione.
+If PBO comes out above 0.5 on a family, that family must be read **only** by its median: its
+selection procedure does worse than chance, and that is a measurement, not an opinion.
 
 ---
 
-## Passo 2 — ensemble di griglia
+## Step 2 — grid ensemble
 
-**L'idea.** ρ = −0,69 dice che scegliere una configurazione distrugge valore. La conseguenza
-meccanica non e' "scegliere meglio": e' **tenerle tutte**. Un portafoglio a peso uguale di tutte
-le configurazioni della griglia non ha parametri da scegliere, quindi non ha niente da
-sovradattare, e la sua resa attesa e' la mediana della griglia — che e' proprio la colonna che il
-progetto ha gia' imparato a leggere come quella onesta.
+**The idea.** ρ = −0.69 says that choosing a configuration destroys value. The mechanical consequence
+is not "choose better": it is **keep them all**. An equal-weight portfolio of every configuration in
+the grid has no parameters to choose, so it has nothing to overfit, and its expected return is the
+grid median — which is exactly the column the project has already learned to read as the honest one.
 
-**Perche' e' plausibile, non solo elegante.** Le configurazioni vicine sono quasi la stessa
-strategia (lo dice la dispersione misurata al passo 1: 0,0149 contro 0,0221 di prove
-indipendenti), quindi mediarle non diversifica molto il rendimento — ma smussa il momento
-d'ingresso, che e' dove sta la varianza che non trasferisce.
+**Why it is plausible, not just elegant.** Neighbouring configurations are almost the same strategy
+(the dispersion measured in step 1 says so: 0.0149 against 0.0221 for independent trials), so
+averaging them does not diversify the return much — but it smooths the entry timing, which is where
+the variance that does not transfer lives.
 
-**Costo.** ~20 righe sopra `rotation.py`. Nessuna dipendenza nuova.
-**Verifica.** Fuori campione 2024-2026, contro tre riferimenti: la configurazione centrale
-attuale, la migliore in stima, e l'universo a peso uguale. Il criterio di successo e' dichiarato
-prima: l'ensemble deve battere **la migliore in stima**, che e' la procedura che si sta
-sostituendo. Se non la batte, l'idea e' morta e si scrive.
-
----
-
-## Passo 3 — volatility targeting
-
-**L'idea.** Ogni misura di questo progetto e' a capitale pieno, sempre. L'unico vantaggio
-trasversale mai trovato e' **sul rischio** (DD dimezzato). Lo strato che agisce direttamente su
-quell'asse non e' mai stato provato: scalare l'esposizione sull'inverso della volatilita'
-realizzata, con un tetto.
-
-**Perche' qui e non altrove.** Cripto ha volatilita' che varia di un fattore cinque fra regimi.
-A esposizione fissa il rischio del portafoglio e' interamente deciso dal mercato; a rischio
-mirato e' deciso da chi scrive la regola. E si compone con tutto: rotazione e strategie per-asset.
-
-**Costo.** `pnl.simulate_positions` conosce gia' la leva — serve renderla per-barra invece che
-costante. Poche righe, ma toccano il motore: test prima.
-**Verifica.** A parita' di drawdown, il rendimento sale? E' l'unica domanda. Il confronto va fatto
-riscalando entrambe le curve allo stesso drawdown, non a parita' di leva nominale.
-**Trappola nota.** La volatilita' realizzata va calcolata su barre chiuse a `i-1`. E' lo stesso
-difetto dello stop a trailing gia' trovato una volta, e `test_no_look_ahead` **non lo vedrebbe**.
+**Cost.** ~20 lines on top of `rotation.py`. No new dependencies.
+**Verification.** Out of sample 2024-2026, against three references: the current central
+configuration, the best in-sample one, and the equal-weight universe. The success criterion is
+declared in advance: the ensemble must beat **the best in-sample one**, which is the procedure being
+replaced. If it does not, the idea is dead and that gets written down.
 
 ---
 
-## Passo 4 — momentum residuo, e media dei ranghi
+## Step 3 — volatility targeting
 
-**L'idea.** La rotazione oggi ordina per forza grezza. In cripto quasi tutto il rendimento e' beta
-di BTC, quindi quella classifica ordina soprattutto per *quanto beta* ha ogni asset — non per
-quale sta facendo meglio del dovuto. Ordinare sul **residuo contro BTC** e' informazione diversa.
+**The idea.** Every measurement in this project is at full capital, always. The only cross-sectional
+advantage ever found is **on risk** (DD halved). The layer that acts directly on that axis has never
+been tried: scaling exposure by the inverse of realised volatility, with a cap.
 
-Secondo pezzo: invece di un segnale solo, la **media dei ranghi** di piu' segnali (momentum
-residuo, bassa volatilita', qualita' del trend). Media dei ranghi, non pesi stimati: stimare pesi
-e' esattamente la selezione che il passo 1 e ρ = −0,69 dicono di non fare.
+**Why here and not elsewhere.** Crypto has volatility that varies by a factor of five across regimes.
+At fixed exposure the portfolio's risk is entirely decided by the market; at targeted risk it is
+decided by whoever writes the rule. And it composes with everything: rotation and per-asset
+strategies.
 
-**Perche' e' la direzione giusta.** E' il punto del benchmark qlib letto in `ricerca-quant-ml.md`
-§1: il soffitto e' IC ≈ 0,05, e si monetizza **in sezione**, non nel tempo, perche' l'errore si
-media su piu' asset.
-
-**Costo.** Un segnale nuovo in `rotation.py` piu' la combinazione per ranghi. ~40 righe.
-**Verifica.** Stessa griglia, stessi riferimenti del passo 2, piu' il controllo che conta: il
-residuo deve battere la forza grezza **sulla mediana**, non sul massimo.
-
----
-
-## Passo 5 — il secondo ciclo (2017-2020)
-
-**Cosa.** Rifare rotazione e filtro meta sul 2017-2020 con l'universo che esisteva allora
-(BTC, ETH, XRP, BNB, LTC), **con il disegno uscito dai passi 2-4**, non con quello attuale.
-
-**Perche' e' l'ultimo.** E' l'unica verifica veramente indipendente rimasta, e si spende una volta
-sola: ogni misura fatta su quella finestra la contamina per la successiva. I dati sono gia' nello
-store dell'utente.
-
-**Criterio, dichiarato prima di guardare.** Il disegno nuovo deve, su 2017-2020: mediana positiva,
-battere l'universo a peso uguale, e drawdown sotto quello del passivo. Tre condizioni, decise ora
-proprio perche' deciderle dopo sarebbe un'altra selezione.
+**Cost.** `pnl.simulate_positions` already knows about leverage — it needs to become per-bar instead
+of constant. Few lines, but they touch the engine: tests first.
+**Verification.** At equal drawdown, does the return go up? That is the only question. The comparison
+must be made by rescaling both curves to the same drawdown, not at equal nominal leverage.
+**Known trap.** Realised volatility must be computed on bars closed at `i-1`. It is the same defect
+already found once in the trailing stop, and `test_no_look_ahead` **would not see it**.
 
 ---
 
+## Step 4 — residual momentum, and rank averaging
+
+**The idea.** The rotation today ranks by raw strength. In crypto almost all the return is BTC beta,
+so that ranking mostly orders by *how much beta* each asset has — not by which one is doing better
+than it should. Ranking on the **residual against BTC** is different information.
+
+Second piece: instead of a single signal, the **average of the ranks** of several signals (residual
+momentum, low volatility, trend quality). Rank averaging, not estimated weights: estimating weights
+is exactly the selection that step 1 and ρ = −0.69 say not to do.
+
+**Why it is the right direction.** It is the point of the qlib benchmark read in
+`ricerca-quant-ml.md` §1: the ceiling is IC ≈ 0.05, and it is monetised **in the cross section**, not
+in time, because the error averages out over several assets.
+
+**Cost.** One new signal in `rotation.py` plus the rank combination. ~40 lines.
+**Verification.** Same grid, same references as step 2, plus the control that counts: the residual
+must beat raw strength **on the median**, not on the maximum.
+
 ---
 
-## Passo 2bis — il consenso fra strategie
+## Step 5 — the second cycle (2017-2020)
 
-Chiesto dall'utente il 2026-08-27: un algoritmo che riconosce le condizioni di mercato, ne ricava
-**pesi di veridicita'** per ogni strategia, e agisce quando la somma pesata supera una **soglia
-dinamica**. E' la stessa idea del passo 2 un piano sopra -- li' si mediano le configurazioni di una
-strategia, qui le strategie fra loro -- e vale la stessa regola: **i pesi non si stimano**.
+**What.** Redo rotation and the meta filter on 2017-2020 with the universe that existed then (BTC,
+ETH, XRP, BNB, LTC), **with the design that comes out of steps 2-4**, not with the current one.
 
-### Il dato che c'era gia', e che nessuno aveva letto cosi'
+**Why it is last.** It is the only truly independent verification left, and it is spent once: every
+measurement made on that window contaminates it for the next. The data is already in the user's
+store.
 
-`live_bot.py` -- l'unico codice del progetto che muove denaro vero -- vota gia': `NUM_CONDITIONS`
-decide quante fra banda ATR e RSI devono concordare (`live_bot.py:441`, `:458`). E la griglia
-`close_buy_sell_limits` di `strategy_sweep` **sweepa `num_cond` fra 1 e 2**, 864 configurazioni per
-lato, su tutti e cinque i simboli e tre intervalli. E' in `reports/sensibilita_*.csv` dal primo
-giorno.
+**Criterion, declared before looking.** On 2017-2020 the new design must: have a positive median,
+beat the equal-weight universe, and have a drawdown below passive's. Three conditions, decided now
+precisely because deciding them afterwards would be another selection.
 
-Chiedere due condizioni invece di una, mediana del rendimento:
+---
 
-| intervallo | migliora | invariato | peggiora | trade/anno mediani |
+---
+
+## Step 2bis — consensus among strategies
+
+Requested by the user on 2026-08-27: an algorithm that recognises market conditions, derives
+**truthfulness weights** for each strategy from them, and acts when the weighted sum exceeds a
+**dynamic threshold**. It is the same idea as step 2 one level up — there configurations of one
+strategy are averaged, here strategies are averaged against each other — and the same rule applies:
+**the weights are not estimated**.
+
+### The data that was already there, and that nobody had read this way
+
+`live_bot.py` — the only code in the project that moves real money — already votes: `NUM_CONDITIONS`
+decides how many of the ATR band and RSI must agree (`live_bot.py:441`, `:458`). And the
+`close_buy_sell_limits` grid in `strategy_sweep` **sweeps `num_cond` between 1 and 2**, 864
+configurations per side, over all five symbols and three intervals. It has been in
+`reports/sensibilita_*.csv` since day one.
+
+Asking for two conditions instead of one, median return:
+
+| interval | improves | unchanged | worsens | median trades/year |
 |---|---|---|---|---|
 | 15m | BTC, ETH | — | — | 279 → 53 |
 | 4h | BNB, BTC, ETH, SOL | — | XRP | 15-17 → 2-3 |
 | 1d | BNB, ETH, SOL | BTC | XRP | 3 → **0** |
 
-Nove su dodici migliorano, lo Sharpe mediano sale in dieci. **Ma non e' una prova che il voto
-aggiunga informazione**: taglia le operazioni di cinque-dieci volte, e questo progetto ha gia'
-stabilito che la frequenza operativa spiega quasi tutto. A un giorno la mediana passa a 0,0% con
-zero operazioni mediane: la strategia non e' migliorata, ha smesso di operare.
+Nine out of twelve improve, the median Sharpe rises in ten. **But it is not proof that voting adds
+information**: it cuts trades by five to ten times, and this project has already established that
+trading frequency explains almost everything. At one day the median goes to 0.0% with zero median
+trades: the strategy did not improve, it stopped trading.
 
-**Il controllo che manca, e che decide:** confrontare il voto a due condizioni con **una condizione
-sola tarata sulla stessa frequenza operativa**. Se il voto non batte quel riferimento, non sta
-selezionando meglio -- sta solo operando meno, e operare meno costa una riga, non un algoritmo.
+**The control that is missing, and that decides:** compare two-condition voting against **a single
+condition tuned to the same trading frequency**. If voting does not beat that reference, it is not
+selecting better — it is just trading less, and trading less costs one line, not an algorithm.
 
-### La diagnosi da fare per prima, prima di scrivere l'algoritmo
+### The diagnostic to do first, before writing the algorithm
 
-**La matrice di correlazione fra le posizioni barra-per-barra delle strategie del menu.** Sono quasi
-tutte di inseguimento del trend sullo stesso prezzo: se la correlazione media a coppie e' alta, il
-voto e' una sola opinione contata dieci volte, e nessun sistema di pesi lo cambia. E' la misura piu'
-economica del piano e puo' chiuderlo in un pomeriggio. **Non e' ancora stata fatta**, e non e'
-deducibile da `reports/`, che tiene righe di riepilogo e non serie.
+**The correlation matrix of the menu strategies' bar-by-bar positions.** They are almost all
+trend-following on the same price: if the average pairwise correlation is high, the vote is a single
+opinion counted ten times, and no weighting scheme changes that. It is the cheapest measurement in
+the plan and it can close it in an afternoon. **It has not been done yet**, and it is not derivable
+from `reports/`, which holds summary rows and not series.
 
-### Tre versioni annidate, una liberta' in piu' ciascuna
+### Three nested versions, one extra degree of freedom each
 
-Si misura ognuna contro la precedente, e si passa alla successiva **solo** se guadagna:
+Each is measured against the previous one, and one moves to the next **only** if it gains:
 
-1. **V0 — consenso a peso uguale.** k fra N strategie a parametri fissi (i `tuned_defaults`).
-   Un solo parametro: k. Riferimenti: ogni strategia singola, e -- quello che conta -- ogni
-   strategia singola ritarata alla stessa frequenza operativa.
-2. **V1 — pesi online.** Peso di ogni strategia esponenziale nella sua resa recente (Hedge /
-   pesi moltiplicativi). Un solo parametro: il tasso di apprendimento. I pesi li produce una
-   regola, non una ricerca, e la garanzia teorica e' esattamente quella che serve dato ρ = −0,69:
-   asintoticamente non si fa peggio della migliore strategia singola.
-3. **V2 — pesi condizionati al regime** — la versione chiesta. Solo se V1 batte V0. E' qui che il
-   numero di parametri esplode (un classificatore di regime x N strategie), ed e' la versione che
-   ρ = −0,69 prevede fallisca.
+1. **V0 — equal-weight consensus.** k out of N strategies at fixed parameters (the
+   `tuned_defaults`). A single parameter: k. References: each individual strategy, and — what counts
+   — each individual strategy retuned to the same trading frequency.
+2. **V1 — online weights.** Each strategy's weight exponential in its recent return (Hedge /
+   multiplicative weights). A single parameter: the learning rate. The weights are produced by a
+   rule, not by a search, and the theoretical guarantee is exactly the one needed given ρ = −0.69:
+   asymptotically one does no worse than the best individual strategy.
+3. **V2 — regime-conditioned weights** — the version requested. Only if V1 beats V0. This is where
+   the parameter count explodes (a regime classifier × N strategies), and it is the version that
+   ρ = −0.69 predicts will fail.
 
-La **soglia dinamica** segue la stessa regola: non un numero tarato per regime, ma una funzione
-scale-free (per esempio chiedere piu' consenso quando la volatilita' e' alta), aggiunta una alla
-volta e misurata come una liberta' in piu'.
+The **dynamic threshold** follows the same rule: not a number tuned per regime, but a scale-free
+function (for example asking for more consensus when volatility is high), added one at a time and
+measured as one extra degree of freedom.
 
-### E' un'idea nota?
+### Is it a known idea?
 
-Si', e con nomi precisi: previsione con consulenti esperti (Hedge, pesi moltiplicativi), esperti
-"dormienti" o specialisti -- che votano solo nel proprio contesto, cioe' esattamente "quali
-strategie sono attendibili in questo regime" -- portafogli universali, modelli a cambio di regime
-di Markov, stacking, e il meta-labeling di Lopez de Prado, che in questo repository e' gia'
-implementato come `scripts/meta_gate.py`.
+Yes, and with precise names: prediction with expert advice (Hedge, multiplicative weights),
+"sleeping" experts or specialists — which vote only in their own context, i.e. exactly "which
+strategies are trustworthy in this regime" — universal portfolios, Markov regime-switching models,
+stacking, and Lopez de Prado's meta-labeling, which in this repository is already implemented as
+`scripts/meta_gate.py`.
 
-La prova piu' vicina a questo progetto sta gia' nell'artifact §1: nella tabella qlib il **primo
-posto per IC e' DoubleEnsemble** (un ensemble) e il **primo per Rank IC e' TRA**, che e' un
-instradatore che manda ogni campione a un predittore diverso -- cioe' la versione appresa della
-"condizione di mercato che sceglie i pesi". La famiglia e' quella giusta. Ma i rendimenti annui di
-quelle due righe sono 11,6% e 7,2%: l'ensemble vince la classifica **e resta sotto lo stesso
-soffitto**. Non trasforma una famiglia perdente in una vincente.
+The evidence closest to this project is already in the §1 artifact: in the qlib table the **top spot
+for IC is DoubleEnsemble** (an ensemble) and the **top for Rank IC is TRA**, which is a router that
+sends each sample to a different predictor — i.e. the learned version of "the market condition that
+chooses the weights". The family is the right one. But the annual returns of those two rows are 11.6%
+and 7.2%: the ensemble wins the ranking **and stays under the same ceiling**. It does not turn a
+losing family into a winning one.
 
 ---
 
-## Cosa questo piano non fa, e perche'
+## What this plan does not do, and why
 
-- **Non integra quant e ML.** Il verdetto di `ricerca-quant-ml.md` §6 regge: il filtro non ha
-  superato il proprio controllo casuale, e comporre uno strato non dimostrato con uno dimostrato
-  non puo' che peggiorare il secondo. Si riapre se il filtro passa il controllo su un secondo ciclo.
-- **Non allarga l'universo.** Misurato: mediana fuori campione da +62% a −0,9%.
-- **Non aggiunge il verso corto.** Misurato in perdita su tutte e cinque le strategie.
-- **Non cerca architetture profonde.** I benchmark qlib le mostrano sotto il gradient boosting, e
-  la sezione trasversale non e' esaurita.
-- **Non ottimizza i parametri.** E' il punto dell'intero piano.
+- **It does not integrate quant and ML.** The verdict of `ricerca-quant-ml.md` §6 holds: the filter
+  did not pass its own random control, and composing an unproven layer with a proven one can only
+  make the second worse. It reopens if the filter passes the control on a second cycle.
+- **It does not widen the universe.** Measured: out-of-sample median from +62% to −0.9%.
+- **It does not add the short side.** Measured at a loss on all five strategies.
+- **It does not look for deep architectures.** The qlib benchmarks show them below gradient boosting,
+  and the cross section is not exhausted.
+- **It does not optimise the parameters.** That is the point of the whole plan.

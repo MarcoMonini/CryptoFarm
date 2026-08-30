@@ -1,85 +1,90 @@
-# `tests/` — 35 file, 1.022 casi (1.019 passati, 3 saltati)
+# `tests/` — 35 files, 1,027 cases (1,024 passed, 3 skipped)
 
-> I numeri fra parentesi sono i casi **raccolti** da pytest, non le funzioni scritte: dove c'è
-> `parametrize` i due divergono molto (`test_panels.py` ha 25 funzioni e 410 casi).
+> The numbers in brackets are the cases **collected** by pytest, not the functions written: where
+> there is `parametrize` the two diverge a lot (`test_panels.py` has 25 functions and 410 cases).
 
-`.venv312/bin/python -m pytest`. Nessun test tocca la rete e nessuno richiede lo store delle
-candele: dove servono dati, sono costruiti in memoria. È una condizione, non una comodità — è
-quella in cui gira la CI e in cui deve girare chi ha appena clonato il repository.
+`.venv312/bin/python -m pytest`. No test touches the network and none requires the candle store:
+where data is needed, it is built in memory. That is a condition, not a convenience — it is the one
+CI runs in and the one whoever has just cloned the repository must be able to run in.
 
-## Come sono organizzati
+## How they are organised
 
-Un file per modulo, con lo stesso nome (`test_confluence.py` ↔ `trading/confluence.py`), più tre
-file che coprono un **livello** invece di un modulo.
+One file per module, with the same name (`test_confluence.py` ↔ `trading/confluence.py`), plus three
+files that cover a **level** instead of a module.
 
-### I tre di livello
+### The three at level
 
-| file | test | cosa protegge |
+| file | tests | what it protects |
 |---|---|---|
-| `test_simulator_golden.py` | 75 | il **comportamento** di 21 funzioni su quattro scenari sintetici, contro `data/simulator_golden.json` |
-| `test_simulator_page.py` | 8 | la pagina **come pagina**, eseguita con `streamlit.testing.v1.AppTest` |
-| `test_scripts_importabili.py` | 18 | che ogni modulo di `scripts/` almeno si importi |
+| `test_simulator_golden.py` | 75 | the **behaviour** of 21 functions over four synthetic scenarios, against `data/simulator_golden.json` |
+| `test_simulator_page.py` | 8 | the page **as a page**, run with `streamlit.testing.v1.AppTest` |
+| `test_scripts_importabili.py` | 18 | that every module in `scripts/` at least imports |
 
-`test_simulator_page.py` è il livello da cui è passato il guasto che tolse il simulatore dalla
-produzione: ogni funzione aveva i suoi test e passavano tutti, mentre un `load_signal_model()`
-chiamato senza condizione impediva alla pagina di aprirsi. Copre anche la degradazione senza store
-e senza modelli, che è la condizione del servizio pubblico.
+`test_simulator_page.py` is the level the fault that took the simulator out of production passed
+through: every function had its own tests and they all passed, while an unconditional
+`load_signal_model()` prevented the page from opening. It also covers degradation without the store
+and without models, which is the public service's condition.
 
-### Il modello e i suoi segnali
+### The model and its signals
 
 `test_features.py` (7) · `test_labeling.py` (13) · `test_directional_change.py` (12) ·
 `test_dataset.py` (14) · `test_evaluate.py` (14) · `test_validation.py` (16) ·
 `test_execution.py` (7) · `test_signals.py` (10) · `test_model_discovery.py` (12)
 
-`test_swing_target.py` (11) · `test_swing_features.py` (4) · `test_swing_signals.py` (8) ·
-`test_swing_lab.py` (5) — il modello a swing, dal bersaglio al servizio.
+`test_swing_target.py` (15) · `test_swing_features.py` (4) · `test_swing_signals.py` (8) ·
+`test_swing_lab.py` (5) — the swing model, from target to serving.
 
-`test_entry_trainer.py` (7) · `test_entry_signals.py` (10) · `test_entry_panel.py` (6) — il
-modello d'ingresso, che è quello in testa oggi.
+`test_entry_trainer.py` (7) · `test_entry_signals.py` (10) · `test_entry_panel.py` (6) — the entry
+model, which is the one at the head today.
 
-`test_rl.py` (6) · `test_rl_signals.py` (8) — la politica a rinforzo.
+`test_rl.py` (6) · `test_rl_signals.py` (8) — the RL policy.
 
-### Le strategie e il conto
+### The strategies and the accounting
 
-`test_confluence.py` (56) · `test_confluence_lab.py` (8) · `test_confluence_audit.py` (4) ·
+`test_confluence.py` (57) · `test_confluence_lab.py` (8) · `test_confluence_audit.py` (4) ·
 `test_ai_voter.py` (3) · `test_voters.py` (10) · `test_mtf.py` (5) · `test_long_short.py` (25) ·
 `test_portfolio.py` (13) · `test_rotation.py` (9) · `test_panels.py` (410) ·
 `test_tuned_defaults.py` (177) · `test_strategy_sweep.py` (15)
 
-### I dati
+### The data
 
-`test_klines_store.py` (12) · `test_positioning.py` (4) — nessuna rete: i dump sono costruiti in
-memoria.
+`test_klines_store.py` (12) · `test_positioning.py` (4) — no network: the dumps are built in memory.
 
-## Cinque test che vanno letti prima di modificarne il modulo
+## Six tests to read before changing their module
 
-Sono quelli che difendono da un difetto **invisibile leggendo il codice**, e riscriverli senza
-capirli è il modo più rapido di reintrodurlo.
+They are the ones defending against a defect that is **invisible when reading the code**, and
+rewriting them without understanding them is the quickest way to reintroduce it.
 
-- **`test_mtf.py`** taglia *dentro* una barra lunga già cominciata. Un taglio allineato ai confini
-  passa anche col look-ahead reintrodotto, ed è com'era scritto la prima volta.
-- **`test_tuned_defaults.py`** asserisce sulla **chiave** del widget, non sul valore: Streamlit
-  conserva lo stato per chiave, e `AppTest` ricostruisce lo stato a ogni run, quindi il difetto
-  vero (i campi che restano fermi cambiando intervallo) non lo vedrebbe.
-- **`test_panels.py`** conta le tracce del riquadro *Voters* contro `len(VOTANTI)`: è l'unico
-  elenco della confluenza che va tenuto allineato a mano.
-- **`test_model_discovery.py`** verifica che un artefatto vecchio in `models/` **non** riporti in
-  servizio un disegno già chiuso in negativo. È il nome, non il ramo, a decidere cosa si carica.
-- **`test_swing_signals.py`** fissa la regola a esposizione *e cosa non è*: `sign(previsione)` è la
-  lettura naturale di un target in [−1, 1] ed è misurata in perdita a tutte le soglie.
+- **`test_mtf.py`** cuts *inside* a long bar that has already begun. A cut aligned to the boundaries
+  passes even with the look-ahead reintroduced, and that is how it was written the first time.
+- **`test_tuned_defaults.py`** asserts on the widget's **key**, not on the value: Streamlit keeps
+  state by key, and `AppTest` rebuilds state on every run, so it would not see the real defect (the
+  fields staying put when the interval changes).
+- **`test_panels.py`** counts the *Voters* panel's traces against `len(VOTANTI)`: it is the only list
+  in the confluence that has to be kept aligned by hand.
+- **`test_model_discovery.py`** verifies that an old artifact in `models/` does **not** bring a design
+  already closed with a negative result back into service. It is the name, not the branch, that
+  decides what gets loaded.
+- **`test_swing_signals.py`** pins the exposure rule *and what it is not*: `sign(prediction)` is the
+  natural reading of a target in [−1, 1] and is measured at a loss at every threshold.
+- **`test_swing_target.py`** pins `labeling.TIME_WEIGHT` — the temporal smoothing at 0.7 — against
+  its two copies, `swing_trainer.PESO_TEMPO` and `trading/config.SWING_TARGET_TEMPO`. Without it the
+  three drift silently, and the page draws one label while the model trains on another. It also pins
+  the label's monotonicity along the leg and the fact that `swing_target(verso="avanti")` looks only
+  forward, which is the yardstick every IC in the documents is scored against.
 
-## Il golden master
+## The golden master
 
-`test_simulator_golden.py` **deve passare prima di una modifica e passare ancora dopo, senza
-rigenerarlo**. Rigenerare (`SIMULATOR_GOLDEN_REGEN=1 pytest tests/test_simulator_golden.py`)
-accetta qualunque differenza di comportamento: farlo solo dopo aver verificato a mano che la
-differenza sia voluta, e controllare che il diff del JSON contenga solo le righe attese.
+`test_simulator_golden.py` **must pass before a change and pass again afterwards, without being
+regenerated**. Regenerating (`SIMULATOR_GOLDEN_REGEN=1 pytest tests/test_simulator_golden.py`)
+accepts any behaviour difference: do it only after verifying by hand that the difference is intended,
+and check that the JSON diff contains only the expected lines.
 
-Gli scenari non sono intercambiabili: `close_ema_crossover_simulation` pretende tre incroci EMA in
-sequenza e scatta solo su un'inversione vera, `close_bullish_ema_simulation` solo in laterale.
-Togliere uno scenario scopre delle strategie senza che nessun test fallisca.
+The scenarios are not interchangeable: `close_ema_crossover_simulation` demands three EMA crossovers
+in sequence and only fires on a real reversal, `close_bullish_ema_simulation` only in the sideways
+one. Removing a scenario uncovers strategies without any test failing.
 
 ## Lint
 
-`ruff check src scripts tests` e `black src scripts tests`. La configurazione sta in
-`pyproject.toml` (riga a 120 caratteri).
+`ruff check src scripts tests` and `black src scripts tests`. The configuration is in
+`pyproject.toml` (120-character line).

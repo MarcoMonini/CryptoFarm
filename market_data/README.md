@@ -1,36 +1,37 @@
-# `market_data/` — lo store locale
+# `market_data/` — the local store
 
-**Non tracciato.** Circa 4,2 GB a store pieno, 15 simboli dal 2017. Un clone del repository trova
-questa cartella vuota (a parte questo file), e in produzione — dove Render non ha dischi
-persistenti — resta vuota per sempre: è la condizione per cui la vista *Cross-asset rotation* dice
-che non ha dati invece di provare quindici scarichi.
+**Not tracked.** Around 4.2 GB with a full store, 15 symbols from 2017. A clone of the repository
+finds this folder empty (apart from this file), and in production — where Render has no persistent
+disks — it stays empty forever: that is the condition for which the *Cross-asset rotation* view says
+it has no data instead of attempting fifteen downloads.
 
-## Cosa ci finisce dentro
+## What ends up in here
 
-| forma | prodotto da | cosa contiene |
+| shape | produced by | what it holds |
 |---|---|---|
-| `<SIMBOLO>-5m.parquet` | `python -m cryptofarm.data.klines --update` | le candele OHLCV. **Solo 5m**: 15m/30m/1h si derivano aggregando, ed è esatto |
-| `<SIMBOLO>-positioning.parquet` | `python -m cryptofarm.data.positioning --update` | long/short ratio, open interest, funding, base. ~400 MB |
-| `*.pkl` | i banchi di `scripts/` | cache delle previsioni di un modello, chiavata sulla firma `created` dell'artefatto |
+| `<SYMBOL>-5m.parquet` | `python -m cryptofarm.data.klines --update` | the OHLCV candles. **5m only**: 15m/30m/1h are derived by aggregation, and that is exact |
+| `<SYMBOL>-positioning.parquet` | `python -m cryptofarm.data.positioning --update` | long/short ratio, open interest, funding, basis. ~400 MB |
+| `*.pkl` | the benches in `scripts/` | cache of a model's predictions, keyed on the artifact's `created` signature |
 
-I `.pkl` sono **cache, non dati**: `rl_stati.pkl` da solo pesa 3,5 GB e si ricostruisce
-rilanciando `scripts/rl_lab.py`. Cancellarli costa tempo di CPU, non informazione. I `.parquet`
-delle candele invece costano ore di rete: quelli si tengono.
+The `.pkl` files are **cache, not data**: `rl_stati.pkl` alone weighs 3.5 GB and is rebuilt by
+rerunning `scripts/rl_lab.py`. Deleting them costs CPU time, not information. The candle `.parquet`
+files, on the other hand, cost hours of network: those are kept.
 
-## Ricostruirlo
+## Rebuilding it
 
 ```bash
-.venv312/bin/python -m cryptofarm.data.klines --update        # sotto i 10 minuti con 32 worker
+.venv312/bin/python -m cryptofarm.data.klines --update        # under 10 minutes with 32 workers
 .venv312/bin/python -m cryptofarm.data.positioning --update   # ~400 MB
 ```
 
-I dati arrivano dai dump mensili di `data.binance.vision`, non dalla REST API — la ragione, che è
-un fattore ottanta sul tempo, sta in [`../src/cryptofarm/data/README.md`](../src/cryptofarm/data/README.md).
-Dove quel dominio non è raggiungibile, `scripts/import_candles.py` costruisce lo stesso store da un
-clone locale.
+The data comes from the monthly dumps of `data.binance.vision`, not from the REST API — the reason,
+which is a factor of eighty on time, is in
+[`../src/cryptofarm/data/README.md`](../src/cryptofarm/data/README.md).
+Where that domain is unreachable, `scripts/import_candles.py` builds the same store from a local
+clone.
 
-## Spostarlo
+## Moving it
 
-`CRYPTOFARM_MARKET_DATA_DIR`. Senza la variabile, la posizione resta relativa alla radice del
-repository. In container l'immagine la imposta a `/app/market_data`, dove `compose.yaml` monta
-questa cartella dell'host.
+`CRYPTOFARM_MARKET_DATA_DIR`. Without the variable, the location stays relative to the repository
+root. In a container the image sets it to `/app/market_data`, where `compose.yaml` mounts this folder
+from the host.

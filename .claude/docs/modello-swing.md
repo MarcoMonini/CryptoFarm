@@ -1,294 +1,315 @@
-# Il modello a swing — dalla barriera tripla alla forma degli estremi
+# The swing model — from the triple barrier to the shape of the extremes
 
-**Data:** 2026-08-28. **Stato:** superato il 2026-08-29 da `entry_model_veloce`
-(`modello-ingresso.md`), che sta davanti in `MODEL_PRECEDENCE`. Questo modello resta nella catena
-sotto di lui e torna a servire la pagina se gli artefatti d'ingresso non ci sono. Il documento
-resta valido come misura: è quello che ha stabilito che il segnale esiste ma non batte il caso a
-esposizione appaiata, ed è da lì che è nata la domanda nuova.
+**Date:** 2026-08-28. **Status:** superseded on 2026-08-29 by `entry_model_veloce`
+(`modello-ingresso.md`), which sits ahead of it in `MODEL_PRECEDENCE`. This model stays in the chain
+below it and serves the page again if the entry artifacts are missing. The document remains valid as
+a measurement: it is what established that the signal exists but does not beat chance at matched
+exposure, and that is where the new question came from.
 
-Cablato all'epoca *sapendo* cosa dice il §5. Cosa era stato cablato, e cosa deliberatamente no,
-sta al §5.4. **Perché il modello nuovo non lo sostituisce per bravura ma per domanda**: a pari
-selezione l'etichetta a gambe individua i minimi meglio del rendimento futuro diretto (37,2%
-contro 23,0%) e rende 2,4 volte meno.
+**Updated 2026-08-30**: the label the model is trained on is now `labeling.swing_leg_target` with
+the temporal smoothing at 0.7 — see §2 and `.claude/docs/labeling-strategy.md`. The verdict does not
+change; the honest out-of-sample number improves slightly.
 
-Questo documento chiude tre cose in una sessione: l'audit del modello precedente (`leg_model`),
-la sostituzione dell'etichettatura, e la misura che dice cosa farne. Le tre parti vanno lette in
-quest'ordine, perché ognuna è la ragione della successiva.
+Wired in at the time *knowing* what §5 says. What was wired in, and what deliberately was not, is in
+§5.4. **The new model does not replace it by being better but by asking a different question**: at
+equal selectivity the leg label identifies lows better than the direct forward return (37.2% against
+23.0%) and returns 2.4× less.
+
+This document closes three things in one session: the audit of the previous model (`leg_model`), the
+replacement of the labeling, and the measurement that says what to do with it. The three parts
+should be read in that order, because each is the reason for the next.
 
 ---
 
-## 1. Perché `leg_model` è uscito dalla catena
+## 1. Why `leg_model` left the chain
 
-> **Il codice di questa sezione non c'è più (cancellato il 2026-08-30).** `ml/leg_trainer.py`, la
-> funzione `signals.leg_signals` e il ramo di dispatch che la serviva sono stati tolti: un
-> `leg_model.joblib` rimasto su disco non riporta più la pagina su questo modello, e un test lo
-> verifica. `labeling.swing_leg_target` invece **resta**, perché è l'etichetta che
-> `modello-ingresso.md` usa come termine di confronto. La misura sotto vale ancora ed è il motivo
-> per cui la sezione resta scritta.
+> **The code in this section no longer exists (deleted 2026-08-30).** `ml/leg_trainer.py`, the
+> `signals.leg_signals` function and the dispatch branch that served it were removed: a
+> `leg_model.joblib` left on disk no longer brings the page back to this model, and a test verifies
+> that. `labeling.swing_leg_target`, on the other hand, **stays** — it is the label
+> `swing_trainer.py` trains on today and the one `modello-ingresso.md` uses as a comparison. The
+> measurement below still holds and is why the section stays written.
 
-Un revisore in contesto fresco, senza le conclusioni dell'autore, ha esaminato
-`leg_trainer.py`, `bar_features.py`, `positioning.py`, `leg_signals` e `barrier_widths` contro un
-contratto di nove requisiti. Su una ventina di rilievi il rumore è stato **zero**. I quattro
-strutturali sono lo stesso difetto visto da quattro lati — *il ciclo di validazione non misurava
-la strategia spedita*:
+A reviewer working in a fresh context, without the author's conclusions, examined
+`leg_trainer.py`, `bar_features.py`, `positioning.py`, `leg_signals` and `barrier_widths` against a
+nine-requirement contract. Out of some twenty findings the noise was **zero**. The four structural
+ones are the same defect seen from four sides — *the validation loop was not measuring the strategy
+being shipped*:
 
-| # | rilievo | verificato |
+| # | finding | verified |
 |---|---|---|
-| 1 | Il controllo casuale campiona righe i.i.d. da una popolazione dove ogni riga si sovrappone alla successiva per 7/8 dell'orizzonte e 15 simboli condividono il timestamp. Con un bootstrap a blocchi settimanali il p95 passa da −0,22 a **+0,06** e il modello scende all'80° percentile: non passa. | sì |
-| 2 | Entrambe le soglie sono scelte **sul campione di verifica** (`idxmax` dello sweep su `fuori`, quantile delle predizioni di `fuori`). | sì |
-| 3 | Il verdetto `PASSA` si accontenta di battere un p95 anch'esso negativo. Il netto medio per ingresso è **negativo a tutte e sei le soglie** (−0,149 … −0,091). | sì, letto dai metadata |
-| 4 | Lo sweep ottimizza `rendimento_%`, che chiude a +1,5 ATR — cioè **con** il take profit, la variante che la misura dell'autore dà per peggiore fra sei. E la testa d'uscita non è mai valutata contro un P&L. | sì |
+| 1 | The random control samples i.i.d. rows from a population where each row overlaps the next by 7/8 of the horizon and 15 symbols share the timestamp. With a weekly block bootstrap the p95 goes from −0.22 to **+0.06** and the model drops to the 80th percentile: it does not pass. | yes |
+| 2 | Both thresholds are chosen **on the verification sample** (`idxmax` of the sweep over `fuori`, quantile of the predictions on `fuori`). | yes |
+| 3 | The `PASSA` verdict settles for beating a p95 that is itself negative. The average net per entry is **negative at all six thresholds** (−0.149 … −0.091). | yes, read from the metadata |
+| 4 | The sweep optimises `rendimento_%`, which closes at +1.5 ATR — i.e. **with** the take profit, the variant the author's own measurement rates worst of six. And the exit head is never evaluated against a P&L. | yes |
 
-`percentile: 100.0` ripetuto sei volte su sei era il campanello: un controllo che risponde sempre
-la stessa cosa non sta misurando niente.
+`percentile: 100.0` repeated six times out of six was the alarm bell: a control that always answers
+the same thing is not measuring anything.
 
-Due difetti di contaminazione confermati a mano, entrambi da una riga:
+Two contamination defects confirmed by hand, both one-liners:
 
-- **`forza_su_btc` è un marcatore d'identità esatto per BTC.** Vale `0,0` su 19.691 righe BTC su
-  19.691, e mai su ETH. Una sola divisione in un albero isola BTC alla perfezione — cioè
-  esattamente ciò che il modulo dichiara di voler evitare nel proprio docstring d'apertura.
-- **`sopra_ema200` mentiva sulle barre di riscaldamento.** `NaN > x` è `False` e
-  `False.astype(float)` è `0,0`: tutte e 199 le barre prima che la EMA200 esista dicevano «sotto
-  la EMA200». È lo stesso difetto già corretto per `atr_rel` **una riga sopra**, lasciato in piedi
-  una riga sotto. In pagina è peggio che in addestramento, perché la finestra caricata è corta.
+- **`forza_su_btc` is an exact identity marker for BTC.** It equals `0.0` on 19,691 BTC rows out of
+  19,691, and never on ETH. A single split in a tree isolates BTC perfectly — which is exactly what
+  the module declares it wants to avoid in its opening docstring.
+- **`sopra_ema200` lied on the warm-up bars.** `NaN > x` is `False` and `False.astype(float)` is
+  `0.0`: all 199 bars before the EMA200 exists said "below the EMA200". It is the same defect
+  already fixed for `atr_rel` **one line above**, left standing one line below. On the page it is
+  worse than in training, because the loaded window is short.
 
-Corretto `sopra_ema200`; `forza_su_btc` è caduta con le colonne trasversali (§3). `leg_model` è
-fuori da `MODEL_PRECEDENCE` con la ragione scritta accanto alla costante.
+`sopra_ema200` fixed; `forza_su_btc` fell with the cross-sectional columns (§3). `leg_model` is out
+of `MODEL_PRECEDENCE` with the reason written next to the constant.
 
-**Conseguenza sull'AUC.** Lo 0,5639 dichiarato «il più alto mai prodotto dal progetto, sopra il
-soffitto ~0,54» non è un risultato: **è un allarme**, e i due difetti sopra sono candidati
-concreti a spiegarlo.
+**Consequence for the AUC.** The 0.5639 declared "the highest ever produced by the project, above
+the ~0.54 ceiling" is not a result: **it is an alarm**, and the two defects above are concrete
+candidates to explain it.
 
 ---
 
-## 2. La domanda nuova
+## 2. The new question
 
-La barriera tripla chiede *«il prezzo si muove di 1,5 ATR entro l'orizzonte?»*. È una domanda
-sulla **volatilità**, e siccome le barriere sono già scalate sull'ATR l'etichetta normalizza via
-proprio la parte prevedibile. Misurato: l'ampiezza futura ha |IC| 0,42 con 10/10 asset concordi,
-la direzione 0,06.
+The triple barrier asks *"does the price move 1.5 ATR within the horizon?"*. That is a question
+about **volatility**, and since the barriers are already scaled on the ATR the label normalises away
+precisely the predictable part. Measured: future amplitude has |IC| 0.42 with 10/10 assets agreeing,
+direction 0.06.
 
-`labeling.swing_target` chiede invece *dove sta questa barra rispetto alle sue vicine*: il rango
-centrato della chiusura in `[-1, 1]`, −1 su un minimo locale, +1 su un massimo, ~0 dentro una
-tendenza regolare.
+The swing label asks instead *where this bar sits between the local extremes around it*: a value in
+`[-1, 1]`, −1 on a local low, +1 on the high that follows, and it slides along the leg in between.
 
-**Quell'ultima proprietà è il punto.** Dentro una salita costante la barra centrale ha metà
-finestra sopra e metà sotto per costruzione, quindi il target vale 0 e non +1: satura solo dove la
-salita si esaurisce. Un «massimo dei prezzi futuri», o una distanza da quel massimo, marcherebbero
-come *vicino al massimo* tutta la salita, ed è ciò che rende quelle etichette inservibili.
+**That last property is the point.** Inside a steady rise the label does not sit at +1 for the whole
+climb: it saturates only where the rise runs out. A "maximum of future prices", or a distance from
+that maximum, would mark the entire climb as *near the high*, and that is what makes those labels
+unusable.
 
-Implementata con due rolling causali invece che con una finestra centrata: quello all'indietro dà
-la posizione fra le `W` barre precedenti, quello sulla serie rovesciata fra le successive, e la
-somma meno uno è il rango centrato esatto. Costa `O(n log W)` invece di materializzare
-`n × (2W+1)` valori, che a 5m su quindici simboli non ci sta in memoria.
+Two forms of this label exist, and the distinction matters:
 
-### 2.1 Metà del target è gratis, e il metro deve saperlo
+- **`swing_target`** — the centered rank of the close among the `W` bars on each side. It is
+  implemented with two causal rollings instead of a centered window: the backward one gives the
+  position among the `W` preceding bars, the one on the reversed series among the following, and the
+  sum minus one is the exact centered rank. It costs `O(n log W)` instead of materialising
+  `n × (2W+1)` values, which at 5m across fifteen symbols does not fit in memory. **It has no
+  temporal component by construction**, and today it is used only as the yardstick (§2.1);
+- **`swing_leg_target`** — the leg between one extreme and the next, where the position along the
+  leg is **70% elapsed bars and 30% price** (`labeling.TIME_WEIGHT = 0.7`). This is the label the
+  model is trained on and the one the chart draws. The full treatment is
+  `.claude/docs/labeling-strategy.md`.
 
-Il rango centrato usa anche le `W` barre **passate**, che le feature già descrivono:
+The time weight is what makes the label *lead* the price rather than follow it: a price that stalls
+mid-leg keeps advancing towards the extreme that is coming, because the bars are being spent.
+Without it, the target is reproducible by a Stochastic — which is exactly the measurement in §2.1.
 
-| | IC contro il Target pieno | IC contro la sola metà futura |
+### 2.1 Half the target is free, and the yardstick has to know it
+
+The centered rank also uses the `W` **past** bars, which the features already describe:
+
+| | IC against the full target | IC against the forward half alone |
 |---|---|---|
-| uno **Stochastic** (rango passato, zero modello, zero futuro) | **+0,703** | +0,050 |
-| il modello a gradienti | +0,670 | +0,054 |
+| a **Stochastic** (past rank, zero model, zero future) | **+0.703** | +0.050 |
+| the gradient-boosted model | +0.670 | +0.054 |
 
-Il 93% del target è ricostruibile dal passato. Valutare lì misura soprattutto quanto bene il
-modello rifà uno Stochastic — cosa in cui **perde**. Da qui il parametro `verso` di
-`swing_target`, e la regola che ogni cifra si misura contro `verso="avanti"`.
+93% of the target is reconstructible from the past. Scoring there mostly measures how well the model
+reproduces a Stochastic — something it **loses** at. Hence the `verso` parameter of `swing_target`,
+and the rule that every figure is measured against `verso="avanti"`.
 
-Nota utile: addestrare **sul target centrato** e misurare sul futuro dà 0,053; addestrare
-direttamente sul solo futuro dà 0,032. La metà passata fa da regolarizzatore.
+A useful note: training **on the centered target** and measuring on the future gives 0.053; training
+directly on the future alone gives 0.032. The past half acts as a regulariser.
 
 ---
 
-## 3. Le decisioni di disegno, tutte misurate
+## 3. The design decisions, all measured
 
-Sette simboli, verifica 2024–2026, IC di Spearman contro la metà futura:
+Seven symbols, verification 2024–2026, Spearman IC against the forward half:
 
-| variante | colonne | IC |
+| variant | columns | IC |
 |---|---|---|
-| `pos_canale` da solo, nessun modello | 1 | +0,0433 |
-| base 5m | 15 | +0,0502 |
-| + storico esplicito a −1 e −2 barre | 45 | +0,0509 |
-| + storico fino a −8 barre | 75 | +0,0510 |
-| + storico fino a −32 barre | 105 | +0,0498 |
-| + Target ritardato di `W+1` (l'unico ritardo lecito) | 16 | +0,0497 |
-| **+ aggregazione 1h e 1d** | **41** | **+0,0540** |
-| + tutte e quattro le scale (15m, 1h, 4h, 1d) | 67 | +0,0539 |
-| + Target ritardato di **1** barra | 16 | +0,6729 |
+| `pos_canale` alone, no model | 1 | +0.0433 |
+| 5m base | 15 | +0.0502 |
+| + explicit history at −1 and −2 bars | 45 | +0.0509 |
+| + history up to −8 bars | 75 | +0.0510 |
+| + history up to −32 bars | 105 | +0.0498 |
+| + target delayed by `W+1` (the only legitimate delay) | 16 | +0.0497 |
+| **+ 1h and 1d aggregation** | **41** | **+0.0540** |
+| + all four scales (15m, 1h, 4h, 1d) | 67 | +0.0539 |
+| + target delayed by **1** bar | 16 | +0.6729 |
 
-**Niente storico esplicito.** Ricopiare le feature indietro costa il triplo delle colonne per due
-millesimi, e oltre le due barre peggiora. Lo storico c'è già, compresso in EMA200, ADX e OBV a 20
-barre.
+**No explicit history.** Copying the features backwards costs three times the columns for two
+thousandths, and past two bars it gets worse. The history is already there, compressed into EMA200,
+ADX and OBV over 20 bars.
 
-**Niente Target fra le feature.** Al solo ritardo lecito vale −0,0005. L'ultima riga della tabella
-non è un risultato ma **la misura del danno**: a ritardo 1 il target condivide 143 delle sue 144
-barre con quello di oggi, quindi quel +0,67 è la fuga di informazione. Serve tenerla scritta
-perché è l'idea più pericolosa dell'intero disegno: produrrebbe un modello spettacolare in tabella
-e inservibile in produzione.
+**No target among the features.** At the only legitimate delay it is worth −0.0005. The last row of
+the table is not a result but **the measurement of the damage**: at delay 1 the target shares 143 of
+its 144 bars with today's, so that +0.67 is the information leak. It is worth keeping written down
+because it is the most dangerous idea in the whole design: it would produce a model that is
+spectacular in a table and useless in production.
 
-**Niente colonne trasversali.** Dipendono dagli altri quattordici asset e in pagina si carica un
-simbolo alla volta. Ne è caduto anche `forza_su_btc` (§1).
+**No cross-sectional columns.** They depend on the other fourteen assets and the page loads one
+symbol at a time. `forza_su_btc` fell with them (§1).
 
-**Aggregazione a 1h e 1d**, allineate con `mtf.align_to_lower` così che la barra lunga si legga
-solo dopo che ha chiuso. 15m e 4h non aggiungono nulla: stanno troppo vicine a ciò che EMA200 e
-ADX sulla base già descrivono.
+**Aggregation at 1h and 1d**, aligned with `mtf.align_to_lower` so the long bar is only read after it
+has closed. 15m and 4h add nothing: they sit too close to what EMA200 and ADX on the base already
+describe.
 
 ---
 
-## 4. Il modello addestrato
+## 4. The trained model
 
-Quindici simboli, 5m **dal 2018** — lo store arriva lì, e il posizionamento resta NaN prima del
-2021-12, il che insegna al modello lo stato «posizionamento assente», che è la condizione di
-produzione. 1.063.757 righe di stima contro 692.047 di verifica.
+Fifteen symbols, 5m **from 2018** — that is where the store reaches, and positioning stays NaN
+before 2021-12, which teaches the model the "positioning absent" state, i.e. the production
+condition. Roughly 1.25 million training rows against 691 thousand for verification.
 
-Il numero di giri di rinforzo — riaddestramento su etichette riviste con le predizioni **fuori
-piega** del modello stesso — è scelto su una fetta di validazione ritagliata dallo stima, mai sul
-fuori campione. È la correzione diretta del rilievo §1.2.
+The number of reinforcement rounds — retraining on labels revised with the model's own **out-of-fold**
+predictions — is chosen on a validation slice carved out of the training set, never on the
+out-of-sample set. It is the direct correction of finding §1.2.
+
+Between training and out-of-sample there is an embargo of **three windows** (`EMBARGO_FINESTRE = 3`,
+432 bars). One window was enough for the centered rank, whose horizon stops exactly at `W`; the leg
+label looks ahead to the next extreme, which is further away and variable.
 
 ```
-giro 0: IC validazione +0.0894  →  giro 3: +0.0910   (scelto: 3)
+round 0: validation IC +0.0790  →  round 3: +0.0835   (chosen: 3)
 
-Fuori campione 2024-01 .. 2026-08
-  IC contro la metà futura   +0.0385
-  riferimento causale        +0.0297   (pos_canale, nessun modello)
-  eccesso                    +0.0088
-  mediana per simbolo        +0.0458   (14/15 concordi di segno)
+Out of sample 2024-01 .. 2026-08
+  IC against the forward half   +0.0433
+  causal reference              +0.0296   (pos_canale, no model)
+  excess                        +0.0137
+  per-symbol median             +0.0500   (14/15 agreeing in sign)
 ```
 
-Il rinforzo funziona ma poco: **+0,0016 in tre giri**.
+For comparison, the same trainer on the centered rank (the label in use until 2026-08-30) gave IC
++0.0405 against a reference of +0.0297, i.e. an excess of +0.0108. The time-weighted label predicts
+the future half slightly better, and it is the label the chart actually draws.
 
-**Robustezza — ed è il miglioramento vero rispetto a `leg_model`:**
+Reinforcement works but only a little: **+0.0045 over three rounds**.
+
+**Robustness — and this is the real improvement over `leg_model`:**
 
 | scenario | IC |
 |---|---|
-| tutto presente | +0,0540 |
-| senza `@1d` (finestra di pagina corta) | +0,0524 |
-| senza `@1h` e `@1d` | +0,0542 |
-| senza posizionamento | +0,0539 |
+| everything present | +0.0540 |
+| without `@1d` (short page window) | +0.0524 |
+| without `@1h` and `@1d` | +0.0542 |
+| without positioning | +0.0539 |
 
-Non si degrada. Il modello precedente senza le trasversali crollava da +1,9% a −39,5%.
+It does not degrade. The previous model without the cross-sectional columns collapsed from +1.9% to
+−39.5%.
 
-**Inferenza: 283 ms per 20.000 barre** (234 di feature, 49 di predizione).
+**Inference: 283 ms for 20,000 bars** (234 for features, 49 for prediction).
 
 ---
 
-## 5. Perché non è cablato
+## 5. Why it is not wired in as a directional rule
 
-`scripts/swing_lab.py` fa tre misure, e ognuna decide se la successiva ha senso.
+`scripts/swing_lab.py` makes three measurements, and each decides whether the next one makes sense.
 
-### 5.1 La forma del segnale è a U, non monotona
+### 5.1 The shape of the signal is U-shaped, not monotone
 
-Eccesso di rendimento a 48 ore per decile di previsione:
+Excess 48-hour return by prediction decile:
 
-| finestra | decili 0 → 9 |
+| window | deciles 0 → 9 |
 |---|---|
-| validazione | **+0,184** −0,096 −0,030 −0,010 −0,063 −0,068 −0,000 +0,067 **+0,093** −0,076 |
-| fuori campione | **+0,088** −0,093 −0,087 −0,098 −0,093 −0,107 −0,021 +0,079 **+0,180** +0,152 |
+| validation | **+0.184** −0.096 −0.030 −0.010 −0.063 −0.068 −0.000 +0.067 **+0.093** −0.076 |
+| out of sample | **+0.088** −0.093 −0.087 −0.098 −0.093 −0.107 −0.021 +0.079 **+0.180** +0.152 |
 
-Sia il decile più basso — che il modello legge come «vicino a un minimo locale» — sia i più alti —
-«vicino a un massimo» — precedono rendimenti sopra la media; il centro sta sotto. È replicato in
-entrambe le finestre.
+Both the lowest decile — which the model reads as "near a local low" — and the highest ones — "near
+a high" — precede above-average returns; the middle sits below. It replicates in both windows.
 
-**Il modello non prevede la direzione, prevede la struttura.** Il polo +1 non è «vendi»: è
-«tendenza forte in corso», e in cripto la continuazione paga. Vendere sui massimi previsti — la
-lettura naturale di un target in `[-1, 1]`, e quella che chiedeva la specifica — **vende
-esattamente le barre migliori**. Da cui il P&L della regola direzionale: perde a tutte le soglie e
-tutte le cadenze, in validazione come fuori campione, da −0,05% a −0,42% netti per operazione.
+**The model does not predict direction, it predicts structure.** The +1 pole is not "sell": it is
+"strong trend in progress", and in crypto continuation pays. Selling the predicted highs — the
+natural reading of a target in `[-1, 1]`, and the one the specification asked for — **sells exactly
+the best bars**. Hence the P&L of the directional rule: it loses at every threshold and every
+cadence, in validation as out of sample, from −0.05% to −0.42% net per trade.
 
-### 5.2 La regola che la forma sostiene è un filtro di esposizione
+### 5.2 The rule the shape supports is an exposure filter
 
-Dentro quando `|previsione|` è alta, fuori quando è bassa, con isteresi.
+In when `|prediction|` is high, out when it is low, with hysteresis.
 
-| finestra | configurazione | netto/op | composto | passivo |
+| window | configuration | net/trade | compounded | passive |
 |---|---|---|---|---|
-| fuori campione | 0,50 / 0,40 / 288 | **+0,086%** | −15,3% | −33,5% |
-| validazione | la stessa | −0,194% | −9,7% | +43,7% |
-| validazione | 0,35 / 0,25 / 288 | +0,311% | +1,8% | +43,7% |
-| fuori campione | la stessa | −0,191% | −57,0% | −33,5% |
+| out of sample | 0.50 / 0.40 / 288 | **+0.086%** | −15.3% | −33.5% |
+| validation | the same | −0.194% | −9.7% | +43.7% |
+| validation | 0.35 / 0.25 / 288 | +0.311% | +1.8% | +43.7% |
+| out of sample | the same | −0.191% | −57.0% | −33.5% |
 
-**Nessuna configurazione va bene in entrambe le finestre**, e prendere quella che funziona fuori
-campione sarebbe tararsi sul campione di verifica — il rilievo §1.2 di nuovo.
+**No configuration works in both windows**, and picking the one that works out of sample would be
+tuning on the verification sample — finding §1.2 again.
 
-### 5.3 Il controllo che chiude la faccenda
+### 5.3 The control that settles it
 
-Stare fuori dal mercato il 76% del tempo batte il possesso passivo dentro un ribasso **per
-costruzione**. La domanda vera è se lo batte meglio di collocare la stessa esposizione, con le
-stesse durate, a caso. Duecento estrazioni per simbolo:
+Staying out of the market 76% of the time beats passive holding inside a bear market **by
+construction**. The real question is whether it beats placing the same exposure, with the same
+durations, at random. Two hundred draws per symbol:
 
-> **1 simbolo su 15 in validazione, 1 su 15 fuori campione** supera il p95, contro **0,75** attesi
-> dal caso.
+> **1 symbol out of 15 in validation, 1 out of 15 out of sample** exceeds the p95, against **0.75**
+> expected from chance.
 
-Il merito della regola è l'astensione, e per quella non serve un modello.
+The rule's merit is abstention, and no model is needed for that.
 
-### 5.4 Cosa è stato cablato, e cosa no
+### 5.4 What was wired in, and what was not
 
-Il modello è ora in testa a `MODEL_PRECEDENCE` e vota in Confluence. Le tre misure sopra non sono
-diventate favorevoli: quello che è cambiato è che **la lettura sbagliata non è più raggiungibile
-dal codice**. Prima il rischio era che qualcuno leggesse un target in `[-1, 1]` e cablasse il
-segno; ora l'unica strada che esiste è `|previsione|`, e le tre docstring che la implementano
-dicono perché.
+The model was at the head of `MODEL_PRECEDENCE` at the time and votes in Confluence. The three
+measurements above did not become favourable: what changed is that **the wrong reading is no longer
+reachable from the code**. Before, the risk was that someone would read a target in `[-1, 1]` and
+wire in the sign; now the only road that exists is `|prediction|`, and the three docstrings that
+implement it say why.
 
-| dove | cosa è cablato | cosa **non** lo è |
+| where | what is wired in | what is **not** |
 |---|---|---|
-| `ml/signals.swing_exposure` | `|previsione|` alta → dentro, con isteresi | `sign(previsione)` come direzione (§5.1: perde a tutte le soglie) |
-| `trading/strategies.ai_model_simulation` | l'uscita è l'ingresso letto al contrario | barriere, take profit, stop: il modello non è stato misurato con nessuno dei tre |
-| `trading/confluence._modello` | voto +1 o 0, in una famiglia sua | il voto −1, che darebbe un corto sulle barre migliori |
+| `ml/signals.swing_exposure` | high `|prediction|` → in, with hysteresis | `sign(prediction)` as direction (§5.1: it loses at every threshold) |
+| `trading/strategies.ai_model_simulation` | the exit is the entry read backwards | barriers, take profit, stop: the model was measured with none of the three |
+| `trading/confluence._modello` | a +1 or 0 vote, in a family of its own | the −1 vote, which would go short on the best bars |
 
-Tre scelte di protocollo, tutte prese per non ripetere §1.2:
+Three protocol choices, all taken so as not to repeat §1.2:
 
-- **le soglie sono 0,35/0,25**, scelte sulla validazione. Fuori campione rendono −0,191% per
-  operazione contro il +0,086% di 0,50/0,40. Prendere le seconde *perché* rendono sul 2024-2026
-  sarebbe tararsi sul campione di verifica, cioè il difetto per cui `leg_model` è uscito. In
-  Confluence sono due manopole (`CONF_MODELLO_ENTRA`/`ESCI`) perché §5.2 misura che la coppia
-  buona cambia da una finestra all'altra: tenerla in una costante farebbe credere che ne esista
-  una giusta;
-- **senza artefatto il votante resta fuori dall'insieme di default**, non semplicemente muto. I
-  pesi si normalizzano sui votanti presenti, quindi un ottavo che tace sempre alzerebbe di fatto
-  la soglia per gli altri sette — e in produzione `models/` è vuoto per costruzione. Nel registro
-  ci resta, così `selezione("modello")` lo raggiunge per misurarlo;
-- **la nota del riquadro dice che non batte il possesso passivo.** È l'unica parte di questo
-  documento che arriva a chi guarda il grafico.
+- **the thresholds are 0.35/0.25**, chosen on validation. Out of sample they return −0.191% per trade
+  against the +0.086% of 0.50/0.40. Taking the latter *because* they return over 2024-2026 would be
+  tuning on the verification sample, i.e. the defect that got `leg_model` removed. In Confluence they
+  are two knobs (`CONF_MODELLO_ENTRA`/`ESCI`) because §5.2 measures that the good pair changes from
+  one window to the next: keeping it in a constant would suggest a right one exists;
+- **without an artifact the voter stays out of the default set**, not merely silent. Weights are
+  normalised over the voters present, so an eighth one that is always silent would effectively raise
+  the threshold for the other seven — and in production `models/` is empty by construction. It stays
+  in the registry, so `selezione("modello")` can reach it for measurement;
+- **the panel's caption says it does not beat passive holding.** It is the only part of this document
+  that reaches whoever is looking at the chart.
 
-Due cose sono emerse scrivendo il percorso di servizio, e nessuna si vedeva leggendo il trainer:
+Two things emerged while writing the serving path, and neither was visible from reading the trainer:
 
-- **le scale lunghe vanno prese solo se sono più lunghe della base.** A 4h, aggregare a un'ora
-  significa ricampionare all'insù, cioè inventare barre. Le colonne che restano fuori diventano
-  NaN, ed è la degradazione già misurata al §4;
-- **e solo se hanno almeno 28 barre.** `ExtraCache.adx(14)` passa da `ta`, che sotto due finestre
-  solleva `IndexError` invece di restituire NaN. In addestramento non si vede — le serie sono di
-  centinaia di migliaia di barre — ma la pagina carica per default 240 ore, cioè dieci barre
-  giornaliere, e lì la voce «AI Model» cadeva appena selezionata.
+- **long scales must only be taken if they are longer than the base.** At 4h, aggregating to an hour
+  means resampling upwards, i.e. inventing bars. The columns left out become NaN, and that is the
+  degradation already measured in §4;
+- **and only if they have at least 28 bars.** `ExtraCache.adx(14)` goes through `ta`, which below two
+  windows raises `IndexError` instead of returning NaN. It is invisible in training — the series are
+  hundreds of thousands of bars long — but the page loads 240 hours by default, i.e. ten daily bars,
+  and there the "AI Model" entry fell over as soon as it was selected.
 
-**Misurato dopo il cablaggio**, e da leggere come conferma del §5.3 e non come risultato: BTC a 1h
-dal 2025, 104 operazioni, −21,1% contro un passivo di −27,2%. È il merito dell'astensione. Dentro
-Confluence, su 92.321 barre 15m dal 2024, il votante è lungo il 56,4% delle barre, mai corto, e
-**necessario nel 10% degli ingressi**: aggiunge senza dominare, che è la sola condizione in cui
-valeva la pena aggiungerlo.
+**Measured after wiring in**, and to be read as confirmation of §5.3 and not as a result: BTC at 1h
+from 2025, 104 trades, −21.1% against a passive −27.2%. That is the merit of abstention. Inside
+Confluence, over 92,321 15m bars from 2024, the voter is long 56.4% of the bars, never short, and
+**necessary in 10% of entries**: it adds without dominating, which is the only condition under which
+adding it was worth it.
 
 ---
 
-## 6. Cosa resta vero
+## 6. What remains true
 
-- **Il segnale statistico esiste**: IC +0,0385 fuori campione contro un riferimento causale di
-  +0,0297, 14/15 simboli concordi di segno, e una forma a U replicata in due finestre disgiunte.
-  Non è rumore.
-- **Non è redditizio a queste frequenze.** Il miglior eccesso misurato è +0,20% su 48 ore contro
-  un giro di commissioni che ne costa 0,20%. È la tassa di conferma di `strategy.md` §13, per la
-  terza volta indipendente in questo progetto.
-- **La (c) è stata fatta** (§5.4): il modello è un votante di Confluence, dove non deve battere
-  il possesso passivo da solo. Che paghi non è ancora misurato — serve rifare la griglia di
-  `scripts/confluence_lab.py` con e senza il votante, sugli stessi asset e la stessa finestra.
-  Finché quel confronto non c'è, l'unica cosa che si sa è che il votante non domina la decisione.
-- **Due strade restano**, in ordine di costo: (a) usare `|previsione|` per **dimensionare** la
-  posizione invece che come interruttore — l'unica forma che non tronca la coda destra; (b)
-  portare la decisione su scala giornaliera, dove il rapporto fra eccesso e commissioni cambia di
-  un ordine di grandezza.
+- **The statistical signal exists**: IC +0.0433 out of sample against a causal reference of +0.0296,
+  14/15 symbols agreeing in sign, and a U shape replicated in two disjoint windows. It is not noise.
+- **It is not profitable at these frequencies.** The best measured excess is +0.20% over 48 hours
+  against a round trip of commissions costing 0.20%. It is the confirmation tax of `strategy.md`
+  §13, for the third independent time in this project.
+- **(c) has been done** (§5.4): the model is a Confluence voter, where it does not have to beat
+  passive holding on its own. Whether it pays is not measured yet — it needs the
+  `scripts/confluence_lab.py` grid redone with and without the voter, on the same assets and the same
+  window. Until that comparison exists, the only thing known is that the voter does not dominate the
+  decision.
+- **Two roads remain**, in order of cost: (a) use `|prediction|` to **size** the position rather than
+  as a switch — the only form that does not truncate the right tail; (b) move the decision to a daily
+  scale, where the ratio between excess and commissions changes by an order of magnitude.
 
-## 7. Riprodurre
+## 7. Reproducing
 
 ```bash
-.venv312/bin/python -m cryptofarm.data.positioning --update     # store del posizionamento, 400 MB
-.venv312/bin/python -m cryptofarm.ml.swing_trainer --selfcheck  # gira senza store
-.venv312/bin/python -m cryptofarm.ml.swing_trainer              # ~12 minuti
-.venv312/bin/python -m scripts.swing_lab                        # le tre misure del §5
+.venv312/bin/python -m cryptofarm.data.positioning --update     # positioning store, 400 MB
+.venv312/bin/python -m cryptofarm.ml.swing_trainer --selfcheck  # runs without the store
+.venv312/bin/python -m cryptofarm.ml.swing_trainer              # ~12 minutes
+.venv312/bin/python -m scripts.swing_lab                        # the three measurements in §5
 ```

@@ -1,19 +1,19 @@
 # `docker/`
 
-Un file solo: **`healthcheck.py`**, la sonda di liveness dell'immagine.
+A single file: **`healthcheck.py`**, the image's liveness probe.
 
-Interroga `http://127.0.0.1:$PORT/_stcore/health`, l'endpoint di salute di Streamlit, ed esce 0 se
-risponde 200. Il `Dockerfile` la copia (riga 64) e la usa come `HEALTHCHECK CMD` (riga 81).
+It queries `http://127.0.0.1:$PORT/_stcore/health`, Streamlit's health endpoint, and exits 0 if it
+answers 200. The `Dockerfile` copies it (line 64) and uses it as `HEALTHCHECK CMD` (line 81).
 
-Sta in un file, e non dentro il `HEALTHCHECK` a una riga, per due ragioni: la porta si sa solo a
-runtime (`$PORT` sui PaaS, 8501 in locale) e la versione inline sarebbe illeggibile. Usa solo la
-libreria standard, così l'immagine non deve installare `curl`.
+It lives in a file, rather than inside a one-line `HEALTHCHECK`, for two reasons: the port is known
+only at runtime (`$PORT` on PaaS, 8501 locally) and the inline version would be unreadable. It uses
+only the standard library, so the image does not have to install `curl`.
 
-Il resto della configurazione dei container non sta qui ma nella radice:
-[`../Dockerfile`](../Dockerfile) (quattro target: `runtime`, `dev`, `dl`, `web`),
-[`../compose.yaml`](../compose.yaml) e [`../render.yaml`](../render.yaml).
+The rest of the container configuration is not here but in the root:
+[`../Dockerfile`](../Dockerfile) (four targets: `runtime`, `dev`, `dl`, `web`),
+[`../compose.yaml`](../compose.yaml) and [`../render.yaml`](../render.yaml).
 
-**`web` è l'ultimo stage del `Dockerfile` e deve restarci**: una build senza `--target` prende
-l'ultimo stage, e Render non ha un campo per sceglierlo. Spostarlo significa spedire in produzione
-l'immagine con TensorFlow dentro. Uno stage nuovo va aggiunto sopra `web`, mai sotto — e la CI
-costruisce anche senza `--target` proprio per accorgersene.
+**`web` is the last stage of the `Dockerfile` and must stay there**: a build without `--target` takes
+the last stage, and Render has no field to choose one. Moving it means shipping the image with
+TensorFlow inside to production. A new stage goes above `web`, never below — and CI builds without
+`--target` precisely to notice.

@@ -1,85 +1,86 @@
-# Strategie nuove, verso corto, e il dataset giusto
+# New strategies, the short side, and the right dataset
 
-Seguito di [`backtest-strategie.md`](backtest-strategie.md), che misurava le strategie del
-simulatore su nove anni. Qui: le quattro correzioni applicate al codice, la scelta di un dataset
-diverso e il perche', la lettura da operatore dei punti di forza e di debolezza delle strategie
-storiche, cinque strategie nuove costruite su quella lettura, e un motore che sa stare anche
-**corto**. Tabelle complete in `reports/` (file `lab_*`).
+Sequel to [`backtest-strategie.md`](backtest-strategie.md), which measured the simulator's
+strategies over nine years. Here: the four corrections applied to the code, the choice of a different
+dataset and why, a trader's reading of the strengths and weaknesses of the historical strategies,
+five new strategies built on that reading, and an engine that can also go **short**. Full tables in
+`reports/` (`lab_*` files).
 
-## Il risultato in tre righe
+## The result in three lines
 
-Sul ciclo 2021-2026 di BTC, **a scala giornaliera e con le correzioni applicate, le strategie
-storiche non sono affatto perdenti**: mediana +20% e 70% di configurazioni in utile per "Close
-ATR", contro il −96% che davano sui 15 minuti. Il disastro misurato prima era in buona parte un
-artefatto della frequenza operativa e del timeframe, non delle regole.
+On BTC's 2021-2026 cycle, **at daily scale and with the corrections applied, the historical
+strategies are not losers at all**: median +20% and 70% of configurations profitable for "Close ATR",
+against the −96% they gave on 15 minutes. The disaster measured earlier was largely an artifact of
+trading frequency and timeframe, not of the rules.
 
-**Le cinque strategie nuove — rottura di canale, squeeze, rientro in trend, Ichimoku, e il ritorno
-alla media con filtro di regime — non battono il possesso passivo**, ne' in campione ne' fuori.
-Battono pero' il suo **rischio**: 22% di drawdown contro 76%, che a leva 2 diventa +196% contro
-+166% con la meta' del drawdown.
+**The five new strategies — channel breakout, squeeze, trend pullback, Ichimoku, and mean reversion
+with a regime filter — do not beat passive holding**, neither in sample nor out. They do beat its
+**risk**, though: 22% drawdown against 76%, which at leverage 2 becomes +196% against +166% with half
+the drawdown.
 
-**Il verso corto, su questo asset e in questo periodo, toglie invece di aggiungere**: la mediana
-peggiora in tutte e cinque le strategie e il contributo del lato corto e' negativo. Paga solo nel
-2022, l'unico anno davvero ribassista.
+**The short side, on this asset and in this period, subtracts rather than adds**: the median gets
+worse in all five strategies and the short leg's contribution is negative. It only pays in 2022, the
+one genuinely bearish year.
 
 ---
 
-## 1. Le quattro correzioni
+## 1. The four corrections
 
-| difetto | correzione | effetto misurato |
+| defect | correction | measured effect |
 |---|---|---|
-| la voce di menu `"Supetrend"` non corrispondeva alla stringa del dispatch (`"Supertrend"`) | corretta la stringa in `config.STRATEGIES` | la voce esegue: su BTC 2021-2026 a 4h la migliore configurazione rende **+450%** (Sharpe 1,01, drawdown 34%) |
-| `"ATR Bands"` aveva un ramo nel dispatch e nessuna voce di menu | aggiunta la voce | selezionabile: **+678%** a 4h, la migliore delle storiche su questo periodo |
-| lo stop loss di `buy_sell_limits_close_simulation` era commentato | ripristinato: stop fissato all'ingresso, uscita alla prima chiusura sotto | con il default 99% resta inerte (nessun golden cambia); ai valori operativi ora agisce |
-| `EMA200` era l'EMA **dell'apertura** sulla finestra corta, e "Trend Zones" la confrontava con `EMA20`, cioe' una media con se stessa | eliminata la colonna, le tre funzioni che la leggevano ora usano `EMA100` (la media lunga vera) | vedi sotto |
+| the menu entry `"Supetrend"` did not match the dispatch string (`"Supertrend"`) | fixed the string in `config.STRATEGIES` | the entry runs: on BTC 2021-2026 at 4h the best configuration returns **+450%** (Sharpe 1.01, drawdown 34%) |
+| `"ATR Bands"` had a dispatch branch and no menu entry | added the entry | selectable: **+678%** at 4h, the best of the historical ones over this period |
+| the stop loss in `buy_sell_limits_close_simulation` was commented out | restored: stop fixed at entry, exit on the first close below | with the 99% default it stays inert (no golden changes); at operational values it now acts |
+| `EMA200` was the EMA **of the open** over the short window, and "Trend Zones" compared it with `EMA20`, i.e. a moving average against itself | column removed, the three functions that read it now use `EMA100` (the real long average) | see below |
 
-**Trend Zones, prima e dopo** (BTC 2021-2026, commissione 0,05%):
+**Trend Zones, before and after** (BTC 2021-2026, commission 0.05%):
 
-| intervallo | finestra | prima: operazioni/anno | prima: rendimento | dopo: operazioni/anno | dopo: rendimento |
+| interval | window | before: trades/year | before: return | after: trades/year | after: return |
 |---|---:|---:|---:|---:|---:|
-| 15m | 10 | 3.603 | −100% | — | — |
-| 4h | 10 | 202 | −21,9% | 10,6 | **+309,3%** |
-| 4h | 20 | 135 | +30,6% | 8,5 | **+231,5%** |
-| 1d | 20 | 21 | +166,1% | 1,2 | +189,4% |
-| 1d | 50 | 12 | +78,5% | 0,5 | +204,1% |
+| 15m | 10 | 3,603 | −100% | — | — |
+| 4h | 10 | 202 | −21.9% | 10.6 | **+309.3%** |
+| 4h | 20 | 135 | +30.6% | 8.5 | **+231.5%** |
+| 1d | 20 | 21 | +166.1% | 1.2 | +189.4% |
+| 1d | 50 | 12 | +78.5% | 0.5 | +204.1% |
 
-Il golden master e' stato rigenerato: le uniche 17 voci cambiate sono `add_technical_indicator`
-(una colonna in meno) e le tre funzioni che leggevano `EMA200`, sui quattro scenari. Nessun'altra
-strategia si e' mossa.
+The golden master was regenerated: the only 17 entries that changed are `add_technical_indicator`
+(one column fewer) and the three functions that read `EMA200`, across the four scenarios. No other
+strategy moved.
 
-## 2. Il dataset: perche' non piu' il 2017
+## 2. The dataset: why not 2017 any more
 
-La misura precedente usava 2017-2026 perche' era tutto lo storico disponibile. E' la scelta
-sbagliata per decidere cosa fare adesso, e si puo' dimostrare invece che sostenerlo:
+The previous measurement used 2017-2026 because it was all the history available. It is the wrong
+choice for deciding what to do now, and that can be demonstrated rather than asserted:
 
-| periodo | possesso passivo | CAGR | Sharpe | drawdown |
+| period | passive holding | CAGR | Sharpe | drawdown |
 |---|---:|---:|---:|---:|
-| BTC 2017-2020 | +2.803% | 132,3% | 1,44 | 83,2% |
-| **BTC 2021-2026** | **+166%** | **18,9%** | **0,59** | **76,5%** |
-| ETH 2017-2019 | +1.479% | 151,3% | 1,37 | 93,8% |
+| BTC 2017-2020 | +2,803% | 132.3% | 1.44 | 83.2% |
+| **BTC 2021-2026** | **+166%** | **18.9%** | **0.59** | **76.5%** |
+| ETH 2017-2019 | +1,479% | 151.3% | 1.37 | 93.8% |
 
-Un mercato che cresce del 132% l'anno perdona qualunque errore di sistema; uno che cresce del 19%
-no. E i parametri non passano da un regime all'altro: scegliendo la configurazione migliore sul
-ciclo 2017-2020 e misurandola sul 2021-2026, delle cinque strategie nuove **quattro su cinque
-finiscono in perdita** (da −73% a +21%, con il possesso passivo a +166%). Nella direzione opposta,
-le stesse strategie scelte sul 2017-2018 e verificate sul 2019-2020 rendevano **+180%** con la
-mediana delle prime cinque a +172%: nel ciclo vecchio il trend-following funzionava, in questo no.
+A market growing 132% a year forgives any systematic error; one growing 19% does not. And the
+parameters do not carry across regimes: choosing the best configuration on the 2017-2020 cycle and
+measuring it on 2021-2026, **four of the five new strategies end up at a loss** (from −73% to +21%,
+with passive holding at +166%). In the opposite direction, the same strategies chosen on 2017-2018
+and verified on 2019-2020 returned **+180%** with the median of the top five at +172%: in the old
+cycle trend-following worked, in this one it does not.
 
-**Il dataset usato qui e' quindi BTC/USD dal 2021-01-01 al 2026-08-24**, che contiene un ciclo
-completo — massimo di novembre 2021, −64% nel 2022, ripresa 2023-2024, distribuzione 2025-2026 —
-a 1h, 4h e 1d. La fonte e' la stessa del lavoro precedente (dump pubblico Bitstamp a un minuto),
-con lo 0,03%-0,37% di barre piatte per anno in questo periodo, cioe' dati puliti.
+**The dataset used here is therefore BTC/USD from 2021-01-01 to 2026-08-24**, which contains a
+complete cycle — November 2021 top, −64% in 2022, 2023-2024 recovery, 2025-2026 distribution — at 1h,
+4h and 1d. The source is the same as the previous work (public Bitstamp one-minute dump), with
+0.03%-0.37% of flat bars per year in this period, i.e. clean data.
 
-**Cosa manca, e perche'.** L'ambiente di questa sessione ha egress bloccato verso qualunque
-exchange (`data.binance.vision`, `api.binance.com`, Kraken, Coinbase, Bybit, Kucoin, Gate, MEXC),
-verso Kaggle e verso ogni aggregatore (CoinGecko, CryptoCompare, Messari, DefiLlama): risponde 403
-sul CONNECT. Restano raggiungibili solo GitHub e PyPI, e **nessun repository pubblico contiene
-candele intraday recenti di SOL e BNB** -- quelli che le pubblicano si fermano al 2019 (Bitfinex)
-o pubblicano su Kaggle (WISEPLAT). Il confronto multi-asset richiesto e' quindi rimasto a metà:
-BTC sul ciclo recente ed ETH sul 2017-2019, che e' l'unico secondo mercato disponibile.
+**What is missing, and why.** This session's environment has egress blocked towards every exchange
+(`data.binance.vision`, `api.binance.com`, Kraken, Coinbase, Bybit, Kucoin, Gate, MEXC), towards
+Kaggle and towards every aggregator (CoinGecko, CryptoCompare, Messari, DefiLlama): it answers 403 on
+CONNECT. Only GitHub and PyPI remain reachable, and **no public repository contains recent intraday
+candles for SOL and BNB** — those that publish them stop at 2019 (Bitfinex) or publish on Kaggle
+(WISEPLAT). The requested multi-asset comparison therefore remained half-done: BTC on the recent
+cycle and ETH on 2017-2019, which is the only second market available.
 
-Non e' un limite del codice: `data/klines.py` scarica gia' BTCUSDT, ETHUSDT, SOLUSDT e BNBUSDT dai
-dump di Binance, e ogni script qui accetta `--symbol`. Su una macchina con rete aperta:
+It is not a limitation of the code: `data/klines.py` already downloads BTCUSDT, ETHUSDT, SOLUSDT and
+BNBUSDT from the Binance dumps, and every script here accepts `--symbol`. On a machine with open
+network access:
 
 ```bash
 python -m cryptofarm.data.klines --update --symbols BTCUSDT ETHUSDT SOLUSDT BNBUSDT
@@ -89,235 +90,232 @@ for s in BTCUSDT ETHUSDT SOLUSDT BNBUSDT; do
 done
 ```
 
-## 3. Le storiche, lette da operatore
+## 3. The historical ones, read by a trader
 
-Cosa fa ognuna, dove ha ragione e dove si rompe, con la misura accanto (BTC 2021-2026).
+What each does, where it is right and where it breaks, with the measurement next to it (BTC
+2021-2026).
 
-**Ritorno alla media sulle bande ATR** — *Close ATR, ATR Bands, Close Buy/Sell Limits, ATR Live
-Trade*. Comprano quando il prezzo si allontana dalla media di `k` ATR e rivendono al ritorno.
-*Forza*: nei mercati laterali il rientro verso la media e' il fenomeno statisticamente piu'
-affidabile che esista, e infatti su barre giornaliere in questo ciclo sono le migliori in assoluto
-(Close ATR +575%, Sharpe 1,25, drawdown 25%). *Debolezza*: comprano **ogni** minimo, anche il primo
-di una discesa strutturale, e non hanno modo di distinguere un ritracciamento da un'inversione; su
-15 minuti il margine per operazione (+0,08%) e' sotto il costo di andata e ritorno (0,10%-0,20%) e
-il risultato mediano crolla a −96%.
+**Mean reversion on ATR bands** — *Close ATR, ATR Bands, Close Buy/Sell Limits, ATR Live Trade*. They
+buy when the price moves `k` ATR away from the mean and sell on the way back. *Strength*: in sideways
+markets reversion to the mean is the most statistically reliable phenomenon there is, and indeed on
+daily bars in this cycle they are the best of all (Close ATR +575%, Sharpe 1.25, drawdown 25%).
+*Weakness*: they buy **every** low, including the first of a structural decline, and have no way to
+tell a pullback from a reversal; on 15 minutes the margin per trade (+0.08%) is below the round-trip
+cost (0.10%-0.20%) and the median result collapses to −96%.
 
-**Seguire il trend con le medie** — *Close EMA Crossover, Trend Zones, Close Bullish EMA*.
-*Forza*: nessuna previsione, si sta dentro finche' la struttura tiene; sul ciclo 2017-2020 erano la
-famiglia vincente. *Debolezza*: in un mercato che oscilla senza direzione ogni incrocio e' un falso
-segnale, e il 2021-2026 e' esattamente quel mercato; con i parametri di partenza (10/50/200) su
-15 minuti perdevano tutto.
+**Trend-following with moving averages** — *Close EMA Crossover, Trend Zones, Close Bullish EMA*.
+*Strength*: no prediction, you stay in as long as the structure holds; on the 2017-2020 cycle they
+were the winning family. *Weakness*: in a market oscillating without direction every crossing is a
+false signal, and 2021-2026 is exactly that market; with the starting parameters (10/50/200) on 15
+minutes they lost everything.
 
-**Rottura con obiettivo e stop** — *TP/SL with ATR, Supertrend*. *Forza*: il rischio per operazione
-e' definito prima di entrare, l'unica famiglia in cui lo sia. *Debolezza*: l'obiettivo simmetrico
-allo stop (1:1) o a 1,618 taglia proprio i movimenti lunghi che pagano una strategia di rottura, e
-il win rate necessario per andare in pari sale sopra il 50% al netto dei costi.
+**Breakout with target and stop** — *TP/SL with ATR, Supertrend*. *Strength*: the risk per trade is
+defined before entering, the only family where it is. *Weakness*: a target symmetric to the stop
+(1:1) or at 1.618 cuts exactly the long moves that pay a breakout strategy, and the win rate needed to
+break even rises above 50% net of costs.
 
-**Pattern di prezzo puri** — *Green Candles, Close RSI Reverse*. *Forza*: nessuna. *Debolezza*: a
-15 minuti perdono **anche a commissioni zero** (−10% e −76%), il che dice che non c'e' segnale, non
-che il costo lo mangia. A scala giornaliera tornano positive, ma per la stessa ragione per cui lo
-diventa tutto: 15-25 operazioni l'anno invece di 1.500.
+**Pure price patterns** — *Green Candles, Close RSI Reverse*. *Strength*: none. *Weakness*: at 15
+minutes they lose **even at zero commission** (−10% and −76%), which says there is no signal, not that
+the cost eats it. At daily scale they turn positive, but for the same reason everything does: 15-25
+trades a year instead of 1,500.
 
-Il difetto trasversale, gia' misurato nel documento precedente: **nessuna sa in che regime si
-trova**. Fra le colonne prodotte non c'e' un solo indicatore che dica se un trend esiste, se la
-volatilita' e' compressa, se il volume conferma. Le cinque strategie nuove nascono da li'.
+The cross-cutting defect, already measured in the previous document: **none of them knows what regime
+it is in**. Among the columns produced there is not a single indicator saying whether a trend exists,
+whether volatility is compressed, whether volume confirms. The five new strategies come from there.
 
-## 4. Le cinque strategie nuove
+## 4. The five new strategies
 
-Tutte in `src/cryptofarm/trading/strategies_ls.py`, tutte con posizione a tre stati (+1 / 0 / −1),
-tutte misurabili con e senza il verso corto. Gli indicatori nuovi stanno in
-`indicators_extra.py`: ADX, canale di Donchian, Bollinger + Keltner (squeeze), StochRSI, MFI, OBV,
-Ichimoku — tutti da `ta`, nessuno era usato dal progetto.
+All in `src/cryptofarm/trading/strategies_ls.py`, all with a three-state position (+1 / 0 / −1), all
+measurable with and without the short side. The new indicators are in `indicators_extra.py`: ADX,
+Donchian channel, Bollinger + Keltner (squeeze), StochRSI, MFI, OBV, Ichimoku — all from `ta`, none
+was used by the project.
 
-### 4.1 `donchian_breakout` — rottura di canale con filtro di forza
-*Ipotesi*: si perde perche' si compra contro il trend; entrare **nella** direzione del movimento e
-lasciar correre inverte il problema.
-*Regole*: long alla chiusura sopra il massimo delle ultime `channel` barre (canale spostato di una
-barra: nessun look-ahead), con `ADX ≥ adx_min` e prezzo dalla parte giusta della EMA lunga; short
-speculare. Uscita a **chandelier stop**: massimo raggiunto meno `k·ATR`, che segue il prezzo.
-*Indicatori nuovi*: Donchian, ADX.
+### 4.1 `donchian_breakout` — channel breakout with a strength filter
+*Hypothesis*: you lose because you buy against the trend; entering **in** the direction of the move
+and letting it run inverts the problem.
+*Rules*: long on a close above the high of the last `channel` bars (channel shifted by one bar: no
+look-ahead), with `ADX ≥ adx_min` and the price on the right side of the long EMA; short symmetrically.
+Exit on a **chandelier stop**: highest reached minus `k·ATR`, which follows the price.
+*New indicators*: Donchian, ADX.
 
-### 4.2 `squeeze_breakout` — compressione e rilascio
-*Ipotesi*: si opera troppo; la compressione di volatilita' seleziona pochi momenti l'anno per
-costruzione, senza filtri arbitrari.
-*Regole*: quando le bande di Bollinger rientrano dentro il canale di Keltner il mercato e' in
-*squeeze*; alla prima barra in cui lo squeeze si apre si entra nella direzione in cui il prezzo
-sta rispetto alla media delle bande, con conferma opzionale della pendenza dell'OBV. Uscita a
-trailing ATR.
-*Indicatori nuovi*: Bollinger, Keltner, OBV.
+### 4.2 `squeeze_breakout` — compression and release
+*Hypothesis*: there is too much trading; volatility compression selects a few moments a year by
+construction, with no arbitrary filters.
+*Rules*: when the Bollinger bands move inside the Keltner channel the market is in a *squeeze*; on the
+first bar where the squeeze opens, enter in the direction the price sits relative to the mean of the
+bands, with optional confirmation from the OBV slope. Exit on an ATR trailing stop.
+*New indicators*: Bollinger, Keltner, OBV.
 
-### 4.3 `trend_pullback` — rientro dall'ipervenduto dentro un trend
-*Ipotesi*: il ritorno alla media funziona, ma solo dalla parte del trend.
-*Regole*: sopra la EMA lunga si compra quando lo StochRSI risale sopra la soglia di ipervenduto;
-sotto la EMA lunga si vende allo scoperto sul rientro dall'ipercomprato. Stop fisso a `k·ATR`,
-uscita in guadagno al ritorno dell'oscillatore in zona opposta. Con `regime_ema=0` il filtro si
-spegne: e' l'ablazione che misura quanto vale.
-*Indicatori nuovi*: StochRSI.
+### 4.3 `trend_pullback` — oversold bounce inside a trend
+*Hypothesis*: mean reversion works, but only on the trend's side.
+*Rules*: above the long EMA, buy when StochRSI climbs back above the oversold threshold; below the
+long EMA, sell short on the bounce down from overbought. Fixed stop at `k·ATR`, profitable exit when
+the oscillator returns to the opposite zone. With `regime_ema=0` the filter turns off: that is the
+ablation that measures what it is worth.
+*New indicators*: StochRSI.
 
-### 4.4 `ichimoku_trend` — il metro di paragone
-*Ipotesi*: nessuna. E' un sistema di trend completo, gia' pronto e diffuso; se una strategia
-costruita apposta non lo batte, non vale il lavoro che costa.
-*Regole*: incrocio Tenkan/Kijun con il prezzo dalla parte giusta della nuvola (span gia' spostate
-in avanti, come sul grafico); uscita all'incrocio opposto o alla rottura della Kijun.
+### 4.4 `ichimoku_trend` — the yardstick
+*Hypothesis*: none. It is a complete trend system, already available and widespread; if a purpose-built
+strategy does not beat it, it is not worth the work it costs.
+*Rules*: Tenkan/Kijun crossing with the price on the right side of the cloud (spans already shifted
+forward, as on the chart); exit on the opposite crossing or on a break of the Kijun.
 
-### 4.5 `band_reversion_gated` — la combinazione
-*Ipotesi*: "Close ATR" fallisce per il regime, non per l'idea. Stessa entrata, ma solo dove ha
-senso.
-*Regole*: entrata identica alle bande storiche (KAMA ± `k·ATR`) **solo quando `ADX < adx_max`**,
-cioe' in assenza di trend; uscita al ritorno sulla KAMA o allo stop a `k·ATR`. Filtro di regime
-opzionale sulla EMA lunga.
-*Indicatori nuovi*: ADX sopra la struttura storica.
+### 4.5 `band_reversion_gated` — the combination
+*Hypothesis*: "Close ATR" fails because of the regime, not because of the idea. Same entry, but only
+where it makes sense.
+*Rules*: entry identical to the historical bands (KAMA ± `k·ATR`) **only when `ADX < adx_max`**, i.e.
+in the absence of a trend; exit on the return to the KAMA or on the `k·ATR` stop. Optional regime
+filter on the long EMA.
+*New indicators*: ADX on top of the historical structure.
 
-## 5. Il verso corto: come e' simulato, e quanto vale
+## 5. The short side: how it is simulated, and what it is worth
 
-`pnl.simulate_trading_with_commisions` accoppia due liste di segnali e conosce un solo verso:
-l'inversione diretta da lungo a corto non e' rappresentabile. Il motore nuovo,
-`pnl.simulate_positions`, prende una lista di **cambi di posizione** `(tempo, prezzo, obiettivo)`
-con obiettivo in `{+1, 0, −1}` e produce le operazioni chiuse con il lato. Convenzioni:
+`pnl.simulate_trading_with_commisions` pairs two lists of signals and knows only one direction: a
+direct reversal from long to short cannot be represented. The new engine, `pnl.simulate_positions`,
+takes a list of **position changes** `(time, price, target)` with the target in `{+1, 0, −1}` and
+produces closed trades with their side. Conventions:
 
-- nozionale pari al capitale per `leverage` (default 1), commissione su entrambe le gambe calcolata
-  sul nozionale scambiato;
-- **costo di mantenimento** giornaliero (`carry`, default 0,03% al giorno) addebitato a entrambi i
-  versi: e' il funding di un perpetuo, che su Binance oscilla intorno allo 0,01% ogni otto ore.
-  Nella realta' e' un trasferimento e chi sta dalla parte giusta lo incassa; addebitarlo sempre e'
-  la scelta prudente;
-- capitale che tocca zero: simulazione ferma. E' la liquidazione, e a leva 3 basta un movimento
-  contrario di un terzo.
+- notional equal to capital times `leverage` (default 1), commission on both legs computed on the
+  notional traded;
+- daily **carry cost** (`carry`, default 0.03% per day) charged on both directions: it is the funding
+  of a perpetual, which on Binance oscillates around 0.01% every eight hours. In reality it is a
+  transfer and whoever is on the right side receives it; charging it always is the prudent choice;
+- capital hitting zero: simulation stops. That is liquidation, and at leverage 3 an adverse move of a
+  third is enough.
 
-**Quanto vale il verso corto** (BTC 2021-2026, 1h + 4h + 1d, stesse configurazioni con e senza):
+**What the short side is worth** (BTC 2021-2026, 1h + 4h + 1d, same configurations with and without):
 
-| strategia | coppie | mediana solo long | mediana con short | dove lo short migliora | contributo mediano del lato corto | win rate short |
+| strategy | pairs | long-only median | median with short | where short improves | median contribution of the short leg | short win rate |
 |---|---:|---:|---:|---:|---:|---:|
-| donchian_breakout | 384 | −22,1% | −56,9% | 2,6% | −53,3% | 31,6% |
-| squeeze_breakout | 162 | −41,6% | −71,9% | 6,8% | −71,7% | 29,6% |
-| trend_pullback | 108 | −36,1% | −60,0% | 8,3% | −35,4% | 49,3% |
-| ichimoku_trend | 18 | +15,2% | −25,1% | 5,6% | −56,9% | 29,6% |
-| band_reversion_gated | 216 | −0,5% | −5,5% | 23,6% | −3,6% | **52,3%** |
+| donchian_breakout | 384 | −22.1% | −56.9% | 2.6% | −53.3% | 31.6% |
+| squeeze_breakout | 162 | −41.6% | −71.9% | 6.8% | −71.7% | 29.6% |
+| trend_pullback | 108 | −36.1% | −60.0% | 8.3% | −35.4% | 49.3% |
+| ichimoku_trend | 18 | +15.2% | −25.1% | 5.6% | −56.9% | 29.6% |
+| band_reversion_gated | 216 | −0.5% | −5.5% | 23.6% | −3.6% | **52.3%** |
 
-La lettura non e' "lo short non funziona": e' che **su un asset con deriva positiva, e in un
-periodo in cui l'unico anno ribassista e' il 2022, il lato corto paga il costo di stare dalla parte
-sbagliata della deriva** per quattro anni su cinque. La sola eccezione e' il ritorno alla media
-(`band_reversion_gated`), dove il corto ha win rate 52% e costa quasi niente: vendere un'estensione
-sopra la media in un mercato laterale e' simmetrico al comprarne una sotto.
+The reading is not "shorting does not work": it is that **on an asset with positive drift, and in a
+period whose only bearish year is 2022, the short side pays the cost of being on the wrong side of
+the drift** for four years out of five. The one exception is mean reversion
+(`band_reversion_gated`), where the short has a 52% win rate and costs almost nothing: selling an
+extension above the mean in a sideways market is symmetric to buying one below it.
 
-Chi volesse comunque il lato corto ha due strade misurabili con questi strumenti: attivarlo solo
-quando la media lunga **scende** (non basta il prezzo sotto la media), oppure usarlo solo nelle
-strategie di ritorno alla media.
+Anyone who still wants the short side has two roads measurable with these tools: enable it only when
+the long moving average is **falling** (price below the average is not enough), or use it only in
+mean-reversion strategies.
 
-## 6. I risultati
+## 6. The results
 
-**Classifica su BTC 2021-2026, barre giornaliere, commissione 0,05%** (possesso passivo: +166%,
-drawdown 76,5%, Sharpe 0,59):
+**Ranking on BTC 2021-2026, daily bars, commission 0.05%** (passive holding: +166%, drawdown 76.5%,
+Sharpe 0.59):
 
-| famiglia | strategia | migliore | Sharpe | drawdown | oper./anno | mediana della griglia | in utile |
+| family | strategy | best | Sharpe | drawdown | trades/year | grid median | profitable |
 |---|---|---:|---:|---:|---:|---:|---:|
-| storica | Close ATR | +575% | 1,25 | 25,5% | 3,4 | +20,5% | 70,6% |
-| storica | Close Buy/Sell Limits | +335% | 0,86 | 59,3% | 3,9 | +25,0% | 71,6% |
-| storica | TP/SL with ATR | +288% | 0,87 | 54,3% | 2,8 | +87,6% | 82,1% |
-| storica | ATR Bands *(ora nel menu)* | +212% | 0,67 | 61,4% | 5,5 | +33,1% | 78,2% |
-| nuova | squeeze_breakout | +120% | 0,59 | 55,6% | 3,4 | −34,0% | 19,8% |
-| nuova | ichimoku_trend | +106% | 0,58 | 32,8% | 7,3 | +11,7% | **75,0%** |
-| nuova | trend_pullback | +89% | 0,50 | 37,4% | 26,8 | −24,2% | 29,2% |
-| nuova | band_reversion_gated | +84% | **0,78** | **22,1%** | 4,4 | −7,0% | 43,6% |
-| nuova | donchian_breakout | +63% | 0,45 | 42,2% | 3,2 | −25,4% | 15,6% |
-| storica | Trend Zones *(corretta)* | +60% | 0,42 | 49,9% | 2,7 | +60,2% | 100% |
+| historical | Close ATR | +575% | 1.25 | 25.5% | 3.4 | +20.5% | 70.6% |
+| historical | Close Buy/Sell Limits | +335% | 0.86 | 59.3% | 3.9 | +25.0% | 71.6% |
+| historical | TP/SL with ATR | +288% | 0.87 | 54.3% | 2.8 | +87.6% | 82.1% |
+| historical | ATR Bands *(now in the menu)* | +212% | 0.67 | 61.4% | 5.5 | +33.1% | 78.2% |
+| new | squeeze_breakout | +120% | 0.59 | 55.6% | 3.4 | −34.0% | 19.8% |
+| new | ichimoku_trend | +106% | 0.58 | 32.8% | 7.3 | +11.7% | **75.0%** |
+| new | trend_pullback | +89% | 0.50 | 37.4% | 26.8 | −24.2% | 29.2% |
+| new | band_reversion_gated | +84% | **0.78** | **22.1%** | 4.4 | −7.0% | 43.6% |
+| new | donchian_breakout | +63% | 0.45 | 42.2% | 3.2 | −25.4% | 15.6% |
+| historical | Trend Zones *(fixed)* | +60% | 0.42 | 49.9% | 2.7 | +60.2% | 100% |
 
-Le "migliori" sono massimi su griglie di dimensione molto diversa (1.728 configurazioni per Close
-Buy/Sell Limits, 12 per Ichimoku): la colonna onesta e' la mediana, e li' Ichimoku long-only con il
-75% di configurazioni in utile e' il piu' solido fra i nuovi.
+The "best" figures are maxima over grids of very different size (1,728 configurations for Close
+Buy/Sell Limits, 12 for Ichimoku): the honest column is the median, and there long-only Ichimoku with
+75% of configurations profitable is the most solid of the new ones.
 
-**Fuori campione — scelta sul 2021-2023, resa sul 2024-2026** (possesso passivo: +46% poi +80%):
+**Out of sample — chosen on 2021-2023, returned on 2024-2026** (passive holding: +46% then +80%):
 
-| famiglia | strategia | scelta in stima | resa in verifica | mediana delle prime 5 | ρ stima/verifica |
+| family | strategy | chosen in sample | out-of-sample return | median of the top 5 | ρ in/out |
 |---|---|---:|---:|---:|---:|
-| storica | Close RSI Reverse | +99% | **+57,5%** | +46,5% | 0,58 |
-| storica | ATR Live Trade | +118% | +47,2% | +14,7% | 0,61 |
-| storica | Close Bullish EMA | +38% | +38,2% | +42,1% | 0,57 |
-| storica | Supertrend | +80% | +35,1% | +35,1% | 0,02 |
-| storica | Close ATR | +487% | +15,0% | +0,7% | 0,08 |
-| nuova | band_reversion_gated | +65% | **+11,1%** | +9,4% | 0,52 |
-| nuova | squeeze_breakout | +31% | −3,5% | −3,5% | 0,49 |
-| nuova | ichimoku_trend | +161% | −21,3% | −2,5% | −0,36 |
-| nuova | trend_pullback | +154% | −35,1% | −15,9% | 0,25 |
-| nuova | donchian_breakout | +77% | −39,9% | −23,6% | 0,10 |
+| historical | Close RSI Reverse | +99% | **+57.5%** | +46.5% | 0.58 |
+| historical | ATR Live Trade | +118% | +47.2% | +14.7% | 0.61 |
+| historical | Close Bullish EMA | +38% | +38.2% | +42.1% | 0.57 |
+| historical | Supertrend | +80% | +35.1% | +35.1% | 0.02 |
+| historical | Close ATR | +487% | +15.0% | +0.7% | 0.08 |
+| new | band_reversion_gated | +65% | **+11.1%** | +9.4% | 0.52 |
+| new | squeeze_breakout | +31% | −3.5% | −3.5% | 0.49 |
+| new | ichimoku_trend | +161% | −21.3% | −2.5% | −0.36 |
+| new | trend_pullback | +154% | −35.1% | −15.9% | 0.25 |
+| new | donchian_breakout | +77% | −39.9% | −23.6% | 0.10 |
 
-**Nessuna, di nessuna famiglia, batte il possesso passivo fuori campione.** Le strategie di ritorno
-alla media trasferiscono meglio di quelle di trend, il che e' coerente con il regime: in un ciclo
-senza una direzione netta, la scommessa sul rientro paga piu' della scommessa sulla continuazione.
+**None, in any family, beats passive holding out of sample.** Mean-reversion strategies transfer
+better than trend ones, which is consistent with the regime: in a cycle without a clear direction,
+the bet on reversion pays more than the bet on continuation.
 
-**Le ablazioni** (stessi tre intervalli) dicono che gli indicatori nuovi servono, ma per la robustezza,
-non per il picco:
+**The ablations** (same three intervals) say the new indicators are useful, but for robustness, not
+for the peak:
 
-| strategia | filtro spento | mediana senza | mediana con | operazioni/anno senza → con |
+| strategy | filter turned off | median without | median with | trades/year without → with |
 |---|---|---:|---:|---:|
-| ichimoku_trend | conferma della nuvola | −20,7% | **+8,4%** | 60 → 23 |
-| donchian_breakout | filtro di trend (EMA lunga) | −46,8% | −34,8% | 20,4 → 19,3 |
-| donchian_breakout | filtro ADX | −40,3% | −41,5% | 23,9 → 18,8 |
-| squeeze_breakout | conferma di volume (OBV) | −60,5% | −49,8% | 22,2 → 15,9 |
-| trend_pullback | filtro di trend (EMA lunga) | −57,1% | −44,7% | 116 → 52 |
-| band_reversion_gated | filtro di range (ADX) | −11,0% | −1,9% | 5,8 → 1,1 |
-| band_reversion_gated | filtro di trend | −9,0% | 0,0% | 3,9 → 0,5 |
+| ichimoku_trend | cloud confirmation | −20.7% | **+8.4%** | 60 → 23 |
+| donchian_breakout | trend filter (long EMA) | −46.8% | −34.8% | 20.4 → 19.3 |
+| donchian_breakout | ADX filter | −40.3% | −41.5% | 23.9 → 18.8 |
+| squeeze_breakout | volume confirmation (OBV) | −60.5% | −49.8% | 22.2 → 15.9 |
+| trend_pullback | trend filter (long EMA) | −57.1% | −44.7% | 116 → 52 |
+| band_reversion_gated | range filter (ADX) | −11.0% | −1.9% | 5.8 → 1.1 |
+| band_reversion_gated | trend filter | −9.0% | 0.0% | 3.9 → 0.5 |
 
-Ogni filtro migliora la mediana e riduce le operazioni; l'unico ininfluente e' l'ADX come soglia
-minima nella rottura di canale, dove il canale largo fa gia' quel lavoro.
+Every filter improves the median and reduces the number of trades; the only irrelevant one is ADX as
+a minimum threshold in the channel breakout, where the wide channel already does that job.
 
-**Leva e costi.** Una strategia con un quarto del drawdown del possesso passivo non e' peggiore:
-e' lo stesso rischio a una leva diversa.
+**Leverage and costs.** A strategy with a quarter of passive holding's drawdown is not worse: it is
+the same risk at a different leverage.
 
-| configurazione | leva 1 | leva 2 | leva 3 |
+| configuration | leverage 1 | leverage 2 | leverage 3 |
 |---|---|---|---|
 | `band_reversion_gated` 1d | +84% / DD 22% | **+196% / DD 41%** | +319% / DD 58% |
 | `ichimoku_trend` 1d | +106% / DD 33% | +179% / DD 54% | +169% / DD 71% |
-| possesso passivo | +166% / DD 76,5% | — | — |
+| passive holding | +166% / DD 76.5% | — | — |
 
-A leva 2 il ritorno alla media con filtro di regime **batte il possesso passivo su entrambi gli
-assi** (+196% contro +166%, drawdown 41% contro 76%). Vale in campione: fuori campione la stessa
-configurazione rende +11% contro +80%. Sulla sensibilita' al costo, le strategie a 1d perdono il
-15-30% del risultato passando da 0,02% a 0,10% per gamba; quelle a 4h ne perdono la meta' o piu'.
+At leverage 2 mean reversion with a regime filter **beats passive holding on both axes** (+196%
+against +166%, drawdown 41% against 76%). That holds in sample: out of sample the same configuration
+returns +11% against +80%. On cost sensitivity, the 1d strategies lose 15-30% of the result going
+from 0.02% to 0.10% per leg; the 4h ones lose half or more.
 
-## 7. Cosa ne farei
+## 7. What I would do with it
 
-1. **Scala giornaliera, non 15 minuti.** E' la conclusione piu' robusta di entrambi i documenti: la
-   stessa regola cambia segno cambiando timeframe, e la direzione e' sempre la stessa.
-2. **Ritorno alla media con filtro di regime, solo lungo, a leva 1,5-2.** E' l'unica combinazione
-   che nelle misure batte il possesso passivo a parita' di rischio, ed e' anche l'unica delle nuove
-   che trasferisce fuori campione con segno positivo.
-3. **Niente short su BTC in un mercato senza tendenza ribassista confermata.** Il costo e'
-   misurato, non teorico.
-4. **Ichimoku long-only come riferimento**: il 75% delle sue configurazioni chiude in utile a 1d.
-   Qualunque strategia nuova che non lo batta su quella metrica non merita di essere messa in
-   produzione.
-5. **Ripetere tutto su SOL e BNB prima di decidere.** Sono gli asset dove il ciclo 2021-2026 ha
-   avuto la volatilita' piu' alta, e nessuna delle conclusioni qui e' stata verificata su di loro.
+1. **Daily scale, not 15 minutes.** It is the most robust conclusion of both documents: the same rule
+   changes sign when the timeframe changes, and always in the same direction.
+2. **Mean reversion with a regime filter, long only, at leverage 1.5-2.** It is the only combination
+   that in the measurements beats passive holding at equal risk, and it is also the only one of the
+   new strategies that transfers out of sample with a positive sign.
+3. **No shorting BTC in a market without a confirmed downtrend.** The cost is measured, not
+   theoretical.
+4. **Long-only Ichimoku as the reference**: 75% of its configurations close profitable at 1d. Any new
+   strategy that does not beat it on that metric does not deserve to go into production.
+5. **Repeat everything on SOL and BNB before deciding.** They are the assets where the 2021-2026 cycle
+   had the highest volatility, and none of the conclusions here has been verified on them.
 
-## 8. Limiti
+## 8. Limitations
 
-- **I numeri di `donchian_breakout` e `squeeze_breakout` sono precedenti a una correzione dello
-  stop a trailing, e vanno rifatti.** Lo stop in vigore durante una barra veniva costruito con il
-  massimo e l'ATR di quella stessa barra, poi confrontato con il suo minimo: assumeva che dentro
-  la barra l'estremo favorevole arrivasse per primo. Per singolo riempimento il bias e' a senso
-  unico -- si usciva a un prezzo non ottenibile, +0,9% sullo scenario dei test perturbando il solo
-  massimo della barra dell'uscita, +2,6% su una perturbazione piu' larga. Sul **netto di
-  portafoglio** invece il segno non e' prevedibile, perche' lo stop gonfiato scattava anche prima
-  del dovuto: sulla serie sintetica dei test la correzione porta `donchian_breakout` da −6,5% a
-  −1,3% e `squeeze_breakout` da −2,6% a −2,2%, cioe' migliora. Su BTC 2021-2026 non e' stato
-  possibile rimisurare (serve lo store di candele, assente nell'ambiente in cui la correzione e'
-  stata fatta): rilanciare i comandi di §9 e rifare §6 per queste due righe. Le altre tre
-  strategie non usano lo stop a trailing e non sono toccate.
-- **Un asset e un ciclo.** Le conclusioni sul verso corto e sui regimi valgono per BTC 2021-2026.
-- **Selezione.** Le colonne "migliore" sono massimi su griglie: vanno lette con la mediana accanto.
-- **Esecuzione ideale.** Ingressi alla chiusura della barra, stop eseguiti al livello esatto, niente
-  slippage ne' impatto. Sui gap di liquidazione crypto e' ottimistico.
-- **Funding fisso.** 0,03% al giorno addebitato a entrambi i versi; nella realta' varia e cambia
-  segno.
-- **La liquidazione e' valutata alla chiusura dell'operazione**, non barra per barra: a leve alte
-  sottostima il rischio di essere chiusi durante l'escursione.
+- **The numbers for `donchian_breakout` and `squeeze_breakout` predate a correction to the trailing
+  stop, and must be redone.** The stop in force during a bar was built with that same bar's high and
+  ATR, then compared with its low: it assumed the favourable extreme arrived first within the bar. For
+  a single fill the bias is one-directional — you exited at an unobtainable price, +0.9% on the test
+  scenario perturbing only the high of the exit bar, +2.6% on a wider perturbation. On the **portfolio
+  net**, by contrast, the sign is not predictable, because the inflated stop also fired earlier than it
+  should: on the tests' synthetic series the correction takes `donchian_breakout` from −6.5% to −1.3%
+  and `squeeze_breakout` from −2.6% to −2.2%, i.e. it improves. On BTC 2021-2026 it could not be
+  re-measured (it needs the candle store, absent in the environment where the correction was made):
+  rerun the commands in §9 and redo §6 for those two rows. The other three strategies do not use the
+  trailing stop and are untouched.
+- **One asset and one cycle.** The conclusions on the short side and on regimes hold for BTC
+  2021-2026.
+- **Selection.** The "best" columns are maxima over grids: they must be read with the median next to
+  them.
+- **Ideal execution.** Entries at the bar's close, stops executed at the exact level, no slippage and
+  no impact. On crypto liquidation gaps that is optimistic.
+- **Fixed funding.** 0.03% per day charged on both directions; in reality it varies and changes sign.
+- **Liquidation is evaluated at the close of the trade**, not bar by bar: at high leverage it
+  understates the risk of being closed out during the excursion.
 
-## 9. Riprodurre
+## 9. Reproducing
 
 ```bash
-python -m scripts.strategy_lab --all --interval 1d --since 2021-01-01     # le nuove
+python -m scripts.strategy_lab --all --interval 1d --since 2021-01-01     # the new ones
 python -m scripts.strategy_sweep --all --interval 1d --since 2021-01-01 \
-    --fee 0.05 --suffix _2021_fee005                                       # le storiche, stesso costo
-python -m scripts.lab_report --symbol BTCUSD --interval 1d                 # tabelle in reports/
+    --fee 0.05 --suffix _2021_fee005                                       # the historical ones, same cost
+python -m scripts.lab_report --symbol BTCUSD --interval 1d                 # tables in reports/
 ```

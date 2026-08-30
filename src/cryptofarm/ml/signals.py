@@ -250,6 +250,27 @@ def swing_model_disponibile() -> bool:
     return (MODELS_DIR / "swing_model.joblib").exists()
 
 
+def swing_etichetta_addestrata() -> dict:
+    """Finestra e smoothing temporale con cui l'artefatto su disco e' stato etichettato.
+
+    Serve a chi **disegna** l'etichetta accanto alla previsione: i widget della pagina partono dai
+    valori di `config`, ma un artefatto piu' vecchio puo' essere stato addestrato su altri due
+    numeri, e in quel caso la curva disegnata non e' quella che il modello ha imparato. Vuoto se
+    non c'e' artefatto o se i suoi metadata non lo dicono -- gli artefatti anteriori al
+    2026-08-30 riportano `method: swing_target` e nessun `peso_tempo`.
+    """
+    percorso = MODELS_DIR / "swing_model.json"
+    if not percorso.exists():
+        return {}
+    import json
+
+    try:
+        etichetta = json.loads(percorso.read_text()).get("labeling", {})
+    except (ValueError, OSError):
+        return {}
+    return etichetta if "peso_tempo" in etichetta else {}
+
+
 @lru_cache(maxsize=1)
 def swing_model():
     """Il modello a swing addestrato, o `None` se l'artefatto non c'e'.

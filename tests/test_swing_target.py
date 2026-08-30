@@ -1,10 +1,12 @@
 """Il target di prossimita' agli estremi: forma, saturazione e confine col futuro."""
 
+import inspect
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from cryptofarm.ml.labeling import swing_leg_target, swing_pivots, swing_target
+from cryptofarm.ml.labeling import TIME_WEIGHT, swing_leg_target, swing_pivots, swing_target
 
 
 def _rango_centrato_a_forza_bruta(close: np.ndarray, window: int) -> np.ndarray:
@@ -136,3 +138,61 @@ def test_dentro_una_tendenza_regolare_non_ci_sono_vertici():
     indici, _ = swing_pivots(np.arange(500.0), 50)
     assert len(indici) == 0
     assert swing_leg_target(np.arange(500.0), 50).isna().all()
+
+
+def test_lo_smoothing_temporale_di_partenza_e_quello_documentato():
+    """0,7, e non un valore qualunque: e' cio' con cui `swing_model` viene addestrato.
+
+    Il default vive in `labeling.TIME_WEIGHT` e la firma lo eredita. Se qualcuno riscrive un
+    numero nella firma, i tre usi dell'etichetta -- addestramento, grafico, misura -- ricominciano
+    a divergere in silenzio, che e' il difetto che questo file esiste per non far tornare.
+    """
+    import inspect
+
+    assert TIME_WEIGHT == 0.7
+    assert inspect.signature(swing_leg_target).parameters["peso_tempo"].default == TIME_WEIGHT
+
+
+def test_la_pagina_parte_dallo_smoothing_con_cui_si_addestra():
+    """`config` non importa `ml` di proposito, quindi il valore e' ricopiato: qui si tiene fermo.
+
+    Un modello addestrato a 0,7 e un grafico disegnato a 0,5 mostrano due curve diverse chiamandole
+    entrambe «l'etichetta». E' successo fino al 2026-08-30, in senso opposto: il grafico aveva lo
+    smoothing e l'addestramento no.
+    """
+    from cryptofarm.trading import config
+
+    assert config.SWING_TARGET_TEMPO.value == TIME_WEIGHT
+    assert config.SWING_TARGET_TEMPO.minimum <= TIME_WEIGHT <= config.SWING_TARGET_TEMPO.maximum
+
+
+def test_il_trainer_etichetta_con_le_gambe_e_non_col_rango():
+    """La regressione da cui nasce tutto questo: il trainer imparava `swing_target`.
+
+    Il rango centrato non ha smoothing temporale per costruzione -- e' una posizione dentro una
+    finestra fissa -- quindi finche' il trainer usava quello il parametro non poteva mordere,
+    per quanto lo si muovesse nella pagina.
+    """
+    from cryptofarm.ml import swing_trainer
+
+    assert swing_trainer.PESO_TEMPO == TIME_WEIGHT
+    sorgente = inspect.getsource(swing_trainer.campione_simbolo)
+    assert 'frame["Target"] = swing_leg_target(' in sorgente
+    assert 'frame["Target"] = swing_target(' not in sorgente
+
+
+def test_l_embargo_copre_l_orizzonte_variabile_dell_etichetta():
+    """L'etichetta guarda avanti fino all'estremo successivo, che dista piu' di `w` barre.
+
+    Un embargo di `w` sole -- quello che bastava al rango -- lascia le ultime righe dello stima con
+    un target che ha gia' letto dentro la verifica, e il numero fuori campione esce gonfio.
+    """
+    from cryptofarm.ml import swing_trainer
+
+    assert swing_trainer.EMBARGO_FINESTRE >= 2
+    indice = pd.date_range("2023-01-01", periods=4000, freq="5min")
+    dati = pd.DataFrame({"x": np.arange(len(indice))}, index=indice)
+    taglio = indice[3000]
+    dentro, fuori = swing_trainer.taglia(dati, str(taglio), w=100)
+    distanza = (fuori.index[0] - dentro.index[-1]) / pd.Timedelta(minutes=5)
+    assert distanza >= swing_trainer.EMBARGO_FINESTRE * 100

@@ -1,640 +1,638 @@
-# Ricerca quantitativa e ML — due filoni, misurati su cinque asset
+# Quantitative and ML research — two strands, measured on five assets
 
-Data: **2026-08-26**. Universo: BTC, ETH, SOL, XRP, BNB contro USDT. Solo **pronti**, solo
-**lunghi**, nessuna leva. Dati: lo store locale del progetto — 15 simboli a 5 minuti, da 614.732 a
-945.675 candele per simbolo, fino al **2026-08-19** — aggregato a 4h e 1d da `data/klines.py`.
+Date: **2026-08-26**. Universe: BTC, ETH, SOL, XRP, BNB against USDT. Spot only, **long only**, no
+leverage. Data: the project's local store — 15 symbols at 5 minutes, from 614,732 to 945,675 candles
+per symbol, up to **2026-08-19** — aggregated to 4h and 1d by `data/klines.py`.
 
-Seguito di [`backtest-strategie.md`](backtest-strategie.md) e [`strategie-nuove.md`](strategie-nuove.md),
-che misuravano **un asset**. Questo documento chiude i due punti che quelli lasciavano aperti (SOL e
-BNB mai misurati; `donchian_breakout` e `squeeze_breakout` da rimisurare dopo la correzione dello
-stop a trailing) e apre due famiglie che il progetto non aveva mai provato.
-
----
-
-## Il risultato in cinque righe
-
-1. **Su cinque asset, quasi niente batte il possesso passivo.** 7.516 configurazioni delle strategie
-   storiche a 1d: il 4,7% batte il comprare-e-tenere. 50 celle fuori campione delle strategie nuove:
-   il 42% è in utile, il 24% batte il passivo, e **9 di quelle 12 vittorie sono in finestre dove il
-   passivo era negativo** — si vince stando fermi, non guadagnando di più.
-2. **La raccomandazione della sessione precedente non generalizza.** `band_reversion_gated`, la
-   strategia indicata come la più promettente su BTC, ha mediana negativa su 4 asset su 5 a
-   entrambi gli intervalli. Le due che reggono ovunque sono `ichimoku_trend` e `donchian_breakout`
-   a 4h.
-3. **Anche la conclusione sul timeframe va corretta.** Fuori campione **4h batte 1d** (52% contro
-   32% di celle in utile, mediana +0,6% contro −27,5%). "Sempre più lento è meglio" era vero fra 15m
-   e 1d su un asset; non è monotono.
-4. **La famiglia trasversale — scegliere *quale* asset invece di *quando* — è l'unica cosa nuova che
-   trasferisce.** Fuori campione, sui cinque grandi, l'intera griglia ha mediana +62% con l'89% di
-   configurazioni in utile, contro +55,6% di BTC e +37,3% dell'universo a peso uguale. Ma **la
-   scelta dei parametri non trasferisce affatto** (ρ = −0,69) e l'effetto **sparisce allargando
-   l'universo a 15 asset** (mediana −0,9%).
-5. **Il filone ML riformulato ha un vantaggio reale ma sotto la soglia di significatività.** Il
-   filtro meta sopra una strategia primaria vera ottiene AUC 0,537 dentro e fuori campione — non
-   0,50 — e alza il netto per operazione. Contro una **selezione casuale della stessa numerosità**
-   però resta all'80°-98° percentile, e avendo provato una ventina di combinazioni, un 98° percentile
-   è quello che ci si aspetta dal caso.
+A sequel to [`backtest-strategie.md`](backtest-strategie.md) and
+[`strategie-nuove.md`](strategie-nuove.md), which measured **one asset**. This document closes the
+two points those left open (SOL and BNB never measured; `donchian_breakout` and `squeeze_breakout` to
+be re-measured after the trailing-stop fix) and opens two families the project had never tried.
 
 ---
 
-## 1. Cosa dice lo stato dell'arte, letto nei repository
+## The result in five lines
 
-Nove repository letti direttamente (README, documentazione e tabelle dei benchmark scaricate il
-2026-08-26, non ricordate). Quello che segue è **conoscenza derivata dalle fonti**, distinta più
-avanti dalle ipotesi.
+1. **Across five assets, almost nothing beats passive holding.** 7,516 configurations of the
+   historical strategies at 1d: 4.7% beat buy-and-hold. 50 out-of-sample cells of the new strategies:
+   42% are profitable, 24% beat passive, and **9 of those 12 wins are in windows where passive was
+   negative** — you win by standing still, not by earning more.
+2. **The previous session's recommendation does not generalise.** `band_reversion_gated`, the
+   strategy named as the most promising on BTC, has a negative median on 4 assets out of 5 at both
+   intervals. The two that hold up everywhere are `ichimoku_trend` and `donchian_breakout` at 4h.
+3. **The conclusion about the timeframe needs correcting too.** Out of sample **4h beats 1d** (52%
+   against 32% of profitable cells, median +0.6% against −27.5%). "Slower is always better" was true
+   between 15m and 1d on one asset; it is not monotone.
+4. **The cross-sectional family — choosing *which* asset instead of *when* — is the only new thing
+   that transfers.** Out of sample, on the five majors, the whole grid has a median of +62% with 89%
+   of configurations profitable, against +55.6% for BTC and +37.3% for the equal-weight universe. But
+   **choosing the parameters does not transfer at all** (ρ = −0.69) and the effect **disappears when
+   the universe widens to 15 assets** (median −0.9%).
+5. **The reformulated ML strand has a real advantage, but below the significance bar.** A meta filter
+   on top of a genuine primary strategy gets AUC 0.537 both in and out of sample — not 0.50 — and
+   raises the net per trade. Against a **random selection of the same size**, though, it stays at the
+   80th-98th percentile, and having tried some twenty combinations, a 98th percentile is what chance
+   is expected to produce.
 
-### 1.1 Il numero più utile di tutti: il soffitto dell'alpha ML
+---
 
-`microsoft/qlib` pubblica la tabella dei benchmark di ~20 modelli su `Alpha158` e `Alpha360`
-(CSI300, media e deviazione su 20 semi). È la misura più onesta disponibile di quanto valga
-davvero un modello di previsione su un mercato molto studiato:
+## 1. What the state of the art says, read in the repositories
 
-| modello | dataset | IC | Rank IC | rendimento annuo |
+Nine repositories read directly (README, documentation and benchmark tables downloaded on
+2026-08-26, not recalled). What follows is **knowledge derived from the sources**, kept distinct from
+the hypotheses further down.
+
+### 1.1 The single most useful number: the ceiling on ML alpha
+
+`microsoft/qlib` publishes the benchmark table of ~20 models on `Alpha158` and `Alpha360` (CSI300,
+mean and deviation over 20 seeds). It is the most honest measurement available of what a prediction
+model is really worth on a heavily studied market:
+
+| model | dataset | IC | Rank IC | annual return |
 |---|---|---:|---:|---:|
-| DoubleEnsemble | Alpha158 | **0,0521** | 0,0502 | 11,6% |
-| XGBoost | Alpha158 | 0,0498 | 0,0505 | 7,8% |
-| LightGBM | Alpha158 | 0,0448 | 0,0469 | 9,0% |
-| TRA | Alpha158 | 0,0440 | **0,0540** | 7,2% |
-| Localformer | Alpha158 | 0,0356 | 0,0468 | 4,4% |
-| Transformer | Alpha158 | 0,0264 | 0,0407 | 2,7% |
-| TabNet | Alpha158 | 0,0204 | 0,0333 | 2,3% |
-| Transformer | Alpha360 | 0,0114 | 0,0327 | **−2,7%** |
-| TabNet | Alpha360 | 0,0099 | 0,0290 | **−3,7%** |
+| DoubleEnsemble | Alpha158 | **0.0521** | 0.0502 | 11.6% |
+| XGBoost | Alpha158 | 0.0498 | 0.0505 | 7.8% |
+| LightGBM | Alpha158 | 0.0448 | 0.0469 | 9.0% |
+| TRA | Alpha158 | 0.0440 | **0.0540** | 7.2% |
+| Localformer | Alpha158 | 0.0356 | 0.0468 | 4.4% |
+| Transformer | Alpha158 | 0.0264 | 0.0407 | 2.7% |
+| TabNet | Alpha158 | 0.0204 | 0.0333 | 2.3% |
+| Transformer | Alpha360 | 0.0114 | 0.0327 | **−2.7%** |
+| TabNet | Alpha360 | 0.0099 | 0.0290 | **−3.7%** |
 
-Tre cose che questa tabella stabilisce, e che nessun documento del progetto aveva:
+Three things this table establishes, and that no document in the project had:
 
-- **il soffitto è IC ≈ 0,05.** Una correlazione del 5% fra previsione e rendimento futuro è il
-  massimo che venti architetture producono su un panel azionario ampio e pulito. L'AUC 0,54 che
-  `strategy.md` §Sintesi riportava come fallimento **è il livello normale del campo**, non
-  un'anomalia;
-- **il gradient boosting non è battuto dai modelli profondi.** I primi tre posti per IC sono
-  ensemble di alberi; Transformer e TabNet su `Alpha360` producono rendimento annuo *negativo*.
-  Conferma la scelta `gbdt` già fatta in `ml/models.py`;
-- **quel soffitto si monetizza in sezione, non nel tempo.** Tutti quei numeri vengono da un
-  portafoglio costruito ordinando ~300 titoli ogni giorno. Un IC di 0,05 su *un* asset non produce
-  niente di eseguibile; su una sezione larga sì, perché l'errore si media. **Questo è il punto che
-  separa lo stato dell'arte da tutto ciò che il progetto ha provato finora**, dove ogni misura ha
-  sempre riguardato un simbolo alla volta.
+- **the ceiling is IC ≈ 0.05.** A 5% correlation between prediction and future return is the most
+  that twenty architectures produce on a broad, clean equity panel. The AUC 0.54 that `strategy.md`
+  §Synthesis reported as a failure **is the field's normal level**, not an anomaly;
+- **gradient boosting is not beaten by deep models.** The top three places by IC are tree ensembles;
+  Transformer and TabNet on `Alpha360` produce a *negative* annual return. It confirms the `gbdt`
+  choice already made in `ml/models.py`;
+- **that ceiling is monetised in the cross section, not in time.** All those numbers come from a
+  portfolio built by ranking ~300 stocks every day. An IC of 0.05 on *one* asset produces nothing
+  executable; on a wide cross section it does, because the error averages out. **This is the point
+  that separates the state of the art from everything the project has tried so far**, where every
+  measurement has always concerned one symbol at a time.
 
-### 1.2 `machine-learning-for-trading` (terza edizione) — il metodo, non le tecniche
+### 1.2 `machine-learning-for-trading` (third edition) — the method, not the techniques
 
-La terza edizione è riorganizzata attorno a un processo unico con una *evidence boundary* che separa
-la messa a punto dalla valutazione, più un ciclo di riaddestramento/pausa/ritiro quando l'edge
-decade. Novità rilevanti qui:
+The third edition is reorganised around a single process with an *evidence boundary* separating
+tuning from evaluation, plus a retrain/pause/retire cycle for when the edge decays. What is relevant
+here:
 
-- **costi di transazione e gestione del rischio sono capitoli interi** (18 e 19), non appendici, e
-  si aggiungono a costruzione di portafoglio (17) e sintesi di strategia (20): un segnale grezzo va
-  portato fino a un portafoglio dimensionato, con costi e rischio, prima di dire che funziona;
-- **strumenti anti-overfitting espliciti**: Deflated Sharpe Ratio, Rademacher Anti-Serum, White's
-  Reality Check, predizione conformale, walk-forward ovunque. Il progetto ha già DSR e PBO in
-  `ml/validation.py`, e non li usava nella politica a tre azioni (`strategy.md` §14);
-- **nove casi di studio sullo stesso processo**, fra cui uno su **perpetui cripto a 8 ore basato sul
-  funding rate** e uno intraday a 15 minuti su microstruttura del book. Il primo è l'unico caso
-  cripto della raccolta, e non è una strategia direzionale: è arbitraggio di finanziamento;
-- ML4T tratta esplicitamente il *multiple testing* nella ricerca sui fattori. È la lente giusta per
-  leggere i risultati della §5 qui sotto.
+- **transaction costs and risk management are whole chapters** (18 and 19), not appendices, and they
+  come on top of portfolio construction (17) and strategy synthesis (20): a raw signal has to be
+  carried all the way to a sized portfolio, with costs and risk, before saying it works;
+- **explicit anti-overfitting tools**: Deflated Sharpe Ratio, Rademacher Anti-Serum, White's Reality
+  Check, conformal prediction, walk-forward everywhere. The project already has DSR and PBO in
+  `ml/validation.py`, and did not use them on the three-action policy (`strategy.md` §14);
+- **nine case studies on the same process**, among them one on **8-hour crypto perpetuals based on
+  the funding rate** and one intraday at 15 minutes on order-book microstructure. The first is the
+  collection's only crypto case, and it is not a directional strategy: it is funding arbitrage;
+- ML4T deals explicitly with *multiple testing* in factor research. It is the right lens for reading
+  the results of §5 below.
 
-### 1.3 `freqtrade` / FreqAI — l'unico impianto ML cripto in produzione
+### 1.3 `freqtrade` / FreqAI — the only crypto ML system in production
 
-FreqAI è il modulo ML di freqtrade, ed è interessante per la forma dell'impianto, non per i modelli:
+FreqAI is freqtrade's ML module, and it is interesting for the shape of the system, not for the
+models:
 
-- **riaddestramento auto-adattivo** su finestra scorrevole, in un thread separato dall'inferenza, e
-  un backtest che *emula* il riaddestramento periodico invece di addestrare una volta sul passato;
-- **espansione automatica delle feature** su quattro assi: `indicator_periods_candles` ×
-  `include_timeframes` × `include_shifted_candles` × **`include_corr_pairs`**. Quest'ultimo è
-  decisivo: nel disegno canonico di FreqAI, le feature di *ogni* coppia includono gli indicatori
-  delle coppie correlate. È lo stesso principio della §1.1 — il contesto trasversale entra nel
-  modello;
-- **rimozione degli outlier** come parte della pipeline (Dissimilarity Index, SVM, DBSCAN) e PCA per
-  la riduzione di dimensionalità;
-- un vincolo operativo che vale la pena registrare: FreqAI **non** si combina con pairlist dinamiche,
-  perché i dati di addestramento vanno scaricati all'avvio.
+- **self-adaptive retraining** on a sliding window, in a thread separate from inference, and a
+  backtest that *emulates* periodic retraining instead of training once on the past;
+- **automatic feature expansion** along four axes: `indicator_periods_candles` ×
+  `include_timeframes` × `include_shifted_candles` × **`include_corr_pairs`**. The last is decisive:
+  in FreqAI's canonical design, *every* pair's features include the indicators of the correlated
+  pairs. It is the same principle as §1.1 — the cross-sectional context enters the model;
+- **outlier removal** as part of the pipeline (Dissimilarity Index, SVM, DBSCAN) and PCA for
+  dimensionality reduction;
+- an operational constraint worth recording: FreqAI does **not** combine with dynamic pairlists,
+  because the training data has to be downloaded at startup.
 
-### 1.4 Gli altri cinque
+### 1.4 The other five
 
-- **`jesse`** — framework cripto per backtest e live. Due strumenti che il progetto non ha e che
-  sarebbero utili subito: **test di significatività della regola d'ingresso** ("questo edge poteva
-  comparire per caso?") e **analisi Monte Carlo** con rimescolamento dell'ordine delle operazioni.
-  Ha anche fill parziali, ottimizzazione con Optuna+Ray, e una pipeline ML integrata.
-- **`AI4Finance/FinRL`** — RL finanziario a tre livelli (ambiente / agente / applicazione). Il
-  repository stesso ora si dichiara "workflow classico per didattica, sperimentazione e
-  prototipazione di ricerca" e rimanda a FinRL-X per la produzione. Da leggere come laboratorio, non
-  come impianto pronto.
-- **`vnpy`** — piattaforma di trading (gateway, esecuzione, gestione ordini). Risolve l'infrastruttura,
-  non l'alpha.
-- **`TauricResearch/TradingAgents`** — agenti LLM in ruoli (analisti, ricercatori, trader, rischio).
-  Il repository documenta da sé i limiti di riproducibilità (i modelli di ragionamento ignorano la
-  temperatura). Non è una fonte di segnale misurabile su OHLCV.
-- **`Rachnog/Deep-Trading`** — il README dichiara "released part one - simple time series
-  forecasting". Interesse storico (2017): è la generazione di lavori da cui viene l'idea che una rete
-  profonda sul prezzo basti, che i benchmark qlib di §1.1 smentiscono.
-- **`awesome-quant`** — indice. Utile per le sezioni backtesting, ottimizzazione di portafoglio e
-  analisi fattoriale.
+- **`jesse`** — crypto framework for backtesting and live trading. Two tools the project does not
+  have and that would be useful immediately: a **significance test for the entry rule** ("could this
+  edge have appeared by chance?") and **Monte Carlo analysis** with shuffling of the trade order. It
+  also has partial fills, optimisation with Optuna+Ray, and an integrated ML pipeline.
+- **`AI4Finance/FinRL`** — financial RL at three levels (environment / agent / application). The
+  repository itself now describes itself as a "classic workflow for teaching, experimentation and
+  research prototyping" and points to FinRL-X for production. To be read as a laboratory, not as a
+  ready-made system.
+- **`vnpy`** — a trading platform (gateways, execution, order management). It solves the
+  infrastructure, not the alpha.
+- **`TauricResearch/TradingAgents`** — LLM agents in roles (analysts, researchers, traders, risk).
+  The repository documents its own reproducibility limits (reasoning models ignore temperature). Not
+  a source of signal measurable on OHLCV.
+- **`Rachnog/Deep-Trading`** — the README states "released part one - simple time series
+  forecasting". Historical interest (2017): it is the generation of work the idea that a deep network
+  on price is enough comes from, which the qlib benchmarks of §1.1 refute.
+- **`awesome-quant`** — an index. Useful for the backtesting, portfolio-optimisation and factor
+  analysis sections.
 
-### 1.5 Cosa se ne ricava, in tre principi
+### 1.5 What comes out of it, in three principles
 
-Non sono ipotesi: sono conclusioni sostenute dalle fonti sopra.
+These are not hypotheses: they are conclusions supported by the sources above.
 
-1. **La sezione trasversale è dove l'alpha debole diventa eseguibile.** (qlib, FreqAI `corr_pairs`,
-   ML4T cap. 17)
-2. **Il vincolo economico va dentro il target, non verificato dopo.** (ML4T cap. 18; e in questo
-   repository `strategy.md` §13 lo ha imparato a sue spese)
-3. **Il gradient boosting è il riferimento; le architetture profonde vanno giustificate.** (qlib
-   benchmarks)
+1. **The cross section is where weak alpha becomes executable.** (qlib, FreqAI `corr_pairs`, ML4T
+   ch. 17)
+2. **The economic constraint goes inside the target, not checked afterwards.** (ML4T ch. 18; and in
+   this repository `strategy.md` §13 learned it the hard way)
+3. **Gradient boosting is the reference; deep architectures have to be justified.** (qlib benchmarks)
 
 ---
 
-## 2. Filone quantitativo — cosa hanno prodotto le misure
+## 2. The quantitative strand — what the measurements produced
 
-Comando: `strategy_lab` (5 strategie a due versi, 592 configurazioni) e `strategy_sweep` (le 11
-storiche, 3.129 configurazioni) su ognuno dei cinque simboli, a 1d e 4h, dal 2021-01-01, commissione
-0,05% per gamba. Solo il lato lungo, come da mandato.
+Command: `strategy_lab` (5 two-sided strategies, 592 configurations) and `strategy_sweep` (the 11
+historical ones, 3,129 configurations) on each of the five symbols, at 1d and 4h, from 2021-01-01,
+commission 0.05% per leg. Long side only, as mandated.
 
-### 2.1 I riferimenti da battere
+### 2.1 The references to beat
 
-| simbolo | 2021-2023 | 2024-oggi | intero periodo | drawdown |
+| symbol | 2021-2023 | 2024-today | whole period | drawdown |
 |---|---:|---:|---:|---:|
-| BTC | +44,2% | +55,6% | +134,4% | 76,6% |
-| ETH | +213,1% | −10,9% | +187,5% | 79,3% |
-| SOL | +5.422,0% | −25,5% | +4.346,0% | 96,3% |
-| XRP | +159,2% | +69,7% | +349,8% | 83,2% |
-| BNB | +725,4% | +97,4% | +1.538,0% | 70,9% |
+| BTC | +44.2% | +55.6% | +134.4% | 76.6% |
+| ETH | +213.1% | −10.9% | +187.5% | 79.3% |
+| SOL | +5,422.0% | −25.5% | +4,346.0% | 96.3% |
+| XRP | +159.2% | +69.7% | +349.8% | 83.2% |
+| BNB | +725.4% | +97.4% | +1,538.0% | 70.9% |
 
-### 2.2 Le strategie nuove, su cinque asset (in campione)
+### 2.2 The new strategies, on five assets (in sample)
 
-Mediana della griglia, solo lunghe, ≥10 operazioni:
+Grid median, long only, ≥10 trades:
 
-**1 giorno**
+**1 day**
 
-| strategia | BNB | BTC | ETH | SOL | XRP | in utile (media) | sopra il passivo |
+| strategy | BNB | BTC | ETH | SOL | XRP | profitable (mean) | above passive |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| squeeze_breakout | +450,9% | +85,6% | +34,2% | +168,0% | +74,5% | 83% | 0-26% |
-| donchian_breakout | +34,4% | +27,1% | +17,0% | +315,1% | +28,9% | 80% | 0-4% |
-| ichimoku_trend | +36,8% | −5,3% | +35,1% | +113,7% | −14,0% | 74% | 0% |
-| band_reversion_gated | −34,8% | +9,2% | −39,1% | −81,6% | +10,3% | 32% | 0% |
-| trend_pullback | −46,9% | −9,3% | −26,1% | +119,7% | −77,5% | 27% | 0% |
+| squeeze_breakout | +450.9% | +85.6% | +34.2% | +168.0% | +74.5% | 83% | 0-26% |
+| donchian_breakout | +34.4% | +27.1% | +17.0% | +315.1% | +28.9% | 80% | 0-4% |
+| ichimoku_trend | +36.8% | −5.3% | +35.1% | +113.7% | −14.0% | 74% | 0% |
+| band_reversion_gated | −34.8% | +9.2% | −39.1% | −81.6% | +10.3% | 32% | 0% |
+| trend_pullback | −46.9% | −9.3% | −26.1% | +119.7% | −77.5% | 27% | 0% |
 
-**4 ore**
+**4 hours**
 
-| strategia | BNB | BTC | ETH | SOL | XRP | in utile (media) | sopra il passivo |
+| strategy | BNB | BTC | ETH | SOL | XRP | profitable (mean) | above passive |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| ichimoku_trend | +1.008,4% | +35,9% | +38,0% | +434,9% | +177,7% | 83% | 0-33% |
-| donchian_breakout | +374,5% | +40,0% | +68,7% | +199,7% | +171,1% | 87% | 0-23% |
-| squeeze_breakout | +16,1% | −0,9% | −13,8% | +29,9% | +20,0% | 53% | 0% |
-| trend_pullback | 0,0% | −21,5% | −15,8% | +17,8% | +24,7% | 51% | 0% |
-| band_reversion_gated | −16,1% | −10,6% | −29,8% | +11,6% | −11,3% | 31% | 0% |
+| ichimoku_trend | +1,008.4% | +35.9% | +38.0% | +434.9% | +177.7% | 83% | 0-33% |
+| donchian_breakout | +374.5% | +40.0% | +68.7% | +199.7% | +171.1% | 87% | 0-23% |
+| squeeze_breakout | +16.1% | −0.9% | −13.8% | +29.9% | +20.0% | 53% | 0% |
+| trend_pullback | 0.0% | −21.5% | −15.8% | +17.8% | +24.7% | 51% | 0% |
+| band_reversion_gated | −16.1% | −10.6% | −29.8% | +11.6% | −11.3% | 31% | 0% |
 
-Tre letture, tutte contro un'aspettativa precedente:
+Three readings, all against a prior expectation:
 
-- **`band_reversion_gated` non generalizza.** Su BTC 1d resta accettabile (mediana +9,2%, Sharpe
-  0,20), ma è negativa su BNB, ETH e SOL a entrambi gli intervalli, con Sharpe mediano fino a −0,57.
-  La raccomandazione #2 di `strategie-nuove.md` §7 vale per un asset, non per la famiglia.
-- **La correzione dello stop a trailing ha promosso `donchian_breakout`.** Rimisurata, è la seconda
-  più regolare (75-100% di configurazioni in utile a 4h). Il punto aperto in
-  `strategie-nuove.md` §8 è chiuso: la correzione migliora, come il test sintetico suggeriva.
-- **`ichimoku_trend` a 4h è la più solida in campione**: mediana positiva su tutti e cinque, Sharpe
-  mediano da 0,33 a 1,08, e l'unica cella che supera il passivo in un terzo dei casi (BNB).
+- **`band_reversion_gated` does not generalise.** On BTC 1d it stays acceptable (median +9.2%, Sharpe
+  0.20), but it is negative on BNB, ETH and SOL at both intervals, with a median Sharpe down to
+  −0.57. Recommendation #2 of `strategie-nuove.md` §7 holds for one asset, not for the family.
+- **The trailing-stop fix promoted `donchian_breakout`.** Re-measured, it is the second most regular
+  (75-100% of configurations profitable at 4h). The open point in `strategie-nuove.md` §8 is closed:
+  the fix improves things, as the synthetic test suggested.
+- **`ichimoku_trend` at 4h is the most solid in sample**: a positive median on all five, median
+  Sharpe from 0.33 to 1.08, and the only cell that beats passive in a third of cases (BNB).
 
-### 2.3 Fuori campione: 50 celle, e il verdetto
+### 2.3 Out of sample: 50 cells, and the verdict
 
-Scelta sul 2021-2023, resa sul 2024-oggi, per ognuna delle 5 strategie × 5 simboli × 2 intervalli:
+Chosen on 2021-2023, performance on 2024-today, for each of the 5 strategies × 5 symbols × 2
+intervals:
 
-| | valore |
+| | value |
 |---|---:|
-| celle con resa positiva | **21 / 50 (42%)** |
-| celle che battono il possesso passivo | **12 / 50 (24%)** |
-| … di cui in finestre dove il passivo era **negativo** | **9 su 12** |
-| mediana della resa fuori campione | **−8,9%** |
-| correlazione mediana stima↔verifica (ρ) | 0,26 (positiva nel 70% delle celle) |
+| cells with a positive return | **21 / 50 (42%)** |
+| cells that beat passive holding | **12 / 50 (24%)** |
+| … of which in windows where passive was **negative** | **9 out of 12** |
+| median out-of-sample return | **−8.9%** |
+| median in↔out correlation (ρ) | 0.26 (positive in 70% of cells) |
 
-Per strategia:
+By strategy:
 
-| strategia | positive | battono il passivo | mediana della resa | ρ mediano |
+| strategy | positive | beat passive | median return | median ρ |
 |---|---:|---:|---:|---:|
-| ichimoku_trend | 6/10 | 4/10 | **+13,5%** | 0,38 |
-| squeeze_breakout | 7/10 | 3/10 | +6,5% | −0,04 |
-| band_reversion_gated | 4/10 | 3/10 | −2,5% | 0,38 |
-| donchian_breakout | 2/10 | 2/10 | −31,5% | −0,02 |
-| trend_pullback | 2/10 | 0/10 | −39,4% | 0,22 |
+| ichimoku_trend | 6/10 | 4/10 | **+13.5%** | 0.38 |
+| squeeze_breakout | 7/10 | 3/10 | +6.5% | −0.04 |
+| band_reversion_gated | 4/10 | 3/10 | −2.5% | 0.38 |
+| donchian_breakout | 2/10 | 2/10 | −31.5% | −0.02 |
+| trend_pullback | 2/10 | 0/10 | −39.4% | 0.22 |
 
-Per intervallo:
+By interval:
 
-| intervallo | celle positive | battono il passivo | mediana |
+| interval | positive cells | beat passive | median |
 |---|---:|---:|---:|
-| 1d | 32% | 20% | −27,5% |
-| **4h** | **52%** | **28%** | **+0,6%** |
+| 1d | 32% | 20% | −27.5% |
+| **4h** | **52%** | **28%** | **+0.6%** |
 
-**`ichimoku_trend` è l'unica che trasferisce**: mediana positiva, ρ 0,38, e 4 vittorie su 10 contro
-il passivo. Ed è anche l'unica il cui massimo in campione non è un artefatto di griglia — la sua
-griglia ha 11-12 configurazioni, non 256.
+**`ichimoku_trend` is the only one that transfers**: positive median, ρ 0.38, and 4 wins out of 10
+against passive. And it is also the only one whose in-sample maximum is not a grid artefact — its
+grid has 11-12 configurations, not 256.
 
-**Il ribaltamento sul timeframe va detto chiaramente**: `strategie-nuove.md` §7 punto 1 concludeva
-"scala giornaliera, non 15 minuti", e la generalizzazione implicita era "più lento è meglio". Su
-cinque asset non è così: 4h batte 1d su ogni metrica fuori campione. La regola vera è più stretta —
-**esiste un intervallo intermedio dove il margine per operazione supera il costo e le operazioni
-restano abbastanza numerose da non dipendere da tre trade**; a 15m il costo vince, a 1d il campione
-diventa troppo piccolo.
+**The reversal on the timeframe has to be stated plainly**: `strategie-nuove.md` §7 point 1 concluded
+"daily scale, not 15 minutes", and the implicit generalisation was "slower is better". Across five
+assets it is not so: 4h beats 1d on every out-of-sample metric. The true rule is narrower — **there
+is an intermediate interval where the margin per trade exceeds the cost and the trades stay numerous
+enough not to depend on three of them**; at 15m the cost wins, at 1d the sample gets too small.
 
-### 2.4 Le strategie storiche, su cinque asset
+### 2.4 The historical strategies, on five assets
 
-7.516 configurazioni a 1d, commissione 0,05%: mediana **+43,9%**, **72%** in utile, e **solo il
-4,7% batte il possesso passivo**. L'unica cella con un vantaggio sistematico è `Close EMA Crossover`
-su BTC (75% delle configurazioni sopra il passivo), che non si ripete su nessun altro asset (0%).
+7,516 configurations at 1d, commission 0.05%: median **+43.9%**, **72%** profitable, and **only 4.7%
+beat passive holding**. The only cell with a systematic advantage is `Close EMA Crossover` on BTC
+(75% of configurations above passive), which does not repeat on any other asset (0%).
 
-Su SOL e BNB le mediane sono spettacolari in assoluto (`Green Candles` +1.778%, `Close RSI Reverse`
-+908%) e irrilevanti in relativo: il passivo faceva +4.346% e +1.538%.
+On SOL and BNB the medians are spectacular in absolute terms (`Green Candles` +1,778%, `Close RSI
+Reverse` +908%) and irrelevant in relative ones: passive did +4,346% and +1,538%.
 
-### 2.5 La famiglia nuova: rotazione trasversale
+### 2.5 The new family: cross-sectional rotation
 
-`scripts/cross_section.py`. A ogni ribilanciamento si ordinano gli asset per forza relativa
-(rendimento su `lookback` barre) e si tengono i primi `top` a peso uguale; chi ha forza negativa non
-si compra e la sua quota resta in contanti. Variante con un interruttore di regime unico (fuori dal
-mercato quando BTC sta sotto la sua media a 50 barre). Commissione 0,1% per gamba (listino a
-pronti). 160 configurazioni: `lookback` ∈ {10,20,30,60,90}, `top` ∈ {1,2,3,5}, ribilanciamento ogni
-{1,3,7,14} barre, regime ∈ {nessuno, BTC}.
+`scripts/cross_section.py`. At each rebalance the assets are ranked by relative strength (return over
+`lookback` bars) and the top `top` are held at equal weight; anything with negative strength is not
+bought and its share stays in cash. A variant with a single regime switch (out of the market when BTC
+is below its 50-bar average). Commission 0.1% per leg (spot fee schedule). 160 configurations:
+`lookback` ∈ {10,20,30,60,90}, `top` ∈ {1,2,3,5}, rebalance every {1,3,7,14} bars, regime ∈ {none,
+BTC}.
 
-**In campione, 2021-2026, cinque grandi** (BTC passivo +134,4%; universo a peso uguale +1.311,1%,
-Sharpe 0,98, DD 91,0%):
+**In sample, 2021-2026, five majors** (BTC passive +134.4%; equal-weight universe +1,311.1%, Sharpe
+0.98, DD 91.0%):
 
-| | valore |
+| | value |
 |---|---:|
-| mediana della griglia | +1.179,7% |
-| configurazioni in utile | 100% |
-| sopra BTC | 95,6% |
-| **sopra l'universo a peso uguale** | **44,4%** |
-| migliore per Sharpe (lb 20, top 3, settimanale, regime BTC) | +3.508,2%, **Sharpe 1,60**, DD **45,7%** |
+| grid median | +1,179.7% |
+| profitable configurations | 100% |
+| above BTC | 95.6% |
+| **above the equal-weight universe** | **44.4%** |
+| best by Sharpe (lb 20, top 3, weekly, BTC regime) | +3,508.2%, **Sharpe 1.60**, DD **45.7%** |
 
-La riga che conta è la quarta: **la mediana della rotazione non batte il tenere gli stessi cinque a
-peso uguale.** I numeri assoluti enormi vengono dall'universo, non dalla rotazione. Il vantaggio
-vero è sul rischio: DD 45,7% contro 91,0%, Sharpe 1,60 contro 0,98 — di nuovo la stessa forma di
-risultato già vista su `band_reversion_gated`.
+The row that counts is the fourth: **the rotation's median does not beat holding the same five at
+equal weight.** The huge absolute numbers come from the universe, not from the rotation. The real
+advantage is on risk: DD 45.7% against 91.0%, Sharpe 1.60 against 0.98 — again the same shape of
+result already seen on `band_reversion_gated`.
 
-**Fuori campione, 2024-oggi** (BTC +55,6%; universo a peso uguale +37,3%, Sharpe 0,50):
+**Out of sample, 2024-today** (BTC +55.6%; equal-weight universe +37.3%, Sharpe 0.50):
 
-| | cinque grandi | quindici asset |
+| | five majors | fifteen assets |
 |---|---:|---:|
-| mediana dell'intera griglia | **+62,0%** | −0,9% |
-| configurazioni in utile | 89% | 49% |
-| sopra BTC | 52% | 16% |
-| sopra il proprio universo | 65% | 56% |
-| Sharpe mediano | 0,66 (contro 0,50) | 0,28 (contro 0,23) |
-| ρ stima↔verifica sulle prime 10 | **−0,69** | −0,15 |
+| median of the whole grid | **+62.0%** | −0.9% |
+| profitable configurations | 89% | 49% |
+| above BTC | 52% | 16% |
+| above their own universe | 65% | 56% |
+| median Sharpe | 0.66 (against 0.50) | 0.28 (against 0.23) |
+| in↔out ρ over the top 10 | **−0.69** | −0.15 |
 
-Quattro conclusioni, in ordine di solidità:
+Four conclusions, in order of solidity:
 
-1. **La famiglia trasferisce dove le strategie a un asset non trasferiscono.** L'89% di
-   configurazioni in utile fuori campione contro il 42% di celle positive della §2.3 è la differenza
-   più grande misurata in questo documento.
-2. **La scelta dei parametri non trasferisce, e anzi danneggia.** ρ = −0,69: prendere la migliore
-   configurazione in stima è peggio che prenderne una a caso. La conseguenza operativa è precisa —
-   **non ottimizzare**: prendere una configurazione centrale (lookback ~20-30 barre, top 2-3,
-   ribilanciamento settimanale) e lasciarla ferma.
-3. **L'universo largo non funziona.** A 15 asset la mediana fuori campione è −0,9% e solo il 16%
-   batte BTC. Più asset non è più diversificazione: sono più alt-coin che nel 2024-2026 hanno perso
-   (il loro paniere passivo fa −9,5%). L'effetto vive nei grandi capitalizzati.
-4. **Il costo morde ma non uccide**, a ribilanciamento settimanale: la quota sopra l'universo passa
-   da 50,6% (0,02%/gamba) a 44,4% (0,1%) a 28,1% (0,3%).
+1. **The family transfers where single-asset strategies do not.** 89% of configurations profitable
+   out of sample against 42% of positive cells in §2.3 is the largest difference measured in this
+   document.
+2. **Choosing the parameters does not transfer, and in fact harms.** ρ = −0.69: taking the best
+   in-sample configuration is worse than taking one at random. The operational consequence is
+   precise — **do not optimise**: take a central configuration (lookback ~20-30 bars, top 2-3, weekly
+   rebalance) and leave it alone.
+3. **The wide universe does not work.** At 15 assets the out-of-sample median is −0.9% and only 16%
+   beat BTC. More assets is not more diversification: it is more alt-coins that lost over 2024-2026
+   (their passive basket does −9.5%). The effect lives in the large caps.
+4. **The cost bites but does not kill**, at a weekly rebalance: the share above the universe goes
+   from 50.6% (0.02%/leg) to 44.4% (0.1%) to 28.1% (0.3%).
 
-### 2.6 Le coppie (BTC/ETH, ETH/SOL, …)
+### 2.6 The pairs (BTC/ETH, ETH/SOL, …)
 
-Tenere la più forte fra due è la stessa procedura con universo di due e `top=1`. Nessuna gamba
-corta, quindi compatibile col mandato.
+Holding the stronger of two is the same procedure with a universe of two and `top=1`. No short leg,
+so it is compatible with the mandate.
 
-**In campione** batte il "metà e metà" passivo in **9 coppie su 10**. Ma la coppia senza un vincitore
-straordinario è anche l'unica che perde:
+**In sample** it beats the passive "half and half" in **9 pairs out of 10**. But the pair without an
+extraordinary winner is also the only one that loses:
 
-| coppia | rotazione | metà e metà | esito |
+| pair | rotation | half and half | outcome |
 |---|---:|---:|---|
-| **BTC/ETH** | +156,0% | +160,9% | **perde** |
-| ETH/SOL | +29.325,7% | +2.266,7% | vince (SOL fa ×44) |
-| BTC/SOL | +8.882,0% | +2.240,2% | vince (SOL) |
-| SOL/BNB | +9.639,2% | +2.942,0% | vince |
+| **BTC/ETH** | +156.0% | +160.9% | **loses** |
+| ETH/SOL | +29,325.7% | +2,266.7% | wins (SOL does ×44) |
+| BTC/SOL | +8,882.0% | +2,240.2% | wins (SOL) |
+| SOL/BNB | +9,639.2% | +2,942.0% | wins |
 
-Cioè: in campione la rotazione fra due "funziona" quando c'è un asset che moltiplica per quaranta e
-la regola lo trova. Non è un edge, è concentrazione con il senno di poi sull'universo.
+That is: in sample, rotating between two "works" when there is an asset that multiplies by forty and
+the rule finds it. It is not an edge, it is concentration with hindsight on the universe.
 
-**Fuori campione (2024-oggi) il quadro è più interessante e più credibile**: batte il metà-e-metà in
-7 coppie su 10, e **su BTC/ETH — la coppia senza outlier — fa +136,2% contro +22,4% del passivo e
-+55,6% di BTC da solo**, evitando ETH nella sua fase debole. È il singolo risultato fuori campione
-più pulito di tutto il documento, ed è anche un solo campione: una coppia, una finestra.
+**Out of sample (2024-today) the picture is more interesting and more credible**: it beats half-and-
+half in 7 pairs out of 10, and **on BTC/ETH — the pair without an outlier — it does +136.2% against
++22.4% for passive and +55.6% for BTC alone**, avoiding ETH in its weak phase. It is the cleanest
+out-of-sample result in the whole document, and it is also a single sample: one pair, one window.
 
-### 2.7 L'architettura quantitativa che ne segue
+### 2.7 The quantitative architecture that follows
 
-**Non** una strategia sola: due strati con ruoli diversi.
+**Not** a single strategy: two layers with different roles.
 
 ```
-   strato 1 — selezione trasversale (che cosa)
-      ordina i 5 grandi per forza relativa a 20-30 barre giornaliere
-      tieni i primi 2-3 a peso uguale, ribilancia ogni 7 barre
-      forza negativa -> contanti, non "il meno peggio"
-      interruttore di regime unico: BTC sotto la media a 50 -> tutto in contanti
+   layer 1 — cross-sectional selection (what)
+      rank the 5 majors by relative strength over 20-30 daily bars
+      hold the top 2-3 at equal weight, rebalance every 7 bars
+      negative strength -> cash, not "the least bad"
+      single regime switch: BTC below its 50-bar average -> all to cash
 
-   strato 2 — tempificazione per asset (quando)  [opzionale, vedi §5]
-      ichimoku_trend a 4h, solo lungo, parametri centrali della griglia
-      applicato solo agli asset che lo strato 1 ha selezionato
+   layer 2 — per-asset timing (when)  [optional, see §5]
+      ichimoku_trend at 4h, long only, central grid parameters
+      applied only to the assets layer 1 has selected
 ```
 
-Le ragioni di ogni pezzo sono misurate, non scelte per simmetria: lo strato 1 perché è l'unica
-famiglia che trasferisce (§2.5); i parametri centrali invece degli ottimi perché ρ = −0,69 (§2.5);
-l'interruttore unico perché in cripto la correlazione in caduta va a uno e selezionare il migliore
-di cinque che scendono non protegge; `ichimoku_trend` perché è l'unica per-asset con mediana
-positiva fuori campione (§2.3); il divieto di short perché è misurato in perdita in tutte e cinque
-le strategie (`strategie-nuove.md` §5) ed è comunque fuori mandato.
+The reasons for each piece are measured, not chosen for symmetry: layer 1 because it is the only
+family that transfers (§2.5); central parameters instead of optimal ones because ρ = −0.69 (§2.5);
+the single switch because in crypto correlation goes to one on the way down, and selecting the best
+of five that are falling does not protect; `ichimoku_trend` because it is the only per-asset rule
+with a positive out-of-sample median (§2.3); the ban on shorts because it is measured at a loss in
+all five strategies (`strategie-nuove.md` §5) and is outside the mandate anyway.
 
 ---
 
-## 3. Filone ML — la riformulazione, e cosa ha prodotto
+## 3. The ML strand — the reformulation, and what it produced
 
-### 3.1 Perché non si riparte da dove si era arrivati
+### 3.1 Why we do not restart from where we had got to
 
-`strategy.md` §13 ha misurato che entrare alla conferma di un minimo e uscire alla conferma di un
-massimo cattura **zero in media** su 15 simboli a ogni soglia, *prima* dei costi: la conferma si paga
-due volte e la gamba mediana ne vale 1,76-2,05. Non è un risultato sul modello, è una proprietà dello
-schema. Nessuna feature, architettura o soglia lo sposta, e quel filone resta chiuso.
+`strategy.md` §13 measured that entering on the confirmation of a low and exiting on the confirmation
+of a high captures **zero on average** across 15 symbols at every threshold, *before* costs: the
+confirmation is paid twice and the median leg is worth 1.76-2.05 of it. That is not a result about
+the model, it is a property of the scheme. No feature, architecture or threshold moves it, and that
+strand stays closed.
 
-Quello che restava aperto è un'altra formulazione, che `strategy.md` §2.3 raccomandava e §13.4
-riformulava: **il modello non decide quando comprare — decide se lasciar passare un segnale che una
-strategia ha già prodotto.**
+What remained open is another formulation, which `strategy.md` §2.3 recommended and §13.4
+reformulated: **the model does not decide when to buy — it decides whether to let through a signal
+that a strategy has already produced.**
 
-### 3.2 Il disegno: `scripts/meta_gate.py`
+### 3.2 The design: `scripts/meta_gate.py`
 
-- **Primaria**: una strategia di `strategies_ls.py`, parametri centrali fissi, mai ottimizzati qui
-  (ottimizzare primaria e filtro insieme è il modo classico di leggere il rumore due volte).
-- **Campione**: una riga per **operazione**, non per barra. Migliaia invece di milioni, ed è un
-  vantaggio: le barre dentro un trend sono la stessa osservazione ripetuta.
-- **Etichetta**: `1` se l'operazione, eseguita come la strategia la eseguirebbe, chiude **sopra i
-  costi**. Il vincolo economico è dentro il target: non si può avere ragione sul segno e perdere.
-- **Feature (16)**: tutte scale-free e note alla barra d'ingresso — distanze da EMA50/EMA200 in unità
-  di ATR, posizione nel canale di Donchian e nelle bande di Bollinger, ATR relativo, ADX, larghezza
-  delle bande, StochRSI, MFI, pendenza OBV, volume relativo, escursione relativa, sopra/sotto
-  EMA200 — **più tre trasversali che nessun modello del progetto aveva mai avuto**: rango di forza
-  relativa nell'universo, ampiezza di mercato (quota di asset sopra la propria media a 50), forza
-  contro BTC. È il principio §1.5.1, applicato.
-- **Universo**: tutti e 15 i simboli in comune, 4 ore.
-- **Modello**: `HistGradientBoostingClassifier` (§1.5.3).
-- **Validazione**: `PurgedKFold` con embargo da `ml/validation.py` — le operazioni si sovrappongono,
-  il k-fold ordinario misurerebbe su futuro già visto — più una verifica temporale separata
-  (addestrato fino al 2024-01-01, misurato dopo).
-- **Controllo**: per ogni soglia, 500 selezioni **casuali della stessa numerosità**. Con una primaria
-  a coda lunga bastano poche operazioni fortunate per alzare il netto medio: il numero da battere non
-  è zero, è il percentile alto del caso.
+- **Primary**: a strategy from `strategies_ls.py`, fixed central parameters, never optimised here
+  (optimising primary and filter together is the classic way of reading the noise twice).
+- **Sample**: one row per **trade**, not per bar. Thousands instead of millions, and that is an
+  advantage: the bars inside a trend are the same observation repeated.
+- **Label**: `1` if the trade, executed as the strategy would execute it, closes **above costs**. The
+  economic constraint is inside the target: you cannot be right on the sign and lose money.
+- **Features (16)**: all scale-free and known at the entry bar — distances from EMA50/EMA200 in ATR
+  units, position in the Donchian channel and in the Bollinger bands, relative ATR, ADX, band width,
+  StochRSI, MFI, OBV slope, relative volume, relative range, above/below EMA200 — **plus three
+  cross-sectional ones no model in the project had ever had**: relative-strength rank in the
+  universe, market breadth (share of assets above their own 50-bar average), strength against BTC. It
+  is principle §1.5.1, applied.
+- **Universe**: all 15 symbols in common, 4 hours.
+- **Model**: `HistGradientBoostingClassifier` (§1.5.3).
+- **Validation**: `PurgedKFold` with embargo from `ml/validation.py` — trades overlap, and an
+  ordinary k-fold would measure on a future already seen — plus a separate temporal check (trained up
+  to 2024-01-01, measured afterwards).
+- **Control**: for each threshold, 500 **random selections of the same size**. With a long-tailed
+  primary a few lucky trades are enough to raise the average net: the number to beat is not zero, it
+  is the high percentile of chance.
 
-### 3.3 I risultati
+### 3.3 The results
 
-| primaria | operazioni | AUC (CV purgata) | AUC (verifica temporale) | precisione senza → con filtro |
+| primary | trades | AUC (purged CV) | AUC (temporal check) | precision without → with filter |
 |---|---:|---:|---:|---:|
-| `trend_pullback` | 3.098 | 0,537 | 0,538 | 50,6% → 53,4% |
-| `donchian_breakout` | 1.718 | 0,512 | 0,514 | 35,7% → 38,2% |
-| `squeeze_breakout` | 1.634 | **0,504** | 0,504 | nessun vantaggio |
-| `band_reversion_gated` | 156 | 0,531 | 0,574 | campione insufficiente |
+| `trend_pullback` | 3,098 | 0.537 | 0.538 | 50.6% → 53.4% |
+| `donchian_breakout` | 1,718 | 0.512 | 0.514 | 35.7% → 38.2% |
+| `squeeze_breakout` | 1,634 | **0.504** | 0.504 | no advantage |
+| `band_reversion_gated` | 156 | 0.531 | 0.574 | sample too small |
 
-Il conto economico fuori campione (2024-oggi), netto per operazione, con il controllo casuale:
+The economic account out of sample (2024-today), net per trade, with the random control:
 
-**`trend_pullback`** — 1.383 operazioni in verifica
+**`trend_pullback`** — 1,383 trades in the check window
 
-| soglia | operazioni | precisione | netto medio | p95 del caso | percentile nel caso |
+| threshold | trades | precision | mean net | p95 of chance | percentile within chance |
 |---|---:|---:|---:|---:|---:|
-| nessuna | 1.383 | 50,6% | −0,124% | — | — |
-| 0,50 | 864 | 52,9% | −0,022% | +0,044% | 84° |
-| 0,60 | 579 | 53,4% | **+0,064%** | +0,152% | 87° |
+| none | 1,383 | 50.6% | −0.124% | — | — |
+| 0.50 | 864 | 52.9% | −0.022% | +0.044% | 84th |
+| 0.60 | 579 | 53.4% | **+0.064%** | +0.152% | 87th |
 
-**`donchian_breakout`** — 802 operazioni in verifica
+**`donchian_breakout`** — 802 trades in the check window
 
-| soglia | operazioni | precisione | netto medio | p95 del caso | percentile nel caso |
+| threshold | trades | precision | mean net | p95 of chance | percentile within chance |
 |---|---:|---:|---:|---:|---:|
-| nessuna | 802 | 35,7% | +0,146% | — | — |
-| 0,45 | 275 | 38,5% | +0,818% | +0,716% | 97° |
-| **0,50** | 217 | 38,2% | **+1,062%** | +0,886% | **98°** |
-| 0,55 | 164 | 37,8% | +0,510% | +0,905% | 78° |
-| 0,60 | 116 | 37,1% | +0,694% | +1,164% | 82° |
+| none | 802 | 35.7% | +0.146% | — | — |
+| 0.45 | 275 | 38.5% | +0.818% | +0.716% | 97th |
+| **0.50** | 217 | 38.2% | **+1.062%** | +0.886% | **98th** |
+| 0.55 | 164 | 37.8% | +0.510% | +0.905% | 78th |
+| 0.60 | 116 | 37.1% | +0.694% | +1.164% | 82nd |
 
-### 3.4 Come vanno letti
+### 3.4 How they should be read
 
-**Il vantaggio di ranking è reale.** AUC 0,537 in cross-validation purgata e 0,538 in una verifica
-temporale completamente separata non è rumore: due misure indipendenti che coincidono a tre
-decimali. Ed è esattamente il soffitto di §1.1 — questa non è una delusione, è il campo.
+**The ranking advantage is real.** AUC 0.537 in purged cross-validation and 0.538 in a completely
+separate temporal check is not noise: two independent measurements agreeing to three decimals. And it
+is exactly the ceiling of §1.1 — this is not a disappointment, it is the field.
 
-**Il vantaggio economico non supera il controllo.** Il caso migliore (`donchian_breakout`, soglia
-0,50) sta al 98° percentile di 500 selezioni casuali della stessa numerosità. Preso da solo sarebbe
-p ≈ 0,02. Ma **sono state provate quattro primarie per cinque soglie**: fra venti combinazioni, un
-98° percentile è quello che ci si aspetta dal caso. Le soglie adiacenti della stessa primaria
-scendono al 78° e all'82°, che è il comportamento del rumore, non di un effetto.
+**The economic advantage does not clear the control.** The best case (`donchian_breakout`, threshold
+0.50) sits at the 98th percentile of 500 random selections of the same size. On its own that would be
+p ≈ 0.02. But **four primaries by five thresholds were tried**: among twenty combinations, a 98th
+percentile is what chance is expected to produce. The adjacent thresholds of the same primary drop to
+the 78th and 82nd, which is the behaviour of noise, not of an effect.
 
-**L'AUC è la metrica sbagliata per una primaria a coda lunga.** `donchian_breakout` ha AUC 0,512 —
-quasi indistinguibile dal caso — e il miglioramento economico più grande di tutti, perché una
-selezione appena migliore del caso su una distribuzione a coda destra cattura una quota
-sproporzionata dei pochi movimenti che pagano. È anche il motivo per cui non ci si può fidare: lo
-stesso meccanismo rende il risultato dipendente da una manciata di operazioni.
+**AUC is the wrong metric for a long-tailed primary.** `donchian_breakout` has AUC 0.512 — nearly
+indistinguishable from chance — and the largest economic improvement of all, because a selection
+barely better than chance on a right-tailed distribution captures a disproportionate share of the few
+moves that pay. It is also the reason it cannot be trusted: the same mechanism makes the result
+depend on a handful of trades.
 
-**Il filtro migliora una primaria perdente senza renderla vincente.** `trend_pullback` fuori campione
-va da −0,124% a +0,064% per operazione: il filtro toglie il segno meno e si ferma lì.
+**The filter improves a losing primary without making it a winning one.** `trend_pullback` out of
+sample goes from −0.124% to +0.064% per trade: the filter removes the minus sign and stops there.
 
 ---
 
-## 4. Analisi critica
+## 4. Critical analysis
 
-### 4.1 Limiti che valgono per entrambi i filoni
+### 4.1 Limits that apply to both strands
 
-- **Sopravvivenza nell'universo.** BTC, ETH, SOL, XRP, BNB sono i grandi capitalizzati **del 2026**.
-  Nel gennaio 2021 SOL non era un maggiore. Ogni numero della §2.5 e della §2.6 contiene questa
-  selezione, e la §2.5 lo mostra: il grosso del risultato in campione viene dal ×44 di SOL. La
-  difesa parziale usata qui — confrontare sempre con **l'universo a peso uguale**, che porta la
-  stessa distorsione — è quella giusta, e infatti abbassa il verdetto dal "95,6% sopra BTC" al
-  "44,4% sopra l'universo".
-- **Un ciclo solo.** 2021-2026. `strategie-nuove.md` §2 ha già misurato che i parametri non passano
-  dal ciclo 2017-2020 a questo. Non c'è ragione di credere che passeranno al prossimo.
-- **Molteplicità dei test.** Fra questo documento e i due precedenti sono state valutate oltre
-  12.000 configurazioni. Nessun risultato qui è stato corretto per molteplicità con Deflated Sharpe
-  o PBO — gli strumenti sono in `ml/validation.py` e non sono stati applicati alla parte quant. È il
-  debito metodologico più grosso.
-- **Esecuzione ideale.** Ingressi alla chiusura della barra, riempimento al prezzo esatto, niente
-  slippage né impatto. Sui gap di liquidazione cripto è ottimistico, e lo è di più per la rotazione
-  trasversale, che a `top=1` concentra tutto il capitale in un asset.
-- **Nessun modello di liquidità.** Su BTC/ETH irrilevante ai capitali domestici; su asset minori a
-  ribilanciamento giornaliero, no.
+- **Survivorship in the universe.** BTC, ETH, SOL, XRP, BNB are the large caps **of 2026**. In
+  January 2021 SOL was not a major. Every number in §2.5 and §2.6 contains this selection, and §2.5
+  shows it: most of the in-sample result comes from SOL's ×44. The partial defence used here —
+  always comparing against **the equal-weight universe**, which carries the same bias — is the right
+  one, and indeed it lowers the verdict from "95.6% above BTC" to "44.4% above the universe".
+- **A single cycle.** 2021-2026. `strategie-nuove.md` §2 has already measured that the parameters do
+  not carry over from the 2017-2020 cycle to this one. There is no reason to believe they will carry
+  over to the next.
+- **Test multiplicity.** Between this document and the two before it, over 12,000 configurations have
+  been evaluated. No result here has been corrected for multiplicity with Deflated Sharpe or PBO —
+  the tools are in `ml/validation.py` and have not been applied to the quant side. It is the biggest
+  methodological debt.
+- **Ideal execution.** Entries at the bar close, fills at the exact price, no slippage or impact. On
+  crypto liquidation gaps that is optimistic, and more so for cross-sectional rotation, which at
+  `top=1` concentrates all the capital in one asset.
+- **No liquidity model.** On BTC/ETH irrelevant at household size; on smaller assets with a daily
+  rebalance, not.
 
-### 4.2 Dove ciascun approccio fallisce
+### 4.2 Where each approach fails
 
-| | quantitativo (rotazione + regole) | ML (filtro meta) |
+| | quantitative (rotation + rules) | ML (meta filter) |
 |---|---|---|
-| **fallisce quando** | il mercato è privo di dispersione fra asset (tutti si muovono insieme): la classifica diventa rumore e si pagano solo commissioni | il regime cambia forma rispetto all'addestramento — le feature restano definite ma la relazione con l'esito no |
-| **fallisce in silenzio?** | no: turnover alto e risultato piatto sono visibili subito | **sì**: la probabilità continua a uscire ben calibrata mentre non seleziona più niente |
-| **quanto costa scoprirlo** | settimane | mesi, se non si tiene il controllo casuale acceso in continuo |
-| **rischio di sovradattamento** | alto sulla scelta dei parametri (ρ = −0,69), basso sulla famiglia | alto: 16 feature, 3.098 righe, coda lunga |
-| **interpretabilità** | totale: si può dire perché si possiede un asset | media: il modello dà un rango, non una ragione |
+| **fails when** | the market has no dispersion between assets (everything moves together): the ranking becomes noise and only commissions get paid | the regime changes shape relative to training — the features stay defined but their relation to the outcome does not |
+| **fails silently?** | no: high turnover and a flat result are visible immediately | **yes**: the probability keeps coming out well calibrated while it no longer selects anything |
+| **how much it costs to find out** | weeks | months, unless the random control is kept running continuously |
+| **overfitting risk** | high on the choice of parameters (ρ = −0.69), low on the family | high: 16 features, 3,098 rows, long tail |
+| **interpretability** | total: you can say why you own an asset | medium: the model gives a rank, not a reason |
 
-### 4.3 Cosa servirebbe per convalidare
+### 4.3 What it would take to validate
 
-In ordine di rapporto valore/costo:
+In order of value-to-cost ratio:
 
-1. **Un secondo ciclo.** Rifare §2.5 e §3.3 su 2017-2020 con l'universo che esisteva allora
-   (BTC, ETH, XRP, BNB, LTC). Se la rotazione trasversale trasferisce anche lì, cambia lo stato
-   della prova; i dati ci sono già nello store.
-2. **Deflated Sharpe e PBO sulla parte quant.** Il codice esiste. Va applicato alla griglia della
-   rotazione, che è dove si sta per prendere una decisione.
-3. **Test di significatività della regola e Monte Carlo sull'ordine delle operazioni**, come in
-   `jesse` (§1.4). Il controllo casuale della §3.2 è la stessa idea applicata solo al filtro ML: va
-   esteso alle strategie.
-4. **Un modello di riempimento**, che `strategy.md` Fase 0.3 elenca come gate mai soddisfatto.
-   Finché non c'è, ogni numero in modalità maker resta non verificabile.
+1. **A second cycle.** Redo §2.5 and §3.3 on 2017-2020 with the universe that existed then (BTC, ETH,
+   XRP, BNB, LTC). If the cross-sectional rotation transfers there too, the state of the evidence
+   changes; the data is already in the store.
+2. **Deflated Sharpe and PBO on the quant side.** The code exists. It should be applied to the
+   rotation grid, which is where a decision is about to be taken.
+3. **Rule significance testing and Monte Carlo on the trade order**, as in `jesse` (§1.4). The random
+   control of §3.2 is the same idea applied only to the ML filter: it should be extended to the
+   strategies.
+4. **A fill model**, which `strategy.md` Phase 0.3 lists as a gate never satisfied. Until it exists,
+   every number in maker mode remains unverifiable.
 
 ---
 
-## 5. Confronto diretto
+## 5. Direct comparison
 
-| criterio | quant trasversale | quant per-asset | ML (filtro meta) |
+| criterion | cross-sectional quant | per-asset quant | ML (meta filter) |
 |---|---|---|---|
-| **cosa rileva bene** | quale asset sta guidando; assenza di forza in tutto l'universo | struttura di prezzo (rotture, nuvola, bande) su un singolo strumento | quali segnali di una primaria hanno il contesto sbagliato |
-| **cosa non rileva** | il momento dell'ingresso; niente sotto la barra di ribilanciamento | il contesto relativo: compra la rottura di un asset debole come di uno forte | non genera niente: senza una primaria non ha input |
-| **prova fuori campione** | **89% di configurazioni in utile**, mediana +62% (5 asset) | 42% di celle positive, mediana −8,9% | AUC 0,538 stabile; vantaggio economico all'80°-98° percentile del caso |
-| **batte il possesso passivo?** | 52% delle configurazioni battono BTC, 65% l'universo | 24% delle celle, e 9 su 12 solo perché il passivo perdeva | non applicabile da solo |
-| **rischio di sovradattamento** | basso sulla famiglia, **altissimo sui parametri** | alto (griglie fino a 256 configurazioni per cella) | alto |
-| **interpretabilità** | alta | alta | media |
-| **complessità realizzativa** | bassa (~250 righe, nessuna dipendenza nuova) | già in produzione | media (feature + validazione purgata + controllo casuale) |
-| **costo di calcolo** | secondi | minuti | minuti |
-| **adattamento al cambio di regime** | l'interruttore di regime è esplicito e verificabile | dipende dai filtri interni | richiede riaddestramento; degrada in silenzio |
-| **frequenza operativa** | 17-30 di turnover annuo (ribilanciamento settimanale) | 3-27 operazioni/anno per asset | eredita quella della primaria |
+| **what it detects well** | which asset is leading; the absence of strength across the whole universe | price structure (breakouts, cloud, bands) on a single instrument | which signals of a primary have the wrong context |
+| **what it does not detect** | the moment of entry; nothing below the rebalance bar | the relative context: it buys the breakout of a weak asset just like a strong one | it generates nothing: without a primary it has no input |
+| **out-of-sample evidence** | **89% of configurations profitable**, median +62% (5 assets) | 42% of cells positive, median −8.9% | AUC 0.538 stable; economic advantage at the 80th-98th percentile of chance |
+| **does it beat passive holding?** | 52% of configurations beat BTC, 65% beat the universe | 24% of cells, and 9 out of 12 only because passive was losing | not applicable on its own |
+| **overfitting risk** | low on the family, **very high on the parameters** | high (grids of up to 256 configurations per cell) | high |
+| **interpretability** | high | high | medium |
+| **implementation complexity** | low (~250 lines, no new dependencies) | already in production | medium (features + purged validation + random control) |
+| **compute cost** | seconds | minutes | minutes |
+| **adaptation to regime change** | the regime switch is explicit and checkable | depends on the internal filters | requires retraining; degrades silently |
+| **trading frequency** | 17-30 annual turnover (weekly rebalance) | 3-27 trades/year per asset | inherits the primary's |
 
-Il confronto non è alla pari su un punto che va detto: **il quant trasversale e il ML non
-rispondono alla stessa domanda.** Il primo alloca fra asset, il secondo filtra i segnali di una
-strategia. Sono complementari per costruzione, il che è anche il motivo per cui il test di
-integrazione della §6 va fatto con sospetto — la complementarità apparente è quasi sempre solo il
-fatto che i due si guardano cose diverse.
-
----
-
-## 6. Ibrido: conviene?
-
-Il criterio dichiarato in partenza era: **integrare solo se i due portano informazione o capacità
-decisionale genuinamente diversa.** Applichiamolo.
-
-**Cosa sarebbe l'ibrido.** Lo strato trasversale sceglie *quali* asset possedere; il filtro meta
-decide se un segnale della primaria su quell'asset merita di passare. Le informazioni sono
-formalmente distinte (rango fra asset ≠ probabilità di successo di un singolo segnale) e le
-decisioni pure (allocazione ≠ ingresso).
-
-**Ma la prova non c'è.** Tre ragioni misurate:
-
-1. **Il filtro meta non ha superato il proprio controllo** (§3.4). Comporre uno strato che non ha
-   dimostrato di valere con uno che ha dimostrato di valere non può che peggiorare il secondo o
-   lasciarlo com'è.
-2. **Le feature trasversali sono già dentro il filtro** (rango di forza, ampiezza, forza su BTC): il
-   modello ha già l'informazione che lo strato 1 userebbe, e l'AUC che ne esce è 0,537. Il canale di
-   informazione che l'ibrido dovrebbe aprire è quindi già aperto, e vale poco.
-3. **Gli strati si mangiano il campione a vicenda.** La rotazione tiene 2-3 asset su 5; applicare
-   un filtro che scarta metà dei segnali su un sesto delle occasioni originarie porta a un numero di
-   operazioni su cui non si misura più niente. È il difetto che ha reso `band_reversion_gated`
-   invalutabile nella §3.3 (156 operazioni in cinque anni su quindici asset).
-
-**Conclusione: non integrare adesso.** Va tenuta però una forma debole di ibrido, che è di fatto
-gratuita e che i dati sostengono: **l'interruttore di regime unico dello strato 1 è già un filtro
-condizionale**, e vale su tutto il portafoglio. È la sola composizione fra i due mondi per cui esiste
-una misura (Sharpe 1,60 e DD 45,7% con l'interruttore, contro 0,98 e 91,0% del passivo).
-
-Il momento in cui riaprire la questione è preciso: **se e quando il filtro meta batte il controllo
-casuale su un secondo ciclo di mercato.** Non prima.
+The comparison is not like-for-like on one point that has to be said: **cross-sectional quant and ML
+do not answer the same question.** The first allocates between assets, the second filters the signals
+of a strategy. They are complementary by construction, which is also why the integration test of §6
+has to be approached with suspicion — apparent complementarity is almost always just the fact that
+the two are looking at different things.
 
 ---
 
-## 7. Raccomandazioni
+## 6. A hybrid: is it worth it?
 
-### Il più forte approccio quantitativo
+The criterion declared up front was: **integrate only if the two bring genuinely different
+information or decision-making capability.** Let us apply it.
 
-**Rotazione trasversale sui cinque grandi capitalizzati, a parametri centrali fissi, con
-interruttore di regime.**
+**What the hybrid would be.** The cross-sectional layer chooses *which* assets to own; the meta
+filter decides whether a primary signal on that asset deserves to pass. The information is formally
+distinct (rank between assets ≠ probability of a single signal succeeding) and so are the decisions
+(allocation ≠ entry).
 
-- lookback 20-30 barre giornaliere, `top` 2-3, ribilanciamento settimanale, forza negativa in
-  contanti, fuori dal mercato quando BTC sta sotto la sua media a 50 giorni;
-- **non ottimizzare i parametri** — è la raccomandazione operativa più insolita e la meglio
-  sostenuta di questo documento: ρ = −0,69 fra resa in stima e in verifica;
-- universo **cinque, non quindici**: allargare distrugge il risultato (mediana fuori campione da
-  +62% a −0,9%);
-- aspettativa dichiarata: non un rendimento superiore al passivo, ma **lo stesso ordine di
-  rendimento con circa metà del drawdown**. Fuori campione ha dato più del passivo (mediana +62%
-  contro +55,6% di BTC), ma su una finestra sola e con l'universo scelto col senno di poi.
+**But the evidence is not there.** Three measured reasons:
 
-Come riferimento per-asset, e **solo** come riferimento: `ichimoku_trend` a 4h, solo lungo,
-parametri centrali. È l'unica delle regole per-asset con mediana positiva fuori campione (+13,5%) e
-ρ 0,38. Qualunque strategia nuova che non la batta su quelle due colonne non merita di essere messa
-in produzione — è la stessa soglia che `strategie-nuove.md` §7 fissava, ora verificata su cinque
-asset invece che su uno.
+1. **The meta filter did not clear its own control** (§3.4). Composing a layer that has not proved
+   its worth with one that has can only make the second worse or leave it as it is.
+2. **The cross-sectional features are already inside the filter** (strength rank, breadth, strength
+   against BTC): the model already has the information layer 1 would use, and the AUC that comes out
+   is 0.537. The information channel the hybrid is supposed to open is therefore already open, and it
+   is worth little.
+3. **The layers eat each other's sample.** The rotation holds 2-3 assets out of 5; applying a filter
+   that discards half the signals on a sixth of the original opportunities leads to a number of
+   trades on which nothing can be measured any more. It is the defect that made
+   `band_reversion_gated` unassessable in §3.3 (156 trades in five years across fifteen assets).
 
-### Il più forte approccio ML
+**Conclusion: do not integrate now.** A weak form of hybrid should be kept, though — one that is
+effectively free and that the data supports: **layer 1's single regime switch is already a
+conditional filter**, and it applies to the whole portfolio. It is the only composition between the
+two worlds for which a measurement exists (Sharpe 1.60 and DD 45.7% with the switch, against 0.98 and
+91.0% for passive).
 
-**Filtro meta sopra una primaria vera, con contesto trasversale nelle feature — da tenere in
-ricerca, non in produzione.**
-
-Il disegno è corretto e va conservato: il vincolo economico dentro l'etichetta, il campione per
-operazione, gli asset in comune, la validazione purgata, e soprattutto **il controllo con selezione
-casuale della stessa numerosità**, che è ciò che ha impedito di scambiare un +1,06% per operazione
-per una scoperta. Il vantaggio di ranking misurato (AUC 0,537, stabile fra due validazioni
-indipendenti) è coerente con il soffitto dello stato dell'arte e non è nulla; semplicemente non è
-ancora abbastanza per pagare.
-
-Il prossimo passo è **uno**, non tre: rifare la stessa misura sul ciclo 2017-2020. Se il vantaggio
-economico supera il controllo casuale anche lì, allora è un effetto. Se non lo supera, il filone si
-chiude con una misura invece che con un'opinione.
-
-### L'ibrido
-
-**No, per ora.** Con l'unica eccezione dell'interruttore di regime, che è già dentro lo strato
-quantitativo. Riaprire solo dopo il punto sopra.
-
-### Cosa non rifare
-
-- **Non riaprire la politica a tre azioni sul directional change.** `strategy.md` §13: cattura zero
-  in media, prima dei costi, su ogni simbolo e a ogni soglia.
-- **Non aggiungere il verso corto.** Misurato in perdita su tutte e cinque le strategie
-  (`strategie-nuove.md` §5), e comunque fuori mandato.
-- **Non allargare l'universo per "diversificare".** Misurato: peggiora.
-- **Non cercare architetture profonde prima di aver esaurito la sezione trasversale.** I benchmark
-  qlib (§1.1) mostrano Transformer e TabNet con rendimento annuo negativo dove il gradient boosting
-  è positivo.
-- **Non fidarsi del massimo di una griglia.** Vale ancora, e la §2.6 mostra la forma nuova dello
-  stesso errore: una coppia che "vince" perché conteneva un asset che ha fatto ×44.
+The moment to reopen the question is precise: **if and when the meta filter beats the random control
+on a second market cycle.** Not before.
 
 ---
 
-## 7bis. Cosa e' stato applicato al simulatore
+## 7. Recommendations
 
-Le raccomandazioni sopra sono state messe nel codice il 2026-08-26, con questo criterio: **resta
-nel menu chi, fuori campione, ha mediana positiva oppure almeno due celle su dieci sopra il
-possesso passivo.**
+### The strongest quantitative approach
 
-**Sette voci tolte.** Trend Pullback (0/10 sopra il passivo, mediana −39,4%), Close ATR (0/10,
-−17,2%), Close Buy/Sell Limits (0/10, −1,8%), Close Bullish EMA (0/5, −2,8%), ATR Live Trade
-(1/10, −26,2%), Band Reversion (negativa su quattro asset su cinque), Green Candles. L'ultima
-merita una riga: batte il passivo in 3 celle su 10, ma le sue **prime dieci configurazioni sono in
-utile allo 0%** — le vittorie vengono da configurazioni che nel resto della griglia perdono, che è
-la firma della fortuna e non di una regola. Tutte restano in `strategies.py` e nel golden master:
-sono uscite dal menu, non dal repository.
+**Cross-sectional rotation on the five large caps, at fixed central parameters, with a regime
+switch.**
 
-**Una voce rimessa: Close RSI Reverse.** Era esclusa *di proposito*, con una ragione scritta —
-«in perdita totale in tutte le 25 configurazioni provate». Quella misura era a **15 minuti**. A
-scala giornaliera la stessa regola fa 24-27 operazioni l'anno, ha mediana positiva su tutti e
-cinque i simboli (da +44,9% a +906,9%) e il 72-92% di configurazioni in utile; a 4 ore ne fa 160
-l'anno e su BTC perde il 45,8%.
+- lookback 20-30 daily bars, `top` 2-3, weekly rebalance, negative strength to cash, out of the
+  market when BTC is below its 50-day average;
+- **do not optimise the parameters** — it is the most unusual and best supported operational
+  recommendation in this document: ρ = −0.69 between in-sample and out-of-sample return;
+- universe of **five, not fifteen**: widening destroys the result (out-of-sample median from +62% to
+  −0.9%);
+- declared expectation: not a return above passive, but **the same order of return with roughly half
+  the drawdown**. Out of sample it gave more than passive (median +62% against +55.6% for BTC), but
+  over a single window and with a universe chosen in hindsight.
 
-> Il vecchio verdetto non era sbagliato: era **legato all'intervallo**, e nessuno lo aveva scritto
-> accanto. È il caso più netto della regola che questi documenti ripetono da tre sessioni — la
-> frequenza operativa spiega quasi tutto — e vale la pena generalizzarlo: **una strategia esclusa
-> su un intervallo non è esclusa su tutti**, e un'esclusione senza l'intervallo accanto è una
-> misura persa.
+As a per-asset reference, and **only** as a reference: `ichimoku_trend` at 4h, long only, central
+parameters. It is the only one of the per-asset rules with a positive out-of-sample median (+13.5%)
+and ρ 0.38. Any new strategy that does not beat it on those two columns does not deserve to go into
+production — it is the same bar `strategie-nuove.md` §7 set, now verified on five assets instead of
+one.
 
-**Una vista nuova.** La rotazione trasversale è nella pagina come seconda vista
-(`trading/rotation.py` + `simulator.rotation_page`), non come voce di menu: sceglie fra asset,
-mentre il menu sceglie dentro un asset. I valori iniziali sono quelli centrali della §7, la barra
-laterale spiega perché non vanno ottimizzati, e il riferimento disegnato accanto è l'universo a
-peso uguale. Legge lo store locale e non l'exchange, quindi in produzione avvisa invece di
-sollevare.
+### The strongest ML approach
 
-Quello che **non** è stato messo nella pagina: il filtro meta della §3. Non ha superato il proprio
-controllo, e una vista lo farebbe sembrare un risultato.
+**A meta filter on top of a genuine primary, with cross-sectional context in the features — to be
+kept in research, not in production.**
 
-## 8. Riprodurre
+The design is correct and should be preserved: the economic constraint inside the label, the sample
+per trade, the assets in common, the purged validation, and above all **the control with a random
+selection of the same size**, which is what stopped a +1.06% per trade being mistaken for a
+discovery. The measured ranking advantage (AUC 0.537, stable across two independent validations) is
+consistent with the state of the art's ceiling and is not nothing; it is simply not yet enough to
+pay.
+
+The next step is **one**, not three: redo the same measurement on the 2017-2020 cycle. If the
+economic advantage clears the random control there too, then it is an effect. If it does not, the
+strand closes with a measurement instead of an opinion.
+
+### The hybrid
+
+**No, for now.** With the single exception of the regime switch, which is already inside the
+quantitative layer. Reopen only after the point above.
+
+### What not to redo
+
+- **Do not reopen the three-action policy on directional change.** `strategy.md` §13: it captures
+  zero on average, before costs, on every symbol and at every threshold.
+- **Do not add the short side.** Measured at a loss on all five strategies (`strategie-nuove.md` §5),
+  and outside the mandate anyway.
+- **Do not widen the universe to "diversify".** Measured: it gets worse.
+- **Do not look for deep architectures before the cross section is exhausted.** The qlib benchmarks
+  (§1.1) show Transformer and TabNet with a negative annual return where gradient boosting is
+  positive.
+- **Do not trust a grid's maximum.** It still holds, and §2.6 shows the new shape of the same error: a
+  pair that "wins" because it contained an asset that did ×44.
+
+---
+
+## 7bis. What was applied to the simulator
+
+The recommendations above were put into the code on 2026-08-26, with this criterion: **an entry stays
+in the menu if, out of sample, it has a positive median or at least two cells out of ten above passive
+holding.**
+
+**Seven entries removed.** Trend Pullback (0/10 above passive, median −39.4%), Close ATR (0/10,
+−17.2%), Close Buy/Sell Limits (0/10, −1.8%), Close Bullish EMA (0/5, −2.8%), ATR Live Trade (1/10,
+−26.2%), Band Reversion (negative on four assets out of five), Green Candles. The last one deserves a
+line: it beats passive in 3 cells out of 10, but its **top ten configurations are 0% profitable** —
+the wins come from configurations that lose in the rest of the grid, which is the signature of luck
+and not of a rule. All of them stay in `strategies.py` and in the golden master: they left the menu,
+not the repository.
+
+**One entry put back: Close RSI Reverse.** It was excluded *on purpose*, with a written reason —
+"at a total loss in all 25 configurations tried". That measurement was at **15 minutes**. At a daily
+scale the same rule does 24-27 trades a year, has a positive median on all five symbols (from +44.9%
+to +906.9%) and 72-92% of configurations profitable; at 4 hours it does 160 a year and on BTC loses
+45.8%.
+
+> The old verdict was not wrong: it was **tied to the interval**, and nobody had written that next to
+> it. It is the clearest case of the rule these documents have been repeating for three sessions —
+> trading frequency explains almost everything — and it is worth generalising: **a strategy excluded
+> on one interval is not excluded on all of them**, and an exclusion without the interval next to it
+> is a wasted measurement.
+
+**One new view.** Cross-sectional rotation is in the page as a second view (`trading/rotation.py` +
+`simulator.rotation_page`), not as a menu entry: it chooses between assets, while the menu chooses
+within one asset. The initial values are the central ones of §7, the sidebar explains why they should
+not be optimised, and the reference drawn alongside is the equal-weight universe. It reads the local
+store and not the exchange, so in production it warns instead of raising.
+
+What was **not** put into the page: the meta filter of §3. It did not clear its own control, and a
+view would make it look like a result.
+
+## 8. Reproducing
 
 ```bash
-# griglie per-asset (5 simboli × 2 intervalli), poi le tabelle
+# per-asset grids (5 symbols × 2 intervals), then the tables
 for S in BTCUSDT ETHUSDT SOLUSDT XRPUSDT BNBUSDT; do
   for I in 1d 4h; do
     .venv312/bin/python -m scripts.strategy_lab --all --symbol $S --interval $I \
@@ -645,7 +643,7 @@ for S in BTCUSDT ETHUSDT SOLUSDT XRPUSDT BNBUSDT; do
       --since 2021-01-01 --fee 0.05 --workers 8 --suffix _2021_fee005
 done
 
-# rotazione trasversale
+# cross-sectional rotation
 .venv312/bin/python -m scripts.cross_section --selfcheck
 .venv312/bin/python -m scripts.cross_section --universe majors --interval 1d --grid --save cs_majors_1d
 .venv312/bin/python -m scripts.cross_section --universe majors --interval 1d --split --save cs_majors_1d_oos
@@ -653,28 +651,28 @@ done
 .venv312/bin/python -m scripts.cross_section --pairs --lookback 20 --every 7
 .venv312/bin/python -m scripts.cross_section --pairs --lookback 20 --every 7 --since 2024-01-01
 
-# filtro meta
+# meta filter
 .venv312/bin/python -m scripts.meta_gate --selfcheck
 .venv312/bin/python -m scripts.meta_gate --strategy trend_pullback    --universe wide --interval 4h --oos 2024-01-01
 .venv312/bin/python -m scripts.meta_gate --strategy donchian_breakout --universe wide --interval 4h --oos 2024-01-01
 ```
 
-Tabelle in `reports/` (`lab_*_*USDT_*.csv`, `cs_*.csv`, `meta_*.csv`).
+Tables in `reports/` (`lab_*_*USDT_*.csv`, `cs_*.csv`, `meta_*.csv`).
 
-### Una correzione al codice, trovata eseguendo
+### One code fix, found by running it
 
-`strategy_lab` e `strategy_sweep` passavano le candele ai processi figli tramite variabili globali
-riempite dal padre, contando sul `fork`. **Su macOS `ProcessPoolExecutor` usa `spawn`**, i globali
-non arrivano e ogni esecuzione multi-worker moriva con `KeyError: ('SOLUSDT', '1d')`. Corretto in
-entrambi facendo ricostruire al worker ciò che gli serve (`prepare` è idempotente, quindi sotto
-`fork` la riga non costa nulla). Senza questa correzione nessuna misura di questo documento sarebbe
-eseguibile sulla macchina dell'utente.
+`strategy_lab` and `strategy_sweep` passed the candles to the child processes through global
+variables filled by the parent, relying on `fork`. **On macOS `ProcessPoolExecutor` uses `spawn`**,
+the globals do not arrive and every multi-worker run died with `KeyError: ('SOLUSDT', '1d')`. Fixed in
+both by having the worker rebuild what it needs (`prepare` is idempotent, so under `fork` the line
+costs nothing). Without this fix none of the measurements in this document would be runnable on the
+user's machine.
 
-### Codice nuovo
+### New code
 
-| file | cosa | verifica |
+| file | what | verification |
 |---|---|---|
-| `scripts/cross_section.py` | rotazione trasversale: griglia, fuori campione, coppie; contabilità in valore per asset (non in pesi normalizzati, che cancellavano la quota in contanti) | `--selfcheck`: 5 asserzioni — capitale fermo a prezzi fermi, rendimento atteso su una rampa, monotonia rispetto alla commissione, **la quota in contanti non sparisce**, nessun look-ahead troncando la serie |
-| `scripts/meta_gate.py` | filtro meta: campione per operazione, 16 feature scale-free di cui 3 trasversali, `PurgedKFold`, controllo con selezione casuale | `--selfcheck`: un segnale piantato nelle feature deve essere trovato (AUC > 0,75) e il rumore puro no (0,40 < AUC < 0,60) |
+| `scripts/cross_section.py` | cross-sectional rotation: grid, out of sample, pairs; accounting in value per asset (not in normalised weights, which erased the cash share) | `--selfcheck`: 5 assertions — capital flat at flat prices, expected return on a ramp, monotonicity with respect to commission, **the cash share does not disappear**, no look-ahead when the series is truncated |
+| `scripts/meta_gate.py` | meta filter: sample per trade, 16 scale-free features of which 3 cross-sectional, `PurgedKFold`, control with random selection | `--selfcheck`: a signal planted in the features must be found (AUC > 0.75) and pure noise must not be (0.40 < AUC < 0.60) |
 
-`ruff` e `black` puliti; 543 test passano.
+`ruff` and `black` clean; 543 tests pass.

@@ -1,209 +1,209 @@
-# Il modello d'ingresso: la domanda cambiata, e i primi numeri che passano il controllo
+# The entry model: the question changed, and the first numbers that pass the control
 
-**Stato: cablato (2026-08-29).** È il modello in testa a `MODEL_PRECEDENCE`, e i due artefatti
-sono `entry_model_veloce` (opera) e `entry_model` (fa da cancello).
+**Status: wired in (2026-08-29).** It is the model at the head of `MODEL_PRECEDENCE`, and the two
+artifacts are `entry_model_veloce` (which trades) and `entry_model` (which gates).
 
-## 1. Da dove viene: una premessa dell'utente, verificata
+## 1. Where it comes from: a premise of the user's, verified
 
-Il modello precedente (`swing_model`, `.claude/docs/modello-swing.md`) prevedeva la **prossimità
-agli estremi locali**. L'utente ha contestato la misura che ne usciva — +0,026% per barra segnalata
-su venti barre — con un argomento che non era di gusto ma di ordine di grandezza: *«i movimenti
-delle cripto anche su mercato laterale sono maggiori dell'1%, quindi questa misura non regge:
-significa che i massimi e i minimi locali non vengono individuati davvero»*.
+The previous model (`swing_model`, `.claude/docs/modello-swing.md`) predicted **proximity to local
+extremes**. The user challenged the measurement that came out of it — +0.026% per signalled bar over
+twenty bars — with an argument that was not about taste but about orders of magnitude: *"crypto
+moves are bigger than 1% even in a sideways market, so this measurement does not hold up: it means
+the local highs and lows are not really being identified"*.
 
-La verifica gli ha dato ragione sul fatto e torto sulla causa, e le due cose vanno tenute separate:
+Checking it proved them right about the fact and wrong about the cause, and the two must be kept
+apart:
 
-- **il tetto c'era.** Le barre che l'*etichetta* segna come decile più basso rendono **+0,765%** su
-  venti barre, con l'87,1% in salita. Non è un problema di ampiezza dei movimenti;
-- **il modello ne prendeva un terzo.** Delle barre segnalate, il 30,3% erano minimi veri (il caso
-  ne dà il 10%). Sull'intersezione fra segnalate e vere il rendimento è +0,786%, cioè **quanto
-  l'oracolo**: dove il modello ha ragione, ha ragione del tutto;
-- **il resto trascinava.** I falsi positivi rendono −0,30%, e l'aritmetica torna:
-  `0,303 × 0,786 + 0,697 × (−0,305) = +0,026%`.
+- **the ceiling was there.** Bars the *label* marks as the lowest decile return **+0.765%** over
+  twenty bars, 87.1% of them upward. It is not a problem of move size;
+- **the model caught a third of them.** Of the signalled bars, 30.3% were true lows (chance gives
+  10%). On the intersection of signalled and true, the return is +0.786%, i.e. **as much as the
+  oracle**: where the model is right, it is entirely right;
+- **the rest dragged it down.** False positives return −0.30%, and the arithmetic works out:
+  `0.303 × 0.786 + 0.697 × (−0.305) = +0.026%`.
 
-Quindi il segnale c'era e il margine no. La domanda che ne segue non è «come lo rendo più
-preciso», ed è qui che la direzione è stata corretta.
+So the signal was there and the margin was not. The question that follows is not "how do I make it
+more precise", and that is where the direction was corrected.
 
-## 2. Precisione e denaro non sono la stessa domanda
+## 2. Precision and money are not the same question
 
-A pari selezione (10% delle barre, verifica dal 2024, 15 simboli):
+At equal selectivity (10% of bars, verification from 2024, 15 symbols):
 
-| bersaglio | rendimento del segnalato | è davvero un minimo |
+| target | return of the signalled bars | is it really a low |
 |---|---|---|
-| etichetta a gambe (`swing_leg_target`) | +0,025% | **37,2%** |
-| entro 10 barre da un minimo | +0,012% | 28,4% |
-| minimo già avvenuto entro 10 barre | −0,012% | 22,7% |
-| **rendimento futuro diretto** | **+0,059%** | 23,0% |
-| rendimento futuro / ATR | +0,012% | 12,8% |
+| leg label (`swing_leg_target`) | +0.025% | **37.2%** |
+| within 10 bars of a low | +0.012% | 28.4% |
+| low already reached within 10 bars | −0.012% | 22.7% |
+| **direct forward return** | **+0.059%** | 23.0% |
+| forward return / ATR | +0.012% | 12.8% |
 
-L'etichetta a gambe **vince sulla precisione e perde di 2,4 volte sul denaro**. Chiedere «è un
-minimo» e chiedere «rende» sono due domande diverse, e la seconda è quella che si incassa. Il
-bersaglio del modello nuovo è il rendimento logaritmico delle prossime `H` barre, e basta.
+The leg label **wins on precision and loses by 2.4× on money**. Asking "is this a low" and asking
+"does it pay" are two different questions, and the second is the one that gets banked. The new
+model's target is the log return of the next `H` bars, and nothing else.
 
-Tre strade che sembravano ovvie sono state provate e non portavano niente:
+Three roads that looked obvious were tried and brought nothing:
 
-- **feature nuove**: quattro famiglie (rifiuto delle ombre, esaurimento della gamba, capitolazione
-  a volume, divergenza prezzo/oscillatore) spostano la precisione da 30,0% a 31,3%. Le 16 colonne
-  aggiuntive *peggiorano* il netto (+1,046% contro +1,188%), quindi `bar_features.py` **non è
-  stato toccato**: si servono le stesse 41 colonne di `swing_model`;
-- **più dati**: 4,4 milioni di righe invece di 366 mila danno 30,6%;
-- **più capacità**: più iterazioni peggiorano, 29,0%.
+- **new features**: four families (wick rejection, leg exhaustion, volume capitulation,
+  price/oscillator divergence) move precision from 30.0% to 31.3%. The 16 extra columns make the net
+  *worse* (+1.046% against +1.188%), so `bar_features.py` was **not touched**: the same 41 columns
+  as `swing_model` are served;
+- **more data**: 4.4 million rows instead of 366 thousand give 30.6%;
+- **more capacity**: more iterations make it worse, 29.0%.
 
-Il modello a swing era, misurandolo, **un oscillatore**: la sua previsione correlava +0,932 con
-`dist_ema50_atr`, e togliendo quella colonna restava +0,87 perché le altre quaranta sono della
-stessa famiglia.
+The swing model was, when measured, **an oscillator**: its prediction correlated +0.932 with
+`dist_ema50_atr`, and removing that column left +0.87 because the other forty are of the same family.
 
-## 3. La leva è la selettività, non l'accuratezza
+## 3. The lever is selectivity, not accuracy
 
-La commissione è fissa e il rendimento no. Col bersaglio diretto, su 150 barre:
+The commission is fixed and the return is not. With the direct target, over 150 bars:
 
-| barre segnalate | rendimento medio del segnalato |
+| bars signalled | average return of the signalled |
 |---|---|
-| 10% | +0,047% (sotto la commissione) |
-| 2% | +0,90% |
-| 0,5% | **+2,07%** |
+| 10% | +0.047% (below the commission) |
+| 2% | +0.90% |
+| 0.5% | **+2.07%** |
 
-Il modello non diventa più bravo: si opera solo dove dice molto. Da qui le tre scelte di
-`ml/entry_trainer.py`: **soglia dal quantile dello stima** (prenderlo dal fuori campione sarebbe
-look-ahead), **tenuta fissa** invece di un'uscita a segnale, **nessuna sovrapposizione** — mentre
-si è dentro, i segnali successivi si ignorano, o si misura un capitale che non si ha.
+The model does not get better: it only trades where it says a lot. Hence the three choices in
+`ml/entry_trainer.py`: **threshold from the training-set quantile** (taking it from the
+out-of-sample set would be look-ahead), **fixed holding period** instead of a signal-driven exit,
+**no overlap** — while in a position, subsequent signals are ignored, or one is measuring capital
+that does not exist.
 
-## 4. Il controllo, che qui è obbligatorio
+## 4. The control, which here is mandatory
 
-Fuori campione il possesso passivo mediano fa **−34%**: una strategia dentro il mercato il 17% del
-tempo lo batte quasi da sola. «Batte il passivo» non è quindi un risultato. Il confronto è con
-**ingressi a caso a pari numero e pari tenuta**, 200-400 estrazioni, con lo stesso filtro
-anti-sovrapposizione.
+Out of sample, median passive holding does **−34%**: a strategy in the market 17% of the time beats
+that almost on its own. "It beats passive" is therefore not a result. The comparison is with
+**random entries at the same count and the same holding period**, 200-400 draws, with the same
+anti-overlap filter.
 
-| modello | operazioni | netto medio | in utile | caso | percentile | simboli |
+| model | trades | average net | profitable | chance | percentile | symbols |
 |---|---|---|---|---|---|---|
-| `entry_model` (H=150, tenuta 150) | 427 | **+1,529%** | 59,5% | +0,004% | 100° | 14/15 |
-| `entry_model_veloce` (H=20, tenuta 20) | 223 | **+1,360%** | 63,2% | −0,173% | 100° | 12/15 |
+| `entry_model` (H=150, hold 150) | 427 | **+1.529%** | 59.5% | +0.004% | 100th | 14/15 |
+| `entry_model_veloce` (H=20, hold 20) | 223 | **+1.360%** | 63.2% | −0.173% | 100th | 12/15 |
 
-È il primo risultato di questo progetto che passa il controllo a esposizione appaiata. Le famiglie
-precedenti non lo passavano: `swing_model` 1 simbolo su 15, `leg_model` netto negativo a tutte le
-soglie, la politica RL solo debolmente (rango 0,588).
+It is the first result in this project that passes the matched-exposure control. The previous
+families did not: `swing_model` 1 symbol out of 15, `leg_model` negative net at every threshold, the
+RL policy only weakly (rank 0.588).
 
-## 5. I due modelli si compongono in un verso solo
+## 5. The two models compose in one direction only
 
-La richiesta era due modelli complementari, uno stretto (10-20 barre, microstruttura) e uno largo
-(~150 barre, macro movimenti). La forma della composizione è quella indicata dall'utente — **il
-veloce fa le operazioni, il lento dice dentro quali movimenti può farle** — e la misura la
-conferma. Verifica dal 2024, tenuta 20 barre, commissione 0,2%, 200 estrazioni per il controllo:
+The request was two complementary models, one narrow (10-20 bars, microstructure) and one wide (~150
+bars, macro moves). The shape of the composition is the one the user indicated — **the fast one
+makes the trades, the slow one says inside which moves it may make them** — and the measurement
+confirms it. Verification from 2024, 20-bar hold, 0.2% commission, 200 draws for the control:
 
-| cancello del lento | operazioni | netto medio | in utile | simboli | caso | percentile |
+| slow model's gate | trades | average net | profitable | symbols | chance | percentile |
 |---|---|---|---|---|---|---|
-| nessuno | 223 | +1,360% | 63,2% | 12/15 | −0,173% | 100° |
-| mediana dello stima | 161 | +1,806% | 65,2% | 12/15 | −0,143% | 100° |
-| 80° dello stima | 156 | +2,019% | 65,4% | 13/15 | −0,161% | 100° |
-| **90° dello stima** | **148** | **+2,071%** | **65,5%** | **14/15** | −0,165% | 100° |
-| 95° dello stima | 128 | +2,243% | 65,6% | 13/15 | −0,170% | 100° |
-| 98° dello stima | 100 | +2,464% | 68,0% | 13/15 | −0,172% | 100° |
+| none | 223 | +1.360% | 63.2% | 12/15 | −0.173% | 100th |
+| training median | 161 | +1.806% | 65.2% | 12/15 | −0.143% | 100th |
+| 80th of training | 156 | +2.019% | 65.4% | 13/15 | −0.161% | 100th |
+| **90th of training** | **148** | **+2.071%** | **65.5%** | **14/15** | −0.165% | 100th |
+| 95th of training | 128 | +2.243% | 65.6% | 13/15 | −0.170% | 100th |
+| 98th of training | 100 | +2.464% | 68.0% | 13/15 | −0.172% | 100th |
 
-**Perché il 90° e non il 98°.** La curva è monotona: prendere il valore più alto significa scegliere
-il massimo del campione di verifica, che è l'errore già misurato altrove in questo progetto
-(correlazione −0,69 fra resa in stima e in verifica sulla rotazione). Il 90° è scelto sulla
-**concordanza fra simboli**, 14 su 15, che è la differenza fra un modello e un episodio.
+**Why the 90th and not the 98th.** The curve is monotone: taking the highest value means picking the
+maximum of the verification sample, which is the error already measured elsewhere in this project
+(correlation −0.69 between in-sample and out-of-sample return on the rotation). The 90th is chosen on
+**agreement across symbols**, 14 out of 15, which is the difference between a model and an episode.
 
-L'inverso — il lento che opera dentro le indicazioni del veloce — non è stato provato e non ha
-senso operativo: un'operazione da 150 barre non sta dentro una da 20.
+The inverse — the slow one trading inside the fast one's indications — was not tried and makes no
+operational sense: a 150-bar trade does not fit inside a 20-bar one.
 
-`scripts/entry_lab.py` rifà questa tabella.
+`scripts/entry_lab.py` reproduces this table.
 
-## 6. Cosa è stato cablato
+## 6. What was wired in
 
-- **`MODEL_PRECEDENCE`**: `entry_model_veloce`, poi `entry_model`, poi le famiglie precedenti. Il
-  veloce passa davanti perché è quello che genera i segnali; il lento resta nella catena perché da
-  solo è comunque una strategia misurata.
-- **`ml/signals.entry_signals`**: ingresso sopra soglia e col cancello aperto, uscita dopo la
-  tenuta. Soglia, cancello e tenuta si leggono **dai metadata dell'artefatto** e non dai widget:
-  sono il modello, non due manopole. Il `threshold` della barra laterale non entra in questa
-  strategia, di proposito.
-- **La tenuta è un tempo, non un conteggio di candele.** 150 barre a 5m sono dodici ore e mezza, e
-  a 1h restano dodici ore e mezza (13 barre).
-- **Il cancello vale solo sulla barra d'ingresso.** Una posizione aperta non si chiude perché il
-  piano largo è cambiato: troncarla misurerebbe un'altra strategia.
-- **Il votante `modello` della confluenza** vota +1 mentre un'operazione del modello d'ingresso è
-  aperta, 0 altrimenti. Resta solo lungo, come prima, e `entra`/`esci` non hanno effetto: la
-  selettività sta nei metadata.
-- **La nota del riquadro** dice il numero che conta e contro cosa è misurato.
-- **La pagina lascia scegliere quale dei due**, `Fast (trades)` o `Slow (gates)`, e la scelta
-  arriva alla strategia come `ai_model_simulation(..., famiglia=...)`. Non è una taratura: sono
-  due strategie, e messe insieme non si vede in cosa differiscano. Le altre famiglie restano
-  scelte da `MODEL_PRECEDENCE`, cioè spostando gli artefatti.
-- **Il riquadro «Entry model: prediction vs realised return»** mette sullo stesso asse ciò che il
-  modello prevede su ogni candela e ciò che gli è stato insegnato — il rendimento delle prossime
-  `h` barre, che guarda avanti, quindi la coda esce vuota — più la soglia d'acquisto. Stesso asse
-  perché è **la stessa unità**: lo swing target vive in [-1, 1] e schiaccerebbe dei rendimenti
-  dell'ordine del centesimo, per questo resta in un riquadro suo.
-  Cosa ci si deve aspettare di vedere, misurato su cinque simboli dal 2024: le due curve **non si
-  somigliano** (IC di rango +0,0074 per il veloce, +0,0223 per il lento) e la media di tutte le
-  barre è −0,004%, ma sopra la soglia il realizzato medio è **+1,99%**. Una linea blu piatta e
-  scorrelata non è un guasto: è il modello che tace, ed è da lì che viene il vantaggio.
+- **`MODEL_PRECEDENCE`**: `entry_model_veloce`, then `entry_model`, then the earlier families. The
+  fast one goes first because it is what generates the signals; the slow one stays in the chain
+  because on its own it is still a measured strategy.
+- **`ml/signals.entry_signals`**: entry above threshold and with the gate open, exit after the
+  holding period. Threshold, gate and holding period are read **from the artifact's metadata** and
+  not from the widgets: they are the model, not two knobs. The sidebar's `threshold` does not enter
+  this strategy, on purpose.
+- **The holding period is a time, not a candle count.** 150 bars at 5m are twelve and a half hours,
+  and at 1h they are still twelve and a half hours (13 bars).
+- **The gate applies only on the entry bar.** An open position is not closed because the wide plane
+  changed: truncating it would measure a different strategy.
+- **The confluence's `modello` voter** votes +1 while an entry-model trade is open, 0 otherwise. It
+  stays long-only, as before, and `entra`/`esci` have no effect: the selectivity lives in the
+  metadata.
+- **The panel's caption** states the number that matters and what it is measured against.
+- **The page lets you choose which of the two**, `Fast (trades)` or `Slow (gates)`, and the choice
+  reaches the strategy as `ai_model_simulation(..., famiglia=...)`. It is not a tuning: they are two
+  strategies, and put together you cannot see how they differ. The other families are still chosen by
+  `MODEL_PRECEDENCE`, i.e. by moving artifacts around.
+- **The "Entry model: prediction vs realised return" panel** puts on the same axis what the model
+  predicts for each candle and what it was taught — the return of the next `h` bars, which looks
+  forward, so the tail comes out empty — plus the buy threshold. Same axis because it is **the same
+  unit**: the swing target lives in [-1, 1] and would flatten returns of the order of a hundredth,
+  which is why it stays in a panel of its own.
+  What one should expect to see, measured on five symbols from 2024: the two curves **do not look
+  alike** (rank IC +0.0074 for the fast one, +0.0223 for the slow one) and the mean over all bars is
+  −0.004%, but above the threshold the average realised return is **+1.99%**. A flat, uncorrelated
+  blue line is not a fault: it is the model staying silent, and that is where the edge comes from.
 
-## 7. Cosa resta aperto
+## 7. What is still open
 
-- **La griglia della confluenza con e senza il votante `modello`**, sugli stessi asset e la stessa
-  finestra. È l'unico modo di dire se il modello aggiunge alla strategia a confluenza o si limita a
-  ridurne l'esposizione. Vale anche per la politica RL, e non è ancora stata fatta per nessuna
-  delle due.
-- **Il controllo a blocchi.** Il controllo casuale campiona righe che si sovrappongono fra loro e
-  fra simboli; su `swing_model` un bootstrap a blocchi settimanali aveva spostato il verdetto. Qui
-  la tenuta è più corta e le operazioni sono poche, ma la misura va rifatta in quella forma prima
-  di dire «significativo».
-- **Sotto i 5 minuti non c'è misura.** Il modello è addestrato e misurato a 5m. Sopra la
-  mezz'ora il punto è stato misurato e chiuso: vedi §8.
+- **The confluence grid with and without the `modello` voter**, on the same assets and the same
+  window. It is the only way to say whether the model adds to the confluence strategy or merely
+  reduces its exposure. The same holds for the RL policy, and it has not been done for either yet.
+- **The block control.** The random control samples rows that overlap each other and across symbols;
+  on `swing_model` a weekly block bootstrap had moved the verdict. Here the holding period is shorter
+  and the trades are few, but the measurement has to be redone in that form before saying
+  "significant".
+- **Below 5 minutes there is no measurement.** The model is trained and measured at 5m. Above half an
+  hour the point has been measured and closed: see §8.
 
-## 8. Due cose misurate dopo il cablaggio
+## 8. Two things measured after wiring it in
 
-### 8.1 Operare più spesso costa, e si sa quanto
+### 8.1 Trading more often costs, and by how much is known
 
-La domanda era esplicita: si vogliono operazioni sugli intervalli brevi, e il modello servito ne fa
-poche. Fare di più si può, e ha un prezzo. Qui si muove **solo** la soglia del veloce — presa sul
-campione di stima, non sul fuori campione — col cancello del lento fermo al 90°:
+The question was explicit: trades are wanted on the short intervals, and the model as served makes
+few of them. Making more is possible, and it has a price. Here **only** the fast model's threshold
+moves — taken on the training sample, not on the out-of-sample one — with the slow model's gate held
+at the 90th:
 
-| barre marcate | operazioni | netto medio | in utile | simboli in utile |
+| bars marked | trades | average net | profitable | symbols profitable |
 |---|---|---|---|---|
-| 5,0% | 1.570 | +0,166% | 46,9% | 10/15 |
-| 2,0% | 677 | +0,523% | 51,8% | 13/15 |
-| 1,0% | 330 | +1,068% | 59,7% | 13/15 |
-| **0,5%** | **148** | **+2,071%** | **65,5%** | **14/15** |
-| 0,1% | 23 | +3,710% | 73,9% | 8/11 |
+| 5.0% | 1,570 | +0.166% | 46.9% | 10/15 |
+| 2.0% | 677 | +0.523% | 51.8% | 13/15 |
+| 1.0% | 330 | +1.068% | 59.7% | 13/15 |
+| **0.5%** | **148** | **+2.071%** | **65.5%** | **14/15** |
+| 0.1% | 23 | +3.710% | 73.9% | 8/11 |
 
-Tutte al 100° percentile contro ingressi casuali a pari esposizione. Tre letture:
+All at the 100th percentile against random entries at matched exposure. Three readings:
 
-- **la commissione è fissa allo 0,2%, il rendimento no.** Abbassare la soglia non aggiunge
-  operazioni allo stesso rendimento: ne aggiunge di peggiori, in modo monotono e ripido;
-- **il totale accumulato ha il massimo altrove.** Somma dei rendimenti per operazione: 261 a 5%,
-  354 a 2%, 352 a 1%, 307 a 0,5%. Chi vuole più operazioni *può* averle — 330 invece di 148 — e
-  l'accumulo non peggiora. Quello che peggiora è la qualità della singola operazione e la
-  concordanza fra simboli;
-- **0,5% resta la scelta**, e per la stessa ragione del cancello: 14/15 simboli in utile è il
-  massimo della colonna, e questo progetto ha già misurato che inseguire il massimo del
-  rendimento trasferisce peggio (correlazione −0,69 fra stima e verifica sulla rotazione).
+- **the commission is fixed at 0.2%, the return is not.** Lowering the threshold does not add trades
+  at the same return: it adds worse ones, monotonically and steeply;
+- **the accumulated total peaks elsewhere.** Sum of per-trade returns: 261 at 5%, 354 at 2%, 352 at
+  1%, 307 at 0.5%. Whoever wants more trades *can* have them — 330 instead of 148 — and the
+  accumulation does not get worse. What gets worse is the quality of the individual trade and the
+  agreement across symbols;
+- **0.5% remains the choice**, and for the same reason as the gate: 14/15 symbols profitable is the
+  column's maximum, and this project has already measured that chasing the return maximum transfers
+  worse (correlation −0.69 between in-sample and out-of-sample on the rotation).
 
-`scripts/entry_lab.py --frequenza` rifà la tabella.
+`scripts/entry_lab.py --frequenza` reproduces the table.
 
-### 8.2 La soglia è un rendimento, e sopra la mezz'ora non vuol più dire la stessa cosa
+### 8.2 The threshold is a return, and above half an hour it no longer means the same thing
 
-`entry_signals` scalava la tenuta con l'intervallo ma serviva la **stessa soglia assoluta**
-ovunque. La soglia però non è un quantile: è il rendimento previsto sopra il quale si entra, e il
-modello prevede il rendimento delle prossime **venti barre da cinque minuti**. Su barre più lunghe
-quelle venti barre sono un altro orizzonte, le previsioni crescono, e la soglia smette di
-selezionare le stesse barre. Misurato su cinque simboli dal 2024:
+`entry_signals` scaled the holding period with the interval but served the **same absolute
+threshold** everywhere. The threshold, however, is not a quantile: it is the predicted return above
+which one enters, and the model predicts the return of the next **twenty five-minute bars**. On
+longer bars those twenty bars are a different horizon, the predictions grow, and the threshold stops
+selecting the same bars. Measured on five symbols from 2024:
 
-| intervallo | 5m | 15m | 30m | 1h | 4h | 1d |
+| interval | 5m | 15m | 30m | 1h | 4h | 1d |
 |---|---|---|---|---|---|---|
-| barre marcate | 0,063% | 0,270% | 0,722% | 2,98% | 14,1% | 28,1% |
+| bars marked | 0.063% | 0.270% | 0.722% | 2.98% | 14.1% | 28.1% |
 
-A 1d il modello «selettivo» marcava una barra su quattro: l'opposto di ciò per cui è stato scelto,
-e il +2,07% per operazione non descriveva più niente. Da qui `signals.entry_fuori_misura`, che
-serve il modello **fino a 30 minuti** e sopra tace dicendo perché — stessa forma di
-`confluence.scala_fuori_misura`. Il votante `modello` fuori scala non tace: scende al successivo
-in `MODEL_PRECEDENCE`.
+At 1d the "selective" model was marking one bar in four: the opposite of what it was chosen for, and
+the +2.07% per trade no longer described anything. Hence `signals.entry_fuori_misura`, which serves
+the model **up to 30 minutes** and above that stays silent saying why — the same shape as
+`confluence.scala_fuori_misura`. The `modello` voter does not go silent out of scale: it falls
+through to the next entry in `MODEL_PRECEDENCE`.
 
-Nota di lettura per il grafico: a 5m la soglia marca lo 0,063% delle barre, cioè **una su
-milleseicento**. Una finestra da 240 ore non contiene abbastanza barre perché un'operazione sia
-probabile, e su BTCUSDT — il simbolo con una sola operazione in tutto il fuori campione — la
-previsione massima su 2.880 barre resta sotto la soglia. Zero operazioni sul grafico è il
-comportamento atteso, non un guasto.
+A reading note for the chart: at 5m the threshold marks 0.063% of bars, i.e. **one in sixteen
+hundred**. A 240-hour window does not contain enough bars for a trade to be likely, and on BTCUSDT —
+the symbol with a single trade in the whole out-of-sample set — the maximum prediction over 2,880
+bars stays below the threshold. Zero trades on the chart is the expected behaviour, not a fault.

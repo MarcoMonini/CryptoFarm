@@ -657,15 +657,28 @@ if __name__ == "__main__":
                 **getattr(config, nome).widget,
             )
         finestra = int(valori["SWING_TARGET_WINDOW"])
+        tempo = float(valori["SWING_TARGET_TEMPO"])
         ore = finestra * interval_to_minutes(interval) / 60
         st.sidebar.caption(
             f"-1 on a local low, +1 on the next local high, and it slides in between. An extreme "
             f"is the highest close among the {finestra} bars each side, here **{ore:.0f} hours** "
-            "each side. How far along the leg is half price and half **elapsed bars**, so a price "
-            "that stalls still moves towards the extreme that is coming. The value at an extreme "
-            "is not always 1: it grows with how far the swing reaches beyond the local noise. It "
-            "looks ahead to the next extreme, so the tail is empty and no strategy can trade it."
+            f"each side. How far along the leg is **{tempo:.0%} elapsed bars** and "
+            f"{1 - tempo:.0%} price, so a price that stalls still moves towards the extreme that "
+            "is coming — that time weighting is what makes the label lead the price instead of "
+            "following it. The value at an extreme is not always 1: it grows with how far the "
+            "swing reaches beyond the local noise. It looks ahead to the next extreme, so the "
+            "tail is empty and no strategy can trade it."
         )
+        addestrato = signals.swing_etichetta_addestrata()
+        if addestrato and (
+            int(addestrato.get("window", finestra)) != finestra
+            or abs(float(addestrato.get("peso_tempo", tempo)) - tempo) > 1e-9
+        ):
+            st.sidebar.caption(
+                f":orange[The loaded model was trained on window "
+                f"{int(addestrato['window'])} / time weight {float(addestrato['peso_tempo']):.2f}, "
+                "so the curve drawn is not the one it learned.]"
+            )
     valori["MODELLO"] = st.session_state["model"]
 
     # --- Quale dei due modelli d'ingresso -----------------------------------------------------

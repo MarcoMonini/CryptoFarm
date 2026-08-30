@@ -1,222 +1,273 @@
 # Handoff — CryptoFarm
 
-Data: **2026-08-30**. Branch di lavoro: **`claude/audit-confluenza`**.
-Il precedente `claude/ricerca-quant-ml-cinque-asset` era spinto. Il precedente
-`claude/trading-strategies-performance-fb39oc` e' stato unito in `main` con la PR #7.
-Il branch precedente `ai-labeling-rewrite` (pipeline ML a 3 stati) e' **chiuso con esito negativo**
-e non e' mai stato unito: vedi `.claude/docs/strategy.md` §10-13 e la sezione "Il filone ML" qui
-sotto.
+Date: **2026-08-30**. Working branch: **`claude/audit-confluenza`**.
+The previous `claude/ricerca-quant-ml-cinque-asset` was pushed. The earlier
+`claude/trading-strategies-performance-fb39oc` was merged into `main` with PR #7.
+The older branch `ai-labeling-rewrite` (3-state ML pipeline) is **closed with a negative result**
+and was never merged: see `.claude/docs/strategy.md` §10-13 and the "The ML strand" section
+below.
 
-## Non duplicare: leggi prima questi
+## Do not duplicate: read these first
 
-| documento | cosa contiene |
+| document | what it holds |
 |---|---|
-| `CLAUDE.md` | architettura del repo, comandi, variabili d'ambiente, vincoli Docker/Render. **Ogni cartella ha poi il suo `README.md`** con i file e le funzioni che contiene |
-| `.claude/docs/README.md` | l'ordine di lettura di tutto il resto |
-| `.claude/docs/modello-ingresso.md` | **il documento da leggere per primo sul filone modello** (2026-08-29). Il modello in testa oggi, e i primi numeri del progetto che passano il controllo a esposizione appaiata |
-| `.claude/docs/modello-swing.md` | (2026-08-28) l'audit che ha chiuso `leg_model`, l'etichetta a prossimita' degli estremi, e le misure per cui quel modello **non** batte il caso a esposizione appaiata |
-| `.claude/docs/politica-rl.md` | (2026-08-28) la politica a rinforzo, cablata: batte il possesso passivo 11/15 fuori campione e dimezza la discesa massima, ma il *quando* sta sopra il caso solo debolmente |
-| `.claude/docs/strategia-confluenza.md` | (2026-08-27, **misurata il 2026-08-28**) la strategia multi-timeframe a piu' segnali. Niente look-ahead, votanti non correlati, e **non batte il possesso passivo**: il gradiente di ogni parametro punta al non-operare. Le conclusioni stanno in fondo |
-| `.claude/docs/ricerca-quant-ml.md` | (2026-08-26) stato dell'arte dai nove repository, i due filoni misurati su BTC/ETH/SOL/XRP/BNB, la rotazione trasversale, il filtro meta. Corregge due conclusioni di `strategie-nuove.md` che non generalizzano |
-| `.claude/docs/strategie-nuove.md` | le quattro correzioni e cosa hanno cambiato, il ciclo 2021-2026 come dataset e il perche', cinque strategie nuove, il motore a due versi con lo short, leva e costi |
-| `.claude/docs/backtest-strategie.md` | **le strategie del simulatore misurate su nove anni.** 3.129 configurazioni, sensibilita' ai parametri, tenuta fuori campione, quattro difetti del codice trovati misurando (§8, ora corretti) |
-| `.claude/docs/strategy.md` | fonte di verita' delle decisioni sul **filone ML** (etichettatura, feature, modello, validazione). Chiuso in negativo, ma le trappole valgono ancora |
-| `git log main..HEAD` | i messaggi di commit spiegano il *perche'* di ogni scelta e i bug trovati |
+| `CLAUDE.md` | repo architecture, commands, environment variables, Docker/Render constraints. **Every folder then has its own `README.md`** with the files and functions it contains |
+| `.claude/docs/README.md` | the reading order for everything else |
+| `.claude/docs/labeling-strategy.md` | **the labeling: labels from −1 to +1 oscillating between local extremes, several windows, and a temporal smoothing.** Read it before touching labels or training |
+| `.claude/docs/modello-ingresso.md` | **the first document to read on the model strand** (2026-08-29). The model at the head today, and the project's first numbers that pass the paired-exposure control |
+| `.claude/docs/modello-swing.md` | (2026-08-28, updated 2026-08-30) the audit that closed `leg_model`, the extreme-proximity label, and the measurements by which that model does **not** beat chance at equal exposure |
+| `.claude/docs/politica-rl.md` | (2026-08-28) the RL policy, wired in: it beats passive holding 11/15 out of sample and halves the maximum drawdown, but the *when* is above chance only weakly |
+| `.claude/docs/strategia-confluenza.md` | (2026-08-27, **measured 2026-08-28**) the multi-timeframe multi-signal strategy. No look-ahead, uncorrelated voters, and **it does not beat passive holding**: every parameter's gradient points at not trading. The conclusions are at the end |
+| `.claude/docs/ricerca-quant-ml.md` | (2026-08-26) state of the art from the nine repositories, the two strands measured on BTC/ETH/SOL/XRP/BNB, cross-sectional rotation, the meta filter. It corrects two conclusions of `strategie-nuove.md` that do not generalise |
+| `.claude/docs/strategie-nuove.md` | the four corrections and what they changed, the 2021-2026 cycle as the dataset and why, five new strategies, the two-sided engine with the short, leverage and costs |
+| `.claude/docs/backtest-strategie.md` | **the simulator's strategies measured over nine years.** 3,129 configurations, parameter sensitivity, out-of-sample behaviour, four code defects found by measuring (§8, now fixed) |
+| `.claude/docs/strategy.md` | source of truth for the decisions on the **ML strand** (labeling, features, model, validation). Closed negative, but the traps still hold |
+| `git log main..HEAD` | the commit messages explain the *why* of every choice and the bugs found |
 
-Non riassumere quei contenuti: sono gia' scritti e aggiornati.
-
----
-
-## Ultima sessione (2026-08-30): semplificazione e documentazione
-
-Nessuna misura nuova e nessun cambio di comportamento: **−9.570 righe** di codice e un `README.md`
-in ogni cartella.
-
-**Cancellato** (git e' l'archivio, `git log --diff-filter=D --name-only` lo ritrova): tutto
-`backup/` (`unused/` e `v2/`, ~7.100 righe che nessun test eseguiva), le due famiglie chiuse in
-negativo con i loro test (`policy.py`, `dagger.py`, `policy_trainer.py`, `leg_trainer.py`, e i due
-rami di dispatch in `ml/signals.py` e `trading/strategies.py`), `trading/live_frames.py`,
-`uv.lock` e `requirements.txt` (nessuno dei due era letto da niente), i due handoff datati.
-Ogni commento che puntava a quel codice e' stato **ripuntato al documento che tiene la misura**,
-non cancellato: la misura vale ancora, il codice no.
-
-**Documentato**: quattordici `README.md` nuovi o rifatti, uno per cartella, con l'elenco dei file
-e delle loro funzioni pubbliche — ricavato leggendo l'albero sintattico, non a memoria.
-`models/README.md` descriveva ancora l'era keras; `reports/README.md` non citava le tabelle
-`cs_*` e `meta_*`; il `README.md` di radice dichiarava `policy_model` come modello attivo.
-`.claude/docs/INDEX.md` e' diventato `README.md`.
-
-**I dati locali, cancellati su approvazione**: 4,7 GB, da 9,3 a 4,6. Sono usciti
-`market_data/rl_stati.pkl` (3,5 GB di cache chiavata sulla firma dell'artefatto, la rifa'
-`scripts/rl_lab.py`), `swing_previsioni.pkl`, `tuner_logs/` (keras-tuner non e' piu' una
-dipendenza), `.venv` e `.venv3.13`, gli artefatti in `models/` delle due famiglie chiuse e i tre
-`.keras` dell'era precedente, `.claude/RESUME.md` e le cache di pytest/ruff.
-
-**Quattro cose che sembravano cancellabili e non lo erano**, ognuna trovata verificando invece che
-fidandosi della dimensione:
-
-| | perche' resta |
-|---|---|
-| `.venv3.12` (1,9 GB) | e' l'interprete del progetto in PyCharm (`Python 3.12 (CryptoFarm)`), non `.venv312`. Cancellarlo rompe l'IDE in silenzio |
-| `analysis_cache/` (31 MB) | non e' solo uscita: `scripts/multiplicity.py --cache` **legge** `analysis_cache/*/*_annuale.parquet` come ingresso |
-| `.claude/.headroom_*` | stato di un processo vivo (PID 69612), non residui |
-| `.serena/` | configurazione di progetto di uno strumento in uso |
-
-`models/.gitignore` nominava ancora `policy_trainer` fra i modi di rigenerare gli artefatti.
+Do not summarise that content: it is already written and up to date.
 
 ---
 
-## Sessione precedente (2026-08-29): il modello d'ingresso, cablato in positivo
+## Last session (2026-08-30): the temporal smoothing, put back
 
-Tutto in [`modello-ingresso.md`](modello-ingresso.md). Quattro cose prima di ripartire:
+The user pointed out that a **temporal smoothing between maxima and minima** had once been defined
+in the labeling and was no longer there. It was deliberate and it worked at **0.7**. It is back, in
+the labeling, in training and on the page.
 
-1. **La catena in testa e' cambiata**: `entry_model_veloce`, poi `entry_model`, poi le famiglie
-   precedenti. Il veloce genera le operazioni, il lento fa da **cancello** sulla sola barra
-   d'ingresso.
-2. **La domanda e' cambiata, non il modello.** Non «quanto siamo vicini a un estremo locale» ma
-   «quanto rende comprare qui». A pari selezione la prima individua meglio i minimi (37,2% contro
-   23,0%) e rende **2,4 volte meno**. Precisione e denaro non sono la stessa cosa, ed e' la misura
-   che ha spostato il bersaglio.
-3. **Sono i primi numeri che passano il controllo a esposizione appaiata**: +2,071% netti per
-   operazione fuori campione, 148 operazioni, 14/15 simboli in utile, 100° percentile su 200
-   estrazioni. Il confronto col possesso passivo non conta -- fuori campione il passivo mediano fa
-   -34%, quindi stare fuori paga da solo.
-4. **La leva e' la selettivita', non l'accuratezza.** Al 10% di barre segnalate il netto e' sotto
-   la commissione, allo 0,5% e' dieci volte sopra. Per questo soglia, cancello e tenuta stanno nei
-   metadata dell'artefatto e non nei widget: muoverli serve un'altra strategia.
+**What the label is now**, in one line: `labeling.swing_leg_target` slides continuously from −1 at a
+local minimum to +1 at the next local maximum, and the position along the leg is **70% elapsed time
+and 30% price covered** (`TIME_WEIGHT = 0.7`). Full description in
+[`labeling-strategy.md`](labeling-strategy.md).
 
-5. **Si serve fino a 30 minuti e sopra tace** (`signals.entry_fuori_misura`, §8.2). La soglia e'
-   un rendimento e non un quantile: sulla stessa soglia le barre marcate passano da 0,063% a 5m a
-   2,98% a 1h e 28,1% a 1d. Sopra la mezz'ora si serviva un'altra strategia col nome di quella
-   misurata.
-6. **Operare di piu' si puo' e si sa quanto costa** (§8.1). All'1% di barre marcate sono 330
-   operazioni invece di 148 e l'accumulo non peggiora, ma il netto per operazione dimezza e i
-   simboli in utile scendono a 13/15. `entry_lab --frequenza` rifa' la tabella.
+**Measured**, 15 symbols at 5m from 2018, `W = 144`, out of sample from 2024-01 with a 432-bar
+embargo:
 
-**Due cose restano aperte e sono scritte al §7 di quel documento**: il controllo a blocchi (le
-righe si sovrappongono fra loro e fra simboli, ed e' gia' successo che questo ribaltasse un
-verdetto) e la griglia della confluenza con e senza il votante `modello`.
-
-**Da non scambiare per un guasto:** a 5m il modello marca una barra su millecinquecento. Sulla
-finestra iniziale della pagina, 240 ore, zero operazioni e' cio' che ci si deve aspettare, e su
-BTCUSDT -- una sola operazione in tutto il fuori campione -- la previsione massima su 2.880 barre
-resta sotto la soglia.
-
-**Trappola nuova:** riusare il nome di una variabile in un ciclo di stampa ha sovrascritto il
-rendimento medio complessivo con quello dell'ultimo simbolo, e il numero sbagliato e' finito nei
-metadata, cioe' nel servizio. C'e' un test che gira `addestra` su due simboli finti e pretende che
-il medio salvato stia **fra** le due medie per simbolo.
-
----
-
-## Sessione (2026-08-28): il modello AI, rifatto e chiuso in negativo
-
-Tutto in [`modello-swing.md`](modello-swing.md). Le tre cose da sapere prima di ripartire:
-
-1. **`leg_model` e' fuori da `MODEL_PRECEDENCE`, di proposito.** Un revisore in contesto fresco ha
-   trovato che le sue due soglie erano tarate sul campione di verifica, che il controllo casuale
-   campionava righe i.i.d. da una popolazione sovrapposta per 7/8 dell'orizzonte, e che il netto
-   medio per ingresso e' **negativo a tutte e sei le soglie**. L'artefatto resta su disco; la
-   ragione sta scritta accanto alla costante. Chi lo rimette dentro deve prima rifare il metro.
-2. **`swing_model` esiste, e' addestrato, e non e' cablato.** Il segnale statistico c'e' -- IC
-   +0,0385 fuori campione contro un riferimento causale di +0,0297, 14/15 simboli concordi -- ma
-   contro un controllo casuale **a esposizione appaiata** vince 1 simbolo su 15, cioe' il caso.
-   Il vantaggio apparente sul possesso passivo era interamente «stare fuori dal mercato».
-3. **Il segnale ha forma a U, e questo cambia come si usa.** Il polo +1 non e' «vendi»: e'
-   «tendenza forte in corso», e in cripto la continuazione paga. Vendere sui massimi previsti --
-   la lettura naturale di un target in [-1, 1] -- vende le barre migliori. Chi riprende deve
-   partire da qui, non dalla regola direzionale.
-
-**Trappola nuova da conoscere:** `swing_target` guarda `W` barre nel futuro, quindi non si mette
-fra le feature se non ritardato di **almeno `W`+1**. Al ritardo di una barra l'IC passa da 0,050 a
-**0,673**, che non e' un modello ma la fuga. E' scritto nel docstring e c'e' un test.
-
-**Tre strade non provate**, in ordine di costo: dimensionare la posizione con `|previsione|`
-invece di usarla come interruttore; portare la decisione a scala giornaliera; usare il modello
-come **votante** dentro Confluence, dove non deve battere il possesso passivo da solo.
-
----
-
-## Stato del lavoro corrente: il filone trading
-
-Tre sessioni consecutive. **La terza (2026-08-26/27) e' quella piu' recente e in parte corregge le
-prime due**; le sue misure stanno in [`ricerca-quant-ml.md`](ricerca-quant-ml.md). Le due sezioni
-qui sotto restano perche' descrivono come ci si e' arrivati, non perche' siano l'ultima parola.
-
-Due scelte di quella sessione sono state prese **con l'utente** in `AskUserQuestion`, con risposta
-esplicita, e non vanno riaperte senza chiedere: potare il menu con un «taglio medio» (sette voci
-fuori, i tre casi limite dentro -- vedi `CLAUDE.md`, «Funzioni di `strategies.py` che il menu non
-raggiunge»), e aggiungere la rotazione trasversale **come vista della pagina**, non come solo
-script. Resta offerta e non decisa una cosa sola: se togliere del tutto l'universo largo a 15
-asset dalla vista di rotazione, dove oggi serve da controllo di cio' che peggiora.
-
-### Sessione 1 — misurare le strategie esistenti (`d82b3db`, `8f4ccd8`)
-
-3.129 configurazioni delle 12 strategie del simulatore, su BTC 2017-2026 a 15m, piu' controlli su
-ETH e su altri intervalli. Risultato: **a 15 minuti quasi tutto perde**, e la frequenza operativa
-spiega quasi tutto (le strategie che fanno migliaia di operazioni l'anno pagano in commissioni piu'
-del margine per operazione). Fuori campione crolla anche cio' che in campione sembrava solido.
-Script conservati: `scripts/strategy_sweep.py`, `scripts/sweep_report.py`, `scripts/strategy_focus.py`.
-Tabelle: `reports/*_15m*.csv`.
-
-### Sessione 2 — correzioni, dataset nuovo, strategie nuove, short (`61603cc`)
-
-**Le quattro correzioni** chieste dall'utente, tutte applicate e misurate:
-
-| difetto | correzione | effetto |
+| | with smoothing (0.7) | previous label (centered rank) |
 |---|---|---|
-| voce di menu `"Supetrend"` ≠ dispatch `"Supertrend"` | stringa corretta in `config.STRATEGIES` | la voce esegue: +450% a 4h nella migliore configurazione |
-| `"ATR Bands"` aveva il ramo di dispatch ma nessuna voce di menu | voce aggiunta | selezionabile: +678% a 4h |
-| stop loss di `buy_sell_limits_close_simulation` commentato | ripristinato | inerte al default 99%, attivo ai valori operativi |
-| `EMA200` era l'EMA **dell'apertura** sulla finestra corta, e Trend Zones la confrontava con `EMA20` (una media con se stessa) | colonna eliminata, le tre funzioni leggono `EMA100` | Trend Zones 4h da **−21,9% a +309,3%**, da 202 a 10,6 operazioni/anno |
+| IC against the forward half | **+0.0433** | +0.0405 |
+| causal reference (`pos_canale`) | +0.0296 | +0.0297 |
+| **excess over the reference** | **+0.0137** | +0.0108 |
+| per-symbol median | +0.0500, 14/15 agreeing in sign | — |
 
-Il golden master e' stato rigenerato **una volta sola** e il diff verificato voce per voce: 17 voci,
-tutte di `add_technical_indicator` e delle tre funzioni che leggevano `EMA200`, sui quattro scenari.
+The honest number improves; **the verdict does not change** — the swing model still does not clear
+the commission, and the reason is in `modello-swing.md` §5.3.
 
-**Il dataset e' cambiato**: non piu' 2017-2026 ma **2021-01-01 → oggi**, perche' i due cicli sono
-mercati diversi (BTC 2017-2020: +2.803%, CAGR 132%, Sharpe 1,44 — 2021-2026: +166%, CAGR 19%,
-Sharpe 0,59) e **i parametri non passano dall'uno all'altro**: scegliendo sul ciclo vecchio e
-misurando sul nuovo, quattro strategie su cinque vanno in perdita.
+**Three things not to break.**
 
-**Cinque strategie nuove** in `trading/strategies_ls.py`, su sette indicatori mai usati prima
-(ADX, Donchian, Bollinger, Keltner, StochRSI, OBV/MFI, Ichimoku): `donchian_breakout`,
-`squeeze_breakout`, `trend_pullback`, `ichimoku_trend`, `band_reversion_gated`.
+1. **`labeling.TIME_WEIGHT = 0.7` has three consumers** and they must not drift apart:
+   `swing_trainer.PESO_TEMPO`, `config.SWING_TARGET_TEMPO` (a copied literal, because
+   `trading/config.py` imports nothing by design) and `tests/test_swing_target.py`. A drift here is
+   silent: the page would draw one label and the model would be trained on another. It has already
+   happened once, in this very session, which is why the constant now has a test.
+2. **The embargo is three windows** (`EMBARGO_FINESTRE = 3`, 432 bars), not one. The leg label looks
+   ahead as far as the *next extreme*, a variable distance longer than `W`; a single window was
+   enough only for the centered rank.
+3. **The yardstick is the forward-only half.** The label's past half is reproducible by a Stochastic
+   (IC 0.70 against the full target), so an IC measured against the full label is 93% memory of the
+   past. Every figure above is scored with `verso="avanti"`.
 
-**Il verso corto e' simulabile**: `pnl.simulate_positions` prende cambi di posizione
-`(tempo, prezzo, +1|0|−1)` — il formato a due liste di segnali non sa esprimere l'inversione
-diretta — con commissione su entrambe le gambe, costo di mantenimento giornaliero (funding, 0,03%),
-leva e liquidazione a capitale zero.
+**The artifact now records its label** in the metadata
+(`labeling: {method, window, peso_tempo, embargo_finestre, base_interval}`), so a drift is
+detectable from disk instead of by reading the code.
 
-### I risultati, senza addolcirli
+## Documentation language
 
-- **Le storiche corrette battono le nuove in campione** (Close ATR +575% a 1d contro +120% della
-  migliore nuova), ma su griglie 100 volte piu' grandi: la colonna onesta e' la mediana.
-- **Fuori campione (scelta 2021-2023, resa 2024-2026) nessuna strategia, di nessuna famiglia, batte
-  il possesso passivo.** La sola nuova con segno positivo e' `band_reversion_gated` (+11,1%).
-- **Il vantaggio reale e' sul rischio, non sul rendimento**: `band_reversion_gated` fa +84% con 22%
-  di drawdown contro +166% con 76,5%; **a leva 2 diventa +196% con DD 41%**, cioe' batte il possesso
-  passivo su entrambi gli assi (in campione).
-- **Lo short toglie invece di aggiungere**: la mediana peggiora in tutte e cinque le strategie
-  (donchian −22% → −57%; ichimoku +15% → −25%), migliora solo nel 2,6-23,6% delle coppie, e paga
-  solo nel 2022. L'unica eccezione e' il ritorno alla media, dove il corto ha win rate 52,3%.
-- **Le ablazioni** dicono che ogni filtro nuovo migliora la mediana e riduce le operazioni; l'unico
-  ininfluente e' l'ADX come soglia minima nella rottura di canale.
+**Everything in this repository is written in English** — `CLAUDE.md`, `.claude/docs/`, every
+folder `README.md`. The rule is at the top of `CLAUDE.md` and it is not a style preference: it had
+been given before and the documents drifted back to Italian anyway. Answer in Italian in the chat if
+the user writes in Italian; write the files in English. Code identifiers, comments and docstrings are
+still Italian and are out of scope — changing them touches tests that assert on Italian names.
 
-### Cosa resta aperto
+---
 
-> **Aggiornamento 2026-08-26 — i due punti qui sotto sono chiusi.** Sulla macchina dell'utente lo
-> store ha tutti e 15 i simboli fino al 2026-08-19: SOL e BNB sono stati misurati e
-> `donchian_breakout`/`squeeze_breakout` rimisurate dopo la correzione dello stop a trailing. I
-> risultati stanno in `.claude/docs/ricerca-quant-ml.md` §2, e **due conclusioni di
-> `strategie-nuove.md` non reggono su cinque asset**: `band_reversion_gated` e' negativa su 4 asset
-> su 5, e fuori campione 4h batte 1d. Restano validi i comandi qui sotto, con una correzione
-> necessaria a `strategy_lab`/`strategy_sweep` per il `spawn` di macOS (vedi §8 di quel documento).
+## Session (2026-08-30): simplification and documentation
 
-**SOL e BNB non sono stati misurati.** L'utente li aveva chiesti esplicitamente. Non e' una scelta:
-in ambiente remoto l'egress verso *ogni* exchange e aggregatore risponde 403 sul CONNECT (Binance,
+No new measurement and no behaviour change: **−9,570 lines** of code and a `README.md` in every
+folder.
+
+**Deleted** (git is the archive, `git log --diff-filter=D --name-only` finds it): all of `backup/`
+(`unused/` and `v2/`, ~7,100 lines no test ever ran), the two families closed with a negative result
+along with their tests (`policy.py`, `dagger.py`, `policy_trainer.py`, `leg_trainer.py`, and the two
+dispatch branches in `ml/signals.py` and `trading/strategies.py`), `trading/live_frames.py`,
+`uv.lock` and `requirements.txt` (neither was read by anything), the two dated handoffs.
+Every comment that pointed at that code was **repointed to the document holding the measurement**,
+not deleted: the measurement still holds, the code does not.
+
+**Documented**: fourteen new or rewritten `README.md`, one per folder, listing the files and their
+public functions — derived by reading the syntax tree, not from memory. `models/README.md` still
+described the keras era; `reports/README.md` did not mention the `cs_*` and `meta_*` tables; the
+root `README.md` declared `policy_model` as the active model. `.claude/docs/INDEX.md` became
+`README.md`.
+
+**Local data, deleted with approval**: 4.7 GB, from 9.3 down to 4.6. Out went
+`market_data/rl_stati.pkl` (3.5 GB of cache keyed on the artifact signature, `scripts/rl_lab.py`
+rebuilds it), `swing_previsioni.pkl`, `tuner_logs/` (keras-tuner is no longer a dependency), `.venv`
+and `.venv3.13`, the `models/` artifacts of the two closed families and the three `.keras` files of
+the previous era, `.claude/RESUME.md` and the pytest/ruff caches.
+
+**Four things that looked deletable and were not**, each found by verifying instead of trusting the
+size:
+
+| | why it stays |
+|---|---|
+| `.venv3.12` (1.9 GB) | it is the project interpreter in PyCharm (`Python 3.12 (CryptoFarm)`), not `.venv312`. Deleting it breaks the IDE silently |
+| `analysis_cache/` (31 MB) | it is not only output: `scripts/multiplicity.py --cache` **reads** `analysis_cache/*/*_annuale.parquet` as input |
+| `.claude/.headroom_*` | state of a live process (PID 69612), not leftovers |
+| `.serena/` | project configuration of a tool in use |
+
+`models/.gitignore` still named `policy_trainer` among the ways to regenerate the artifacts.
+
+---
+
+## Previous session (2026-08-29): the entry model, wired in with a positive result
+
+All of it in [`modello-ingresso.md`](modello-ingresso.md). Four things before restarting:
+
+1. **The head of the chain changed**: `entry_model_veloce`, then `entry_model`, then the earlier
+   families. The fast one generates the trades, the slow one acts as a **gate** on the entry bar
+   only.
+2. **The question changed, not the model.** Not "how close are we to a local extreme" but "how much
+   does buying here return". At equal selection the first identifies lows better (37.2% against
+   23.0%) and returns **2.4 times less**. Precision and money are not the same thing, and that is the
+   measurement that moved the target.
+3. **These are the first numbers that pass the paired-exposure control**: +2.071% net per trade out
+   of sample, 148 trades, 14/15 symbols profitable, 100th percentile over 200 draws. The comparison
+   with passive holding does not count — out of sample the median passive does −34%, so staying out
+   pays by itself.
+4. **The lever is selectivity, not accuracy.** At 10% of bars flagged the net is below the
+   commission, at 0.5% it is ten times above it. Hence threshold, gate and holding live in the
+   artifact metadata and not in the widgets: moving them calls for a different strategy.
+5. **It serves up to 30 minutes and above that it stays quiet** (`signals.entry_fuori_misura`, §8.2).
+   The threshold is a return, not a quantile: on the same threshold the flagged bars go from 0.063%
+   at 5m to 2.98% at 1h and 28.1% at 1d. Above the half hour it was serving a different strategy
+   under the name of the measured one.
+6. **Trading more is possible and the cost is known** (§8.1). At 1% of bars flagged it is 330 trades
+   instead of 148 and the compounding does not get worse, but the net per trade halves and the
+   profitable symbols drop to 13/15. `entry_lab --frequenza` redoes the table.
+
+**Two things remain open and are written in §7 of that document**: the block control (rows overlap
+each other and across symbols, and this has already flipped a verdict once) and the confluence grid
+with and without the `modello` voter.
+
+**Not to be mistaken for a fault:** at 5m the model flags one bar in fifteen hundred. Over the page's
+initial window, 240 hours, zero trades is what to expect, and on BTCUSDT — a single trade in the
+whole out-of-sample period — the maximum prediction over 2,880 bars stays below the threshold.
+
+**New trap:** reusing a variable name inside a printing loop overwrote the overall average return
+with the last symbol's, and the wrong number ended up in the metadata, i.e. in the service. There is
+a test that runs `addestra` on two fake symbols and requires the saved average to lie **between** the
+two per-symbol averages.
+
+---
+
+## Session (2026-08-28): the AI model, redone and closed negative
+
+All of it in [`modello-swing.md`](modello-swing.md). The three things to know before restarting:
+
+1. **`leg_model` is out of `MODEL_PRECEDENCE`, on purpose.** A reviewer in fresh context found that
+   its two thresholds were tuned on the verification sample, that the random control sampled i.i.d.
+   rows from a population overlapping for 7/8 of the horizon, and that the average net per entry is
+   **negative at all six thresholds**. The artifact stays on disk; the reason is written next to the
+   constant. Whoever puts it back must redo the yardstick first.
+2. **`swing_model` exists, is trained, and is not wired in.** The statistical signal is there — IC
+   +0.0433 out of sample against a causal reference of +0.0296, 14/15 symbols agreeing — but against
+   a random control **at paired exposure** it wins on 1 symbol out of 15, i.e. chance. The apparent
+   advantage over passive holding was entirely "staying out of the market".
+3. **The signal is U-shaped, and that changes how it is used.** The +1 pole is not "sell": it is
+   "strong trend in progress", and in crypto continuation pays. Selling the predicted highs — the
+   natural reading of a target in [−1, 1] — sells the best bars. Whoever picks this up must start
+   here, not from the directional rule.
+
+**New trap to know:** `swing_target` looks `W` bars into the future, so it does not go among the
+features unless delayed by **at least `W`+1**. At a one-bar delay the IC goes from 0.050 to
+**0.673**, which is not a model but the leak. It is written in the docstring and there is a test.
+
+**Three untried paths**, in order of cost: sizing the position with `|prediction|` instead of using
+it as a switch; taking the decision to a daily scale; using the model as a **voter** inside
+Confluence, where it does not have to beat passive holding on its own.
+
+---
+
+## Current state of the work: the trading strand
+
+Three consecutive sessions. **The third (2026-08-26/27) is the most recent and partly corrects the
+first two**; its measurements are in [`ricerca-quant-ml.md`](ricerca-quant-ml.md). The two sections
+below remain because they describe how we got there, not because they are the last word.
+
+Two choices from that session were taken **with the user** via `AskUserQuestion`, with an explicit
+answer, and are not to be reopened without asking: pruning the menu with a "medium cut" (seven
+entries out, the three borderline cases in — see `CLAUDE.md`, "Functions of `strategies.py` the menu
+does not reach"), and adding cross-sectional rotation **as a view of the page**, not as a script
+only. Only one thing remains offered and undecided: whether to drop the wide 15-asset universe
+entirely from the rotation view, where today it serves as a control on what makes things worse.
+
+### Session 1 — measuring the existing strategies (`d82b3db`, `8f4ccd8`)
+
+3,129 configurations of the simulator's 12 strategies, on BTC 2017-2026 at 15m, plus controls on ETH
+and on other intervals. Result: **at 15 minutes almost everything loses**, and trading frequency
+explains almost all of it (strategies making thousands of trades a year pay more in commissions than
+their margin per trade). Out of sample, even what looked solid in sample collapses.
+Scripts kept: `scripts/strategy_sweep.py`, `scripts/sweep_report.py`, `scripts/strategy_focus.py`.
+Tables: `reports/*_15m*.csv`.
+
+### Session 2 — corrections, new dataset, new strategies, short (`61603cc`)
+
+**The four corrections** the user asked for, all applied and measured:
+
+| defect | correction | effect |
+|---|---|---|
+| menu entry `"Supetrend"` ≠ dispatch `"Supertrend"` | string fixed in `config.STRATEGIES` | the entry runs: +450% at 4h in the best configuration |
+| `"ATR Bands"` had the dispatch branch but no menu entry | entry added | selectable: +678% at 4h |
+| stop loss of `buy_sell_limits_close_simulation` commented out | restored | inert at the 99% default, active at operational values |
+| `EMA200` was the EMA **of the open** over the short window, and Trend Zones compared it with `EMA20` (an average against itself) | column removed, the three functions read `EMA100` | Trend Zones 4h from **−21.9% to +309.3%**, from 202 to 10.6 trades/year |
+
+The golden master was regenerated **once only** and the diff verified entry by entry: 17 entries, all
+of `add_technical_indicator` and of the three functions that read `EMA200`, across the four
+scenarios.
+
+**The dataset changed**: no longer 2017-2026 but **2021-01-01 → today**, because the two cycles are
+different markets (BTC 2017-2020: +2,803%, CAGR 132%, Sharpe 1.44 — 2021-2026: +166%, CAGR 19%,
+Sharpe 0.59) and **the parameters do not carry from one to the other**: choosing on the old cycle and
+measuring on the new one, four strategies out of five go into loss.
+
+**Five new strategies** in `trading/strategies_ls.py`, on seven indicators never used before (ADX,
+Donchian, Bollinger, Keltner, StochRSI, OBV/MFI, Ichimoku): `donchian_breakout`, `squeeze_breakout`,
+`trend_pullback`, `ichimoku_trend`, `band_reversion_gated`.
+
+**The short side is simulable**: `pnl.simulate_positions` takes position changes
+`(time, price, +1|0|−1)` — the two-signal-list format cannot express a direct reversal — with
+commission on both legs, daily carry cost (funding, 0.03%), leverage and liquidation at zero capital.
+
+### The results, unsweetened
+
+- **The corrected historical ones beat the new ones in sample** (Close ATR +575% at 1d against +120%
+  for the best new one), but on grids 100 times larger: the honest column is the median.
+- **Out of sample (chosen 2021-2023, returned 2024-2026) no strategy, of any family, beats passive
+  holding.** The only new one with a positive sign is `band_reversion_gated` (+11.1%).
+- **The real advantage is on risk, not on return**: `band_reversion_gated` does +84% with 22%
+  drawdown against +166% with 76.5%; **at 2× leverage it becomes +196% with 41% DD**, i.e. it beats
+  passive holding on both axes (in sample).
+- **The short takes away instead of adding**: the median gets worse in all five strategies (donchian
+  −22% → −57%; ichimoku +15% → −25%), it improves only in 2.6-23.6% of the pairs, and it only pays in
+  2022. The only exception is mean reversion, where the short side has a 52.3% win rate.
+- **The ablations** say every new filter improves the median and reduces the trades; the only
+  irrelevant one is ADX as a minimum threshold in the channel breakout.
+
+### What remains open
+
+> **Update 2026-08-26 — the two points below are closed.** On the user's machine the store has all 15
+> symbols up to 2026-08-19: SOL and BNB were measured and `donchian_breakout`/`squeeze_breakout`
+> remeasured after the trailing-stop fix. The results are in `.claude/docs/ricerca-quant-ml.md` §2,
+> and **two conclusions of `strategie-nuove.md` do not hold on five assets**:
+> `band_reversion_gated` is negative on 4 assets out of 5, and out of sample 4h beats 1d. The
+> commands below remain valid, with a correction needed in `strategy_lab`/`strategy_sweep` for
+> macOS's `spawn` (see §8 of that document).
+
+**SOL and BNB were not measured.** The user had asked for them explicitly. It is not a choice: in the
+remote environment egress towards *every* exchange and aggregator answers 403 on CONNECT (Binance,
 Bybit, Kraken, Coinbase, Kucoin, MEXC, Gate, CoinGecko, CryptoCompare, Messari, Yahoo, Kaggle,
-HuggingFace), e nessun repository pubblico raggiungibile ha candele intraday recenti di quei due
-asset. Il codice li supporta gia'. **In locale bastano:**
+HuggingFace), and no reachable public repository has recent intraday candles for those two assets.
+The code already supports them. **Locally this is enough:**
 
 ```bash
 python -m cryptofarm.data.klines --update --symbols BTCUSDT ETHUSDT SOLUSDT BNBUSDT
@@ -226,210 +277,214 @@ for s in BTCUSDT ETHUSDT SOLUSDT BNBUSDT; do
 done
 ```
 
-Le conclusioni su regimi e verso corto valgono per **un asset e un ciclo** finche' quello non gira.
+The conclusions on regimes and on the short side hold for **one asset and one cycle** until that
+runs.
 
-**Rimisurare `donchian_breakout` e `squeeze_breakout`.** Lo stop a trailing e' stato corretto
-(vedi le trappole sotto e `.claude/docs/strategie-nuove.md` §8): le loro righe in §6 e i
-`reports/lab_*.csv` sono precedenti alla correzione. Servono le stesse candele del punto sopra,
-quindi le due cose si fanno insieme. Le altre tre strategie non sono toccate.
+**Remeasure `donchian_breakout` and `squeeze_breakout`.** The trailing stop was fixed (see the traps
+below and `.claude/docs/strategie-nuove.md` §8): their rows in §6 and the `reports/lab_*.csv` predate
+the fix. They need the same candles as the point above, so the two jobs are done together. The other
+three strategies are untouched.
 
-### La pagina, rifatta attorno al registro
+### The page, rebuilt around the registry
 
-Il simulatore mostrava sempre tutto: quindici parametri nella barra laterale e una dozzina di
-tracce, uguali per ogni strategia. Ora `trading/panels.py` tiene la mappa strategia → indicatori →
-parametri → tracce, e la pagina la legge: si vede solo cio' che la strategia scelta usa davvero, e
-tutto solo quando non ne e' selezionata nessuna. `trading_analysis` e' passata da trenta argomenti
-nominali a un dizionario, la catena di `if strategia == ...` non c'e' piu', e `simulator.py` da 672
-a 402 righe.
+The simulator used to show everything: fifteen parameters in the sidebar and a dozen traces, the same
+for every strategy. Now `trading/panels.py` holds the map strategy → indicators → parameters →
+traces, and the page reads it: you see only what the chosen strategy actually uses, and everything
+only when none is selected. `trading_analysis` went from thirty keyword arguments to a dictionary,
+the chain of `if strategia == ...` is gone, and `simulator.py` went from 672 to 402 lines.
 
-Le cinque strategie nuove sono nel menu, **sempre e solo lunghe**: il verso corto e' misurato in
-perdita. Passano dal motore classico tramite un adattatore da cambi di posizione a due liste,
-esatto senza il verso corto e verificato contro `simulate_positions`. **I loro numeri nella pagina
-sono piu' ottimisti di `reports/lab_*.csv`**, perche' quel motore non addebita il funding e non
-conosce la leva: la pagina lo dice accanto al risultato.
+The five new strategies are in the menu, **always and only long**: the short side is measured at a
+loss. They go through the classic engine via an adapter from position changes to two lists, exact
+without the short side and verified against `simulate_positions`. **Their numbers on the page are
+more optimistic than `reports/lab_*.csv`**, because that engine does not charge funding and does not
+know about leverage: the page says so next to the result.
 
-Trappole trovate guardando la figura renderizzata, non il codice: l'acquamarina sopra le candele si
-confonde con il corpo rialzista (il validatore di palette approva la coppia, perche' non sa che una
-delle due e' un corpo pieno), e la panoramica metteva in legenda due "EMA corta" e due "Banda
-superiore". Entrambe fissate da un test.
+Traps found by looking at the rendered figure, not at the code: aquamarine over the candles is
+confused with a bullish body (the palette validator approves the pair, because it does not know one
+of the two is a filled body), and the overview put two "short EMA" and two "upper band" entries in
+the legend. Both pinned by a test.
 
-### Codice nuovo del filone trading
+### New code in the trading strand
 
-| file | cosa |
+| file | what |
 |---|---|
-| `trading/indicators_extra.py` | `ExtraParams` + `ExtraCache`: ADX, EMA, ATR, KAMA, Donchian, Bollinger, Keltner, StochRSI, MFI, pendenza OBV, Ichimoku, memoizzati per parametro. **Donchian e' shiftato di una barra** (`.shift(1)`): senza, il canale contiene la barra che lo rompe |
-| `trading/strategies_ls.py` | le cinque strategie nuove, tutte con `allow_short`; restituiscono cambi di posizione, non due liste |
-| `trading/pnl.py` | `simulate_positions` accanto a `simulate_trading_with_commisions`. `CARRY_DAILY_PERCENT = 0.03` |
-| `scripts/strategy_lab.py` | griglie delle nuove (592 configurazioni), `ProcessPoolExecutor` con candele ereditate per fork, metriche short-aware (`n_long`/`n_short`, contributo per lato) |
-| `scripts/lab_report.py` | panoramica, effetto short appaiato, ablazioni, trasferimento fra dataset, fuori campione con finestre configurabili, classifica storiche vs nuove, leva e costi |
-| `tests/test_long_short.py` | 14 test: simmetria long/short, costi su entrambe le gambe e nel tempo, leva e azzeramento, eventi ignorati dopo la liquidazione, **no look-ahead** (serie troncata → eventi identici) e "long-only non va mai corto", parametrizzati sulle cinque strategie |
+| `trading/indicators_extra.py` | `ExtraParams` + `ExtraCache`: ADX, EMA, ATR, KAMA, Donchian, Bollinger, Keltner, StochRSI, MFI, OBV slope, Ichimoku, memoised per parameter. **Donchian is shifted by one bar** (`.shift(1)`): without it, the channel contains the bar that breaks it |
+| `trading/strategies_ls.py` | the five new strategies, all with `allow_short`; they return position changes, not two lists |
+| `trading/pnl.py` | `simulate_positions` alongside `simulate_trading_with_commisions`. `CARRY_DAILY_PERCENT = 0.03` |
+| `scripts/strategy_lab.py` | grids for the new ones (592 configurations), `ProcessPoolExecutor` with candles inherited by fork, short-aware metrics (`n_long`/`n_short`, contribution per side) |
+| `scripts/lab_report.py` | overview, paired short effect, ablations, transfer between datasets, out of sample with configurable windows, historical vs new ranking, leverage and costs |
+| `tests/test_long_short.py` | 14 tests: long/short symmetry, costs on both legs and over time, leverage and wipe-out, events ignored after liquidation, **no look-ahead** (truncated series → identical events) and "long-only never goes short", parametrised over the five strategies |
 
-`tests/test_simulator_golden.py` copre ora anche `simulate_positions` (una sequenza con inversione
-diretta lungo→corto).
+`tests/test_simulator_golden.py` now also covers `simulate_positions` (a sequence with a direct
+long→short reversal).
 
-Tabelle prodotte: `reports/lab_*.csv` (panoramica, effetto short, ablazioni, classifica, fuori
-campione, leva e costi; suffissi `_1d`, `_4h`, `_4h_ciclo2017`, `_ETHUSD_4h`).
+Tables produced: `reports/lab_*.csv` (overview, short effect, ablations, ranking, out of sample,
+leverage and costs; suffixes `_1d`, `_4h`, `_4h_ciclo2017`, `_ETHUSD_4h`).
 
-### Un guasto che era li' da un giorno: la rotazione con lo store vuoto
+### A fault that had been there for a day: rotation with an empty store
 
-`rotation.load_universe` costruiva `pd.DataFrame({})` da un dizionario vuoto -- che nasce con un
-RangeIndex di **interi** -- e poi lo filtrava con `frame.index >= since`. Il confronto fra int64 e
-una stringa solleva `TypeError`, quindi con `market_data/` vuoto la vista di rotazione **cadeva**
-invece di mostrare l'avviso che le sta accanto da sempre. E' la condizione normale in produzione:
-il piano gratuito di Render non ha dischi persistenti.
+`rotation.load_universe` built `pd.DataFrame({})` from an empty dictionary — which is born with an
+**integer** RangeIndex — and then filtered it with `frame.index >= since`. Comparing int64 with a
+string raises `TypeError`, so with an empty `market_data/` the rotation view **crashed** instead of
+showing the warning that has sat next to it all along. That is the normal condition in production:
+Render's free plan has no persistent disks.
 
-Lo stesso guasto nascondeva la raccolta di `tests/test_simulator_page.py`, che lo esercita a
-livello di modulo. In questa sessione avevo attribuito quella raccolta fallita alla versione di
-Python: **era sbagliato**. Con la correzione la suite gira intera, senza `--ignore` (oggi 1.022 test).
+The same fault hid the collection of `tests/test_simulator_page.py`, which exercises it at module
+level. In that session I had attributed the failed collection to the Python version: **that was
+wrong**. With the fix the suite runs whole, without `--ignore`.
 
-### La confluenza (2026-08-27, misurata il 2026-08-28)
+### The confluence (2026-08-27, measured 2026-08-28)
 
-Il disegno completo e **il verdetto** stanno in
-[`strategia-confluenza.md`](strategia-confluenza.md): misurata su 15 asset e sette anni,
-**non batte il possesso passivo**. Niente look-ahead e votanti non correlati, ma il gradiente di
-ogni parametro punta al non-operare. Qui resta solo la mappa di cosa esiste.
+The full design and **the verdict** are in [`strategia-confluenza.md`](strategia-confluenza.md):
+measured on 15 assets over seven years, **it does not beat passive holding**. No look-ahead and
+uncorrelated voters, but every parameter's gradient points at not trading. Only the map of what
+exists remains here.
 
-| file | cosa |
+| file | what |
 |---|---|
-| `trading/mtf.py` | `align_to_lower`: legge la barra lunga **chiusa**, spostandola di un periodo. E' l'unica difesa contro il look-ahead fra intervalli |
-| `trading/voters.py` | `held_state` (eventi → stato tenuto) e `decayed_vote` (stato → voto che sfuma). E' la memoria del segnale, cioe' cio' che rende la confluenza capace di innescare |
-| `trading/confluence.py` | la strategia: sei votanti su quattro piani, punteggio pesato, ampiezza per famiglie, soglia che si muove coi piani alti, uscita a tre condizioni. `stati_dei_votanti` isola la parte cara |
-| `trading/portfolio.py` | un capitale solo su piu' asset, con occasioni perse e concentrazione |
-| `scripts/confluence_lab.py` | il banco: tre griglie, paniere, tre riferimenti, `--selfcheck` che gira senza store |
-| voce «Confluence» nel simulatore | due riquadri (decisione e votanti) e la spiegazione attaccata a ogni marcatore |
+| `trading/mtf.py` | `align_to_lower`: reads the **closed** long bar, shifting it by one period. It is the only defence against look-ahead between intervals |
+| `trading/voters.py` | `held_state` (events → held state) and `decayed_vote` (state → fading vote). It is the signal's memory, i.e. what makes the confluence able to trigger |
+| `trading/confluence.py` | the strategy: six voters on four planes, weighted score, breadth by family, threshold that moves with the higher planes, three-condition exit. `stati_dei_votanti` isolates the expensive part |
+| `trading/portfolio.py` | one capital across several assets, with missed opportunities and concentration |
+| `scripts/confluence_lab.py` | the bench: three grids, basket, three references, `--selfcheck` that runs without the store |
+| the "Confluence" entry in the simulator | two panels (decision and voters) and the explanation attached to every marker |
 
-**Quello che manca e' la misura**, e serve la macchina con lo store delle candele. Da fare, in
-ordine: `--grid coordinate` su BTCUSDT a 15m (79 celle, e' anche S0 travestito), poi `--grid ampia`
-sui cinque asset, poi `--paniere majors`. I tre riferimenti si stampano da soli.
+**Four things already known that must be kept in mind when reading the results:**
 
-**Quattro cose gia' sapute che vanno tenute a mente leggendo i risultati:**
-
-1. l'aspettativa dichiarata *prima* e' lo stesso ordine di rendimento del possesso passivo con un
-   drawdown molto minore, **non** un rendimento superiore. Se il risultato fosse molto migliore, la
-   prima ipotesi da verificare e' il look-ahead, non il successo;
-2. il rischio piu' probabile non e' che perda: e' che **operi troppo poco** perche' si possa dire.
-   Il numero di operazioni all'anno va riportato accanto a ogni risultato;
-3. la **necessarieta' per votante** e' nella tabella dei risultati (`nec_*`, `necessarieta_max`).
-   Sopra 0,60 l'insieme e' quel votante travestito, e le metriche parlano di lui;
-4. il conteggio delle prove per `multiplicity.py` e' in testa a ogni CSV prodotto. `ampia` sono
-   4.800 celle: guardarne la migliore e riportarne lo Sharpe senza scontarlo non e' una misura.
+1. the expectation declared *beforehand* is the same order of return as passive holding with a much
+   smaller drawdown, **not** a higher return. If the result were much better, the first hypothesis to
+   check is look-ahead, not success;
+2. the most likely risk is not that it loses: it is that it **trades too little** for anything to be
+   said. The number of trades per year goes next to every result;
+3. the **necessity per voter** is in the results table (`nec_*`, `necessarieta_max`). Above 0.60 the
+   ensemble is that voter in disguise, and the metrics are talking about it;
+4. the trial count for `multiplicity.py` is at the top of every CSV produced. `ampia` is 4,800 cells:
+   looking at the best one and reporting its Sharpe without discounting it is not a measurement.
 
 ---
 
-## Il filone ML, in breve
+## The ML strand, briefly
 
-Chiuso in negativo e **non va riaperto senza leggere `strategy.md` §10-13**. In una riga: entrare
-alla conferma di un minimo e uscire alla conferma di un massimo cattura **zero in media**, su tutti
-e 15 i simboli, a ogni soglia, *prima* dei costi. La conferma si paga due volte e la gamba mediana
-ne vale 1,76-2,05. Nessuna scelta di modello, feature o iperparametro lo cambia.
+Closed negative and **not to be reopened without reading `strategy.md` §10-13**. In one line:
+entering on the confirmation of a low and exiting on the confirmation of a high captures **zero on
+average**, on all 15 symbols, at every threshold, *before* costs. The confirmation is paid twice and
+the median leg is worth 1.76-2.05 of them. No choice of model, features or hyperparameters changes
+it.
 
-Cosa **non** rifare: ritarare la soglia di decisione (§12.6), aggiungere iterazioni DAgger (funziona
-ma cura un altro problema), provare un'architettura diversa (l'in-sample e' gia' sotto il costo,
-non e' overfitting), fidarsi di un'attribuzione con uscita "perfetta" (usare `confirmed_reversal_rows`
-e il controllo con ingressi casuali).
+What **not** to redo: retuning the decision threshold (§12.6), adding DAgger iterations (it works but
+cures a different problem), trying a different architecture (in-sample is already below cost, it is
+not overfitting), trusting an attribution with a "perfect" exit (use `confirmed_reversal_rows` and the
+control with random entries).
 
-Restano aperte, in quest'ordine: `capture` oltre 0,40 (mai misurata fino a 0,85); la formulazione
-di §13.4 (alla barra di conferma, prevedere se *questa* gamba superera' `2 × soglia + costo`); poi
-i dati di microstruttura (`aggTrades`) e il modello di riempimento maker (Fase 0.3).
+Still open, in this order: `capture` beyond 0.40 (never measured up to 0.85); the formulation of
+§13.4 (at the confirmation bar, predict whether *this* leg will exceed `2 × threshold + cost`); then
+microstructure data (`aggTrades`) and the maker fill model (Phase 0.3).
 
 ---
 
-## Cose che non stanno nei documenti e servono subito
+## Things that are not in the documents and are needed right away
 
-- **Usa `.venv312/bin/python`.** Il `.venv` preesistente e' Python 3.9 senza `scikit-learn`; il
-  progetto richiede ≥3.12. Installazione normale: `pip install -e ".[app,data,dev]"`.
-- **Rete: dipende da dove gira la sessione.** Sulla macchina dell'utente `raw.githubusercontent.com`
-  e `api.github.com` rispondono, e i README dei repository si scaricano (fatto il 2026-08-26). Il
-  paragrafo qui sotto vale per l'**ambiente remoto**, non per il locale, e va letto cosi'.
-- **Rete bloccata in sessione remota.** Nessun exchange e nessun aggregatore e' raggiungibile
-  (403 sul CONNECT del proxy); anche la *search API* di GitHub e' negata perche' la sessione e'
-  legata ai suoi repository. Restano raggiungibili PyPI, i contenuti dei repository configurati e
-  gli asset di release. Non perdere tempo a riprovare host nuovi: e' gia' stato fatto in modo
-  esaustivo.
-- **`market_data/` sulla macchina dell'utente ha tutti e 15 i simboli** a 5 minuti, fino al
-  2026-08-19 (284 MB, gitignorato): da 614.732 a 945.675 candele per simbolo. E' con questo store
-  che sono state fatte le misure di `ricerca-quant-ml.md`. Il paragrafo qui sotto descrive
-  l'**ambiente remoto**, dove ce n'erano due.
-- **`market_data/` nell'ambiente remoto contiene solo due file** (55 MB, gitignorato):
-  `BTCUSD-5m.parquet` (1.540.397 candele, 2012-01-01 → oggi, fonte Bitstamp) e
-  `ETHUSD-5m.parquet` (342.929 candele, 2016-03 → 2019-12, fonte Bitfinex). ETH **non copre il
-  ciclo recente**: e' per questo che il controllo su un secondo asset e' stato fatto sul ciclo
-  2017-2019 e non sul 2021-2026. Sulla macchina dell'utente lo store Binance e' molto piu' ampio
-  (15 simboli, ~11,8 milioni di candele 5m).
-- **`models/*.joblib` e `*.json` non sono tracciati** (`models/.gitignore`, esteso nel 2026-08).
-  `meta_model.*` e' il modello della strategia precedente: non cancellarlo, `load_signal_model()`
-  lo carica ancora. `MODEL_PRECEDENCE` e `active_model_name()` sono l'unica fonte di verita'.
-- **Test: 695 in 20 file.** `ruff check src tests scripts` e `black --check` puliti. La CI gira
-  entrambi i job su ogni PR.
-- Le due misure lunghe (`strategy_sweep`, `strategy_lab`) impiegano decine di minuti: farle partire
-  in background e attendere con un ciclo di controllo, mai con `sleep` in catena.
-- **`analysis_cache/` e' gitignorata ed e' l'input di `scripts/tune_defaults.py`.** Senza,
-  `trading/tuned_defaults.py` non e' rigenerabile: servono di nuovo le griglie su quattro intervalli
-  per cinque simboli, circa due ore di calcolo. I `reports/*.csv` invece sono tracciati.
+- **Use `.venv312/bin/python`.** The pre-existing `.venv` is Python 3.9 without `scikit-learn`; the
+  project requires ≥3.12. Normal install: `pip install -e ".[app,data,dev]"`.
+- **Network: it depends on where the session runs.** On the user's machine `raw.githubusercontent.com`
+  and `api.github.com` answer, and the repositories' READMEs download (done 2026-08-26). The
+  paragraph below applies to the **remote environment**, not to the local one, and should be read
+  that way.
+- **Network blocked in a remote session.** No exchange and no aggregator is reachable (403 on the
+  proxy's CONNECT); even GitHub's *search API* is denied because the session is bound to its own
+  repositories. PyPI, the contents of the configured repositories and release assets remain
+  reachable. Do not waste time retrying new hosts: it has already been done exhaustively.
+- **`market_data/` on the user's machine has all 15 symbols** at 5 minutes, up to 2026-08-19 (284 MB,
+  gitignored): from 614,732 to 945,675 candles per symbol. It is with this store that the
+  `ricerca-quant-ml.md` measurements were made. The paragraph below describes the **remote
+  environment**, where there were two.
+- **`market_data/` in the remote environment holds only two files** (55 MB, gitignored):
+  `BTCUSD-5m.parquet` (1,540,397 candles, 2012-01-01 → today, source Bitstamp) and
+  `ETHUSD-5m.parquet` (342,929 candles, 2016-03 → 2019-12, source Bitfinex). ETH **does not cover the
+  recent cycle**: that is why the control on a second asset was done on the 2017-2019 cycle and not
+  on 2021-2026. On the user's machine the Binance store is much wider (15 symbols, ~11.8 million 5m
+  candles).
+- **`models/*.joblib` and `*.json` are not tracked** (`models/.gitignore`, extended in 2026-08).
+  `meta_model.*` is the previous strategy's model: do not delete it, `load_signal_model()` still
+  loads it. `MODEL_PRECEDENCE` and `active_model_name()` are the only source of truth.
+- **Tests: 1,024 passed, 3 skipped, in 35 files.** `ruff check src tests scripts` and `black --check`
+  clean. CI runs both jobs on every PR.
+- The two long measurements (`strategy_sweep`, `strategy_lab`) take tens of minutes: start them in
+  the background and wait with a polling loop, never with a chained `sleep`.
+- **`analysis_cache/` is gitignored and is the input of `scripts/tune_defaults.py`.** Without it,
+  `trading/tuned_defaults.py` cannot be regenerated: it would take the grids on four intervals for
+  five symbols again, roughly two hours of computation. The `reports/*.csv` files are tracked.
 
-## Regole di ingaggio stabilite dall'utente
+## Rules of engagement set by the user
 
-- Prima di modifiche strutturali: piano scritto, poi conferma. (Sospeso quando l'utente dice
-  esplicitamente "procedi con l'implementazione".)
-- **Ogni numero va misurato sui dati del progetto, mai stimato ne' ripreso dai prompt.** L'utente
-  ha ripetuto: *"se una misura contraddice una tesi del prompt, riportalo — preferisco una
-  strategia corretta a una che conferma quello che ho chiesto."* E' successo di nuovo in questa
-  sessione (lo short, che l'utente si aspettava raddoppiasse le occasioni, e' misurato in perdita)
-  e va detto senza addolcire.
-- Controlli a cascata su ogni risultato, e sospetto verso i risultati troppo buoni.
-- Commit incrementali con riepilogo dopo ogni blocco.
-- I deliverable finali vanno anche pubblicati come artifact leggibile, oltre che scritti nel repo.
+- Before structural changes: a written plan, then confirmation. (Suspended when the user explicitly
+  says "go ahead with the implementation".)
+- **Every number must be measured on the project's data, never estimated nor taken from the prompts.**
+  The user has repeated: *"if a measurement contradicts a thesis in the prompt, report it — I prefer a
+  correct strategy to one that confirms what I asked for."* It happened again in that session (the
+  short side, which the user expected would double the opportunities, is measured at a loss) and it
+  must be said unsweetened.
+- Cascading controls on every result, and suspicion towards results that are too good.
+- Incremental commits with a summary after every block.
+- The final deliverables must also be published as a readable artifact, besides being written in the
+  repo.
+- **The documentation is written in English**, always. See the top of `CLAUDE.md`.
 
-## Trappole gia' incontrate
+## Traps already met
 
-**Sul simulatore e i backtest**
+**On the simulator and the backtests**
 
-- **Look-ahead nei canali**: un massimo mobile che include la barra corrente rende la rottura
-  impossibile da mancare. `indicators_extra` shifta Donchian; il test `test_no_look_ahead` verifica
-  che troncare la serie non cambi gli eventi gia' emessi.
-- **Look-ahead *dentro* la barra**: uno stop a trailing costruito con il massimo e l'ATR della
-  barra su cui viene testato assume che dentro quella barra l'estremo favorevole arrivi per primo.
-  **`test_no_look_ahead` non lo vede**, perche' tronca la serie *fra* le barre e la barra che
-  scatena l'evento resta identica: serve il controllo che perturba il massimo della sola barra
-  dell'uscita (`test_trailing_stop_ignores_the_high_of_its_own_bar`). Lo stop va calcolato su dati
-  chiusi a `i-1`.
-- **`ta` riempie, non lascia NaN.** `IchimokuIndicator(visual=True)` costruisce span B con
-  `min_periods=0` e riempie le prime `slow` righe dello shift con la media dell'**intera** serie:
-  span B non e' mai NaN, nessuna guardia lo intercetta, e quel riempimento e' look-ahead. In
-  `ichimoku_trend` la protezione e' `start = slow + span + 2`, e non va abbassata.
-- **Il golden master accetta qualunque differenza** se lo si rigenera. Rigenerare solo dopo aver
-  verificato a mano la differenza, e controllare che il diff contenga solo le righe attese.
-- **Gli scenari del golden non sono intercambiabili**: `close_ema_crossover_simulation` pretende tre
-  incroci in sequenza, `close_bullish_ema_simulation` solo il laterale. Togliere uno scenario scopre
-  delle strategie.
-- **`indicators._atr_ema` replica `ta` 0.11 riga per riga.** Se si tocca, va riverificato contro
-  `ta`: una divergenza silenziosa sposta ogni segnale.
-- **Le funzioni decorate con `@st.cache_data` si chiamano con `.__wrapped__`** fuori da Streamlit.
-- **Il massimo su una griglia non e' un risultato**: va sempre letto con la mediana e con la quota
-  di configurazioni in utile accanto.
+- **Look-ahead in the channels**: a rolling maximum that includes the current bar makes the breakout
+  impossible to miss. `indicators_extra` shifts Donchian; the test `test_no_look_ahead` verifies that
+  truncating the series does not change the events already emitted.
+- **Look-ahead *inside* the bar**: a trailing stop built from the high and the ATR of the very bar it
+  is tested on assumes that within that bar the favourable extreme comes first. **`test_no_look_ahead`
+  does not see it**, because it truncates the series *between* bars and the bar triggering the event
+  stays identical: it takes the control that perturbs the high of the exit bar alone
+  (`test_trailing_stop_ignores_the_high_of_its_own_bar`). The stop must be computed on data closed at
+  `i-1`.
+- **`ta` fills, it does not leave NaN.** `IchimokuIndicator(visual=True)` builds span B with
+  `min_periods=0` and fills the shift's first `slow` rows with the mean of the **whole** series: span
+  B is never NaN, no guard catches it, and that fill is look-ahead. In `ichimoku_trend` the protection
+  is `start = slow + span + 2`, and it must not be lowered.
+- **The golden master accepts any difference** if regenerated. Regenerate only after checking the
+  difference by hand, and verify the diff contains only the expected lines.
+- **The golden scenarios are not interchangeable**: `close_ema_crossover_simulation` demands three
+  crossovers in sequence, `close_bullish_ema_simulation` only the sideways one. Removing a scenario
+  uncovers strategies.
+- **`indicators._atr_ema` replicates `ta` 0.11 line by line.** If touched, it must be reverified
+  against `ta`: a silent divergence moves every signal.
+- **Functions decorated with `@st.cache_data` are called with `.__wrapped__`** outside Streamlit.
+- **The maximum over a grid is not a result**: it must always be read with the median and the share of
+  profitable configurations next to it.
 
-**Sulla pipeline ML**
+**On the ML pipeline**
 
-- **Pivot retrospettivi**: usare `extreme_bar` invece di `confirm_bar` in una feature e' look-ahead
-  (`strategy.md` §7.1: ritardo mediano 1-8 barre, p99 fino a 101, massimo proprio sui movimenti ampi).
-- **Etichette sovrapposte**: `t_exit` e' il pivot successivo confermato, orizzonte variabile e
-  potenzialmente lungo. L'embargo va dimensionato sul percentile alto.
-- **Rolling non causali**: `labeling.py` usa `[::-1].rolling(...)[::-1]` di proposito. Corretto li',
-  disastroso altrove.
-- Due difetti del target hanno gia' **invertito il segno** dei risultati una volta (commit `7ebb2e0`).
+- **Retrospective pivots**: using `extreme_bar` instead of `confirm_bar` in a feature is look-ahead
+  (`strategy.md` §7.1: median delay 1-8 bars, p99 up to 101, at its worst precisely on the wide
+  moves).
+- **Overlapping labels**: `t_exit` is the next confirmed pivot, a variable and potentially long
+  horizon. The embargo must be sized on the high percentile. For the leg label it is **three
+  windows**, not one (see the top of this document).
+- **Non-causal rolling**: `labeling.py` uses `[::-1].rolling(...)[::-1]` on purpose. Correct there,
+  disastrous anywhere else.
+- **A label constant with several consumers drifts silently.** `TIME_WEIGHT` is copied into
+  `trading/config.py` because that module imports nothing by design; there is a test that pins the
+  two together. Without it, the page draws one label and the model trains on another.
+- Two target defects have already **flipped the sign** of the results once (commit `7ebb2e0`).
 
 ## Suggested skills
 
-- **`tdd`** — per qualunque estensione del motore di posizioni o delle strategie: i bug piu' costosi
-  di entrambe le sessioni sono stati trovati dai test.
-- **`diagnosing-bugs`** — quando una misura non torna.
-- **`dataviz`** — prima di aggiungere grafici al simulatore.
-- **`artifact-design`** — l'utente si aspetta un report visuale a chiusura di ogni blocco di misure.
+- **`tdd`** — for any extension of the position engine or of the strategies: the costliest bugs of
+  both sessions were found by tests.
+- **`diagnosing-bugs`** — when a measurement does not add up.
+- **`dataviz`** — before adding charts to the simulator.
+- **`artifact-design`** — the user expects a visual report at the close of every block of
+  measurements.
+- **`ponytail:ponytail`** — the user launches it themselves at the start of a session; in the third
+  one it was active at `full` level throughout.
 
-- **`ponytail:ponytail`** — l'utente la lancia da se' a inizio sessione; nella terza era attiva a
-  livello `full` per tutto il tempo.
-
-Non serve `codebase-design` (la struttura a moduli e' decisa e documentata). `research` non serve
-per lo stato dell'arte, che e' gia' raccolto in `ricerca-quant-ml.md` §1 — ma **sulla macchina
-dell'utente la rete funziona**, quindi la vecchia nota "nessuna fonte esterna raggiungibile" vale
-solo in remoto.
+`codebase-design` is not needed (the module structure is decided and documented). `research` is not
+needed for the state of the art, which is already collected in `ricerca-quant-ml.md` §1 — but **on
+the user's machine the network works**, so the old note "no external source reachable" applies only
+remotely.

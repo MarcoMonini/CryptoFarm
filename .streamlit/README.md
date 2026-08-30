@@ -1,13 +1,14 @@
 # `.streamlit/`
 
-Un file solo: **`config.toml`**, che imposta il tema scuro (`[theme] base = "dark"`) e nient'altro.
+A single file: **`config.toml`**, which sets the dark theme (`[theme] base = "dark"`) and nothing
+else.
 
-È l'unica configurazione di Streamlit del progetto, e vale sia in locale sia in container: il
-`Dockerfile` copia la cartella nell'immagine. Porta, indirizzo e CORS **non** stanno qui — sono
-argomenti della riga di comando, perché in produzione la porta si sa solo a runtime
+It is the project's only Streamlit configuration, and it applies both locally and in a container:
+the `Dockerfile` copies the folder into the image. Port, address and CORS are **not** here — they
+are command-line arguments, because in production the port is known only at runtime
 (`streamlit run ... --server.port ${PORT:-8501} --server.address 0.0.0.0`).
 
-Il tema conta più di quanto sembri: i colori delle tracce del grafico sono scelti per il contrasto
-**su superficie scura**, e sono tre — blu, arancio, acquamarina — perché sono le uniche che passano
-tutte le coppie del validatore, deuteranopia inclusa. Tre test in `tests/test_panels.py` tengono
-ferma questa regola. Cambiare `base` in `"light"` la invaliderebbe senza far fallire niente.
+The theme matters more than it seems: the chart trace colours are chosen for contrast **on a dark
+surface**, and there are three — blue, orange, aquamarine — because they are the only ones that pass
+every pair of the validator, deuteranopia included. Three tests in `tests/test_panels.py` hold that
+rule in place. Changing `base` to `"light"` would invalidate it without making anything fail.

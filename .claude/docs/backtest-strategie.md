@@ -1,396 +1,391 @@
-# Backtest delle strategie a indicatori — 3.129 configurazioni su nove anni
+# Backtest of the indicator strategies — 3,129 configurations over nine years
 
-Misure prodotte da `scripts/strategy_sweep.py`, `scripts/sweep_report.py` e
-`scripts/strategy_focus.py`; le tabelle complete stanno in `reports/`. Ogni numero qui viene da
-quelle tabelle: nessuna stima, nessun risultato riportato a memoria.
+Measurements produced by `scripts/strategy_sweep.py`, `scripts/sweep_report.py` and
+`scripts/strategy_focus.py`; the full tables are in `reports/`. Every number here comes from those
+tables: no estimates, no results quoted from memory.
 
-## Il risultato in una riga
+## The result in one line
 
-Delle **3.129 configurazioni** provate — tutte le strategie a indicatori del simulatore, ciascuna
-su una griglia dei propri parametri, su **BTC a 15 minuti dal 2017-01-01 al 2026-08-24** —
-**il 14,9% chiude in utile, il 45,2% perde piu' del 90% del capitale, e cinque (lo 0,2%) battono
-il possesso passivo**, che nello stesso periodo ha fatto **+7.947%**. La mediana e' **−87,3%**.
+Of the **3,129 configurations** tried — every indicator strategy in the simulator, each over a grid
+of its own parameters, on **BTC at 15 minutes from 2017-01-01 to 2026-08-24** — **14.9% close
+profitable, 45.2% lose more than 90% of the capital, and five (0.2%) beat passive holding**, which
+over the same period did **+7,947%**. The median is **−87.3%**.
 
-Le cinque che battono il possesso passivo non sono cinque strategie diverse: sono tre
-configurazioni di "Close Buy/Sell Limits" con 3-4 operazioni l'anno, una di "Close ATR" con 5,9, e
-una di "ATR Bands". E nessuna di loro sopravvive alla verifica fuori campione (§5).
+The five that beat passive holding are not five different strategies: they are three configurations
+of "Close Buy/Sell Limits" with 3-4 trades a year, one of "Close ATR" with 5.9, and one of "ATR
+Bands". And none of them survives out-of-sample verification (§5).
 
-## 1. Cosa e' stato misurato, e come
+## 1. What was measured, and how
 
 | | |
 |---|---|
-| Mercato | BTC/USD, candele a 5 minuti aggregate agli intervalli richiesti |
-| Periodo | 2017-01-01 → 2026-08-24, 9,65 anni, **338.114 barre** a 15 minuti |
-| Fonte | dataset pubblico Bitstamp a un minuto ([`ff137/bitstamp-btcusd-minute-data`](https://github.com/ff137/bitstamp-btcusd-minute-data)), importato con `scripts/import_candles.py` |
-| Capitale | 100, sempre reinvestito per intero, come in `pnl.simulate_trading_with_commisions` |
-| Commissione | 0,1% per gamba (il default della pagina); la sensibilita' e' in §6 |
-| Strategie | le 10 funzioni di `trading/strategies.py` raggiungibili dal dispatch di `trading_analysis` |
-| Controllo | le stesse griglie su ETH/USD 2017-2019, altro exchange e altro periodo (§9) |
-| Metriche | rendimento composto, CAGR, Sharpe e drawdown su equity **segnata a mercato barra per barra**, win rate, profit factor, esposizione, commissioni pagate |
+| Market | BTC/USD, 5-minute candles aggregated to the requested intervals |
+| Period | 2017-01-01 → 2026-08-24, 9.65 years, **338,114 bars** at 15 minutes |
+| Source | public Bitstamp one-minute dataset ([`ff137/bitstamp-btcusd-minute-data`](https://github.com/ff137/bitstamp-btcusd-minute-data)), imported with `scripts/import_candles.py` |
+| Capital | 100, always fully reinvested, as in `pnl.simulate_trading_with_commisions` |
+| Commission | 0.1% per leg (the page default); the sensitivity is in §6 |
+| Strategies | the 10 functions in `trading/strategies.py` reachable from `trading_analysis`'s dispatch |
+| Control | the same grids on ETH/USD 2017-2019, a different exchange and a different period (§9) |
+| Metrics | compounded return, CAGR, Sharpe and drawdown on equity **marked to market bar by bar**, win rate, profit factor, exposure, commissions paid |
 
-**Perche' Bitstamp e non Binance.** `data/klines.py` prende le candele dai dump di
-`data.binance.vision`. In questa sessione quell'host e' bloccato dalla policy di rete (403 sul
-CONNECT, come `api.binance.com`), quindi lo store e' stato riempito da una fonte alternativa con
-la stessa struttura. BTC/USD su Bitstamp non e' BTCUSDC su Binance: i prezzi differiscono di
-frazioni di punto e il listino commissioni e' diverso. Va bene per misurare **il comportamento
-delle strategie**; non e' la replica al centesimo di un conto Binance.
+**Why Bitstamp and not Binance.** `data/klines.py` takes its candles from the `data.binance.vision`
+dumps. In this session that host is blocked by network policy (403 on CONNECT, like
+`api.binance.com`), so the store was filled from an alternative source with the same structure.
+BTC/USD on Bitstamp is not BTCUSDC on Binance: prices differ by fractions of a point and the fee
+schedule is different. It is fine for measuring **the behaviour of the strategies**; it is not a
+to-the-cent replica of a Binance account.
 
-**Le strategie non sono state riscritte.** Lo sweep chiama le funzioni di `trading/strategies.py`
-e il P&L di `trading/pnl.py` cosi' come stanno. L'unica parte reimplementata e' il calcolo degli
-indicatori, per poter riusare le colonne fra configurazioni invece di ricalcolarle (il PSAR da
-solo costa 26 secondi su 338.000 barre e non dipende da nessun parametro spazzolato):
-`tests/test_strategy_sweep.py` verifica colonna per colonna che produca **la stessa tabella** di
-`indicators.add_technical_indicator`, e su sette combinazioni di strategia e parametri che il
-percorso intero produca **le stesse operazioni** che `trading_analysis` scriverebbe nella tabella
-della pagina, dispatch compreso.
+**The strategies were not rewritten.** The sweep calls the functions in `trading/strategies.py` and
+the P&L in `trading/pnl.py` exactly as they are. The only part reimplemented is the indicator
+computation, so columns can be reused across configurations instead of recomputed (the PSAR alone
+costs 26 seconds over 338,000 bars and does not depend on any swept parameter):
+`tests/test_strategy_sweep.py` verifies column by column that it produces **the same table** as
+`indicators.add_technical_indicator`, and over seven combinations of strategy and parameters that the
+whole path produces **the same trades** `trading_analysis` would write into the page's table, dispatch
+included.
 
-**Il metro di paragone.** Il periodo non e' neutro: BTC e' passato da ~1.000 a ~77.500 dollari.
-Una strategia long-only che sta fuori dal mercato meta' del tempo parte in svantaggio, e va
-giudicata anche sul drawdown, non solo sul rendimento.
+**The benchmark.** The period is not neutral: BTC went from ~$1,000 to ~$77,500. A long-only strategy
+that stays out of the market half the time starts at a disadvantage, and must also be judged on
+drawdown, not on return alone.
 
-| periodo | possesso passivo | drawdown |
+| period | passive holding | drawdown |
 |---|---|---|
-| 2017-2026 (intero) | +7.947% | 84,0% |
-| 2017-2021 (stima) | +4.744% | 84,0% |
-| 2022-2026 (verifica) | +67,0% | 67,5% |
-| 2019-2026 (walk-forward) | +1.970% | 77,3% |
+| 2017-2026 (whole) | +7,947% | 84.0% |
+| 2017-2021 (in sample) | +4,744% | 84.0% |
+| 2022-2026 (verification) | +67.0% | 67.5% |
+| 2019-2026 (walk-forward) | +1,970% | 77.3% |
 
-## 2. Panoramica per strategia
+## 2. Overview by strategy
 
-Migliore e mediana sono calcolate sulle configurazioni con almeno 30 operazioni in nove anni: sotto
-quella soglia non si sta misurando una strategia ma una singola posizione tenuta per anni.
+Best and median are computed over configurations with at least 30 trades in nine years: below that
+threshold one is not measuring a strategy but a single position held for years.
 
-| strategia | config. | migliore | mediana | in utile | batte B&H | Sharpe migliore | DD del migliore |
+| strategy | configs | best | median | profitable | beats B&H | best Sharpe | DD of the best |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| ATR Bands *(non nel menu)* | 168 | **+20.020%** | −70,2% | 33,3% | 0,6% | 1,36 | 63,7% |
-| Close Buy/Sell Limits | 1.728 | +13.230% | −90,4% | 9,4% | 0,2% | 1,11 | 83,8% |
-| Close ATR | 504 | +8.778% | −96,7% | 4,6% | 0,2% | 1,25 | 63,2% |
-| Close Bullish EMA | 420 | +3.392% | −63,7% | 22,6% | 0% | 0,88 | 83,0% |
-| Close EMA Crossover | 7 | +2.834% | −64,2% | 42,9% | 0% | 0,97 | 54,0% |
-| ATR Live Trade | 18 | +1.056% | −99,6% | 5,9% | 0% | 0,74 | 85,5% |
-| Supertrend *(non nel menu)* | 126 | +354% | −12,8% | 45,2% | 0% | 0,75 | 55,0% |
-| TP/SL with ATR | 126 | +120% | −97,3% | 12,2% | 0% | 0,49 | 35,2% |
-| Trend Zones | 6 | **−100%** | −100% | 0% | 0% | −1,41 | 100% |
-| Close RSI Reverse *(non nel menu)* | 25 | **−100%** | −100% | 0% | 0% | −8,06 | 100% |
-| Green Candles | 1 | **−100%** | −100% | 0% | 0% | −5,63 | 100% |
+| ATR Bands *(not in the menu)* | 168 | **+20,020%** | −70.2% | 33.3% | 0.6% | 1.36 | 63.7% |
+| Close Buy/Sell Limits | 1,728 | +13,230% | −90.4% | 9.4% | 0.2% | 1.11 | 83.8% |
+| Close ATR | 504 | +8,778% | −96.7% | 4.6% | 0.2% | 1.25 | 63.2% |
+| Close Bullish EMA | 420 | +3,392% | −63.7% | 22.6% | 0% | 0.88 | 83.0% |
+| Close EMA Crossover | 7 | +2,834% | −64.2% | 42.9% | 0% | 0.97 | 54.0% |
+| ATR Live Trade | 18 | +1,056% | −99.6% | 5.9% | 0% | 0.74 | 85.5% |
+| Supertrend *(not in the menu)* | 126 | +354% | −12.8% | 45.2% | 0% | 0.75 | 55.0% |
+| TP/SL with ATR | 126 | +120% | −97.3% | 12.2% | 0% | 0.49 | 35.2% |
+| Trend Zones | 6 | **−100%** | −100% | 0% | 0% | −1.41 | 100% |
+| Close RSI Reverse *(not in the menu)* | 25 | **−100%** | −100% | 0% | 0% | −8.06 | 100% |
+| Green Candles | 1 | **−100%** | −100% | 0% | 0% | −5.63 | 100% |
 
-Tre strategie perdono **tutto** il capitale in ogni configurazione provata. Non e' un caso
-particolare: operano rispettivamente 2.080, 2.916 e 1.459 volte l'anno (§3).
+Three strategies lose **all** the capital in every configuration tried. It is not a special case: they
+trade 2,080, 2,916 and 1,459 times a year respectively (§3).
 
-### Con i parametri di partenza della pagina
+### With the page's starting parameters
 
-E' il caso che conta di piu', perche' e' quello che si vede aprendo il simulatore: ATR 5 / 1,6,
-EMA 10-50-200, RSI 12, limiti 25/75, una condizione, stop loss disattivato.
+This is the case that matters most, because it is what you see when you open the simulator: ATR 5 /
+1.6, EMA 10-50-200, RSI 12, limits 25/75, one condition, stop loss disabled.
 
-| strategia | rendimento | operazioni/anno | win rate | profit factor |
+| strategy | return | trades/year | win rate | profit factor |
 |---|---:|---:|---:|---:|
-| ATR Bands *(non selezionabile)* | +1.331% | 494 | 65,8% | 1,01 |
-| Close Bullish EMA | −54,6% | 94 | 68,6% | 0,93 |
-| Supertrend *(non selezionabile)* | −91,6% | 88 | 36,1% | 0,80 |
-| Close ATR | −97,6% | 284 | 60,7% | 0,95 |
-| Close Buy/Sell Limits | −98,2% | 291 | 60,8% | 0,95 |
-| TP/SL with ATR | −99,9% | 392 | 50,4% | 0,88 |
-| Green Candles | −100% | 1.459 | 27,2% | 0,72 |
+| ATR Bands *(not selectable)* | +1,331% | 494 | 65.8% | 1.01 |
+| Close Bullish EMA | −54.6% | 94 | 68.6% | 0.93 |
+| Supertrend *(not selectable)* | −91.6% | 88 | 36.1% | 0.80 |
+| Close ATR | −97.6% | 284 | 60.7% | 0.95 |
+| Close Buy/Sell Limits | −98.2% | 291 | 60.8% | 0.95 |
+| TP/SL with ATR | −99.9% | 392 | 50.4% | 0.88 |
+| Green Candles | −100% | 1,459 | 27.2% | 0.72 |
 
-**Con i valori di partenza, ogni strategia raggiungibile dal menu perde denaro sul lungo periodo.**
-Si noti il win rate: 60-69% di operazioni in utile e profit factor sotto 1. Le vincite ci sono, ma
-sono piu' piccole delle perdite di quanto le commissioni permettano.
+**With the starting values, every strategy reachable from the menu loses money over the long run.**
+Note the win rate: 60-69% of trades profitable and a profit factor below 1. The wins are there, but
+they are smaller than the losses by more than the commissions allow.
 
-## 3. La frequenza operativa spiega quasi tutto
+## 3. Trading frequency explains almost everything
 
-Tutte le 3.129 configurazioni, di tutte le strategie, raggruppate per numero di operazioni annue:
+All 3,129 configurations, across all strategies, grouped by number of trades per year:
 
-| operazioni/anno | config. | mediana | in utile | trade medio | commissioni pagate | drawdown mediano |
+| trades/year | configs | median | profitable | average trade | commissions paid | median drawdown |
 |---|---:|---:|---:|---:|---:|---:|
-| < 10 | 313 | −2,5% | 39,9% | −0,18% | 5% | 61,4% |
-| 10-30 | 265 | **+19,5%** | **53,6%** | +0,38% | 48% | 79,8% |
-| 30-100 | 595 | −64,9% | 22,5% | −0,07% | 101% | 89,8% |
-| 100-300 | 1.303 | −90,5% | 4,2% | −0,09% | 217% | 95,8% |
-| 300-1.000 | 576 | −99,6% | 1,6% | −0,11% | 315% | 99,9% |
-| > 1.000 | 57 | −100% | 0% | −0,20% | 96% | 100% |
+| < 10 | 313 | −2.5% | 39.9% | −0.18% | 5% | 61.4% |
+| 10-30 | 265 | **+19.5%** | **53.6%** | +0.38% | 48% | 79.8% |
+| 30-100 | 595 | −64.9% | 22.5% | −0.07% | 101% | 89.8% |
+| 100-300 | 1,303 | −90.5% | 4.2% | −0.09% | 217% | 95.8% |
+| 300-1,000 | 576 | −99.6% | 1.6% | −0.11% | 315% | 99.9% |
+| > 1,000 | 57 | −100% | 0% | −0.20% | 96% | 100% |
 
-Il numero di operazioni predice il rendimento meglio di qualunque parametro, e lo predice al
-contrario. La colonna "trade medio" dice perche': **il margine lordo medio per operazione, sui
-timeframe brevi, e' dello stesso ordine del costo di transazione** (0,2% andata e ritorno). Una
-strategia che opera 300 volte l'anno paga il 60% del capitale iniziale in commissioni ogni anno, e
-deve guadagnarlo prima di guadagnare qualcosa.
+The number of trades predicts the return better than any parameter, and predicts it inversely. The
+"average trade" column says why: **the average gross margin per trade, on short timeframes, is of the
+same order as the transaction cost** (0.2% round trip). A strategy trading 300 times a year pays 60%
+of the initial capital in commissions every year, and has to earn that before earning anything.
 
-La colonna "commissioni pagate" e' cumulata sui nove anni e rapportata al capitale **iniziale**:
-oltre il 100% significa che le commissioni versate valgono piu' di tutto il capitale di partenza.
+The "commissions paid" column is cumulative over the nine years and expressed relative to the
+**initial** capital: above 100% means the commissions paid are worth more than all the starting
+capital.
 
-## 4. Sensibilita' ai parametri
+## 4. Parameter sensitivity
 
-L'escursione mediana e' la differenza fra il valore migliore e il peggiore di un parametro, tenuti
-fermi tutti gli altri, mediata su tutte le loro combinazioni. E' la risposta a "quanto conta
-questo widget".
+The median swing is the difference between a parameter's best and worst value, holding all others
+fixed, averaged over all their combinations. It is the answer to "how much does this widget matter".
 
-| griglia | parametro piu' influente | escursione mediana |
+| grid | most influential parameter | median swing |
 |---|---|---:|
-| Supertrend | `atr_multiplier` | 187,6 punti |
-| ATR Bands | `atr_multiplier` | 169,0 punti |
-| TP/SL with ATR | `atr_multiplier` | 140,6 punti |
-| Close ATR | `atr_multiplier` | 93,4 punti |
-| Close Bullish EMA | `rsi_window` | 83,9 punti |
-| Close Buy/Sell Limits | `rsi_sell_limit` | 25,7 punti |
+| Supertrend | `atr_multiplier` | 187.6 points |
+| ATR Bands | `atr_multiplier` | 169.0 points |
+| TP/SL with ATR | `atr_multiplier` | 140.6 points |
+| Close ATR | `atr_multiplier` | 93.4 points |
+| Close Bullish EMA | `rsi_window` | 83.9 points |
+| Close Buy/Sell Limits | `rsi_sell_limit` | 25.7 points |
 
-**`atr_multiplier` domina ovunque compaia**, e sempre nella stessa direzione: bande larghe, poche
-operazioni, meno perdite.
+**`atr_multiplier` dominates wherever it appears**, and always in the same direction: wide bands,
+few trades, fewer losses.
 
-| `atr_multiplier` | Close ATR (mediana) | ATR Bands (mediana) | TP/SL (mediana) | operazioni/anno (ATR Bands) |
+| `atr_multiplier` | Close ATR (median) | ATR Bands (median) | TP/SL (median) | trades/year (ATR Bands) |
 |---|---:|---:|---:|---:|
-| 0,8 | −100% | −100% | −100% | 991 |
-| 1,2 | −99,8% | −99,8% | −100% | 624 |
-| **1,6 (default)** | −98,6% | −95,2% | −99,7% | 414 |
-| 2,0 | −95,5% | −67,6% | −96,9% | 280 |
-| 2,5 | −85,5% | +16,6% | −72,0% | 205 |
-| 3,0 | −56,6% | +45,0% | −16,6% | 133 |
-| 4,0 | −7,7% | +37,0% | +28,8% | 43 |
+| 0.8 | −100% | −100% | −100% | 991 |
+| 1.2 | −99.8% | −99.8% | −100% | 624 |
+| **1.6 (default)** | −98.6% | −95.2% | −99.7% | 414 |
+| 2.0 | −95.5% | −67.6% | −96.9% | 280 |
+| 2.5 | −85.5% | +16.6% | −72.0% | 205 |
+| 3.0 | −56.6% | +45.0% | −16.6% | 133 |
+| 4.0 | −7.7% | +37.0% | +28.8% | 43 |
 
-**Il default 1,6 e' nella parte peggiore dell'intervallo per tutte e tre le strategie che lo
-usano.** Il moltiplicatore piu' alto provato (4,0) e' il migliore o il secondo migliore ovunque, il
-che dice anche che l'ottimo potrebbe stare oltre il limite della griglia.
+**The 1.6 default is in the worst part of the range for all three strategies that use it.** The
+highest multiplier tried (4.0) is the best or second best everywhere, which also says the optimum
+might lie beyond the grid's edge.
 
-Gli altri parametri, in breve:
+The other parameters, briefly:
 
-- **`atr_window`** conta poco al confronto (5,2 punti su Close ATR): sposta il rumore della banda,
-  non la sua larghezza relativa.
-- **`num_cond`** in "Close Buy/Sell Limits" e' la differenza fra "RSI **o** banda" (1) e "RSI **e**
-  banda" (2): mediana −96,2% contro −69,1%, in utile 0,6% contro 23,8%. Due condizioni riducono le
-  operazioni da 279 a 53 l'anno. Di nuovo la frequenza.
-- **`rsi_sell_limit`** e' monotono: 60 → mediana −94,1%, 85 → −68,0%, con la quota in utile che
-  passa dallo 0,7% al 35,1%. Uscire tardi e' sistematicamente meglio che uscire presto — su un
-  mercato che ha fatto +7.947%, dove ogni uscita e' una scommessa contro il trend.
-- **`stop_loss`** non aiuta mai: su ATR Bands, mediana −86,5% con stop al 5% contro −50,5% senza.
-  Lo stop chiude in perdita posizioni che sarebbero tornate, e su Close Buy/Sell Limits **non ha
-  alcun effetto**, perche' il codice che lo applicherebbe e' commentato (§7).
-- **le terne EMA** sono il parametro decisivo di "Close EMA Crossover": 50/100/200 rende +2.834%,
-  10/50/200 +1.441%, 8/13/21 **−100%**. Sette valori, quattro dei quali perdono tutto: non e' un
-  parametro da lasciare a un default.
+- **`atr_window`** matters little by comparison (5.2 points on Close ATR): it moves the band's noise,
+  not its relative width.
+- **`num_cond`** in "Close Buy/Sell Limits" is the difference between "RSI **or** band" (1) and "RSI
+  **and** band" (2): median −96.2% against −69.1%, profitable 0.6% against 23.8%. Two conditions cut
+  trades from 279 to 53 a year. Frequency again.
+- **`rsi_sell_limit`** is monotone: 60 → median −94.1%, 85 → −68.0%, with the profitable share going
+  from 0.7% to 35.1%. Exiting late is systematically better than exiting early — on a market that did
+  +7,947%, where every exit is a bet against the trend.
+- **`stop_loss`** never helps: on ATR Bands, median −86.5% with a 5% stop against −50.5% without. The
+  stop closes at a loss positions that would have come back, and on Close Buy/Sell Limits it has **no
+  effect at all**, because the code that would apply it is commented out (§7).
+- **the EMA triples** are the decisive parameter of "Close EMA Crossover": 50/100/200 returns
+  +2,834%, 10/50/200 +1,441%, 8/13/21 **−100%**. Seven values, four of which lose everything: not a
+  parameter to leave to a default.
 
-## 5. Fuori campione: qui cade tutto
+## 5. Out of sample: this is where it all falls apart
 
-Le sezioni precedenti guardano il periodo intero, cioe' scelgono i parametri sapendo gia' come e'
-andata. La verifica onesta e' scegliere sui primi anni e misurare sui successivi.
+The previous sections look at the whole period, i.e. they choose the parameters already knowing how it
+went. The honest verification is to choose on the early years and measure on the later ones.
 
-**Scelta su 2017-2021, resa su 2022-2026** (possesso passivo nello stesso periodo: **+67,0%**):
+**Chosen on 2017-2021, returned on 2022-2026** (passive holding over the same period: **+67.0%**):
 
-| griglia | resa in stima | resa in verifica | mediana delle prime 10 in stima | prime 10 in utile | migliore possibile in verifica | ρ Spearman stima/verifica |
+| grid | in-sample return | out-of-sample return | median of the in-sample top 10 | top 10 profitable | best possible out of sample | Spearman ρ in/out |
 |---|---:|---:|---:|---:|---:|---:|
-| Close Buy/Sell Limits | +4.462% | **+192,2%** | −6,3% | 40% | +197,4% | 0,47 |
-| Close ATR | +4.257% | **+103,8%** | −48,1% | 20% | +107,1% | 0,78 |
-| ATR Bands | +10.327% | **−86,2%** | +6,6% | 50% | +169,6% | 0,65 |
-| Close Bullish EMA | +2.775% | −8,7% | +20,4% | 70% | +67,1% | 0,49 |
-| Supertrend | +662% | −49,8% | −50,8% | 10% | +58,2% | 0,23 |
-| TP/SL with ATR | +334% | −68,0% | −73,2% | 0% | +34,4% | 0,90 |
-| Close EMA Crossover | +6.032% | −74,9% | −83,0% | 14% | +0,9% | 0,86 |
+| Close Buy/Sell Limits | +4,462% | **+192.2%** | −6.3% | 40% | +197.4% | 0.47 |
+| Close ATR | +4,257% | **+103.8%** | −48.1% | 20% | +107.1% | 0.78 |
+| ATR Bands | +10,327% | **−86.2%** | +6.6% | 50% | +169.6% | 0.65 |
+| Close Bullish EMA | +2,775% | −8.7% | +20.4% | 70% | +67.1% | 0.49 |
+| Supertrend | +662% | −49.8% | −50.8% | 10% | +58.2% | 0.23 |
+| TP/SL with ATR | +334% | −68.0% | −73.2% | 0% | +34.4% | 0.90 |
+| Close EMA Crossover | +6,032% | −74.9% | −83.0% | 14% | +0.9% | 0.86 |
 
-Due configurazioni su sette trasferiscono, e battono anche il possesso passivo. **Ma la colonna
-che conta e' la quinta**: la mediana delle prime dieci in stima e' negativa in cinque casi su
-sette. La prima classificata di "Close Buy/Sell Limits" rende +192% in verifica mentre le sue nove
-vicine di classifica fanno mediana −6,3%: non e' una regione di parametri che funziona, e' una
-riga fortunata. Su "ATR Bands", la migliore in stima — quella da +10.327%, la piu' redditizia di
-tutto lo studio sul periodo intero — perde **l'86%** in verifica.
+Two configurations out of seven transfer, and they also beat passive holding. **But the column that
+matters is the fifth**: the median of the in-sample top ten is negative in five cases out of seven.
+The top-ranked "Close Buy/Sell Limits" returns +192% in verification while its nine ranking neighbours
+have a median of −6.3%: it is not a parameter region that works, it is a lucky row. On "ATR Bands",
+the best in sample — the +10,327% one, the most profitable of the whole study over the full period —
+loses **86%** in verification.
 
-**Walk-forward.** Piu' realistico ancora: a fine di ogni anno si riottimizza sui soli anni gia'
-visti e si tiene quella configurazione per l'anno seguente.
+**Walk-forward.** More realistic still: at the end of every year one re-optimises on the years seen so
+far and keeps that configuration for the following year.
 
-| griglia | 2019-2026 | anni in utile | anno peggiore | cambi di configurazione |
+| grid | 2019-2026 | profitable years | worst year | configuration changes |
 |---|---:|---:|---:|---:|
-| ATR Bands | +1.111% | 75% | −33,7% | 3 |
-| Close ATR | **+914%** | 87,5% | −5,6% | 2 |
-| Close Buy/Sell Limits | +366% | 50% | −50,2% | 3 |
-| Close Bullish EMA | +354% | 62,5% | −65,4% | 4 |
-| Close EMA Crossover | +126% | 75% | −66,0% | 2 |
-| Supertrend | −43,9% | 50% | −37,1% | 2 |
-| TP/SL with ATR | −76,1% | 37,5% | −55,1% | 3 |
-| Trend Zones | −99,9% | 0% | −85,8% | 1 |
-| Green Candles | −100% | 0% | −97,4% | 1 |
+| ATR Bands | +1,111% | 75% | −33.7% | 3 |
+| Close ATR | **+914%** | 87.5% | −5.6% | 2 |
+| Close Buy/Sell Limits | +366% | 50% | −50.2% | 3 |
+| Close Bullish EMA | +354% | 62.5% | −65.4% | 4 |
+| Close EMA Crossover | +126% | 75% | −66.0% | 2 |
+| Supertrend | −43.9% | 50% | −37.1% | 2 |
+| TP/SL with ATR | −76.1% | 37.5% | −55.1% | 3 |
+| Trend Zones | −99.9% | 0% | −85.8% | 1 |
+| Green Candles | −100% | 0% | −97.4% | 1 |
 
-Nessuna arriva al **+1.970%** del possesso passivo sullo stesso arco. Close ATR ci si avvicina di
-piu' con molta meno sofferenza: 87,5% di anni positivi, anno peggiore −5,6%, contro un possesso
-passivo che nel 2022 ha perso il 64,3% e ha attraversato un drawdown del 77,3%. Su base
-rischio-rendimento e' l'unico risultato di questo studio che meriti un secondo sguardo — con
-l'avvertenza che sono comunque 4-9 operazioni l'anno decise da due parametri riottimizzati due
-volte in otto anni, cioe' un campione minuscolo.
+None reaches passive holding's **+1,970%** over the same span. Close ATR comes closest with much less
+suffering: 87.5% positive years, worst year −5.6%, against a passive holding that lost 64.3% in 2022
+and went through a 77.3% drawdown. On a risk-return basis it is the only result in this study that
+deserves a second look — with the caveat that it is still 4-9 trades a year decided by two parameters
+re-optimised twice in eight years, i.e. a tiny sample.
 
-## 6. Commissioni: dove sta davvero il margine
+## 6. Commissions: where the margin really is
 
-Le stesse configurazioni, rieseguite variando solo la commissione (`reports/commissioni.csv`):
+The same configurations, rerun varying only the commission (`reports/commissioni.csv`):
 
-| griglia (config. migliore) | oper./anno | 0% | 0,04% | 0,075% | 0,1% | 0,2% |
+| grid (best config) | trades/year | 0% | 0.04% | 0.075% | 0.1% | 0.2% |
 |---|---:|---:|---:|---:|---:|---:|
-| ATR Bands | 141 | +307.578% | +103.283% | +39.697% | +20.020% | +1.212% |
-| Trend Zones | 681 | **+10.672%** | −43,7% | −99,4% | **−100%** | −100% |
-| Close EMA Crossover | 51 | +7.737% | +5.191% | +3.651% | +2.834% | +997% |
-| Close Buy/Sell Limits | 3,9 | +14.283% | +13.853% | +13.486% | +13.230% | +12.253% |
-| Close ATR | 5,9 | +9.850% | +9.407% | +9.035% | +8.778% | +7.820% |
-| Close Bullish EMA | 13,9 | +4.466% | +4.002% | +3.635% | +3.392% | +2.570% |
+| ATR Bands | 141 | +307,578% | +103,283% | +39,697% | +20,020% | +1,212% |
+| Trend Zones | 681 | **+10,672%** | −43.7% | −99.4% | **−100%** | −100% |
+| Close EMA Crossover | 51 | +7,737% | +5,191% | +3,651% | +2,834% | +997% |
+| Close Buy/Sell Limits | 3.9 | +14,283% | +13,853% | +13,486% | +13,230% | +12,253% |
+| Close ATR | 5.9 | +9,850% | +9,407% | +9,035% | +8,778% | +7,820% |
+| Close Bullish EMA | 13.9 | +4,466% | +4,002% | +3,635% | +3,392% | +2,570% |
 | Supertrend | 28 | +681% | +529% | +420% | +354% | +164% |
 | TP/SL with ATR | 29 | +284% | +207% | +153% | +120% | +26% |
-| Green Candles | 1.459 | −10,1% | −100% | −100% | −100% | −100% |
-| Close RSI Reverse | 4.075 | −76,2% | −100% | −100% | −100% | −100% |
+| Green Candles | 1,459 | −10.1% | −100% | −100% | −100% | −100% |
+| Close RSI Reverse | 4,075 | −76.2% | −100% | −100% | −100% | −100% |
 
-Tre gruppi distinti:
+Three distinct groups:
 
-1. **Chi ha un margine lordo e lo perde tutto in commissioni**: "Trend Zones" guadagna il
-   10.672% a costo zero e perde il 100% a 0,04%. "ATR Bands" divide per 250 il proprio risultato
-   passando da 0% a 0,2%. Sono strategie il cui segnale contiene qualcosa, ma non abbastanza da
-   pagare l'esecuzione.
-2. **Chi non ha margine nemmeno lordo**: "Green Candles" (−10% a commissioni zero) e "Close RSI
-   Reverse" (−76%) perdono anche in un mondo senza costi. Nessuna taratura le salva.
-3. **Chi e' insensibile perche' opera poco**: Close ATR e Close Buy/Sell Limits nelle loro
-   configurazioni migliori cambiano meno del 20% fra commissione nulla e 0,2%. E' l'altra faccia
-   della §3.
+1. **Those with a gross margin that is entirely lost to commissions**: "Trend Zones" makes 10,672% at
+   zero cost and loses 100% at 0.04%. "ATR Bands" divides its result by 250 going from 0% to 0.2%.
+   These are strategies whose signal contains something, but not enough to pay for execution.
+2. **Those with no margin even gross**: "Green Candles" (−10% at zero commission) and "Close RSI
+   Reverse" (−76%) lose even in a world without costs. No tuning saves them.
+3. **Those insensitive because they trade little**: Close ATR and Close Buy/Sell Limits in their best
+   configurations change by less than 20% between zero commission and 0.2%. It is the other face of
+   §3.
 
-## 7. Cambiare intervallo: la stessa regola, un altro mestiere
+## 7. Changing the interval: the same rule, a different job
 
-Le configurazioni migliori a 15 minuti, rieseguite **senza ritoccare nulla** sugli altri intervalli
-del menu (`reports/intervalli.csv`):
+The best configurations at 15 minutes, rerun **without touching anything** on the menu's other
+intervals (`reports/intervalli.csv`):
 
-| griglia | 5m | 15m | 30m | 1h | 4h | 1d |
+| grid | 5m | 15m | 30m | 1h | 4h | 1d |
 |---|---:|---:|---:|---:|---:|---:|
-| ATR Bands | +5.629% | **+20.020%** | +9.143% | +977% | +1.938% | +248% |
-| Close ATR | +286% | **+8.778%** | +1.124% | +125% | +34% | 0% |
-| Close Buy/Sell Limits | +5.251% | **+13.230%** | +843% | +2.278% | 0% | +1.494% |
-| Close EMA Crossover | +461% | +2.834% | +3.986% | +2.855% | **+6.740%** | +628% |
-| Close Bullish EMA | +4.028% | +3.392% | +2.838% | +3.384% | +3.646% | **+4.142%** |
-| Supertrend | −88% | +354% | +344% | +1.624% | **+2.073%** | +175% |
+| ATR Bands | +5,629% | **+20,020%** | +9,143% | +977% | +1,938% | +248% |
+| Close ATR | +286% | **+8,778%** | +1,124% | +125% | +34% | 0% |
+| Close Buy/Sell Limits | +5,251% | **+13,230%** | +843% | +2,278% | 0% | +1,494% |
+| Close EMA Crossover | +461% | +2,834% | +3,986% | +2,855% | **+6,740%** | +628% |
+| Close Bullish EMA | +4,028% | +3,392% | +2,838% | +3,384% | +3,646% | **+4,142%** |
+| Supertrend | −88% | +354% | +344% | +1,624% | **+2,073%** | +175% |
 | TP/SL with ATR | −96% | **+120%** | +44% | +79% | −18% | 0% |
-| Trend Zones | −100% | −100% | −42% | +810% | **+9.378%** | +4.123% |
-| Green Candles | −100% | −100% | −100% | −100% | −55% | **+1.765%** |
-| Close RSI Reverse | −100% | −100% | −100% | −100% | −42% | **+3.284%** |
+| Trend Zones | −100% | −100% | −42% | +810% | **+9,378%** | +4,123% |
+| Green Candles | −100% | −100% | −100% | −100% | −55% | **+1,765%** |
+| Close RSI Reverse | −100% | −100% | −100% | −100% | −42% | **+3,284%** |
 
-Due letture opposte, stessa causa.
+Two opposite readings, one cause.
 
-**Chi era stato scelto a 15 minuti perde quasi tutto altrove.** Close ATR passa da +8.778% a
-+125% a un'ora e a zero sul giorno; Close Buy/Sell Limits da +13.230% a zero sulle 4 ore. Un
-parametro scelto su un timeframe non e' un parametro: e' un parametro **e** un timeframe.
+**What was chosen at 15 minutes loses almost everything elsewhere.** Close ATR goes from +8,778% to
++125% at one hour and to zero on the day; Close Buy/Sell Limits from +13,230% to zero on 4 hours. A
+parameter chosen on a timeframe is not a parameter: it is a parameter **and** a timeframe.
 
-**Chi perdeva tutto a 15 minuti diventa il migliore sul giorno.** "Green Candles" — comprare dopo
-una candela verde che supera il massimo precedente — vale −100% a 15 minuti e **+1.765%** sul
-giorno. "Close RSI Reverse" va da −100% a **+3.284%**. "Trend Zones" da −100% a **+9.378%** sulle
-4 ore, cioe' **piu' del possesso passivo**. La regola non e' cambiata: sono cambiate le operazioni
-all'anno, da 1.459 a 15, da 4.159 a 36, da 681 a 32. E' la §3 vista da un'altra angolazione, ed e'
-la conferma piu' netta che il problema di queste strategie non e' il segnale ma la sua frequenza.
+**What lost everything at 15 minutes becomes the best on the day.** "Green Candles" — buying after a
+green candle that exceeds the previous high — is worth −100% at 15 minutes and **+1,765%** on the day.
+"Close RSI Reverse" goes from −100% to **+3,284%**. "Trend Zones" from −100% to **+9,378%** on 4
+hours, i.e. **more than passive holding**. The rule did not change: the trades per year did, from
+1,459 to 15, from 4,159 to 36, from 681 to 32. It is §3 seen from another angle, and it is the
+clearest confirmation that the problem with these strategies is not the signal but its frequency.
 
-Il migliore assoluto di ogni intervallo, fra le configurazioni riesaminate:
+The absolute best of each interval, among the configurations re-examined:
 
-| intervallo | strategia | operazioni/anno | rendimento | Sharpe | drawdown |
+| interval | strategy | trades/year | return | Sharpe | drawdown |
 |---|---|---:|---:|---:|---:|
-| 5m | ATR Bands | 506 | +5.629% | 1,1 | 90,9% |
-| 15m | ATR Bands | 141 | +20.020% | 1,4 | 63,7% |
-| 30m | ATR Bands | 65 | +9.143% | 1,2 | 77,2% |
-| 1h | Close EMA Crossover | 27 | +7.186% | 1,2 | 60,4% |
-| 4h | Close EMA Crossover | 6,8 | +11.524% | 1,2 | 63,7% |
-| 1d | Trend Zones | 6,7 | +8.303% | 1,2 | 75,2% |
+| 5m | ATR Bands | 506 | +5,629% | 1.1 | 90.9% |
+| 15m | ATR Bands | 141 | +20,020% | 1.4 | 63.7% |
+| 30m | ATR Bands | 65 | +9,143% | 1.2 | 77.2% |
+| 1h | Close EMA Crossover | 27 | +7,186% | 1.2 | 60.4% |
+| 4h | Close EMA Crossover | 6.8 | +11,524% | 1.2 | 63.7% |
+| 1d | Trend Zones | 6.7 | +8,303% | 1.2 | 75.2% |
 
-Sei intervalli, sei vincitori diversi, tutti con Sharpe fra 1,1 e 1,4 e drawdown fra il 60% e il
-91%: nessuno dei sei e' distinguibile dagli altri, e nessuno lo e' davvero dal possesso passivo
-(+7.947%, drawdown 84%). "ATR Live Trade" non compare in questa tabella: simula trenta sotto-passi
-per candela e sulle barre a 5 minuti costerebbe da solo piu' di venti ore.
+Six intervals, six different winners, all with a Sharpe between 1.1 and 1.4 and drawdowns between 60%
+and 91%: none of the six is distinguishable from the others, and none is really distinguishable from
+passive holding (+7,947%, 84% drawdown). "ATR Live Trade" does not appear in this table: it simulates
+thirty sub-steps per candle and on 5-minute bars it alone would cost more than twenty hours.
 
-## 8. Difetti trovati nel codice, misurando
+## 8. Defects found in the code, by measuring
 
-> **Aggiornamento**: tutti e quattro sono stati corretti nella sessione successiva; l'effetto
-> misurato di ogni correzione sta in [`strategie-nuove.md`](strategie-nuove.md) §1. Le misure di
-> questo documento restano quelle del codice **prima** delle correzioni.
+> **Update**: all four were fixed in the following session; the measured effect of each correction is
+> in [`strategie-nuove.md`](strategie-nuove.md) §1. The measurements in this document remain those of
+> the code **before** the corrections.
 
-1. **La voce di menu `"Supetrend"` non esegue niente.** `config.STRATEGIES` scrive `"Supetrend"`,
-   il dispatch di `trading_analysis` confronta con `"Supertrend"`. Selezionandola non si producono
-   segnali e la pagina mostra un backtest vuoto. La funzione esiste e funziona: nella griglia rende
-   fino a +354%, con la mediana meno negativa di tutte (−12,8%).
-2. **`"ATR Bands"` non e' nel menu**, ma e' la strategia con il risultato migliore dello studio
-   (+20.020% nella configurazione ottima, +1.331% gia' con i parametri di partenza). Come
-   `"Close RSI Reverse"`, ha un ramo nel dispatch e nessuna voce che lo raggiunga.
-3. **Lo stop loss di "Close Buy/Sell Limits" non esiste.** `buy_sell_limits_close_simulation`
-   accetta `stop_loss_percent` e ha le tre righe che lo userebbero commentate: il widget "Stop
-   Loss %" per quella strategia e' inerte. Per Close ATR e ATR Bands invece funziona, e peggiora
-   sistematicamente il risultato.
-4. **"Trend Zones" confronta una media con se stessa.** La condizione e' `EMA20 > EMA200`, ma
-   `add_technical_indicator` costruisce `EMA200` come EMA **dell'apertura** con la **stessa
-   finestra** di `EMA20` (`ema_window`, default 10), non a 200 periodi. Le due serie differiscono
-   solo per apertura contro chiusura, quindi si incrociano di continuo: 2.080 operazioni l'anno
-   con `ema_window=10`, e −100% in tutte e sei le configurazioni. A commissioni zero la stessa
-   strategia renderebbe +10.672% (§6): il segnale c'e', e' la frequenza che lo divora.
-5. **Le strategie che entrano sul prezzo di banda assumono un'esecuzione ideale.**
-   `atr_buy_sell_simulation` compra a `Lower_Band` quando il minimo della candela la tocca, e
-   `tp_sl_simulation`/`supertrend_simulation` fanno lo stesso con i loro livelli. E' un ordine
-   limite riempito esattamente al prezzo, senza slippage ne' code. Il trade medio della migliore
-   ATR Bands vale **+0,46%**: uno slippage di pochi punti base per gamba lo cancella. Le strategie
-   `close_*`, che usano la chiusura, non hanno questo problema.
-6. **L'ultima posizione aperta non entra nel conto.** `simulate_trading_with_commisions` accoppia
-   i segnali per indice: se alla fine del periodo si e' dentro, quell'operazione non e' registrata.
-   Lo sweep eredita il comportamento della pagina; e' un motivo in piu' per diffidare delle
-   configurazioni con pochissime operazioni.
+1. **The `"Supetrend"` menu entry runs nothing.** `config.STRATEGIES` writes `"Supetrend"`,
+   `trading_analysis`'s dispatch compares against `"Supertrend"`. Selecting it produces no signals and
+   the page shows an empty backtest. The function exists and works: in the grid it returns up to
+   +354%, with the least negative median of all (−12.8%).
+2. **`"ATR Bands"` is not in the menu**, yet it is the strategy with the best result in the study
+   (+20,020% in the optimal configuration, +1,331% already with the starting parameters). Like
+   `"Close RSI Reverse"`, it has a dispatch branch and no entry that reaches it.
+3. **The "Close Buy/Sell Limits" stop loss does not exist.** `buy_sell_limits_close_simulation`
+   accepts `stop_loss_percent` and has the three lines that would use it commented out: the "Stop
+   Loss %" widget is inert for that strategy. For Close ATR and ATR Bands it does work, and it
+   systematically makes the result worse.
+4. **"Trend Zones" compares a moving average with itself.** The condition is `EMA20 > EMA200`, but
+   `add_technical_indicator` builds `EMA200` as the EMA **of the open** over the **same window** as
+   `EMA20` (`ema_window`, default 10), not over 200 periods. The two series differ only by open
+   against close, so they cross continuously: 2,080 trades a year with `ema_window=10`, and −100% in
+   all six configurations. At zero commission the same strategy would return +10,672% (§6): the signal
+   is there, it is the frequency that devours it.
+5. **The strategies that enter at the band price assume ideal execution.**
+   `atr_buy_sell_simulation` buys at `Lower_Band` when the candle's low touches it, and
+   `tp_sl_simulation`/`supertrend_simulation` do the same with their levels. That is a limit order
+   filled exactly at the price, with no slippage and no queue. The average trade of the best ATR Bands
+   is worth **+0.46%**: a few basis points of slippage per leg cancel it. The `close_*` strategies,
+   which use the close, do not have this problem.
+6. **The last open position is not counted.** `simulate_trading_with_commisions` pairs signals by
+   index: if you are in the market at the end of the period, that trade is not recorded. The sweep
+   inherits the page's behaviour; it is one more reason to distrust configurations with very few
+   trades.
 
-## 9. Controllo su un secondo mercato
+## 9. Control on a second market
 
-Tutto quanto sopra e' misurato su BTC. Per sapere quanto ne dipende, le stesse dieci griglie
-(3.111 configurazioni) sono state rieseguite su **ETH/USD di Bitfinex, 2017-2019** — altro asset,
-altro exchange, altro periodo, altro regime: il possesso passivo fa +1.482% con un drawdown del
-94,1%, e il 2017 da solo vale +8.902%. Lo store si costruisce con
-`python -m scripts.import_candles --format bitfinex --symbol ETHUSD`; le tabelle sono i file
-`*_ETHUSD.csv` in `reports/`.
+Everything above is measured on BTC. To know how much depends on that, the same ten grids (3,111
+configurations) were rerun on **Bitfinex's ETH/USD, 2017-2019** — different asset, different exchange,
+different period, different regime: passive holding does +1,482% with a 94.1% drawdown, and 2017 alone
+is worth +8,902%. The store is built with
+`python -m scripts.import_candles --format bitfinex --symbol ETHUSD`; the tables are the
+`*_ETHUSD.csv` files in `reports/`.
 
-Il risultato principale si riproduce:
+The main result reproduces:
 
-| operazioni/anno | BTC 2017-2026: mediana / in utile | ETH 2017-2019: mediana / in utile |
+| trades/year | BTC 2017-2026: median / profitable | ETH 2017-2019: median / profitable |
 |---|---:|---:|
-| < 10 | −2,5% / 39,9% | −1,0% / **50,0%** |
-| 10 – 30 | +19,5% / 53,6% | −14,2% / 36,8% |
-| 30 – 100 | −64,9% / 22,5% | −25,3% / 38,2% |
-| 100 – 300 | −90,5% / 4,2% | −66,0% / 19,0% |
-| 300 – 1.000 | −99,6% / 1,6% | −88,6% / 3,0% |
-| > 1.000 | −100% / 0% | −100% / 0% |
+| < 10 | −2.5% / 39.9% | −1.0% / **50.0%** |
+| 10 – 30 | +19.5% / 53.6% | −14.2% / 36.8% |
+| 30 – 100 | −64.9% / 22.5% | −25.3% / 38.2% |
+| 100 – 300 | −90.5% / 4.2% | −66.0% / 19.0% |
+| 300 – 1,000 | −99.6% / 1.6% | −88.6% / 3.0% |
+| > 1,000 | −100% / 0% | −100% / 0% |
 
-Anche il resto tiene, con gli stessi segni:
+The rest holds too, with the same signs:
 
-- **`atr_multiplier`**: sotto 2,0 la mediana e' fra −30% e −99% su ogni griglia; il migliore e' di
-  nuovo 2,5-3,0 (Supertrend +273%, TP/SL +127%, ATR Bands +54%). Il default 1,6 resta nella parte
-  perdente.
-- **`num_cond=2`** batte `num_cond=1` (mediana −61,5% contro −82,8%, in utile 19,4% contro 1,3%), e
-  **`rsi_sell_limit`** e' di nuovo monotono: da 60 a 85 la mediana di Close Buy/Sell Limits passa
-  da −84,6% a −51,5%, quella di Close Bullish EMA da −14,3% a +291%.
-- **Le stesse tre strategie perdono tutto**: Trend Zones, Green Candles, Close RSI Reverse, con le
-  stesse frequenze a quattro cifre.
+- **`atr_multiplier`**: below 2.0 the median is between −30% and −99% on every grid; the best is again
+  2.5-3.0 (Supertrend +273%, TP/SL +127%, ATR Bands +54%). The 1.6 default stays in the losing part.
+- **`num_cond=2`** beats `num_cond=1` (median −61.5% against −82.8%, profitable 19.4% against 1.3%),
+  and **`rsi_sell_limit`** is again monotone: from 60 to 85 the Close Buy/Sell Limits median goes from
+  −84.6% to −51.5%, the Close Bullish EMA one from −14.3% to +291%.
+- **The same three strategies lose everything**: Trend Zones, Green Candles, Close RSI Reverse, with
+  the same four-digit frequencies.
 
-Le differenze sono di livello, non di direzione: su ETH la quota in utile e' piu' alta (21,6%
-contro 14,9%) e diciotto configurazioni battono il possesso passivo invece di cinque, il che si
-spiega col periodo — tre anni con un 2018 a −81% premiano chi sta fuori dal mercato molto piu' di
-nove anni con un +7.947%. La classifica delle strategie cambia (qui vince Close EMA Crossover con
-+4.992%), ed e' un'altra prova che **la scelta della strategia migliore non trasferisce**: quello
-che trasferisce e' la relazione con la frequenza operativa.
+The differences are of level, not of direction: on ETH the profitable share is higher (21.6% against
+14.9%) and eighteen configurations beat passive holding instead of five, which is explained by the
+period — three years including a −81% 2018 reward staying out of the market far more than nine years
+with a +7,947% do. The strategy ranking changes (here Close EMA Crossover wins with +4,992%), which is
+further evidence that **choosing the best strategy does not transfer**: what transfers is the
+relationship with trading frequency.
 
-## 10. Limiti di questa misura
+## 10. Limitations of this measurement
 
-- **Due mercati, non quindici.** BTC/USD sul periodo intero, ETH/USD come controllo su tre anni
-  (§9). La relazione con la frequenza e la direzione dei parametri si riproducono su entrambi; la
-  classifica delle strategie e i valori ottimi no.
-- **Un solo verso.** Tutte le strategie sono long-only su un asset che nel periodo ha fatto
-  +7.947%: stare fuori dal mercato costa, e il confronto e' severo per costruzione.
-- **Niente slippage, niente book.** Le commissioni ci sono, il resto no (§7.5).
-- **I wick estremi sono compressi** da `clip_wicks` in lettura, come per tutto il resto del
-  progetto.
-- **Il campione delle configurazioni migliori e' piccolo.** Le due che passano la verifica fuori
-  campione fanno 4-6 operazioni l'anno: 38 e 57 operazioni in totale. Con numeri cosi', la
-  differenza fra "strategia" e "fortuna" non e' misurabile con i dati disponibili.
+- **Two markets, not fifteen.** BTC/USD over the whole period, ETH/USD as a control over three years
+  (§9). The relationship with frequency and the direction of the parameters reproduce on both; the
+  strategy ranking and the optimal values do not.
+- **One direction only.** All the strategies are long-only on an asset that did +7,947% over the
+  period: staying out of the market costs, and the comparison is severe by construction.
+- **No slippage, no book.** The commissions are there, the rest is not (§7.5).
+- **Extreme wicks are compressed** by `clip_wicks` on read, as everywhere else in the project.
+- **The sample of best configurations is small.** The two that pass out-of-sample verification make
+  4-6 trades a year: 38 and 57 trades in total. With numbers like that, the difference between
+  "strategy" and "luck" is not measurable with the data available.
 
-## 11. Come riprodurre
+## 11. How to reproduce
 
 ```bash
-git clone https://github.com/ff137/bitstamp-btcusd-minute-data /percorso/dati
-.venv312/bin/python -m scripts.import_candles --source /percorso/dati
-.venv312/bin/python -m scripts.strategy_sweep --all --interval 15m --workers 4   # ~45 minuti
-.venv312/bin/python -m scripts.sweep_report --interval 15m                       # tabelle in reports/
-.venv312/bin/python -m scripts.strategy_focus --top 3                            # commissioni e intervalli
+git clone https://github.com/ff137/bitstamp-btcusd-minute-data /path/to/data
+.venv312/bin/python -m scripts.import_candles --source /path/to/data
+.venv312/bin/python -m scripts.strategy_sweep --all --interval 15m --workers 4   # ~45 minutes
+.venv312/bin/python -m scripts.sweep_report --interval 15m                       # tables in reports/
+.venv312/bin/python -m scripts.strategy_focus --top 3                            # commissions and intervals
 
-# il controllo su un secondo mercato (§9)
-git clone https://github.com/Zombie-3000/Bitfinex-historical-data /percorso/bitfinex
+# the control on a second market (§9)
+git clone https://github.com/Zombie-3000/Bitfinex-historical-data /path/to/bitfinex
 .venv312/bin/python -m scripts.import_candles --format bitfinex --symbol ETHUSD \
-    --source /percorso/bitfinex/ETHUSD/Candles_1m
+    --source /path/to/bitfinex/ETHUSD/Candles_1m
 .venv312/bin/python -m scripts.strategy_sweep --symbol ETHUSD --interval 15m --since 2017-01-01 --all
 .venv312/bin/python -m scripts.sweep_report --interval 15m --symbol ETHUSD
 ```
 
-Con lo store Binance gia' popolato (`python -m cryptofarm.data.klines --update`) basta cambiare
-`SYMBOL` in `scripts/strategy_sweep.py` per rifare tutto su BTCUSDT.
+With the Binance store already populated (`python -m cryptofarm.data.klines --update`) it is enough to
+change `SYMBOL` in `scripts/strategy_sweep.py` to redo everything on BTCUSDT.

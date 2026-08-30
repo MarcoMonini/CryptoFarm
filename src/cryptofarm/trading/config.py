@@ -93,10 +93,16 @@ PIVOT_WINDOW = Param(100, 2, 500, 2)
 # strategia -- l'etichetta guarda avanti fino all'estremo successivo e non e' operabile -- ma il
 # modo di guardare cosa il modello sta imparando.
 SWING_TARGET_WINDOW = Param(50, 4, 2000, 2)
-# Quanto del percorso fra due estremi lo dice il tempo e quanto il prezzo. A 0 e' solo prezzo, ed e'
-# il difetto della versione a rango: l'etichetta insegue. A 1 e' solo tempo, e ignora che il prezzo
-# possa tornare sui suoi passi.
-SWING_TARGET_TEMPO = Param(0.5, 0.0, 1.0, 0.1)
+# Lo smoothing temporale: quanto del percorso fra due estremi lo dice il tempo e quanto il prezzo.
+# A 0 e' solo prezzo, ed e' il difetto della versione a rango: l'etichetta insegue. A 1 e' solo
+# tempo, e ignora che il prezzo possa tornare sui suoi passi.
+#
+# Il valore di partenza deve restare uguale a `ml.labeling.TIME_WEIGHT`, la costante con cui
+# `swing_trainer` etichetta: un modello addestrato a 0,7 e un grafico disegnato a 0,5 mostrano due
+# curve diverse chiamandole entrambe «l'etichetta», ed e' gia' successo. Qui e' ricopiato invece di
+# importato perche' questo modulo non dipende da nulla di proposito; a tenerli agganciati c'e'
+# `tests/test_swing_target.py::test_la_pagina_parte_dallo_smoothing_con_cui_si_addestra`.
+SWING_TARGET_TEMPO = Param(0.7, 0.0, 1.0, 0.1)
 
 # Le strategie nuove (`strategies_ls.py`), sempre solo lunghe nella pagina.
 # I default sono quelli con cui sono state misurate in `.claude/docs/strategie-nuove.md`: dove due

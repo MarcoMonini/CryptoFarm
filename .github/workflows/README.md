@@ -1,27 +1,27 @@
 # `.github/workflows/`
 
-Un workflow solo: **`ci.yml`**, su ogni pull request e su ogni push a `main`. Due job.
+A single workflow: **`ci.yml`**, on every pull request and every push to `main`. Two jobs.
 
-## `quality` — lint, format e test
+## `quality` — lint, format and tests
 
-Installa `.[app,data,dev]` su Python 3.12 e passa `ruff check`, `black --check` e `pytest` su
-`src`, `tests` e `scripts`.
+Installs `.[app,data,dev]` on Python 3.12 and passes `ruff check`, `black --check` and `pytest` over
+`src`, `tests` and `scripts`.
 
-## `docker` — build delle immagini
+## `docker` — building the images
 
-Costruisce `runtime`, `dev` e `web`, e verifica **quattro cose che dal sorgente non si vedono**:
+Builds `runtime`, `dev` and `web`, and verifies **four things that are not visible from the source**:
 
-1. che il pacchetto si importi dentro l'immagine e risolva le directory dei dati a `/app/...`
-   (cioè che l'override di `paths.py` funzioni, altrimenti i modelli addestrati in container
-   finiscono in un layer usa e getta);
-2. che i test passino dentro l'immagine, non solo sulla macchina della CI;
-3. che la build **senza `--target`** non porti TensorFlow — cioè che `web` sia ancora l'ultimo
-   stage del `Dockerfile`, che è come Render lo costruisce;
-4. che il container si leghi davvero a `$PORT`: lo avvia con `PORT=10000` e interroga
+1. that the package imports inside the image and resolves the data directories to `/app/...` (i.e.
+   that the `paths.py` override works, otherwise models trained in a container end up in a
+   throwaway layer);
+2. that the tests pass inside the image, not only on the CI machine;
+3. that a build **without `--target`** does not carry TensorFlow — i.e. that `web` is still the last
+   stage of the `Dockerfile`, which is how Render builds it;
+4. that the container really binds to `$PORT`: it starts it with `PORT=10000` and queries
    `/_stcore/health`.
 
-## Cosa non fa
+## What it does not do
 
-**Non pubblica nessuna immagine su un registry.** Render costruisce il `Dockerfile` da sé a ogni
-push su `main`; queste build servono a scoprire una rottura prima che ci arrivi, non a produrre
-l'artefatto che va in produzione.
+**It publishes no image to a registry.** Render builds the `Dockerfile` itself on every push to
+`main`; these builds exist to catch a breakage before it gets there, not to produce the artifact
+that goes into production.

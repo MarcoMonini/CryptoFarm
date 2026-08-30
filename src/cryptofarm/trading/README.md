@@ -1,133 +1,137 @@
-# `trading/` — la pagina, le strategie, il conto
+# `trading/` — the page, the strategies, the accounting
 
-Tutto ciò che va da candele a operazioni, più la pagina Streamlit che lo mostra e il bot che
-piazza ordini veri. Le dipendenze formano un DAG e **non c'è una facciata di ri-esportazione**:
-chi serve una strategia la importa dal modulo che la contiene.
+Everything that goes from candles to trades, plus the Streamlit page that shows it and the bot that
+places real orders. The dependencies form a DAG and **there is no re-export facade**: whoever needs a
+strategy imports it from the module that holds it.
 
 ```
 market_data ─┐
 indicators ──┼→ strategies ────┐
-indicators_extra                ├→ simulator (la pagina)
+indicators_extra                ├→ simulator (the page)
 mtf → voters → confluence ─────┤
 strategies_ls → pnl ───────────┘
 config, panels, tuned_defaults → simulator
-                                  rotation, portfolio (le altre due domande)
+                                  rotation, portfolio (the other two questions)
 ```
 
-## I file
+## The files
 
-| file | righe | a cosa serve |
+| file | lines | what it is for |
 |---|---|---|
-| `config.py` | 255 | i valori di partenza dei widget e gli elenchi del menu. Nessuna logica |
-| `market_data.py` | 304 | scarico puntuale da Binance per la pagina (la REST pubblica, non i dump) |
-| `indicators.py` | 212 | gli indicatori classici, più il nucleo numpy ATR/EMA |
-| `indicators_extra.py` | 186 | ADX, Donchian, Bollinger/Keltner, StochRSI, OBV/MFI, Ichimoku, dietro una cache |
-| `strategies.py` | 848 | da candele con indicatori a `(buy_signals, sell_signals)` — solo lungo |
-| `strategies_ls.py` | 537 | da candele a **cambi di posizione** `(quando, prezzo, +1\|0\|-1)` — lungo, fuori, corto |
-| `pnl.py` | 277 | da segnali a operazioni: commissioni, leva, costo di mantenimento |
-| `mtf.py` | 87 | l'allineamento fra intervalli: legge la barra lunga **chiusa**, mai quella corrente |
-| `voters.py` | 155 | da cambi di posizione a voto per barra, con memoria e decadimento |
-| `confluence.py` | 1004 | la strategia a confluenza: sei votanti su quattro piani, soglia dinamica |
-| `portfolio.py` | 308 | un capitale solo su più asset: si apre sul primo che parla |
-| `rotation.py` | 215 | rotazione trasversale: sceglie *quale* asset, non *quando* |
-| `panels.py` | 1068 | il registro: quale strategia usa quali indicatori, quali parametri, come si disegnano |
-| `tuned_defaults.py` | 61 | **generato** da `scripts/tune_defaults.py`: valori di partenza misurati, per intervallo |
-| `simulator.py` | 768 | la pagina Streamlit, due viste |
-| `live_bot.py` | 472 | il bot headless che piazza ordini veri |
+| `config.py` | 255 | the widgets' starting values and the menu lists. No logic |
+| `market_data.py` | 304 | point downloads from Binance for the page (the public REST, not the dumps) |
+| `indicators.py` | 212 | the classic indicators, plus the numpy ATR/EMA core |
+| `indicators_extra.py` | 186 | ADX, Donchian, Bollinger/Keltner, StochRSI, OBV/MFI, Ichimoku, behind a cache |
+| `strategies.py` | 848 | from candles with indicators to `(buy_signals, sell_signals)` — long only |
+| `strategies_ls.py` | 537 | from candles to **position changes** `(when, price, +1\|0\|-1)` — long, flat, short |
+| `pnl.py` | 277 | from signals to trades: commissions, leverage, carry cost |
+| `mtf.py` | 87 | the alignment between intervals: it reads the **closed** long bar, never the current one |
+| `voters.py` | 155 | from position changes to a vote per bar, with memory and decay |
+| `confluence.py` | 1004 | the confluence strategy: six voters on four planes, dynamic threshold |
+| `portfolio.py` | 308 | one capital across several assets: it opens on the first that speaks |
+| `rotation.py` | 215 | cross-sectional rotation: it chooses *which* asset, not *when* |
+| `panels.py` | 1068 | the registry: which strategy uses which indicators, which parameters, how they are drawn |
+| `tuned_defaults.py` | 61 | **generated** by `scripts/tune_defaults.py`: measured starting values, per interval |
+| `simulator.py` | 768 | the Streamlit page, two views |
+| `live_bot.py` | 472 | the headless bot that places real orders |
 
-## Le funzioni
+## The functions
 
-**`config.py`** — la classe `Param` e le costanti: `STRATEGIES`, `INTERVALS`, `AI_STRATEGY`,
-`CONFLUENCE_STRATEGY`, `ROTATION_MODES`, i `CONF_*` dei votanti, le finestre degli indicatori.
+**`config.py`** — the `Param` class and the constants: `STRATEGIES`, `INTERVALS`, `AI_STRATEGY`,
+`CONFLUENCE_STRATEGY`, `ROTATION_MODES`, the voters' `CONF_*`, the indicator windows, and
+`SWING_TARGET_TEMPO` — the temporal smoothing the page draws the swing label with. That last one is a
+**copied literal** of `ml/labeling.TIME_WEIGHT`, because this module imports nothing by design; a
+test pins the two together, and without it the page would draw one label while the model trains on
+another.
 
 **`market_data.py`** — `get_market_data`, `get_market_data_between_dates`, `download_market_data`,
 `interval_to_minutes`.
 
 **`indicators.py`** — `add_technical_indicator`, `latest_bands`, `calculate_latest_indicators`.
-`_atr_ema` replica in numpy le formule di `ta` 0.11 riga per riga ed è ciò che rende
-`simulate_candles` quaranta volte più veloce: **se si cambia, va riverificato contro `ta`**, perché
-una divergenza silenziosa qui sposta ogni segnale.
+`_atr_ema` replicates `ta` 0.11's formulas in numpy line by line and is what makes
+`simulate_candles` forty times faster: **if it is changed, it must be reverified against `ta`**,
+because a silent divergence here moves every signal.
 
-**`indicators_extra.py`** — la sola `ExtraCache`: calcola una famiglia di indicatori alla volta e
-la tiene, così un pannello che ne chiede tre non ricalcola le candele tre volte.
+**`indicators_extra.py`** — just `ExtraCache`: it computes one family of indicators at a time and
+keeps it, so a panel asking for three does not recompute the candles three times.
 
-**`strategies.py`** — `simulate_candles` (il motore) e dodici strategie:
+**`strategies.py`** — `simulate_candles` (the engine) and twelve strategies:
 `buy_sell_limits_simulation`, `buy_sell_limits_close_simulation`,
 `close_rsi_buy_sell_limits_simulation`, `atr_buy_sell_simulation`, `close_atr_buy_sell_simulation`,
 `close_ema_crossover_simulation`, `close_bullish_ema_simulation`, `tp_sl_simulation`,
-`green_candles_simulation`, `supertrend_simulation`, `trend_zone_simulation`,
-`ai_model_simulation`, più gli aiuti `bullish_condition`, `bearish_condition`,
-`identify_trend_zones`, `get_green_red_percentage`.
-**Il menu ne raggiunge sette.** Delle cinque che restano fuori, quattro sono **uscite
-misurandole** (`.claude/docs/ricerca-quant-ml.md` §2) e `buy_sell_limits_simulation` è rotta: legge
-`MACD`, che resta commentata in `add_technical_indicator`, quindi solleva `KeyError` appena
-chiamata. `close_rsi_buy_sell_limits_simulation` è invece **rientrata**, perché la ragione che
-l'aveva esclusa vale a 15 minuti e non a scala giornaliera: una strategia esclusa su un intervallo
-non è esclusa su tutti.
+`green_candles_simulation`, `supertrend_simulation`, `trend_zone_simulation`, `ai_model_simulation`,
+plus the helpers `bullish_condition`, `bearish_condition`, `identify_trend_zones`,
+`get_green_red_percentage`.
+**The menu reaches seven of them.** Of the five left out, four **exited by being measured**
+(`.claude/docs/ricerca-quant-ml.md` §2) and `buy_sell_limits_simulation` is broken: it reads `MACD`,
+which stays commented out in `add_technical_indicator`, so it raises `KeyError` as soon as it is
+called. `close_rsi_buy_sell_limits_simulation` has instead **come back**, because the reason that
+excluded it holds at 15 minutes and not at daily scale: a strategy excluded on one interval is not
+excluded on all of them.
 
 **`strategies_ls.py`** — `donchian_breakout`, `squeeze_breakout`, `trend_pullback`,
-`ichimoku_trend`, `band_reversion_gated`, `atr_band_bounce`, `trend_zone`. Le prime tre voci del
-menu vengono da qui (Ichimoku Trend, Squeeze Breakout, Donchian Breakout); `trend_pullback` e
-`band_reversion_gated` sono fra le sette uscite misurando.
+`ichimoku_trend`, `band_reversion_gated`, `atr_band_bounce`, `trend_zone`. The menu's first three
+entries come from here (Ichimoku Trend, Squeeze Breakout, Donchian Breakout); `trend_pullback` and
+`band_reversion_gated` are among the seven that exited by being measured.
 
-**`pnl.py`** — `simulate_trading_with_commisions` e
-`simulate_trading_with_commisions_multiple_buy` per i segnali solo lungo,
-`simulate_positions` per i cambi di posizione (leva e costo di mantenimento inclusi),
-`drawdown` e `annualised` per leggerne l'esito.
-Scompatta i segnali con `[:2]`: qualunque strategia può aggiungerci elementi dopo i due che il
-motore usa, ed è così che la confluenza fa viaggiare la spiegazione col segnale.
+**`pnl.py`** — `simulate_trading_with_commisions` and
+`simulate_trading_with_commisions_multiple_buy` for the long-only signals, `simulate_positions` for
+the position changes (leverage and carry cost included), `drawdown` and `annualised` to read the
+outcome.
+It unpacks the signals with `[:2]`: any strategy can add elements after the two the engine uses, and
+that is how the confluence makes the explanation travel with the signal.
 
-**`mtf.py`** — la sola `align_to_lower`. È il punto in cui una strategia multi-timeframe imbroglia,
-e la difesa è spostare lo stato del piano lungo di un periodo intero prima di leggerlo.
+**`mtf.py`** — just `align_to_lower`. It is the point where a multi-timeframe strategy cheats, and
+the defence is to shift the long plane's state by a whole period before reading it.
 
 **`voters.py`** — `held_state`, `decayed_vote`.
 
 **`confluence.py`** — `piani`, `ore_richieste`, `scala_fuori_misura`, `Par`, `Votante`, `registra`,
 `selezione`, `votanti_predefiniti`, `Confluenza`, `valori_del_votante`, `stati_dei_votanti`,
-`evaluate`. Aggiungere un votante è `registra(Votante(...))` e da lì si adattano da soli famiglie,
-pesi, riquadri e griglia del banco; l'unico elenco da tenere allineato a mano sono le tracce del
-riquadro *Voters* in `panels.INDICATORI`, e un test se ne accorge.
-`Confluenza.perche_non_entra()` esiste perché **zero operazioni non è un risultato, è una domanda**.
+`evaluate`. Adding a voter is `registra(Votante(...))` and from there families, weights, panels and
+the bench's grid adapt by themselves; the only list to keep aligned by hand is the *Voters* panel's
+traces in `panels.INDICATORI`, and a test notices.
+`Confluenza.perche_non_entra()` exists because **zero trades is not a result, it is a question**.
 
 **`portfolio.py`** — `Portafoglio`, `simulate_shared_capital`, `simulate_slots`, `curva_capitale`.
-Riporta sempre le occasioni perse mentre il capitale era impegnato e la concentrazione: sopra 0,9
-il paniere è finzione.
+It always reports the opportunities missed while the capital was committed, and the concentration:
+above 0.9 the basket is fiction.
 
-**`rotation.py`** — `load_universe`, `backtest`, `benchmarks`. Legge lo store locale e **non usa la
-rete**: in produzione, dove non c'è disco persistente, lo dice invece di provare quindici scarichi.
-Il riferimento da battere è l'universo a peso uguale, non BTC.
+**`rotation.py`** — `load_universe`, `backtest`, `benchmarks`. It reads the local store and **does
+not use the network**: in production, where there is no persistent disk, it says so instead of
+attempting fifteen downloads. The reference to beat is the equal-weight universe, not BTC.
 
-**`panels.py`** — i tipi `Traccia`, `Indicatore`, `Strategia` e le funzioni di interrogazione:
+**`panels.py`** — the types `Traccia`, `Indicatore`, `Strategia` and the query functions:
 `indicatori_di`, `parametri_di`, `pannelli_di`, `pannelli_degli`, `gruppi_di`, `ancora_di`,
 `valori_misurati`, `valori_del_piano`, `valori_predefiniti`, `confluenza_di`,
-`diagnosi_confluenza`. La mappa è **verificata a mano**: uno scan statico delle colonne lette non
-basta, perché almeno una strategia prende le medie con uno slice variabile che l'analisi
-dell'albero sintattico non vede.
+`diagnosi_confluenza`. The map is **verified by hand**: a static scan of the columns read is not
+enough, because at least one strategy takes the moving averages with a variable slice that syntax
+tree analysis does not see.
 
-**`simulator.py`** — `available_strategies`, `trading_analysis` (vista *Single asset*),
-`rotation_page` e `rotation_analysis` (vista *Cross-asset rotation*), `modello_di_sessione`,
+**`simulator.py`** — `available_strategies`, `trading_analysis` (*Single asset* view),
+`rotation_page` and `rotation_analysis` (*Cross-asset rotation* view), `modello_di_sessione`,
 `modelli_dingresso`, `universo_di_sessione`.
 
 **`live_bot.py`** — `fetch_initial_candles`, `run_socket_with_reconnect`, `add_technical_indicator`,
 `get_asset_balance`, `adjust_quantity`, `place_order`, `proceed_buy`, `proceed_sell`,
-`print_user_and_wallet_info`. **Piazza ordini veri**, vuole `API_KEY`/`API_SECRET`, e non è un
-servizio di compose di proposito: fa partire il ciclo `while True` all'import, senza `main()` e
-senza gestione dei segnali. Prima di containerizzarlo serve quel refactor.
+`print_user_and_wallet_info`. **It places real orders**, it wants `API_KEY`/`API_SECRET`, and it is
+not a compose service on purpose: it starts the `while True` loop at import, with no `main()` and no
+signal handling. Before containerising it, that refactor is needed.
 
-## Tre cose che non si vedono dal codice
+## Three things that are not visible from the code
 
-**Le letture per riga sono array numpy estratti prima del ciclo**, non `df["Col"].iloc[i]`. Da lì
-viene il grosso della velocità (il simulatore intero: 4295 ms → 125 ms). Mantenere lo stile.
+**Per-row reads go through numpy arrays extracted before the loop**, not `df["Col"].iloc[i]`. That is
+where most of the speed comes from (the whole simulator: 4295 ms → 125 ms). Keep the style.
 
-**I valori di partenza sono centrali, non ottimi.** Sulla rotazione la correlazione fra resa in
-stima e resa in verifica è −0,69: cercare il massimo in campione trasferisce peggio che prendere
-una configurazione a caso. Chi cambia i default in «quelli che rendono di più nel grafico» sta
-facendo esattamente l'errore misurato.
+**The starting values are central, not optimal.** On the rotation the correlation between in-sample
+and out-of-sample return is −0.69: looking for the in-sample maximum transfers worse than picking a
+configuration at random. Whoever changes the defaults to "the ones that return most in the chart" is
+making exactly the measured mistake.
 
-**Sotto l'ora nessuna misura di questo progetto ha mai trovato qualcosa che batta il possesso
-passivo.** I default a 15m sono i migliori *fra quelli provati*, non buoni.
+**Below the hour, no measurement in this project has ever found anything that beats passive
+holding.** The 15m defaults are the best *among those tried*, not good.
 
-## Documenti
+## Documents
 
 [`backtest-strategie.md`](../../../.claude/docs/backtest-strategie.md) ·
 [`strategie-nuove.md`](../../../.claude/docs/strategie-nuove.md) ·

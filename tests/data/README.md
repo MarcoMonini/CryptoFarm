@@ -1,17 +1,17 @@
 # `tests/data/`
 
-Un file solo: **`simulator_golden.json`**, l'atteso di `../test_simulator_golden.py`.
+A single file: **`simulator_golden.json`**, the expectation of `../test_simulator_golden.py`.
 
-Tiene l'output di 21 funzioni di `trading/simulator.py` e dei suoi moduli su quattro scenari di
-mercato sintetici (tendenza, laterale, regimi, sbandate). Non è un file di configurazione e non si
-modifica a mano: si rigenera con
+It holds the output of 21 functions of `trading/simulator.py` and its modules over four synthetic
+market scenarios (trend, sideways, regimes, spikes). It is not a configuration file and is not edited
+by hand: it is regenerated with
 
 ```bash
 SIMULATOR_GOLDEN_REGEN=1 .venv312/bin/python -m pytest tests/test_simulator_golden.py
 ```
 
-**Rigenerare accetta qualunque differenza di comportamento**, anche una regressione. Il flusso
-corretto è: capire perché il test fallisce, verificare a mano che la differenza sia voluta,
-rigenerare, e poi **leggere il diff del JSON** controllando che contenga solo le righe attese. Un
-diff più largo del previsto significa che la modifica ha toccato anche strategie che non si stavano
-guardando — che è esattamente il difetto per cui questo file esiste.
+**Regenerating accepts any behaviour difference**, including a regression. The correct flow is:
+understand why the test fails, verify by hand that the difference is intended, regenerate, and then
+**read the JSON diff** checking it contains only the expected lines. A diff wider than expected means
+the change also touched strategies nobody was looking at — which is exactly the defect this file
+exists for.

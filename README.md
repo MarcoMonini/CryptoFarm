@@ -1,134 +1,143 @@
 # CryptoFarm
 
-Addestra modelli di segnale su dati Binance e li verifica contro strategie a indicatori, su nove
-anni di storico e quindici asset. C'è anche un bot headless che può operare dal vivo.
+Trains signal models on Binance data and checks them against indicator strategies, over nine years of
+history and fifteen assets. There is also a headless bot that can trade live.
 
-**Il risultato in una riga.** Quasi tutto ciò che è stato provato non batte il possesso passivo, ed
-è scritto dove è stato misurato. L'unica cosa che passa il controllo a esposizione appaiata è il
-modello d'ingresso: **+2,071% netti per operazione fuori campione, 14 simboli su 15 in utile**, e
-il suo vantaggio non è la previsione ma la **selettività** — marca una barra su duecento.
+**The result in one line.** Almost everything that has been tried does not beat passive holding, and
+it is written down where it was measured. The only thing that passes the paired-exposure control is
+the entry model: **+2.071% net per trade out of sample, 14 symbols out of 15 profitable**, and its
+advantage is not the prediction but the **selectivity** — it flags one bar in two hundred.
 
-## Come è fatto
+## How it is built
 
 ```
 src/cryptofarm/
-├── data/      lo store locale delle candele (dump bulk, parquet)
-├── ml/        feature → etichette → modello → valutazione → servizio
-└── trading/   strategie, conto del profitto, la pagina Streamlit, il bot live
-scripts/       diciotto banchi di misura: producono i numeri dei documenti
-tests/         1.022 casi, nessuna rete, nessuno store richiesto
-.claude/docs/  le decisioni e le misure che le giustificano
+├── data/      the local candle store (bulk dumps, parquet)
+├── ml/        features → labels → model → evaluation → serving
+└── trading/   strategies, P&L accounting, the Streamlit page, the live bot
+scripts/       eighteen measurement benches: they produce the documents' numbers
+tests/         1,024 cases, no network, no store required
+.claude/docs/  the decisions and the measurements that justify them
 ```
 
-Ogni cartella ha il suo README con l'elenco dei file e delle funzioni:
+Every folder has its own README listing the files and functions:
 [`src/cryptofarm/data/`](src/cryptofarm/data/) ·
 [`src/cryptofarm/ml/`](src/cryptofarm/ml/) ·
 [`src/cryptofarm/trading/`](src/cryptofarm/trading/) ·
 [`scripts/`](scripts/) · [`tests/`](tests/) · [`models/`](models/) · [`reports/`](reports/)
 
-Due cose contano davvero: **`trading/simulator.py`** (la ricerca) e **`ml/trainer.py`**
-(l'addestramento), più le loro dipendenze e un bot.
+Two things really matter: **`trading/simulator.py`** (the research) and **`ml/trainer.py`** (the
+training), plus their dependencies and one bot.
 
-## Far partire
+## Getting started
 
-Python >= 3.12, ambiente **`.venv312`** — il `.venv` preesistente è 3.9 e non ha `scikit-learn`.
+Python >= 3.12, environment **`.venv312`** — the pre-existing `.venv` is 3.9 and has no
+`scikit-learn`.
 
 ```bash
 pip install -e ".[app,data,dev]"
 
-# La pagina: due viste, "quando stare dentro" e "quale asset tenere"
+# The page: two views, "when to be in" and "which asset to hold"
 streamlit run src/cryptofarm/trading/simulator.py
 
-# Lo store delle candele, prerequisito di ogni addestramento (~10 minuti)
+# The candle store, a prerequisite for any training (~10 minutes)
 .venv312/bin/python -m cryptofarm.data.klines --update
 
-# Il modello in testa oggi: il veloce opera, il lento gli fa da cancello
-.venv312/bin/python -m cryptofarm.ml.entry_trainer --selfcheck   # gira senza store
-.venv312/bin/python -m cryptofarm.ml.entry_trainer               # il lento (H=150)
+# The model at the head today: the fast one trades, the slow one gates it
+.venv312/bin/python -m cryptofarm.ml.entry_trainer --selfcheck   # runs without the store
+.venv312/bin/python -m cryptofarm.ml.entry_trainer               # the slow one (H=150)
 .venv312/bin/python -m cryptofarm.ml.entry_trainer --h 20 --quantile 0.995 --nome entry_model_veloce
-.venv312/bin/python -m scripts.entry_lab                         # quanto vale il cancello
+.venv312/bin/python -m scripts.entry_lab                         # what the gate is worth
 
-# Il bot live — piazza ordini veri, vuole le variabili di .env.example
+# The live bot — it places real orders, it wants the variables from .env.example
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest`. Lint: `ruff check src scripts tests` e
+Tests: `.venv312/bin/python -m pytest`. Lint: `ruff check src scripts tests` and
 `black src scripts tests`.
 
-Gli altri comandi — gli altri modelli, gli sweep delle strategie, i banchi di misura — stanno in
-[`CLAUDE.md`](CLAUDE.md) e nei README di [`scripts/`](scripts/) e [`src/cryptofarm/ml/`](src/cryptofarm/ml/).
+The other commands — the other models, the strategy sweeps, the measurement benches — are in
+[`CLAUDE.md`](CLAUDE.md) and in the READMEs of [`scripts/`](scripts/) and
+[`src/cryptofarm/ml/`](src/cryptofarm/ml/).
 
-## Gli extra di installazione
+## The installation extras
 
-| extra | cosa contiene | serve a |
+| extra | what it holds | what it is for |
 |---|---|---|
-| (nucleo) | numpy, pandas, scipy, ta, requests, python-binance, scikit-learn | feature, etichette, modelli `gbdt`, bot live |
-| `app` | streamlit, plotly | solo `trading/simulator.py` e i moduli che decora con `st.cache_data` |
-| `data` | pyarrow (141 MB) | il motore parquet dello store: `data/klines.py`, `scripts/analysis.py` |
-| `dl` | tensorflow (~1 GB) | solo `--model gru\|cnn\|lstm` |
+| (core) | numpy, pandas, scipy, ta, requests, python-binance, scikit-learn | features, labels, `gbdt` models, live bot |
+| `app` | streamlit, plotly | only `trading/simulator.py` and the modules it decorates with `st.cache_data` |
+| `data` | pyarrow (141 MB) | the store's parquet engine: `data/klines.py`, `scripts/analysis.py` |
+| `dl` | tensorflow (~1 GB) | only `--model gru\|cnn\|lstm` |
 | `dev` | pytest, ruff, black, pre-commit | |
 
-Un'immagine più magra per la sola pagina non si ottiene togliendo pyarrow: `streamlit` dipende da
-`pyarrow>=7.0`, quindi i 141 MB ci sono comunque.
+A leaner image for the page alone is not obtained by dropping pyarrow: `streamlit` depends on
+`pyarrow>=7.0`, so the 141 MB are there anyway.
 
-## Docker e deploy
+## Docker and deploy
 
 ```bash
-mkdir -p models market_data                      # i bind mount devono esistere
+mkdir -p models market_data                      # the bind mounts must exist
 docker compose up simulator                      # http://localhost:8501
 docker compose --profile data  run --rm klines
 docker compose --profile train run --rm trainer
 docker compose --profile ci    run --rm tests
 ```
 
-Un solo `Dockerfile`, quattro target: `runtime` (pagina, trainer, store), `dev` (`runtime` +
-pytest/ruff/black, l'immagine della CI), `dl` (`runtime` + TensorFlow) e **`web`**, che è quello
-che va in produzione. **`web` è l'ultimo stage e deve restarci**: una build senza `--target` prende
-l'ultimo, e Render non ha un campo per sceglierlo. Uno stage nuovo va aggiunto sopra, mai sotto —
-e la CI costruisce anche senza `--target` proprio per accorgersene.
+A single `Dockerfile`, four targets: `runtime` (page, trainer, store), `dev` (`runtime` +
+pytest/ruff/black, the CI image), `dl` (`runtime` + TensorFlow) and **`web`**, which is the one that
+goes to production. **`web` is the last stage and must stay there**: a build without `--target` takes
+the last one, and Render has no field to choose it. A new stage goes above, never below — and CI
+builds without `--target` precisely to notice.
 
-Il deploy pubblico sta in [`render.yaml`](render.yaml), piano gratuito, regione **`frankfurt`**:
-Binance blocca gli IP statunitensi su `api.binance.com`, che è da dove il simulatore prende le
-candele, quindi la regione non è un dettaglio. Il piano gratuito non ha dischi persistenti, e
-`models/*.joblib` è gitignorato: **online girano le strategie classiche**, e la pagina toglie da sé
-la voce «AI Model» dal menu invece di cadere.
+The public deploy is in [`render.yaml`](render.yaml), free plan, region **`frankfurt`**: Binance
+blocks US IPs on `api.binance.com`, which is where the simulator gets its candles, so the region is
+not a detail. The free plan has no persistent disks, and `models/*.joblib` is gitignored: **online
+the classic strategies run**, and the page removes the "AI Model" entry from the menu by itself
+instead of crashing.
 
-## Cosa sapere prima di modificare
+## What to know before making changes
 
-**`.claude/docs/` contiene misure che escludono esplicitamente diverse strade che sembrano
-ragionevoli a prima vista.** L'ordine di lettura sta in [`.claude/docs/README.md`](.claude/docs/README.md);
-chi riprende a freddo legge [`HANDOFF.md`](.claude/docs/HANDOFF.md) e basta. Chi tocca la pipeline
-ML legge prima [`strategy.md`](.claude/docs/strategy.md).
+**`.claude/docs/` contains measurements that explicitly rule out several paths that look reasonable
+at first sight.** The reading order is in [`.claude/docs/README.md`](.claude/docs/README.md);
+whoever picks the work up cold reads [`HANDOFF.md`](.claude/docs/HANDOFF.md) and nothing else.
+Whoever touches the ML pipeline reads [`strategy.md`](.claude/docs/strategy.md) first, and whoever
+touches labels or training reads
+[`labeling-strategy.md`](.claude/docs/labeling-strategy.md).
 
-**Il golden master va rispettato.** `tests/test_simulator_golden.py` fissa il comportamento di 21
-funzioni: deve passare prima di una modifica a `trading/` e passare ancora dopo, **senza essere
-rigenerato**. Rigenerarlo accetta qualunque differenza, anche una regressione.
+**The golden master must be respected.** `tests/test_simulator_golden.py` pins the behaviour of 21
+functions: it must pass before a change to `trading/` and pass again afterwards, **without being
+regenerated**. Regenerating it accepts any difference, including a regression.
 
-**I valori di partenza sono centrali, non ottimi.** Cercare il massimo in campione trasferisce
-peggio che prendere una configurazione a caso: sulla rotazione la correlazione fra resa in stima e
-resa in verifica è **−0,69**. Chi cambia i default in «quelli che rendono di più nel grafico» sta
-facendo esattamente l'errore misurato.
+**The starting values are central, not optimal.** Looking for the in-sample maximum transfers worse
+than picking a configuration at random: on the rotation the correlation between in-sample and
+out-of-sample return is **−0.69**. Whoever changes the defaults to "the ones that return most in the
+chart" is making exactly the measured mistake.
 
-**Le letture per riga passano da array numpy** estratti prima del ciclo, non da
-`df["Col"].iloc[i]`: da lì viene il grosso della velocità (il simulatore intero: 4295 ms → 125 ms).
-E `indicators._atr_ema` replica in numpy le formule di `ta` 0.11 riga per riga — se si cambia, va
-riverificato contro `ta`, perché una divergenza silenziosa lì sposta ogni segnale.
+**Per-row reads go through numpy arrays** extracted before the loop, not through
+`df["Col"].iloc[i]`: that is where most of the speed comes from (the whole simulator: 4295 ms → 125
+ms). And `indicators._atr_ema` replicates `ta` 0.11's formulas in numpy line by line — if it is
+changed, it must be reverified against `ta`, because a silent divergence there moves every signal.
 
-## Un difetto noto
+## A known defect
 
-`buy_sell_limits_simulation` legge la colonna `MACD`, che resta commentata in
-`add_technical_indicator`: solleva `KeyError` appena chiamata. Nessuna voce del menu la raggiunge.
-Renderla usabile vuol dire ripristinare il blocco `MACD` **e** aggiungere la voce.
+`buy_sell_limits_simulation` reads the `MACD` column, which remains commented out in
+`add_technical_indicator`: it raises `KeyError` as soon as it is called. No menu entry reaches it.
+Making it usable means restoring the `MACD` block **and** adding the entry.
 
-## Configurazione
+## Configuration
 
-Solo variabili d'ambiente, vedi [`.env.example`](.env.example) — niente nel repository carica
-`.env` da solo. `API_KEY`/`API_SECRET` e i parametri della strategia li legge il solo
-`live_bot.py`; `MARKET_DATA_CSV` è il CSV storico della pagina. Il simulatore e i trainer usano gli
-endpoint pubblici di Binance e non vogliono credenziali.
+Environment variables only, see [`.env.example`](.env.example) — nothing in the repository loads
+`.env` by itself. `API_KEY`/`API_SECRET` and the strategy parameters are read by `live_bot.py`
+alone; `MARKET_DATA_CSV` is the page's historical CSV. The simulator and the trainers use Binance's
+public endpoints and want no credentials.
 
-## Lingua
+## Language
 
-I documenti di questo progetto sono in italiano, il codice e i nomi delle funzioni in inglese dove
-sono di dominio (`simulate_positions`, `swing_target`) e in italiano dove descrivono una decisione
-presa qui (`perche_non_entra`, `scala_fuori_misura`, `votanti_predefiniti`).
+**The documentation of this project is written in English** — `CLAUDE.md`, `.claude/docs/` and every
+folder `README.md`. The rule is at the top of [`CLAUDE.md`](CLAUDE.md) and it is not a style
+preference: it had been given before and the documents drifted back anyway.
+
+Code and function names are English where they are domain terms (`simulate_positions`,
+`swing_target`) and Italian where they describe a decision taken here (`perche_non_entra`,
+`scala_fuori_misura`, `votanti_predefiniti`). Renaming those is a separate job that touches tests
+asserting on the Italian names, and it is out of scope for the documentation rule.

@@ -1,12 +1,12 @@
 # `logs/`
 
-**Non tracciata.** Uscita degli script lunghi lanciati in background, redirezionata a mano — non
-c'è nessuna configurazione di logging che scriva qui: chi lancia una misura da mezz'ora ci manda
-`stdout` per poterla rileggere.
+**Not tracked.** Output of the long scripts launched in the background, redirected by hand — there is
+no logging configuration writing here: whoever starts a half-hour measurement sends `stdout` here so
+it can be read back.
 
-Un file per corsa, col nome della misura: `swing_train.log`, `positioning_update.log`,
-`audit.log`, `ai_voter.log`, `stop_ampia.log`, e così via. Nessuno di questi file è letto da
-codice: sono per gli occhi. Si possono cancellare in qualunque momento.
+One file per run, named after the measurement: `swing_train.log`, `positioning_update.log`,
+`audit.log`, `ai_voter.log`, `stop_ampia.log`, and so on. None of these files is read by code: they
+are for the eyes. They can be deleted at any time.
 
-Perché non sono in `analysis_cache/`: quelli sono risultati e si rigenerano deterministicamente,
-questi sono il racconto di una corsa specifica e non si rigenerano affatto.
+Why they are not in `analysis_cache/`: those are results and regenerate deterministically, these are
+the story of one specific run and do not regenerate at all.

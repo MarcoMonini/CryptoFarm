@@ -1,209 +1,210 @@
-# La politica RL: il costo dentro la ricompensa
+# The RL policy: the cost inside the reward
 
-*Misurato il 2026-08-28, 15 simboli, barre da 5 minuti dal 2019.*
-Codice: `ml/rl.py`, `ml/rl_trainer.py`, banco `scripts/rl_lab.py`, servizio `ml/signals.rl_*`.
+*Measured 2026-08-28, 15 symbols, 5-minute bars from 2019.*
+Code: `ml/rl.py`, `ml/rl_trainer.py`, lab `scripts/rl_lab.py`, serving `ml/signals.rl_*`.
 
-**Stato: cablata.** `rl_model` e' in testa a `trainer.MODEL_PRECEDENCE`, la voce «AI Model» la
-esegue e il votante `modello` della confluenza la usa quando l'artefatto c'e'.
+**Status: wired in.** `rl_model` is at the head of `trainer.MODEL_PRECEDENCE`, the "AI Model" entry
+runs it and the confluence's `modello` voter uses it when the artifact is there.
 
 ---
 
-## 1. La domanda di partenza, e perche' la risposta ovvia era sbagliata
+## 1. The starting question, and why the obvious answer was wrong
 
-La richiesta era: *il modello fa buoni trade ma non evita i crolli, compra poco prima, e il segreto
-per battere il possesso passivo e' evitarlo tenendo il comportamento sul laterale e sfruttando le
-gambe rialziste.*
+The request was: *the model makes good trades but does not avoid the crashes, it buys shortly
+before them, and the secret to beating passive holding is avoiding it while keeping the behaviour on
+the sideways stretches and exploiting the upward legs.*
 
-Le due premesse si misurano. Regola cablata precedente (`|previsione| ≥ 0,35` per entrare, `< 0,25`
-per uscire, una decisione al giorno), 15 simboli, fuori campione dal 2024-01.
+Both premises are measurable. Previously wired rule (`|prediction| ≥ 0.35` to enter, `< 0.25` to
+exit, one decision per day), 15 symbols, out of sample from 2024-01.
 
-### 1.1 «Compra poco prima dei crolli» — **falsa**
+### 1.1 "It buys shortly before the crashes" — **false**
 
-Discesa massima nei tre giorni dopo un ingresso, contro quella dopo una barra giornaliera qualunque
-dello stesso periodo:
+Maximum drawdown in the three days after an entry, against the one after any daily bar in the same
+period:
 
-| | n | mediana | p10 | p05 | quota sotto −10% |
+| | n | median | p10 | p05 | share below −10% |
 |---|---|---|---|---|---|
-| dopo un ingresso | 3.000 | −3,88% | −11,87% | −15,82% | 15,1% |
-| dopo una barra qualunque | 14.385 | −3,94% | −11,84% | −15,72% | 14,7% |
+| after an entry | 3,000 | −3.88% | −11.87% | −15.82% | 15.1% |
+| after any bar | 14,385 | −3.94% | −11.84% | −15.72% | 14.7% |
 
-Le due distribuzioni sono indistinguibili. Gli ingressi **non** cadono davanti ai crolli piu' di
-quanto ci cada il caso. Quello che si vedeva in pagina era vero — ci sono ingressi seguiti da
-crolli — ma e' il tasso di base, non una firma del modello.
+The two distributions are indistinguishable. Entries do **not** land in front of crashes more often
+than chance does. What was visible on the page was true — there are entries followed by crashes —
+but it is the base rate, not a signature of the model.
 
-### 1.2 «Tagliare i crolli con uno stop» — **dannosa**
+### 1.2 "Cut the crashes with a stop" — **harmful**
 
-Stessi ingressi, uscita anticipata da uno stop. Somma dei rendimenti netti fuori campione:
+Same entries, early exit from a stop. Sum of net out-of-sample returns:
 
-| uscita | somma | operazioni fermate dallo stop | peggiore |
+| exit | sum | trades stopped out | worst |
 |---|---|---|---|
-| solo modello | **−201%** | 0% | −33,8% |
-| stop fisso 3% | −229% | 52% | −3,2% |
-| stop fisso 5% | −314% | 34% | −5,2% |
-| stop fisso 8% | −327% | 18% | −8,2% |
-| trailing 5% | −563% | 57% | −5,2% |
-| trailing 12% | −418% | 15% | −12,2% |
+| model only | **−201%** | 0% | −33.8% |
+| fixed stop 3% | −229% | 52% | −3.2% |
+| fixed stop 5% | −314% | 34% | −5.2% |
+| fixed stop 8% | −327% | 18% | −8.2% |
+| trailing 5% | −563% | 57% | −5.2% |
+| trailing 12% | −418% | 15% | −12.2% |
 
-Ogni livello peggiora, e peggiora **monotonamente al crescere di quanto morde**. Lo stop taglia la
-coda destra piu' di quella sinistra: e' la stessa cosa che dice la forma a U del modello a swing
-(`modello-swing.md` §5.1), vista da un'altra angolazione.
+Every level makes it worse, and worse **monotonically as it bites harder**. The stop cuts the right
+tail more than the left one: it is the same thing the U shape of the swing model says
+(`modello-swing.md` §5.1), seen from another angle.
 
-### 1.3 Dove va davvero il denaro — **nella commissione**
+### 1.3 Where the money actually goes — **into the commission**
 
-| | lordo | netto | operazioni | costi impliciti |
+| | gross | net | trades | implicit costs |
 |---|---|---|---|---|
-| fuori campione | **+401%** | **−201%** | 3.009 | 3.009 × 0,2% = **602%** |
+| out of sample | **+401%** | **−201%** | 3,009 | 3,009 × 0.2% = **602%** |
 
-Il segnale c'e' al lordo. Lo mangia il numero di giri. La conferma piu' netta: passando la *stessa*
-regola, *lo stesso modello*, da una decisione al giorno a una ogni due giorni, il netto va da
-**−201% a +306%**. Nessun addestramento, nessuna feature nuova: meta' dei giri.
+The signal is there on a gross basis. The number of round trips eats it. The clearest confirmation:
+taking the *same* rule, *the same model*, from one decision a day to one every two days, the net
+goes from **−201% to +306%**. No training, no new features: half the round trips.
 
-**Da qui la forma dell'agente.** Non un filtro di rischio — misurato dannoso — ma una politica che
-sceglie la posizione sapendo quanto costa cambiarla.
+**Hence the shape of the agent.** Not a risk filter — measured harmful — but a policy that chooses
+the position knowing what changing it costs.
 
 ---
 
-## 2. La formulazione
+## 2. The formulation
 
-Stato `s` = le stesse 41 colonne del modello a swing (`bar_features.SWING_COLUMNS`) piu' la
-**posizione corrente**. Azione `a ∈ {fuori, dentro}`. Ricompensa di un passo:
+State `s` = the same 41 columns as the swing model (`bar_features.SWING_COLUMNS`) plus the
+**current position**. Action `a ∈ {out, in}`. One-step reward:
 
 ```
-r(s, p, a) = a · log(P'/P) − costo · |a − p|
+r(s, p, a) = a · log(P'/P) − cost · |a − p|
 ```
 
-Tre conseguenze, e sono le tre ragioni per cui questa forma e' diversa da quelle gia' chiuse in
-negativo:
+Three consequences, and they are the three reasons this shape differs from the ones already closed
+with a negative result:
 
-- **la banda di non-fare non e' scritta a mano.** Le due soglie della regola precedente erano un
-  parametro; qui l'isteresi e' cio' che emerge quando cambiare costa e la posizione sta nello stato;
-- **la classe di politiche contiene il possesso passivo** (`a ≡ 1`), che e' il riferimento da
-  battere. L'agente puo' solo aggiungere a una politica che sa gia' rappresentare;
-- **il vincolo economico sta dentro il target.** E' l'unica riformulazione che `strategy.md` §13.4
-  lasciava aperta dopo che la politica a tre azioni era risultata a somma nulla per costruzione:
-  quella entrava alla conferma di un minimo e usciva alla conferma di un massimo, e la conferma si
-  paga due volte contro una gamba mediana che vale 1,76-2,05 soglie.
+- **the do-nothing band is not hand-written.** The two thresholds of the previous rule were a
+  parameter; here the hysteresis is what emerges when changing costs and the position is in the state;
+- **the policy class contains passive holding** (`a ≡ 1`), which is the benchmark to beat. The agent
+  can only add to a policy it can already represent;
+- **the economic constraint sits inside the target.** It is the only reformulation `strategy.md`
+  §13.4 left open after the three-action policy turned out to be zero-sum by construction: that one
+  entered on the confirmation of a low and exited on the confirmation of a high, and the confirmation
+  is paid twice against a median leg worth 1.76-2.05 thresholds.
 
-**Algoritmo:** fitted Q-iteration offline su un batch fisso — nessuna interazione con l'ambiente,
-quindi nessuno shift di distribuzione da politica che esplora. Due `HistGradientBoostingRegressor`,
-uno per azione, sullo stato `[feature, posizione]`. Il bersaglio di ogni giro e'
-`r + γ · max_a' Q(s', a')`, dove `s'` porta come posizione **l'azione appena presa**: e' quel
-collegamento che rende il costo un investimento invece che una tassa istantanea.
+**Algorithm:** offline fitted Q-iteration on a fixed batch — no interaction with the environment, so
+no distribution shift from an exploring policy. Two `HistGradientBoostingRegressor`, one per action,
+on the state `[features, position]`. The target of each round is `r + γ · max_a' Q(s', a')`, where
+`s'` carries **the action just taken** as its position: it is that link that makes the cost an
+investment rather than an instantaneous tax.
 
-### 2.1 Le tre costanti, e chi le ha scelte
+### 2.1 The three constants, and who chose them
 
-Stanno in `ml/rl.py` e **non si riscelgono a ogni addestramento**: la griglia che le ha fissate
-(12 celle) e' stata percorsa una volta sola in validazione.
+They live in `ml/rl.py` and are **not re-chosen at every training run**: the grid that fixed them
+(12 cells) was walked once, in validation.
 
-| costante | valore | perche' |
+| constant | value | why |
 |---|---|---|
-| `CADENZA` | 288 barre = 1 giorno | la cadenza a cui la regola precedente e' misurata |
-| `FEE` | 0,001 per lato | il costo vero, quello con cui si **misura** |
-| `COSTO` | **0,012** | il costo che l'agente vede, dodici volte quello vero |
-| `GAMMA` | 0,95 | ≈ venti giorni di orizzonte a cadenza giornaliera |
+| `CADENZA` | 288 bars = 1 day | the cadence the previous rule is measured at |
+| `FEE` | 0.001 per side | the true cost, the one it is **measured** with |
+| `COSTO` | **0.012** | the cost the agent sees, twelve times the true one |
+| `GAMMA` | 0.95 | ≈ twenty days of horizon at a daily cadence |
 
-`COSTO ≠ FEE` non e' un errore. E' il termine che allarga la banda di non-fare, scelto in
-validazione fra 0,001 / 0,004 / 0,012: col costo vero la politica gira 203 volte in due anni e
-mezzo e resta sotto il caso, a 0,012 ne gira 184 e ci passa sopra. Chi lo cambia sappia che sta
-cambiando il problema.
+`COSTO ≠ FEE` is not a mistake. It is the term that widens the do-nothing band, chosen in validation
+among 0.001 / 0.004 / 0.012: with the true cost the policy turns over 203 times in two and a half
+years and stays below chance, at 0.012 it turns over 184 times and gets above it. Whoever changes it
+should know they are changing the problem.
 
-### 2.2 Il difetto che toglieva l'85% del campione
+### 2.2 The defect that removed 85% of the sample
 
-Il filtro sui NaN scartava la riga **intera** se una colonna mancava. Le due colonne di
-posizionamento (`data/positioning.py`) non esistono per interi anni sui simboli entrati tardi nei
-futures, quindi il campione di stima scendeva da 165.605 righe a 29.234 — e sparivano proprio i
-primi anni, cioe' l'unico ciclo completo dentro il periodo di stima.
-`HistGradientBoostingRegressor` i NaN li tratta da solo. La condizione ora e' `any`, non `all`, e
-c'e' un test.
+The NaN filter discarded the **whole** row if one column was missing. The two positioning columns
+(`data/positioning.py`) do not exist for entire years on symbols that entered futures late, so the
+training sample dropped from 165,605 rows to 29,234 — and what disappeared were precisely the early
+years, i.e. the only complete cycle inside the training period.
+`HistGradientBoostingRegressor` handles NaN by itself. The condition is now `any`, not `all`, and
+there is a test.
 
 ---
 
-## 3. I tre periodi
+## 3. The three periods
 
-| periodo | quando | a cosa serve |
+| period | when | what it is for |
 |---|---|---|
-| stima | 2019-01 → 2022-06 | addestra i due regressori (121.806 transizioni, 8 sfasature) |
-| validazione | 2022-06 → 2024-01 | **sceglie i giri di iterazione** (3 su 1/2/3/5) |
-| fuori campione | 2024-01 → oggi | si guarda una volta e non decide niente |
+| training | 2019-01 → 2022-06 | trains the two regressors (121,806 transitions, 8 offsets) |
+| validation | 2022-06 → 2024-01 | **chooses the number of iteration rounds** (3 out of 1/2/3/5) |
+| out of sample | 2024-01 → today | looked at once and decides nothing |
 
-La validazione parte dal 2022-06 apposta: contiene il **ribasso del 2022 e il rialzo del 2023**.
-Sceglierla dentro un regime solo avrebbe scelto «stare fuori dal mercato», che in un ribasso vince
-sempre e non e' una capacita'. Fra stima e validazione c'e' un embargo di `144 + cadenza` barre —
-144 e' la finestra del target a swing.
+Validation starts at 2022-06 on purpose: it contains the **2022 bear market and the 2023 rally**.
+Choosing inside a single regime would have chosen "stay out of the market", which always wins in a
+bear market and is not a skill. Between training and validation there is an embargo of
+`144 + cadence` bars — 144 being the swing target's window.
 
 ---
 
-## 4. I risultati, e il metro giusto
+## 4. The results, and the right yardstick
 
-`python -m scripts.rl_lab`. **Il controllo e' piu' stretto di quello di `swing_lab`**: invece di
-collocare a caso durate simili, rimescola i **blocchi della politica stessa**. Esposizione totale,
-numero di blocchi e loro durate restano identici; cambia solo *dove* cadono. Cio' che resta e'
-esattamente il valore del *quando*.
+`python -m scripts.rl_lab`. **The control is tighter than `swing_lab`'s**: instead of placing
+similar durations at random, it shuffles the **policy's own blocks**. Total exposure, number of
+blocks and their durations stay identical; only *where* they fall changes. What remains is exactly
+the value of the *when*.
 
-E si misura il **rango percentile** fra 400 estrazioni, non quante volte si supera il p95: con 15
-simboli il conteggio butta via quasi tutta l'informazione, e 0,75 successi attesi contro 2 osservati
-non distinguono niente. Il rango medio atteso, se il momento non conta, e' **0,500**.
+And what is measured is the **percentile rank** among 400 draws, not how many times p95 is exceeded:
+with 15 symbols the count throws away almost all the information, and 0.75 expected successes
+against 2 observed distinguish nothing. The expected mean rank, if timing does not matter, is
+**0.500**.
 
-| | batte il possesso | rango medio | Wilcoxon | discesa massima | espos. media | espos. nei 10 passi peggiori |
+| | beats holding | mean rank | Wilcoxon | max drawdown | avg exposure | exposure in the 10 worst steps |
 |---|---|---|---|---|---|---|
-| validazione | 9/15 | 0,588 | p=0,277 | **−40,8%** contro −58,3% | 39% | 48% |
-| fuori campione | 11/15 | 0,602 | p=0,169 | **−48,8%** contro −76,0% | 37% | **25%** |
+| validation | 9/15 | 0.588 | p=0.277 | **−40.8%** against −58.3% | 39% | 48% |
+| out of sample | 11/15 | 0.602 | p=0.169 | **−48.8%** against −76.0% | 37% | **25%** |
 
-### 4.1 Cosa dicono, letti onestamente
+### 4.1 What they say, read honestly
 
-- **La discesa massima si dimezza in entrambe le finestre.** E' il risultato piu' solido e piu'
-  consistente, ed e' la traduzione operativa della domanda di partenza: il capitale non evita i
-  crolli scommettendo *quando* arrivano, li attraversa esposto per meta'.
-- **Il *quando* sta sopra il caso in tutte e due le finestre** (0,588 e 0,602 contro 0,500) ma
-  **non raggiunge la significativita'** in nessuna delle due. Il segno e' coerente, la forza no.
-  E' comunque piu' di quanto avesse la regola precedente, che era al livello del caso.
-- **Batte il possesso passivo 11/15 fuori campione, 9/15 in validazione.** Il secondo numero e' una
-  monetina, e va detto: in un mercato al rialzo una politica esposta al 39% non tiene il passo. Il
-  vantaggio si concentra dove il possesso passivo perde.
-- **L'esposizione condizionata ai crolli e' discordante**: 25% contro 37% medio fuori campione (la
-  politica *e'* meno esposta nei passi peggiori), ma 48% contro 39% in validazione. E' un conto a
-  posteriori e descrive un comportamento, non dichiara una capacita'.
+- **The maximum drawdown halves in both windows.** It is the most solid and most consistent result,
+  and it is the operational translation of the starting question: the capital does not avoid the
+  crashes by betting on *when* they arrive, it goes through them half exposed.
+- **The *when* is above chance in both windows** (0.588 and 0.602 against 0.500) but **does not reach
+  significance** in either. The sign is consistent, the strength is not. It is still more than the
+  previous rule had, which was at chance level.
+- **It beats passive holding 11/15 out of sample, 9/15 in validation.** The second number is a coin
+  flip, and that should be said: in a rising market a policy exposed 39% of the time does not keep
+  up. The advantage concentrates where passive holding loses.
+- **Exposure conditional on crashes is inconsistent**: 25% against a 37% average out of sample (the
+  policy *is* less exposed in the worst steps), but 48% against 39% in validation. It is an ex-post
+  computation and describes a behaviour, it does not declare a capability.
 
-### 4.2 Cosa e' stato provato e non funziona
+### 4.2 What was tried and does not work
 
-- **Colonne di mercato nello stato.** L'ipotesi era che i crolli in cripto siano sistemici e che
-  lo stato, tutto per singolo asset, non li possa vedere. Aggiungendo ampiezza di mercato (quota
-  dei 15 sopra la loro EMA200 giornaliera) e la struttura di BTC, il fuori campione passa da
-  +14,7% a **−25,5%** mediano e il rango scende. **Respinta.**
-- **Piu' giri di iterazione.** Oltre il terzo il bersaglio contiene la stima di se stesso e la
-  varianza cresce piu' del guadagno di orizzonte.
+- **Market columns in the state.** The hypothesis was that crypto crashes are systemic and that the
+  state, all of it per single asset, cannot see them. Adding market breadth (share of the 15 above
+  their daily EMA200) and BTC's structure, the out-of-sample median goes from +14.7% to **−25.5%**
+  and the rank drops. **Rejected.**
+- **More iteration rounds.** Past the third the target contains an estimate of itself and the
+  variance grows more than the horizon gain.
 
 ---
 
-## 5. Cosa e' cablato
+## 5. What is wired in
 
-| dove | cosa |
+| where | what |
 |---|---|
-| `trainer.MODEL_PRECEDENCE` | `rl_model` in testa, davanti a `swing_model` |
-| `strategies.ai_model_simulation` | ramo `rl_model` → `signals.rl_signals`, senza soglia ne' barriere |
-| `confluence._modello` | **lo stesso votante**, che serve il modello in testa alla catena |
-| `panels.STRATEGIE["AI Model"].note` | dice cosa fa e con che forza, in pagina |
+| `trainer.MODEL_PRECEDENCE` | `rl_model` at the head, ahead of `swing_model` |
+| `strategies.ai_model_simulation` | `rl_model` branch → `signals.rl_signals`, with no threshold and no barriers |
+| `confluence._modello` | **the same voter**, which serves whichever model heads the chain |
+| `panels.STRATEGIE["AI Model"].note` | says what it does and with what strength, on the page |
 
-**Perche' non un nono votante.** Un secondo votante a modello risponde alla stessa domanda a
-partire dalle stesse 41 colonne: voterebbero insieme, e l'ampiezza minima della confluenza si conta
-in famiglie proprio per non far pesare due volte la stessa opinione. Con la politica presente,
-`CONF_MODELLO_ENTRA` e `CONF_MODELLO_ESCI` non hanno effetto — la soglia la politica ce l'ha dentro
-l'obiettivo — e tornano a contare se resta solo il modello a swing.
+**Why not a ninth voter.** A second model voter answers the same question starting from the same 41
+columns: they would vote together, and the confluence's minimum breadth is counted in families
+precisely so the same opinion does not weigh twice. With the policy present, `CONF_MODELLO_ENTRA`
+and `CONF_MODELLO_ESCI` have no effect — the policy has the threshold inside its objective — and
+they matter again if only the swing model is left.
 
-**In servizio la cadenza e' un giorno a qualunque intervallo** (`signals.swing_cadenza`). Non e'
-una manopola: e' il passo su cui il costo dentro la ricompensa e' calibrato. A cadenza oraria la
-stessa politica pagherebbe ventiquattro volte i costi che il suo obiettivo aveva messo in conto.
+**In service the cadence is one day at any interval** (`signals.swing_cadenza`). It is not a knob:
+it is the step the cost inside the reward is calibrated on. At an hourly cadence the same policy
+would pay twenty-four times the costs its objective had budgeted for.
 
 ---
 
-## 6. Cosa manca
+## 6. What is missing
 
-- **Il paniere.** Tutto qui e' per singolo asset. `strategy.md` §6.1 conta 1.691 episodi
-  giornalieri di allocazione, che sono pochissimi per il RL, e indica il Kelly frazionario come
-  alternativa quasi certamente sufficiente.
-- **La significativita' del *quando*.** Due finestre concordi nel segno e nessuna significativa.
-  Serve o piu' storia o un controllo con piu' potenza — per esempio il rango su tutte le finestre
-  di una CPCV invece che su due periodi.
-- **La griglia della confluenza con e senza il votante**, sugli stessi asset e la stessa finestra.
-  E' rimasta da fare anche per il modello a swing (`modello-swing.md` §6): finche' non c'e', non si
-  sa se il votante a modello paga.
+- **The basket.** Everything here is per single asset. `strategy.md` §6.1 counts 1,691 daily
+  allocation episodes, which is very few for RL, and points at fractional Kelly as an alternative
+  that is almost certainly sufficient.
+- **The significance of the *when*.** Two windows agreeing in sign and neither significant. It needs
+  either more history or a control with more power — for instance the rank across all the folds of a
+  CPCV instead of across two periods.
+- **The confluence grid with and without the voter**, on the same assets and the same window. It is
+  still outstanding for the swing model too (`modello-swing.md` §6): until it exists, there is no
+  telling whether the model voter pays.

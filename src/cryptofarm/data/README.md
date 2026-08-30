@@ -1,44 +1,44 @@
-# `data/` — lo store locale delle candele
+# `data/` — the local candle store
 
-Due store, stessa infrastruttura: dump bulk da `data.binance.vision`, archivio parquet in
-`market_data/`, aggiornamento incrementale. È il **prerequisito dell'addestramento**: i trainer
-leggono da qui, non scaricano al volo.
+Two stores, the same infrastructure: bulk dumps from `data.binance.vision`, a parquet archive in
+`market_data/`, incremental updates. It is the **prerequisite for training**: the trainers read from
+here, they do not download on the fly.
 
-| file | righe | cosa archivia |
+| file | lines | what it stores |
 |---|---|---|
-| `klines.py` | 431 | le candele OHLCV, **un solo intervallo per simbolo** (5m), da cui 15m/30m/1h si derivano aggregando |
-| `positioning.py` | 289 | il posizionamento sui futures: long/short ratio, open interest, funding, base |
+| `klines.py` | 431 | the OHLCV candles, **a single interval per symbol** (5m), from which 15m/30m/1h are derived by aggregation |
+| `positioning.py` | 289 | futures positioning: long/short ratio, open interest, funding, basis |
 
-## Le funzioni
+## The functions
 
-**`klines.py`** — `update_store` e `update_symbol` per costruire e aggiornare, `load_klines` e
-`resample_klines` per leggere, `store_path` e `store_manifest` per sapere cosa c'è,
-`interval_to_minutes` per la conversione, `clip_wicks` e `wick_outliers` per le candele con ombre
-implausibili. `main` è il punto d'ingresso di `python -m cryptofarm.data.klines --update`.
+**`klines.py`** — `update_store` and `update_symbol` to build and update, `load_klines` and
+`resample_klines` to read, `store_path` and `store_manifest` to know what is there,
+`interval_to_minutes` for the conversion, `clip_wicks` and `wick_outliers` for candles with
+implausible wicks. `main` is the entry point of `python -m cryptofarm.data.klines --update`.
 
-**`positioning.py`** — la stessa forma: `update_store`, `update_symbol`, `load_positioning`,
-`store_path`, `store_manifest`, `main`, più i due scaricatori `fetch_metrics_day` e
-`fetch_funding_month`, che hanno cadenze diverse (giornaliera e mensile) perché Binance le
-pubblica così.
+**`positioning.py`** — the same shape: `update_store`, `update_symbol`, `load_positioning`,
+`store_path`, `store_manifest`, `main`, plus the two downloaders `fetch_metrics_day` and
+`fetch_funding_month`, which have different cadences (daily and monthly) because that is how Binance
+publishes them.
 
-## Perché un intervallo solo, e perché i dump e non la REST
+## Why a single interval, and why the dumps and not the REST
 
-**Un intervallo solo** perché l'aggregazione da 5m è esatta — verificata contro i dump ufficiali,
-differenza nulla su OHLC. Una sola fonte di verità invece di quattro archivi da tenere allineati,
-e un quarto delle richieste di rete.
+**A single interval** because aggregation from 5m is exact — verified against the official dumps,
+zero difference on OHLC. One source of truth instead of four archives to keep aligned, and a quarter
+of the network requests.
 
-**I dump e non la REST** perché su questa scala il costo è interamente latenza per richiesta
-(~2,7 s misurati, identici sulle due strade) e non banda. La REST dà al massimo 1000 candele per
-chiamata ed è soggetta a rate limit: ~18.700 richieste sequenziali per lo storico, circa 14 ore.
-Un dump mensile ne contiene ~8.900 ed è un file statico su CDN senza rate limit, quindi
-parallelizzabile: ~1.350 file con 32 worker, sotto i dieci minuti. La REST resta usata **solo per
-la coda**, cioè le candele di oggi, che nei dump non ci sono ancora.
+**The dumps and not the REST** because at this scale the cost is entirely per-request latency
+(~2.7 s measured, identical on both routes) and not bandwidth. REST gives at most 1000 candles per
+call and is rate limited: ~18,700 sequential requests for the history, about 14 hours. A monthly dump
+contains ~8,900 of them and is a static file on a CDN with no rate limit, hence parallelisable:
+~1,350 files with 32 workers, under ten minutes. REST is still used **only for the tail**, i.e.
+today's candles, which are not in the dumps yet.
 
-## Dove finiscono i dati
+## Where the data ends up
 
-In `market_data/`, che è gitignorato e pesa circa 4 GB a store pieno. La posizione si sposta con
-`CRYPTOFARM_MARKET_DATA_DIR` (vedi [`../paths.py`](../paths.py)); in container l'immagine la
-imposta a `/app/market_data`, dove `compose.yaml` monta la cartella dell'host.
+In `market_data/`, which is gitignored and weighs about 4 GB with a full store. The location moves
+with `CRYPTOFARM_MARKET_DATA_DIR` (see [`../paths.py`](../paths.py)); in a container the image sets
+it to `/app/market_data`, where `compose.yaml` mounts the host folder.
 
-Dove `data.binance.vision` non è raggiungibile, `scripts/import_candles.py` costruisce lo stesso
-store da un clone locale di un dataset a un minuto.
+Where `data.binance.vision` is unreachable, `scripts/import_candles.py` builds the same store from a
+local clone of a one-minute dataset.

@@ -1,38 +1,48 @@
-# Documentazione di lavoro — CryptoFarm
+# Working documentation — CryptoFarm
 
-Tutto ciò che serve per riprendere il lavoro sta qui. `CLAUDE.md` nella radice resta dov'è perché
-Claude Code lo carica automaticamente da lì, e rimanda a questa cartella.
+Everything needed to pick the work back up is here. `CLAUDE.md` stays in the root because Claude
+Code loads it automatically from there, and it points at this folder.
 
-## Ordine di lettura
+> **Language rule.** Every document in this repository is written in English. See `CLAUDE.md`
+> § *Documentation language*. It is a standing instruction, not a style preference.
 
-Chi riprende da zero legge **`HANDOFF.md`** e basta: è lo stato corrente, e gli altri documenti li
-referenzia. Chi deve toccare un pezzo preciso salta al documento di quel pezzo.
+## Reading order
 
-Chi vuole capire *dove è arrivato il progetto*, in ordine cronologico di risultato:
+Whoever starts from scratch reads **`HANDOFF.md`** and nothing else: it is the current state, and it
+references the other documents. Whoever has to touch one specific piece jumps to that piece's
+document.
+
+Whoever wants to understand *how far the project has got*, in chronological order of result:
 `backtest-strategie.md` → `strategie-nuove.md` → `ricerca-quant-ml.md` → `strategia-confluenza.md`
-→ `politica-rl.md` → `modello-swing.md` → **`modello-ingresso.md`**, che è l'unico con numeri che
-passano il controllo a esposizione appaiata.
+→ `politica-rl.md` → `modello-swing.md` → **`modello-ingresso.md`**, which is the only one with
+numbers that pass the matched-exposure control.
 
-## I documenti
+Whoever is about to touch labels or training reads **`labeling-strategy.md`** first: it is the
+document a whole family of models depends on.
 
-| documento | quando serve |
+## The documents
+
+| document | when it is needed |
 |---|---|
-| [`HANDOFF.md`](HANDOFF.md) | **da leggere per primo.** Stato dei due filoni con i risultati più recenti, cosa resta aperto, trappole ambientali e di misura, regole di ingaggio. Non duplica gli altri, li referenzia. **Da aggiornare a fine sessione.** |
-| [`strategy.md`](strategy.md) | **fonte di verità delle decisioni** su labeling, feature, modello e validazione, con le misure che le giustificano. Ha una tabella di revisione in testa. Da aggiornare in luogo quando si decide qualcosa. |
-| [`backtest-strategie.md`](backtest-strategie.md) | **le strategie a indicatori, misurate.** 3.129 configurazioni su nove anni di BTC: cosa rende, quanto dipende dai parametri, cosa resta fuori campione, e i difetti del codice trovati misurando. Le tabelle stanno in `reports/`, gli script che le producono in `scripts/{strategy_sweep,sweep_report,strategy_focus}.py`. |
-| [`strategie-nuove.md`](strategie-nuove.md) | **seguito operativo del backtest.** Le quattro correzioni al codice e cosa hanno cambiato, il ciclo 2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto (`trading/strategies_ls.py`, `pnl.simulate_positions`). |
-| [`ricerca-quant-ml.md`](ricerca-quant-ml.md) | le misure su cinque asset: rotazione trasversale (`scripts/cross_section.py`) e filtro meta (`scripts/meta_gate.py`), più §2, che è la ragione per cui sette voci sono uscite dal menu. |
-| [`piano-strategie.md`](piano-strategie.md) | il piano deciso con l'utente il 2026-08-27. **Passo 1 fatto, 2bis diventato la confluenza, 2-5 non eseguiti**: il lavoro si e' spostato sul filone modello. Il controllo di molteplicita' (DSR/PBO) sta qui, e cosi' il passo 5, che e' l'ultima finestra di verifica pulita rimasta. |
-| [`strategia-confluenza.md`](strategia-confluenza.md) | **la strategia multi-timeframe a più segnali, misurata.** Quattro piani con domande disgiunte, sei votanti scelti per famiglia, soglia decisa dai piani alti. Su 15 asset e sette anni **non batte il possesso passivo**: niente look-ahead, votanti non correlati, ma il gradiente di ogni parametro punta al non-operare. Le conclusioni stanno in fondo. |
-| [`politica-rl.md`](politica-rl.md) | **la politica a rinforzo, cablata** (2026-08-28). Parte da una premessa dell'utente — «compra poco prima dei crolli» — e la misura falsa: gli ingressi hanno lo stesso drawdown di una barra qualunque, e ogni livello di stop peggiora il netto. La causa è la commissione. Da lì la forma dell'agente, con il costo dentro la ricompensa. Batte il possesso passivo 11/15 fuori campione e **dimezza la discesa massima**; il *quando* sta sopra il caso solo debolmente. |
-| [`modello-swing.md`](modello-swing.md) | **il modello AI rifatto e misurato** (2026-08-28). L'audit che ha chiuso il modello a gambe (§1), l'etichetta nuova `labeling.swing_target` e perché il 93% di quel target è gratis, e le misure per cui il segnale esiste ma **non batte il caso a esposizione appaiata** (1 simbolo su 15). §5.4: cosa è stato cablato e cosa deliberatamente no. |
-| [`modello-ingresso.md`](modello-ingresso.md) | **il modello in testa oggi, cablato** (2026-08-29). Cambia la domanda: non «quanto siamo vicini a un estremo» ma «quanto rende comprare qui». La leva è la **selettività**, non l'accuratezza. Sono i primi numeri del progetto che passano il controllo a esposizione appaiata: +2,071% netti per operazione fuori campione, 14/15 simboli in utile, 100° percentile. Il veloce opera, il lento gli fa da cancello. |
-| [`MAPPA-modello-ai.md`](MAPPA-modello-ai.md) | **una preregistrazione**: i criteri di successo del lavoro sul modello AI, dichiarati *prima* delle misure. Sta qui apposta, per verificare che il bersaglio non sia stato spostato dopo averlo visto — e si e' mosso due volte. Non e' una specifica da eseguire. |
+| [`HANDOFF.md`](HANDOFF.md) | **read this first.** State of the two strands with the most recent results, what is still open, environment and measurement traps, rules of engagement. It does not duplicate the others, it references them. **To be updated at the end of a session.** |
+| [`labeling-strategy.md`](labeling-strategy.md) | **how the data is labeled.** Labels in [-1, +1] oscillating between local lows and highs, the pivot windows, and the **temporal smoothing** (`TIME_WEIGHT = 0.7`) that makes the label lead the price instead of following it. Also the embargo the variable look-ahead demands, and why the training target is not the measuring stick. |
+| [`strategy.md`](strategy.md) | **source of truth for the decisions** on labeling, features, model and validation, with the measurements that justify them. It has a revision table at the top. To be updated in place when something is decided. |
+| [`backtest-strategie.md`](backtest-strategie.md) | **the indicator strategies, measured.** 3,129 configurations over nine years of BTC: what returns, how much it depends on the parameters, what survives out of sample, and the code defects found by measuring. The tables are in `reports/`, the scripts that produce them in `scripts/{strategy_sweep,sweep_report,strategy_focus}.py`. |
+| [`strategie-nuove.md`](strategie-nuove.md) | **the operational sequel to the backtest.** The four code corrections and what they changed, the 2021-2026 cycle as a dataset, five new strategies and the engine that can also go short (`trading/strategies_ls.py`, `pnl.simulate_positions`). |
+| [`ricerca-quant-ml.md`](ricerca-quant-ml.md) | the measurements on five assets: cross-sectional rotation (`scripts/cross_section.py`) and the meta filter (`scripts/meta_gate.py`), plus §2, which is the reason seven entries left the menu. |
+| [`piano-strategie.md`](piano-strategie.md) | the plan agreed with the user on 2026-08-27. **Step 1 done, 2bis became the confluence, 2-5 not executed**: the work moved to the model strand. The multiplicity control (DSR/PBO) is here, and so is step 5, which is the last clean verification window left. |
+| [`strategia-confluenza.md`](strategia-confluenza.md) | **the multi-timeframe multi-signal strategy, measured.** Four planes with disjoint questions, six voters chosen by family, threshold decided by the higher planes. On 15 assets and seven years it **does not beat passive holding**: no look-ahead, uncorrelated voters, but the gradient of every parameter points at not trading. The conclusions are at the bottom. |
+| [`politica-rl.md`](politica-rl.md) | **the reinforcement policy, wired in** (2026-08-28). It starts from a premise of the user's — "buy shortly before the crashes" — and the measurement proves it false: entries have the same drawdown as any other bar, and every stop level makes the net worse. The cause is the commission. From there, the shape of the agent, with the cost inside the reward. It beats passive holding 11/15 out of sample and **halves the maximum drawdown**; the *when* is only weakly above chance. |
+| [`modello-swing.md`](modello-swing.md) | **the AI model redone and measured** (2026-08-28). The audit that closed the leg model (§1), the label and why 93% of that target is free, and the measurements for which the signal exists but **does not beat chance at matched exposure** (1 symbol out of 15). §5.4: what was wired in and what deliberately was not. |
+| [`modello-ingresso.md`](modello-ingresso.md) | **the model leading today, wired in** (2026-08-29). It changes the question: not "how close are we to an extreme" but "what does buying here return". The lever is **selectivity**, not accuracy. These are the project's first numbers that pass the matched-exposure control: +2.071% net per trade out of sample, 14/15 symbols profitable, 100th percentile. The fast one trades, the slow one gates it. |
+| [`MAPPA-modello-ai.md`](MAPPA-modello-ai.md) | **a pre-registration**: the success criteria of the AI-model work, declared *before* the measurements. It is here on purpose, to check the target was not moved after seeing it — and it moved twice. It is not a specification to execute. |
 
-## Regole
+## Rules
 
-- ciò che si decide va scritto **nel documento del pezzo**, non solo nel messaggio di commit;
-- `git log` resta la fonte più densa sul *perché* di ogni scelta: i messaggi sono lunghi apposta;
-- le misure vanno con i numeri e con il comando che le rifà, altrimenti non sono verificabili;
-- un risultato negativo si scrive come si scrive uno positivo. Metà di questi documenti chiude
-  una strada, ed è quello che impedisce di riaprirla per la terza volta.
+- documentation is written **in English**, always, including new documents and edited lines;
+- whatever is decided goes **in that piece's document**, not just in the commit message;
+- `git log` remains the densest source on the *why* of every choice: the messages are long on purpose;
+- measurements come with their numbers and with the command that reproduces them, otherwise they are
+  not verifiable;
+- a negative result is written up the way a positive one is. Half of these documents close a road,
+  and that is what stops it being reopened for the third time.

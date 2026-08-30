@@ -2,524 +2,590 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Documentazione di lavoro
+## Documentation language — standing rule
 
-Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
+**Every document in this repository is written in English.** This covers `CLAUDE.md`, everything
+under `.claude/docs/`, every `README.md` in every folder, and any new document added later.
 
-- `.claude/docs/strategy.md` — fonte di verità delle decisioni su labeling, feature, modello e
-  validazione, con le misure che le giustificano. Da aggiornare in luogo quando si decide qualcosa.
-- `.claude/docs/HANDOFF.md` — stato corrente del lavoro e trappole ambientali per chi riprende.
-- `.claude/docs/backtest-strategie.md` — le strategie a indicatori misurate su nove anni: 3.129
-  configurazioni, sensibilità ai parametri, tenuta fuori campione, difetti trovati misurando.
-- `.claude/docs/strategia-confluenza.md` — la strategia multi-timeframe a più segnali: quattro
-  piani con domande disgiunte, sei votanti scelti per famiglia, memoria del segnale, soglia decisa
-  dai piani alti. **Misurata (2026-08-28) su 15 asset e sette anni: non batte il possesso passivo.**
-  Niente look-ahead, votanti non correlati, ma il gradiente di ogni parametro punta al non-operare.
-  Le conclusioni e cosa farne stanno in fondo a quel documento.
-- `.claude/docs/strategie-nuove.md` — il seguito: le quattro correzioni applicate, il ciclo
-  2021-2026 come dataset, cinque strategie nuove e il motore che sa stare anche corto.
-- `.claude/docs/politica-rl.md` — **la politica a rinforzo, cablata (2026-08-28).** Le tre misure
-  che escludono lo stop e indicano la commissione come causa, la ricompensa col costo dentro, e i
-  risultati: batte il possesso passivo 11/15 fuori campione e **dimezza la discesa massima**, ma il
-  *quando* sta sopra il caso solo debolmente.
-- `.claude/docs/modello-swing.md` — **il modello AI rifatto, misurato e cablato (2026-08-28).**
-  L'audit che ha tolto `leg_model` dalla catena, l'etichettatura nuova a prossimità degli
-  estremi, le tre misure per cui il segnale esiste (IC +0,0385 fuori campione, 14/15 simboli
-  concordi) ma non batte il caso a esposizione appaiata, e il §5.4 su **cosa è stato cablato e
-  cosa deliberatamente no** nella pagina e in Confluence.
-- `.claude/docs/modello-ingresso.md` — **il modello in testa oggi, cablato (2026-08-29).** Cambia
-  la domanda: non «quanto siamo vicini a un estremo» ma «quanto rende comprare qui». Le misure che
-  hanno spostato il bersaglio (a pari selezione l'etichetta a gambe individua meglio i minimi e
-  rende 2,4 volte meno), la selettività come unica leva, e i **primi numeri di questo progetto che
-  passano il controllo a esposizione appaiata**: +2,071% netti per operazione fuori campione,
-  14/15 simboli in utile, 100° percentile. Il veloce opera, il lento gli fa da cancello.
-- `.claude/docs/README.md` — ordine di lettura consigliato.
+This rule is not a style preference and it is not up for renegotiation. It has been given more
+than once and the documentation drifted back to Italian anyway, so it is written here, at the top,
+where it is read first:
 
-Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
-esplicitamente diverse strade che sembrano ragionevoli a prima vista.
+- **do not translate a document back into Italian**, in whole or in part, for any reason;
+- **write new documents in English from the first draft**, not in Italian to be translated later;
+- when you edit an existing document, the edited lines stay English;
+- if a request arrives in Italian, answer in Italian in the chat, but **write the files in
+  English**. The language of the conversation and the language of the repository are separate.
 
-## Ambiente
+Code identifiers, comments and docstrings are currently Italian and are *out of scope* for this
+rule — changing them is a separate, larger job that touches tests asserting on Italian names. If
+that is wanted, it has to be asked for explicitly.
 
-Usare **`.venv312/bin/python`**: è l'unico ambiente completo, e il progetto richiede Python
->= 3.12. In locale ne resta un secondo, `.venv3.12`, che è l'interprete registrato in PyCharm
-(«Python 3.12 (CryptoFarm)») e per questo non è stato cancellato con gli altri il 2026-08-30 —
-ma è fermo a luglio 2025. Chi lavora dall'IDE lo aggiorni o lo ripunti a `.venv312`.
+## Working documentation
 
-L'installazione è divisa in extra: `pip install -e ".[app,data,dev]"` è il caso normale. Il nucleo
-(`pip install -e .`) basta a feature, etichette, modelli `gbdt` e bot live; `[app]` aggiunge
-Streamlit e Plotly (solo `trading/simulator.py` e i moduli che decora con `st.cache_data`);
-`[data]` aggiunge pyarrow, cioè il motore parquet che vogliono `data/klines.py` e
-`scripts/analysis.py`; `[dl]` aggiunge TensorFlow, circa 1 GB, e serve solo a `--model gru|cnn|lstm`.
+Project decisions and the state of the work live in **`.claude/docs/`**:
 
-`MODELS_DIR` e `MARKET_DATA_DIR` di `paths.py` si spostano con `CRYPTOFARM_MODELS_DIR` e
-`CRYPTOFARM_MARKET_DATA_DIR`. Senza le due variabili restano relative alla radice del repo.
+- `.claude/docs/labeling-strategy.md` — **the labeling strategy, in full (2026-08-30).** Labels in
+  [-1, +1] oscillating between local lows and highs, the pivot windows, and the **temporal
+  smoothing** (`TIME_WEIGHT = 0.7`) that makes the label lead the price instead of following it.
+  Also: the embargo the variable look-ahead demands, and why the training target is not the
+  measuring stick. Read this before touching `labeling.py` or `swing_trainer.py`.
+- `.claude/docs/strategy.md` — source of truth for decisions on labeling, features, model and
+  validation, with the measurements that justify them. Update it in place when something is decided.
+- `.claude/docs/HANDOFF.md` — current state of the work and environment traps for whoever picks it up.
+- `.claude/docs/backtest-strategie.md` — the indicator strategies measured over nine years: 3,129
+  configurations, parameter sensitivity, out-of-sample behaviour, defects found by measuring.
+- `.claude/docs/strategia-confluenza.md` — the multi-timeframe multi-signal strategy: four planes
+  with disjoint questions, six voters chosen by family, signal memory, threshold set by the higher
+  planes. **Measured (2026-08-28) on 15 assets and seven years: it does not beat passive holding.**
+  No look-ahead, uncorrelated voters, but the gradient of every parameter points at not trading.
+  The conclusions and what to do with them are at the bottom of that document.
+- `.claude/docs/strategie-nuove.md` — the sequel: the four corrections applied, the 2021-2026 cycle
+  as a dataset, five new strategies and the engine that can also go short.
+- `.claude/docs/politica-rl.md` — **the reinforcement policy, wired in (2026-08-28).** The three
+  measurements that rule out the stop and point at the commission as the cause, the reward with the
+  cost inside it, and the results: it beats passive holding 11/15 out of sample and **halves the
+  maximum drawdown**, but the *when* is only weakly above chance.
+- `.claude/docs/modello-swing.md` — **the swing model, measured and wired in.** The audit that
+  removed `leg_model` from the chain, the labeling, and the measurements for which the signal
+  exists (IC +0.0385 out of sample, 14/15 symbols agreeing) but does not beat chance at matched
+  exposure. §5.4 covers **what was wired in and what deliberately was not**.
+- `.claude/docs/modello-ingresso.md` — **the model leading the chain today, wired in (2026-08-29).**
+  It changes the question: not "how close are we to an extreme" but "what does buying here return".
+  The measurements that moved the target (at equal selectivity the leg label identifies lows better
+  and returns 2.4× less), selectivity as the only lever, and the **first numbers in this project
+  that pass the matched-exposure control**: +2.071% net per trade out of sample, 14/15 symbols
+  profitable, 100th percentile. The fast one trades, the slow one gates it.
+- `.claude/docs/README.md` — suggested reading order.
+
+Before changing the ML pipeline, read `strategy.md`: it contains measurements that explicitly rule
+out several roads that look reasonable at first sight.
+
+## Environment
+
+Use **`.venv312/bin/python`**: it is the only complete environment, and the project requires Python
+>= 3.12. A second one, `.venv3.12`, remains locally — it is the interpreter registered in PyCharm
+("Python 3.12 (CryptoFarm)") and for that reason it was not deleted with the others on 2026-08-30 —
+but it is frozen at July 2025. Whoever works from the IDE should update it or repoint it to
+`.venv312`.
+
+Installation is split into extras: `pip install -e ".[app,data,dev]"` is the normal case. The core
+(`pip install -e .`) is enough for features, labels, `gbdt` models and the live bot; `[app]` adds
+Streamlit and Plotly (only `trading/simulator.py` and the modules it decorates with
+`st.cache_data`); `[data]` adds pyarrow, i.e. the parquet engine that `data/klines.py` and
+`scripts/analysis.py` want; `[dl]` adds TensorFlow, about 1 GB, and is only needed for
+`--model gru|cnn|lstm`.
+
+`MODELS_DIR` and `MARKET_DATA_DIR` in `paths.py` move with `CRYPTOFARM_MODELS_DIR` and
+`CRYPTOFARM_MARKET_DATA_DIR`. Without those two variables they stay relative to the repo root.
 
 ## Project overview
 
 CryptoFarm trains a signal model on Binance market data and backtests trading strategies against it.
 There are two things that matter — **`trading/simulator.py`** (research) and **`ml/trainer.py`**
-(training) — plus their dependencies, plus one live bot. Ciò che non era raggiungibile da lì è
-stato **cancellato** (2026-08-30): git è l'archivio, e una cartella di codice morto che nessun test
-esegue costa più di quanto valga. Ogni cartella ha un `README.md` che elenca i suoi file e le loro
-funzioni; questo documento tiene solo ciò che vale per tutto il progetto.
+(training) — plus their dependencies, plus one live bot. Whatever was not reachable from there was
+**deleted** (2026-08-30): git is the archive, and a folder of dead code that no test exercises costs
+more than it is worth. Every folder has a `README.md` listing its files and their functions; this
+document keeps only what holds for the whole project.
 
 ```
 src/cryptofarm/
-├── data/klines.py        store locale delle candele, costruito sui dump bulk di Binance
-├── ml/                   pipeline di addestramento (sotto)
+├── data/klines.py        local candle store, built on Binance bulk dumps
+├── ml/                   training pipeline (below)
 └── trading/
-    ├── market_data.py    scarico puntuale da Binance per la pagina Streamlit
-    ├── indicators.py     indicatori + il nucleo numpy ATR/EMA
+    ├── market_data.py    ad-hoc download from Binance for the Streamlit page
+    ├── indicators.py     indicators + the numpy ATR/EMA core
     ├── indicators_extra.py  ADX, Donchian, Bollinger/Keltner, StochRSI, OBV/MFI, Ichimoku
-    ├── panels.py         il registro: quale strategia usa quali indicatori e quali parametri
-    ├── strategies.py     da candele con indicatori a (buy_signals, sell_signals)
-    ├── strategies_ls.py  strategie a due versi: da candele a cambi di posizione (+1/0/-1)
-    ├── pnl.py            da segnali a operazioni: `simulate_trading_with_commisions` (solo long)
-    │                     e `simulate_positions` (long/short, con leva e costo di mantenimento)
-    ├── mtf.py            allineamento fra intervalli: legge la barra lunga **chiusa**, mai quella corrente
-    ├── voters.py         da cambi di posizione a voto per barra, con memoria e decadimento
-    ├── confluence.py     la strategia a confluenza: sei votanti su quattro piani, soglia dinamica
-    ├── portfolio.py      un capitale solo su più asset: si apre sul primo che parla
-    ├── rotation.py       rotazione trasversale: sceglie *quale* asset, non *quando*
-    ├── tuned_defaults.py generato: valori di partenza misurati, per intervallo
-    ├── config.py         valori di partenza dei widget della pagina
-    ├── simulator.py      la pagina Streamlit: due viste, `trading_analysis` + `rotation_page`
-    └── live_bot.py       bot headless che piazza ordini veri
-scripts/analysis.py       misure da riga di comando che producono i numeri di strategy.md
+    ├── panels.py         the registry: which strategy uses which indicators and which parameters
+    ├── strategies.py     from candles with indicators to (buy_signals, sell_signals)
+    ├── strategies_ls.py  two-sided strategies: from candles to position changes (+1/0/-1)
+    ├── pnl.py            from signals to trades: `simulate_trading_with_commisions` (long only)
+    │                     and `simulate_positions` (long/short, with leverage and carry cost)
+    ├── mtf.py            alignment across intervals: reads the **closed** long bar, never the current one
+    ├── voters.py         from position changes to a per-bar vote, with memory and decay
+    ├── confluence.py     the confluence strategy: six voters on four planes, dynamic threshold
+    ├── portfolio.py      one pot of capital across several assets: it opens on the first that speaks
+    ├── rotation.py       cross-sectional rotation: it picks *which* asset, not *when*
+    ├── tuned_defaults.py generated: measured starting values, per interval
+    ├── config.py         starting values for the page's widgets
+    ├── simulator.py      the Streamlit page: two views, `trading_analysis` + `rotation_page`
+    └── live_bot.py       headless bot that places real orders
+scripts/analysis.py       command-line measurements producing the numbers in strategy.md
 ```
 
 ### Entry points
 
 ```bash
-# Simulatore / backtest (strumento di ricerca principale)
+# Simulator / backtest (the main research tool)
 streamlit run src/cryptofarm/trading/simulator.py
 
-# Addestramento. Scarica da solo i dati; i parametri sono costanti in cima al file
+# Training. It downloads its own data; the parameters are constants at the top of the file
 .venv312/bin/python -m cryptofarm.ml.trainer               # default: gbdt
-.venv312/bin/python -m cryptofarm.ml.trainer --model gru   # modello sequenziale
+.venv312/bin/python -m cryptofarm.ml.trainer --model gru   # sequential model
 .venv312/bin/python -m cryptofarm.ml.meta_trainer          # meta-labeling
 
-# Store delle candele (prerequisito dell'addestramento)
+# Candle store (prerequisite for training)
 .venv312/bin/python -m cryptofarm.data.klines --update
 
-# Modello a swing: prossimità agli estremi locali (vedi .claude/docs/modello-swing.md)
-.venv312/bin/python -m cryptofarm.data.positioning --update     # posizionamento futures, 400 MB
-.venv312/bin/python -m cryptofarm.ml.swing_trainer --selfcheck  # gira senza store
-.venv312/bin/python -m cryptofarm.ml.swing_trainer              # ~12 minuti, 15 simboli dal 2018
-.venv312/bin/python -m scripts.swing_lab                        # decili, P&L, controllo casuale
+# Swing model: where along the leg between two local extremes we are
+# (see .claude/docs/labeling-strategy.md and .claude/docs/modello-swing.md)
+.venv312/bin/python -m cryptofarm.data.positioning --update     # futures positioning, 400 MB
+.venv312/bin/python -m cryptofarm.ml.swing_trainer --selfcheck  # runs without the store
+.venv312/bin/python -m cryptofarm.ml.swing_trainer              # ~12 minutes, 15 symbols from 2018
+.venv312/bin/python -m cryptofarm.ml.swing_trainer --w 72 --peso-tempo 0.5   # another window/weight
+.venv312/bin/python -m scripts.swing_lab                        # deciles, P&L, random control
 
-# Modello d'ingresso: quanto rende comprare qui (vedi .claude/docs/modello-ingresso.md)
-.venv312/bin/python -m cryptofarm.ml.entry_trainer --selfcheck  # gira senza store
-.venv312/bin/python -m cryptofarm.ml.entry_trainer              # ~12 minuti, il lento (H=150)
+# Entry model: what buying here returns (see .claude/docs/modello-ingresso.md)
+.venv312/bin/python -m cryptofarm.ml.entry_trainer --selfcheck  # runs without the store
+.venv312/bin/python -m cryptofarm.ml.entry_trainer              # ~12 minutes, the slow one (H=150)
 .venv312/bin/python -m cryptofarm.ml.entry_trainer --h 20 --quantile 0.995 --nome entry_model_veloce
-.venv312/bin/python -m scripts.entry_lab                        # quanto vale il cancello del lento
-.venv312/bin/python -m scripts.entry_lab --frequenza           # quanto costa operare di piu'
+.venv312/bin/python -m scripts.entry_lab                        # what the slow model's gate is worth
+.venv312/bin/python -m scripts.entry_lab --frequenza            # what trading more often costs
 
-# Politica a rinforzo: sceglie la posizione col costo dentro la ricompensa (.claude/docs/politica-rl.md)
-.venv312/bin/python -m cryptofarm.ml.rl                         # selfcheck del solo algoritmo
-.venv312/bin/python -m cryptofarm.ml.rl_trainer --selfcheck     # gira senza store
-.venv312/bin/python -m cryptofarm.ml.rl_trainer                 # ~5 minuti, 15 simboli dal 2019
-.venv312/bin/python -m scripts.rl_lab                           # controllo a blocchi rimescolati
+# Reinforcement policy: picks the position with the cost inside the reward (.claude/docs/politica-rl.md)
+.venv312/bin/python -m cryptofarm.ml.rl                         # self-check of the algorithm alone
+.venv312/bin/python -m cryptofarm.ml.rl_trainer --selfcheck     # runs without the store
+.venv312/bin/python -m cryptofarm.ml.rl_trainer                 # ~5 minutes, 15 symbols from 2019
+.venv312/bin/python -m scripts.rl_lab                           # shuffled-blocks control
 
-# Misure di strategy.md
+# The measurements in strategy.md
 .venv312/bin/python -m scripts.analysis
 
-# Rotazione trasversale e filtro meta (vedi .claude/docs/ricerca-quant-ml.md)
+# Cross-sectional rotation and meta filter (see .claude/docs/ricerca-quant-ml.md)
 .venv312/bin/python -m scripts.cross_section --universe majors --interval 1d --grid
 .venv312/bin/python -m scripts.meta_gate --strategy donchian_breakout --interval 4h --oos 2024-01-01
 
-# Valori di partenza misurati per intervallo (rigenera trading/tuned_defaults.py)
+# Measured starting values per interval (regenerates trading/tuned_defaults.py)
 .venv312/bin/python -m scripts.tune_defaults --all-intervals --save
 
-# Backtest delle strategie a indicatori su tutto lo storico (vedi .claude/docs/backtest-strategie.md)
-.venv312/bin/python -m scripts.strategy_sweep --all --interval 15m   # griglie di parametri
-.venv312/bin/python -m scripts.sweep_report --interval 15m           # tabelle in reports/
-.venv312/bin/python -m scripts.strategy_focus --top 3                # commissioni e intervalli
+# Backtest of the indicator strategies over the whole history (see .claude/docs/backtest-strategie.md)
+.venv312/bin/python -m scripts.strategy_sweep --all --interval 15m   # parameter grids
+.venv312/bin/python -m scripts.sweep_report --interval 15m           # tables in reports/
+.venv312/bin/python -m scripts.strategy_focus --top 3                # commissions and intervals
 
-# Strategia a confluenza (vedi .claude/docs/strategia-confluenza.md)
-.venv312/bin/python -m scripts.confluence_lab --selfcheck             # gira senza store, dati finti
+# Confluence strategy (see .claude/docs/strategia-confluenza.md)
+.venv312/bin/python -m scripts.confluence_lab --selfcheck             # runs without the store, fake data
 .venv312/bin/python -m scripts.confluence_lab --grid coordinate --symbol BTCUSDT --interval 15m
 .venv312/bin/python -m scripts.confluence_lab --grid ampia --interval 15m --since 2021-01-01
 .venv312/bin/python -m scripts.confluence_lab --grid veloce --paniere majors
 
-# Strategie a due versi, long e short (vedi .claude/docs/strategie-nuove.md)
+# Two-sided strategies, long and short (see .claude/docs/strategie-nuove.md)
 .venv312/bin/python -m scripts.strategy_lab --all --interval 1d --since 2021-01-01
 .venv312/bin/python -m scripts.lab_report --symbol BTCUSD --interval 1d
 
-# Store delle candele da fonte alternativa, dove data.binance.vision non è raggiungibile
-.venv312/bin/python -m scripts.import_candles --source /percorso/al/clone
+# Candle store from an alternative source, where data.binance.vision is unreachable
+.venv312/bin/python -m scripts.import_candles --source /path/to/clone
 
-# Bot live — piazza ordini veri, richiede le variabili d'ambiente (vedi .env.example)
+# Live bot — places real orders, requires the environment variables (see .env.example)
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Test: `.venv312/bin/python -m pytest` (35 file: 1.019 passati, 3 saltati). Lint/format:
-`ruff check src scripts tests` e `black src scripts tests` (config in `pyproject.toml`).
+Tests: `.venv312/bin/python -m pytest` (35 files: 1,024 passed, 3 skipped). Lint/format:
+`ruff check src scripts tests` and `black src scripts tests` (config in `pyproject.toml`).
 
-## Il simulatore
+## The simulator
 
-`trading/simulator.py` era un file solo da 2028 righe ed è stato spezzato nei moduli sopra. Le
-dipendenze formano un DAG: `market_data`, `indicators`, `pnl` e `config` non dipendono da nulla,
-`strategies` dipende da `indicators`, `simulator` da tutti. **Non c'è una facciata di
-ri-esportazione**: chi serve una strategia la importa dal modulo che la contiene.
+`trading/simulator.py` used to be a single 2,028-line file and was split into the modules above. The
+dependencies form a DAG: `market_data`, `indicators`, `pnl` and `config` depend on nothing,
+`strategies` depends on `indicators`, `simulator` on all of them. **There is no re-export facade**:
+whoever needs a strategy imports it from the module that contains it.
 
-- Tutti i DataFrame OHLCV sono indicizzati su `Open time` (`DatetimeIndex`) con colonne
+- All OHLCV DataFrames are indexed on `Open time` (`DatetimeIndex`) with columns
   `Open, High, Low, Close, Volume`.
-- Le funzioni in `strategies.py` restituiscono `(buy_signals, sell_signals)`, liste di
-  `(timestamp, prezzo)`, che `trading_analysis` passa a `pnl.simulate_trading_with_commisions` o
-  `simulate_trading_with_commisions_multiple_buy`. Quelle in `strategies_ls.py` restituiscono invece
-  cambi di posizione `(timestamp, prezzo, +1|0|-1)` per `pnl.simulate_positions`: è il formato che
-  serve a rappresentare l'inversione diretta e la vendita allo scoperto.
-- Le letture per riga sono in array numpy estratti prima del ciclo, non `df["Col"].iloc[i]`. È da lì
-  che viene il grosso della velocità (il simulatore intero: 4295 ms → 125 ms). Mantenere lo stile.
-- `indicators._atr_ema` replica in numpy le formule di `ta` 0.11 riga per riga (seme dell'ATR sulla
-  media dei primi `window` true range, poi Wilder; EMA come `ewm(span, adjust=False)`).
-  **Se si cambia, va riverificato contro `ta`**: è ciò che rende `simulate_candles` 40 volte più
-  veloce, e una divergenza silenziosa qui sposta ogni segnale.
+- The functions in `strategies.py` return `(buy_signals, sell_signals)`, lists of
+  `(timestamp, price)`, which `trading_analysis` passes to `pnl.simulate_trading_with_commisions` or
+  `simulate_trading_with_commisions_multiple_buy`. Those in `strategies_ls.py` return position
+  changes `(timestamp, price, +1|0|-1)` for `pnl.simulate_positions` instead: that is the format
+  needed to express a direct reversal and short selling.
+- Per-row reads go through numpy arrays extracted before the loop, not `df["Col"].iloc[i]`. That is
+  where most of the speed comes from (the whole simulator: 4,295 ms → 125 ms). Keep the style.
+- `indicators._atr_ema` replicates the `ta` 0.11 formulas in numpy line by line (ATR seeded on the
+  mean of the first `window` true ranges, then Wilder; EMA as `ewm(span, adjust=False)`).
+  **If it changes, it must be re-verified against `ta`**: it is what makes `simulate_candles` 40
+  times faster, and a silent divergence here moves every signal.
 
-### Le due viste
+### The two views
 
-La pagina ha un interruttore in cima alla barra laterale (`config.ROTATION_MODES`), e le due voci
-non sono due strategie ma **due domande diverse**:
+The page has a switch at the top of the sidebar (`config.ROTATION_MODES`), and the two entries are
+not two strategies but **two different questions**:
 
-- **Single asset** — `trading_analysis`: carica un simbolo dall'exchange e ci esegue sopra una
-  strategia del menu. Sceglie *quando* stare dentro.
-- **Cross-asset rotation** — `rotation_page` su `trading/rotation.py`: carica l'universo **dallo
-  store locale**, lo ordina per forza relativa e tiene i primi. Sceglie *quale*.
+- **Single asset** — `trading_analysis`: loads a symbol from the exchange and runs a strategy from
+  the menu on it. It picks *when* to be in.
+- **Cross-asset rotation** — `rotation_page` on `trading/rotation.py`: loads the universe **from the
+  local store**, ranks it by relative strength and keeps the top names. It picks *which*.
 
-Tre conseguenze da conoscere prima di toccarle:
+Three consequences to know before touching them:
 
-- **la rotazione non usa la rete.** Legge `market_data/`, quindi in produzione (nessun disco
-  persistente) non ha dati e lo dice, invece di provare quindici scarichi. Un test lo verifica;
-- **i valori iniziali sono centrali, non ottimi.** La correlazione fra resa in stima e resa in
-  verifica sulle prime dieci configurazioni e' **-0,69**: cercare il massimo in campione trasferisce
-  peggio che prendere una configurazione a caso. Chi li cambia in "quelli che rendono di piu' nel
-  grafico" sta facendo esattamente l'errore misurato;
-- **il riferimento da battere e' l'universo a peso uguale, non BTC.** Porta la stessa distorsione da
-  sopravvivenza della rotazione, quindi il confronto isola cio' che la rotazione aggiunge. Contro
-  BTC la rotazione vince nel 95,6% delle configurazioni; contro l'universo, nel 44,4%.
+- **rotation does not use the network.** It reads `market_data/`, so in production (no persistent
+  disk) it has no data and says so, instead of attempting fifteen downloads. A test verifies this;
+- **the initial values are central, not optimal.** The correlation between in-sample and
+  out-of-sample return on the first ten configurations is **-0.69**: chasing the in-sample maximum
+  transfers worse than picking a configuration at random. Anyone changing them to "the ones that
+  return most on the chart" is making exactly the measured mistake;
+- **the benchmark to beat is the equal-weight universe, not BTC.** It carries the same survivorship
+  bias as the rotation, so the comparison isolates what rotation adds. Against BTC the rotation wins
+  in 95.6% of configurations; against the universe, in 44.4%.
 
-### I valori di partenza dipendono dall'intervallo
+### The starting values depend on the interval
 
-`trading/tuned_defaults.py` e' **generato** da `scripts/tune_defaults.py` e non si modifica a mano.
-Tiene, per ognuno dei quattro intervalli misurati (15m, 1h, 4h, 1d), il valore di partenza di ogni
-parametro di ogni strategia del menu.
+`trading/tuned_defaults.py` is **generated** by `scripts/tune_defaults.py` and is not edited by
+hand. It holds, for each of the four measured intervals (15m, 1h, 4h, 1d), the starting value of
+every parameter of every strategy in the menu.
 
-**Come sono scelti, e perche' non e' il massimo della griglia.** Il massimo e' la cella piu'
-fortunata: su questi dati la scelta del massimo trasferisce peggio della mediana, e sulla rotazione
-la correlazione fra resa in stima e in verifica e' −0,69. Qui si sceglie una coordinata alla volta:
-ogni configurazione riceve il suo **rango percentile dentro il proprio simbolo** (unico modo di
-sommare asset i cui possessi passivi vanno da +134% a +4.346%), e per ogni valore di ogni parametro
-si prende la mediana di quei ranghi su cinque asset. Si adotta il valore migliore **solo se** supera
-due controlli: sposta la mediana dei ranghi di almeno 0,06, e sceglie lo stesso valore anche
-guardando il solo 2021-2023. Chi non li supera tiene il default scritto a mano.
+**How they are chosen, and why it is not the grid maximum.** The maximum is the luckiest cell: on
+this data picking the maximum transfers worse than the median, and on the rotation the correlation
+between in-sample and out-of-sample return is −0.69. Here one coordinate is chosen at a time: every
+configuration gets its **percentile rank within its own symbol** (the only way to add up assets
+whose passive holdings range from +134% to +4,346%), and for every value of every parameter the
+median of those ranks across five assets is taken. The best value is adopted **only if** it passes
+two checks: it moves the median rank by at least 0.06, and it picks the same value when looking at
+2021-2023 alone. Whatever fails them keeps the hand-written default.
 
-**La mappa `panels.ANCORA_MISURATA`** dice quale misura copre quale intervallo: il menu ne offre
-nove, le griglie ne coprono quattro. E' un dato e non un calcolo, perche' "il piu' vicino" e' gia'
-una decisione (30m sta in mezzo fra 15m e 1h).
+**The `panels.ANCORA_MISURATA` map** says which measurement covers which interval: the menu offers
+nine, the grids cover four. It is data and not a computation, because "the closest one" is already
+a decision (30m sits between 15m and 1h).
 
-Tre cose da sapere prima di toccarlo:
+Three things to know before touching it:
 
-- **la chiave dei widget include l'intervallo** (`par_{nome}_{intervallo}`). Streamlit conserva lo
-  stato di un widget con la stessa chiave: senza, cambiando timeframe i campi restano fermi sui
-  numeri del precedente e il default misurato non compare mai. Il difetto e' invisibile leggendo il
-  codice e non lo vede `AppTest`, che ricostruisce lo stato a ogni run — per questo il test asserisce
-  sulla **chiave**, non sul valore;
-- **le finestre crescono quando le barre si accorciano**, ed e' la lettura meccanica del risultato:
-  la stessa regola vuole un canale di 20 barre a un giorno e di 150 a un'ora per coprire lo stesso
-  tratto di calendario. Un test fissa il verso di quella disuguaglianza;
-- **due parametri non hanno una lettura coerente fra intervalli** e vanno trattati con sospetto:
-  `ATR Bands / atr_multiplier` (3,0 a 15m, 1,6 a 1h, 1,2 a 4h, 3,0 a 1d) e
-  `Donchian Breakout / adx_min`. Sono scelte adottate perche' superano i due controlli su ogni
-  intervallo preso da solo, ma il quadro d'insieme non le sostiene. `tune_defaults` stampa la
-  tabella dell'accordo fra intervalli apposta per renderle visibili.
+- **the widget key includes the interval** (`par_{name}_{interval}`). Streamlit preserves the state
+  of a widget with the same key: without it, changing timeframe leaves the fields on the previous
+  interval's numbers and the measured default never appears. The defect is invisible when reading
+  the code and `AppTest` does not see it, since it rebuilds state on every run — which is why the
+  test asserts on the **key**, not on the value;
+- **windows grow as bars get shorter**, which is the mechanical reading of the result: the same rule
+  wants a 20-bar channel on a daily and 150 on an hourly to cover the same stretch of calendar. A
+  test pins the direction of that inequality;
+- **two parameters have no coherent reading across intervals** and should be treated with suspicion:
+  `ATR Bands / atr_multiplier` (3.0 at 15m, 1.6 at 1h, 1.2 at 4h, 3.0 at 1d) and
+  `Donchian Breakout / adx_min`. They are adopted because they pass the two checks on each interval
+  taken alone, but the overall picture does not support them. `tune_defaults` prints the
+  cross-interval agreement table specifically to make them visible.
 
-**Sotto l'ora nessuna misura di questo progetto ha mai trovato qualcosa che batta il possesso
-passivo.** I default a 15m sono i migliori *fra quelli provati*, non buoni.
+**Below the hour, no measurement in this project has ever found anything that beats passive
+holding.** The 15m defaults are the best *among those tried*, not good.
 
-### Il registro di `panels.py`
+### The `panels.py` registry
 
-La pagina non decide piu' da sola cosa mostrare. `trading/panels.py` tiene, in forma di dati, quali
-indicatori usa ogni strategia, quali parametri servono a ognuno e come si disegnano; `simulator.py`
-lo legge e dispone widget e tracce. Aggiungere una strategia vuol dire aggiungere una riga li' e la
-voce in `config.STRATEGIES` — un test verifica che le due liste coincidano.
+The page no longer decides on its own what to show. `trading/panels.py` holds, as data, which
+indicators each strategy uses, which parameters each of them needs and how they are drawn;
+`simulator.py` reads it and lays out widgets and traces. Adding a strategy means adding a row there
+and the entry in `config.STRATEGIES` — a test verifies the two lists match.
 
-Tre cose da sapere prima di toccarlo:
+Three things to know before touching it:
 
-- **La mappa e' verificata a mano.** Uno scan statico delle colonne lette non basta:
-  `close_bullish_ema_simulation` prende le medie con `(df[c].to_numpy() for c in (...))`, uno slice
-  variabile che l'analisi dell'albero sintattico non vede.
-- **Le dipendenze contano piu' dei nomi.** `Upper_Band`/`Lower_Band` sono `KAMA ± moltiplicatore ×
-  ATR` e `KAMA` usa `ema_window`: una strategia a bande dipende da "EMA Short" anche se di medie non
-  ne disegna nessuna.
-- **I colori sono tre**, blu/arancio/acquamarina: le uniche che passano tutte le coppie del
-  validatore su superficie scura. Il quarto slot contro l'arancio scende a 4,8 di ΔE per
-  deuteranopia. L'acquamarina non si usa sopra le candele, dove si confonde con il corpo rialzista.
-  Verde e rosso restano allo stato. Tre test tengono ferme queste regole.
+- **The map is verified by hand.** A static scan of the columns read is not enough:
+  `close_bullish_ema_simulation` takes the moving averages with `(df[c].to_numpy() for c in (...))`,
+  a variable slice that syntax-tree analysis does not see.
+- **Dependencies matter more than names.** `Upper_Band`/`Lower_Band` are `KAMA ± multiplier × ATR`
+  and `KAMA` uses `ema_window`: a band strategy depends on "EMA Short" even if it draws no moving
+  average at all.
+- **There are three colours**, blue/orange/aquamarine: the only ones that pass every validator pair
+  on a dark surface. The fourth slot against orange drops to 4.8 ΔE for deuteranopia. Aquamarine is
+  not used over the candles, where it blends with the bullish body. Green and red stay reserved for
+  state. Three tests hold these rules in place.
 
-### La strategia a confluenza
+### The confluence strategy
 
-`trading/confluence.py` è l'unica voce del menu che non è una strategia a indicatore: legge
-**quattro piani temporali ricavati dall'intervallo scelto** (`FATTORI` — ×1 innesco, ×4 conferma,
-×16 struttura, ×96 regime, cioè 15m/1h/4h/1d partendo da 15m) e fa votare otto strategie diverse.
-Quattro cose da sapere prima di toccarla:
+`trading/confluence.py` is the only menu entry that is not an indicator strategy: it reads **four
+time planes derived from the chosen interval** (`FATTORI` — ×1 trigger, ×4 confirmation, ×16
+structure, ×96 regime, i.e. 15m/1h/4h/1d starting from 15m) and has eight different strategies vote.
+Things to know before touching it:
 
-- **aggiungere un votante è `confluence.registra(Votante(...))`, quasi e basta.** Da lì si adattano
-  da soli famiglie, pesi, necessarietà, riquadri della barra laterale, parametri della strategia e
-  griglia del banco, ed è quello il punto. L'unico elenco rimasto da tenere allineato a mano sono
-  le tracce del riquadro *Voters* in `panels.INDICATORI`, e c'è un test che se ne accorge: conta
-  le tracce col `·` contro `len(VOTANTI)`;
-- **il votante `modello` sta nel default solo se un artefatto c'è.** `votanti_predefiniti()` lo
-  toglie quando nessuno dei quattro (`entry_model_veloce`, `entry_model`, `rl_model`,
-  `swing_model`) è su disco, che è la condizione della produzione: i pesi si normalizzano sui
-  votanti presenti, quindi un ottavo che tace sempre alzerebbe di fatto la soglia per gli altri
-  sette. Nel registro ci resta, così `selezione("modello")` lo raggiunge. È anche l'unico votante
-  **solo lungo**: vota +1 o 0, mai −1. Col modello d'ingresso vota +1 mentre una sua operazione è
-  aperta e le due soglie non hanno effetto — la selettività sta nei metadata dell'artefatto;
-- **i parametri dei votanti si risolvono in tre strati**: default della funzione (`config.CONF_*`),
-  valore misurato in `tuned_defaults` per l'intervallo del **piano** su cui il votante gira — non
-  quello della pagina — e override di chi chiama. Il secondo strato è quello che si sbaglia
-  facilmente: a base 15m un votante di struttura gira a 4h e vuole i valori di 4h;
-- **muoverli costa.** Il congelamento teneva a nove i parametri liberi; con le 31 manopole aperte
-  si superano i quaranta, e `scripts/multiplicity.py` dice cosa succede lì. Muoverli per capire,
-  misurare con i votanti fermi;
-- **la soglia è continua, non a gradini.** I piani lunghi entrano come distanza dalla media
-  normalizzata sull'ATR dello stesso piano, non come `np.sign`: con il segno la soglia saltava di
-  0,15 per volta e una uscita per punteggio su quattro era decisa da quel salto;
-- **l'isteresi ha un pavimento e un soffitto** (`barre_minime`, `pazienza`), e valgono **solo per
-  l'uscita dal punteggio**. Lo stop e il cancello no: sono regole di rischio, non di opinione;
-- **la parte cara non dipende dalla griglia.** I votanti congelati hanno uno stato che dipende solo
-  da (simbolo, intervallo): `stati_dei_votanti` lo calcola una volta e `scripts/confluence_lab.py`
-  lo riusa su tutte le celle. Misurato su 11.520 barre: 351 ms per cella contro 104 ms;
-- **il punto in cui può barare è uno solo**, `_stato_del_votante`, e la difesa è
-  `mtf.align_to_lower`, che sposta lo stato del piano lungo di un periodo intero prima di leggerlo.
-  Il test che lo protegge taglia **dentro** una barra lunga già cominciata e confronta gli stati:
-  un taglio allineato ai confini passa anche col difetto reintrodotto, ed è com'era scritto la
-  prima volta;
-- **zero operazioni non e' un risultato, e' una domanda.** Le condizioni d'ingresso sono quattro in
-  `and` e `Confluenza.perche_non_entra()` dice quale non si e' mai avverata, con i numeri. Serve
-  perche' il caso piu' comune non e' la prudenza della strategia ma la storia: a 15m il piano di
-  regime e' giornaliero e la sua media ne chiede cinquanta barre, cioe' **1.200 ore**, contro le
-  240 del valore di partenza della pagina;
-- **la scala x1/x4/x16/x96 vale attorno ai quindici minuti.** A 1m il «regime» dura un'ora e mezza,
-  a 1d chiede barre da 96 giorni. La regola scritta e' che il piano di regime duri fra mezza
-  giornata e una settimana (`scala_fuori_misura`), il che lascia 15m, 30m e 1h;
-- **la spiegazione viaggia col segnale.** I segnali della confluenza sono `(quando, prezzo, testo)`
-  invece di `(quando, prezzo)`, e il grafico mostra il testo al passaggio del mouse. Per questo
-  `pnl` scompatta con `[:2]`: qualunque strategia può aggiungere elementi dopo i due che il motore
-  usa. Il testo **distingue gli ingressi dalle uscite**: quattro uscite su cinque sono lo stop a
-  trailing, e mostrarci sopra i votanti fa leggere «venduto mentre cinque votanti dicevano di
-  comprare», che è vero e del tutto fuorviante;
-- **i quattro riquadri non sono intercambiabili.** `regime` e `struttura` valgono ±1 e il punteggio
-  sta in ±0,5: sullo stesso asse il primo schiaccia il secondo, e si vede una linea ferma a 1
-  mentre si compra e si vende. Da qui il riquadro *Higher planes* separato, e lo stop a trailing
-  disegnato sulle candele — senza, l'80% delle vendite è inspiegabile dal grafico.
+- **adding a voter is `confluence.registra(Votante(...))`, almost and that is all.** Families,
+  weights, necessity, sidebar panels, strategy parameters and the lab grid adapt on their own, and
+  that is the point. The only list left to keep aligned by hand is the traces of the *Voters* panel
+  in `panels.INDICATORI`, and there is a test that notices: it counts the traces with `·` against
+  `len(VOTANTI)`;
+- **the `modello` voter is in the default only if an artifact exists.** `votanti_predefiniti()`
+  removes it when none of the four (`entry_model_veloce`, `entry_model`, `rl_model`, `swing_model`)
+  is on disk, which is the production condition: weights are normalised over the voters present, so
+  an eighth one that is always silent would effectively raise the threshold for the other seven. It
+  stays in the registry, so `selezione("modello")` still reaches it. It is also the only **long
+  only** voter: it votes +1 or 0, never −1. With the entry model it votes +1 while one of its trades
+  is open and the two thresholds have no effect — the selectivity lives in the artifact's metadata;
+- **voter parameters resolve in three layers**: the function default (`config.CONF_*`), the value
+  measured in `tuned_defaults` for the interval of the **plane** the voter runs on — not the page's
+  — and the caller's override. The second layer is the one that is easy to get wrong: on a 15m base
+  a structure voter runs at 4h and wants the 4h values;
+- **moving them costs.** The freeze kept the free parameters at nine; with the 31 knobs open it goes
+  past forty, and `scripts/multiplicity.py` says what happens there. Move them to understand,
+  measure with the voters frozen;
+- **the threshold is continuous, not stepped.** The long planes enter as distance from the mean
+  normalised by the ATR of the same plane, not as `np.sign`: with the sign the threshold jumped by
+  0.15 at a time and one score-driven exit in four was decided by that jump;
+- **the hysteresis has a floor and a ceiling** (`barre_minime`, `pazienza`), and they apply **only
+  to the score-driven exit**. The stop and the gate do not: they are risk rules, not opinions;
+- **the expensive part does not depend on the grid.** Frozen voters have a state that depends only
+  on (symbol, interval): `stati_dei_votanti` computes it once and `scripts/confluence_lab.py` reuses
+  it across every cell. Measured over 11,520 bars: 351 ms per cell against 104 ms;
+- **there is exactly one place where it can cheat**, `_stato_del_votante`, and the defence is
+  `mtf.align_to_lower`, which shifts the long plane's state by a whole period before reading it. The
+  test that protects it cuts **inside** a long bar that has already started and compares the states:
+  a cut aligned to the boundaries passes even with the defect reintroduced, and that is how it was
+  written the first time;
+- **zero trades is not a result, it is a question.** The entry conditions are four in `and` and
+  `Confluenza.perche_non_entra()` says which one never came true, with the numbers. It is needed
+  because the most common case is not the strategy being cautious but the history: at 15m the regime
+  plane is daily and its mean asks for fifty bars, i.e. **1,200 hours**, against the 240 of the
+  page's starting value;
+- **the x1/x4/x16/x96 scale holds around fifteen minutes.** At 1m the "regime" lasts an hour and a
+  half, at 1d it asks for 96-day bars. The written rule is that the regime plane must last between
+  half a day and a week (`scala_fuori_misura`), which leaves 15m, 30m and 1h;
+- **the explanation travels with the signal.** Confluence signals are `(when, price, text)` instead
+  of `(when, price)`, and the chart shows the text on hover. That is why `pnl` unpacks with `[:2]`:
+  any strategy may append elements after the two the engine uses. The text **distinguishes entries
+  from exits**: four exits out of five are the trailing stop, and showing the voters on top of them
+  reads as "sold while five voters were saying buy", which is true and completely misleading;
+- **the four panels are not interchangeable.** `regime` and `struttura` are worth ±1 and the score
+  sits within ±0.5: on the same axis the first flattens the second, and you see a line stuck at 1
+  while buying and selling happens. Hence the separate *Higher planes* panel, and the trailing stop
+  drawn on the candles — without it, 80% of the sells are unexplainable from the chart.
 
-`trading/portfolio.py` risponde a una domanda diversa e non va confuso con `rotation.py`: la
-rotazione sceglie *quale* asset tenere e ci sta dentro sempre; il paniere a capitale condiviso sta
-fuori finché nessuno parla e mette tutto il capitale sul primo che dà il segnale. Riporta sempre le
-**occasioni perse** mentre il capitale era impegnato e la **concentrazione**, cioè la quota
-dell'asset più operato: sopra 0,9 il paniere è finzione.
+`trading/portfolio.py` answers a different question and must not be confused with `rotation.py`:
+rotation picks *which* asset to hold and is always in; the shared-capital basket stays out until
+someone speaks and then puts all the capital on the first that gives the signal. It always reports
+the **missed opportunities** while the capital was committed and the **concentration**, i.e. the
+share of the most traded asset: above 0.9 the basket is fiction.
 
-### Funzioni di `strategies.py` che il menu non raggiunge
+### Functions in `strategies.py` the menu does not reach
 
-`buy_sell_limits_simulation` legge `MACD`, che resta commentata in `add_technical_indicator`, e
-quindi solleva `KeyError` appena chiamata: e' l'unica esclusa perche' rotta.
+`buy_sell_limits_simulation` reads `MACD`, which is still commented out in
+`add_technical_indicator`, and therefore raises `KeyError` as soon as it is called: it is the only
+one excluded because it is broken.
 
-Le altre sette sono **uscite dal menu misurando** (2026-08-26, `.claude/docs/ricerca-quant-ml.md`
+The other seven **left the menu by measurement** (2026-08-26, `.claude/docs/ricerca-quant-ml.md`
 §2): Close Buy/Sell Limits, Close ATR, Close Bullish EMA, Green Candles, ATR Live Trade, Trend
-Pullback, Band Reversion. Restano nel modulo e nel golden master -- la misura si rifa' con
-`scripts/strategy_sweep` -- ma non sono selezionabili.
+Pullback, Band Reversion. They stay in the module and in the golden master — the measurement is
+redone with `scripts/strategy_sweep` — but they are not selectable.
 
-**`close_rsi_buy_sell_limits_simulation` e' invece rientrata** ("Close RSI Reverse"). La ragione
-per cui era esclusa -- "in perdita totale in tutte le 25 configurazioni provate" -- vale a 15
-minuti e non a scala giornaliera: a 1d fa 24-27 operazioni l'anno, mediana positiva su tutti e
-cinque i simboli e 72-92% di configurazioni in utile; a 4h ne fa 160 l'anno e su BTC perde il
-45,8%. E' il caso piu' netto della regola gia' nota, che la frequenza operativa spiega quasi tutto:
-**una strategia esclusa su un intervallo non e' esclusa su tutti**.
+**`close_rsi_buy_sell_limits_simulation` came back instead** ("Close RSI Reverse"). The reason it
+was excluded — "at a total loss in all 25 configurations tried" — holds at 15 minutes and not at
+daily scale: at 1d it makes 24-27 trades a year, a positive median on all five symbols and 72-92%
+of configurations profitable; at 4h it makes 160 a year and loses 45.8% on BTC. It is the clearest
+case of the already known rule that trading frequency explains almost everything: **a strategy
+excluded on one interval is not excluded on all of them**.
 
-### Il golden master
+### The golden master
 
-`tests/test_simulator_golden.py` fissa il comportamento di 21 funzioni su quattro scenari di mercato
-sintetici, confrontandolo con `tests/data/simulator_golden.json`. Copre il **comportamento delle
-funzioni**: **prima di toccarlo, questo deve passare; dopo, deve passare ancora senza rigenerarlo**.
+`tests/test_simulator_golden.py` pins the behaviour of 21 functions across four synthetic market
+scenarios, comparing it against `tests/data/simulator_golden.json`. It covers the **behaviour of the
+functions**: **before touching it, this must pass; afterwards, it must pass again without
+regenerating it**.
 
-L'**assemblaggio** invece lo copre `tests/test_simulator_page.py`, che esegue la pagina con
-`streamlit.testing.v1.AppTest`. E' il livello da cui e' passato il guasto che tolse il simulatore
-dalla produzione: ogni funzione aveva i suoi test e passavano tutti, mentre `load_signal_model()`
-chiamata senza condizione dentro `__main__` impediva alla pagina di aprirsi. Copre anche la
-degradazione senza store delle candele, che e' la condizione in cui gira il servizio pubblico.
+The **assembly** is covered by `tests/test_simulator_page.py` instead, which runs the page with
+`streamlit.testing.v1.AppTest`. That is the level the failure that took the simulator out of
+production went through: every function had its tests and they all passed, while
+`load_signal_model()` called unconditionally inside `__main__` prevented the page from opening. It
+also covers degradation without the candle store, which is the condition the public service runs in.
 
-Rigenerare (`SIMULATOR_GOLDEN_REGEN=1 pytest tests/test_simulator_golden.py`) **accetta qualunque
-differenza di comportamento**. Farlo solo dopo aver verificato a mano che la differenza sia voluta, e
-controllare che il diff del JSON contenga solo le righe attese.
+Regenerating (`SIMULATOR_GOLDEN_REGEN=1 pytest tests/test_simulator_golden.py`) **accepts any
+behavioural difference**. Only do it after verifying by hand that the difference is intended, and
+check that the JSON diff contains only the expected lines.
 
-Gli scenari non sono intercambiabili: `close_ema_crossover_simulation` pretende tre incroci EMA in
-sequenza e scatta solo su un'inversione vera (`regimi`, `sbandate`), `close_bullish_ema_simulation`
-solo in laterale. Togliere uno scenario scopre delle strategie.
+The scenarios are not interchangeable: `close_ema_crossover_simulation` demands three EMA crossings
+in sequence and only fires on a real reversal (`regimi`, `sbandate`), `close_bullish_ema_simulation`
+only in a range. Removing one scenario uncovers strategies.
 
-## La pipeline ML
+## The ML pipeline
 
-`ml/trainer.py` non contiene logica propria: assembla i pezzi e tiene la configurazione. Le feature
-stanno in `features.py`, le etichette in `labeling.py` e `directional_change.py`, la matrice in
-`dataset.py`, i modelli in `models.py`, le metriche in `evaluate.py`, la validazione in
-`validation.py`, l'esecuzione simulata in `execution.py`. `meta.py` + `meta_trainer.py` fanno il
-meta-labeling. `ml/README.md` elenca file per file le funzioni pubbliche di ognuno.
+`ml/trainer.py` contains no logic of its own: it assembles the pieces and holds the configuration.
+Features live in `features.py`, labels in `labeling.py` and `directional_change.py`, the matrix in
+`dataset.py`, models in `models.py`, metrics in `evaluate.py`, validation in `validation.py`,
+simulated execution in `execution.py`. `meta.py` + `meta_trainer.py` do the meta-labeling.
+`ml/README.md` lists the public functions of each file one by one.
 
-**Due famiglie sono state chiuse in negativo e il loro codice non è più qui**: la politica a tre
-azioni (`policy.py`, `dagger.py`, `policy_trainer.py` — `strategy.md` §12-13) e il modello a gambe
-(`leg_trainer.py` — `modello-swing.md` §1). Rimetterne il nome in `MODEL_PRECEDENCE` non basta a
-farli girare, perché il ramo di dispatch non c'è più, e un test lo verifica. La misura che li ha
-chiusi sta nei documenti, ed è lì che va riletta prima di rifarli.
+**Two families were closed with a negative result and their code is no longer here**: the
+three-action policy (`policy.py`, `dagger.py`, `policy_trainer.py` — `strategy.md` §12-13) and the
+leg model trainer (`leg_trainer.py` — `modello-swing.md` §1). Putting their name back in
+`MODEL_PRECEDENCE` is not enough to make them run, because the dispatch branch is gone, and a test
+verifies that. The measurement that closed them is in the documents, and that is where it must be
+re-read before redoing them.
 
-Il modello di default è **`gbdt`** (`HistGradientBoostingClassifier`), non più un LSTM; `models.py`
-tiene ancora `gru`/`cnn`/`lstm` dietro `--model`. Prerequisito dell'addestramento è lo store di
-candele (`data/klines.py`), non un download al volo.
+Note the distinction, because it is easy to get wrong: what was closed is the *leg trainer*, not the
+*leg label*. `labeling.swing_leg_target` is alive and is what `swing_model` is trained on today —
+see `.claude/docs/labeling-strategy.md`.
 
-### Quale modello usa il simulatore
+The default model is **`gbdt`** (`HistGradientBoostingClassifier`), no longer an LSTM; `models.py`
+still keeps `gru`/`cnn`/`lstm` behind `--model`. The prerequisite for training is the candle store
+(`data/klines.py`), not an on-the-fly download.
 
-`ml/trainer.MODEL_PRECEDENCE` è `("rl_model", "swing_model", "meta_model", "signal_model")` e
-`active_model_name()` è l'unica fonte di verità: `load_signal_model` carica quel modello e
-`ai_model_simulation` sceglie la strategia in base a quel nome, quindi i due non possono divergere.
-Per tornare al modello precedente basta spostare altrove l'artefatto di quello più recente.
+### How the data is labeled
 
-`meta_parameters()` legge barriere, soglia CUSUM e parametri di esecuzione **dai metadata
-dell'artefatto**, non da costanti: devono essere esattamente quelli con cui il modello è stato
-addestrato.
+Three label families live in `ml/labeling.py`, and they are not interchangeable. The full treatment
+is in **`.claude/docs/labeling-strategy.md`**; the short version:
 
-**Il modello in testa oggi è `entry_model_veloce`, e i due artefatti d'ingresso lavorano in
-coppia.** Prevede il rendimento delle prossime H barre — non la forma del grafico — e il suo
-vantaggio è la **selettività**: al 10% di barre segnalate il netto è sotto la commissione, allo
-0,5% è dieci volte sopra. Ne segue che soglia, cancello e tenuta stanno nei **metadata
-dell'artefatto** e non nei widget: cambiarli non regola una manopola, serve un'altra strategia.
-Il veloce (tenuta 20 barre) genera le operazioni, il lento (`entry_model`, tenuta 150) fa da
-cancello sulla sola barra d'ingresso: +2,071% netti per operazione fuori campione contro +1,360%
-senza, 14 simboli su 15 in utile, 100° percentile contro ingressi a caso a pari esposizione
-(`modello-ingresso.md`). Senza l'artefatto lento il veloce opera da solo, e si torna a +1,360%.
+| label | question | used by |
+|---|---|---|
+| `triple_barrier_labels` | does price move 1.5 ATR up before 1.0 ATR down? | `trainer.py`, `meta_trainer.py` |
+| `swing_leg_target` | where along the leg between two local extremes are we? | **`swing_trainer.py`**, the chart |
+| `swing_target` | where does this bar rank among its neighbours? | the yardstick only, as `verso="avanti"` |
+| `rendimento_futuro` | what does buying here return over H bars? | `entry_trainer.py` |
 
-**Si serve fino a 30 minuti e sopra tace.** La soglia è un rendimento, non un quantile, e il
-modello prevede quello delle prossime venti barre *da cinque minuti*: sulla stessa soglia le barre
-marcate passano da 0,063% a 5m a 2,98% a 1h e 28,1% a 1d, contro lo 0,5% per cui è misurato.
-`signals.entry_fuori_misura` è il cancello di scala, gemello di `confluence.scala_fuori_misura`.
-Sulla pagina i due artefatti si scelgono da un interruttore (`Fast (trades)` / `Slow (gates)`) e la
-scelta arriva alla strategia come `ai_model_simulation(..., famiglia=...)`: sono due strategie, non
-due tarature. Il riquadro *Entry model* affianca previsione e bersaglio nella stessa unità — le due
-curve non si somigliano (IC di rango +0,007) e non è un guasto: sopra la soglia il realizzato medio
-è +1,99% contro −0,004% su tutte le barre.
-Conseguenza da conoscere prima di dire «non funziona»: a 5m marca **una barra su millecinquecento**,
-quindi su una finestra da 240 ore zero operazioni è il comportamento atteso.
+The swing label is **[-1, +1] oscillating between local lows and highs**, with two knobs that must
+be understood together:
 
-Le famiglie precedenti restano nella catena sotto di lui. `swing_model` prevede la prossimità agli
-estremi locali e la forma misurata di quel segnale è a U: *entrambi* i poli precedono rendimenti
-sopra la media, quindi il segno **non dice il verso**. `ml/signals.swing_exposure` cabla l'unica
-lettura che la misura sostiene — `|previsione|` come interruttore di esposizione, con isteresi.
-Cablare `sign(previsione)`, che è la lettura naturale di un target in `[-1, 1]`, vende esattamente
-le barre migliori: è misurato in perdita a tutte le soglie e tutte le cadenze
-(`modello-swing.md` §5.1). Quel modello **non batte il possesso passivo**.
+- **the window** (`W`, 144 five-minute bars in training) selects which timescale of swing counts as
+  an extreme. Different windows give different labels, and that is intended;
+- **the temporal smoothing** (`peso_tempo` / `labeling.TIME_WEIGHT` = **0.7**) decides how much of
+  the position along the leg is told by the **elapsed bars** rather than by the price. At 0.7 a
+  price that stalls mid-leg keeps advancing towards the extreme that is coming, which is the part
+  that can be anticipated. At 0 the label follows the price and the model learns an oscillator.
+
+**The three consumers of that constant must never drift apart.** Training reads
+`swing_trainer.PESO_TEMPO = TIME_WEIGHT`, the chart reads `config.SWING_TARGET_TEMPO` (a copy,
+because `config.py` deliberately imports nothing), and the tests read `TIME_WEIGHT` directly. Until
+2026-08-30 they had drifted: the trainer learned the centered rank, which has no time weighting at
+all, while the page drew the time-weighted leg. Two different labels under one name, and the sidebar
+knob changed nothing the model had seen. `tests/test_swing_target.py` pins all of it.
+
+Because the leg label looks ahead to the **next extreme** — a variable horizon, longer than `W` —
+the train/test split uses an embargo of `EMBARGO_FINESTRE = 3` windows, not one. One window was
+enough for the centered rank and is not enough here.
+
+### Which model the simulator uses
+
+`ml/trainer.MODEL_PRECEDENCE` is
+`("entry_model_veloce", "entry_model", "rl_model", "swing_model", "meta_model", "signal_model")` and
+`active_model_name()` is the single source of truth: `load_signal_model` loads that model and
+`ai_model_simulation` picks the strategy based on that name, so the two cannot diverge. To go back
+to the previous model it is enough to move the most recent artifact elsewhere.
+
+`meta_parameters()` reads barriers, CUSUM threshold and execution parameters **from the artifact's
+metadata**, not from constants: they must be exactly the ones the model was trained with.
+
+**The model leading today is `entry_model_veloce`, and the two entry artifacts work as a pair.** It
+predicts the return of the next H bars — not the shape of the chart — and its advantage is
+**selectivity**: at 10% of bars signalled the net is below the commission, at 0.5% it is ten times
+above it. It follows that threshold, gate and holding period live in the **artifact's metadata** and
+not in the widgets: changing them does not tune a knob, it asks for a different strategy. The fast
+one (20-bar hold) generates the trades, the slow one (`entry_model`, 150-bar hold) acts as a gate on
+the entry bar alone: +2.071% net per trade out of sample against +1.360% without it, 14 symbols out
+of 15 profitable, 100th percentile against random entries at matched exposure
+(`modello-ingresso.md`). Without the slow artifact the fast one trades alone, and it is back to
++1.360%.
+
+**It is served up to 30 minutes and stays silent above that.** The threshold is a return, not a
+quantile, and the model predicts the return of the next twenty *five-minute* bars: on the same
+threshold the marked bars go from 0.063% at 5m to 2.98% at 1h and 28.1% at 1d, against the 0.5% it
+is measured for. `signals.entry_fuori_misura` is the scale gate, twin of
+`confluence.scala_fuori_misura`. On the page the two artifacts are chosen with a switch
+(`Fast (trades)` / `Slow (gates)`) and the choice reaches the strategy as
+`ai_model_simulation(..., famiglia=...)`: they are two strategies, not two tunings. The *Entry
+model* panel puts prediction and target side by side in the same unit — the two curves do not look
+alike (rank IC +0.007) and that is not a fault: above the threshold the average realised return is
++1.99% against −0.004% across all bars.
+A consequence to know before saying "it does not work": at 5m it marks **one bar in fifteen
+hundred**, so over a 240-hour window zero trades is the expected behaviour.
+
+The earlier families stay in the chain below it. `swing_model` predicts where along the leg between
+two local extremes the bar sits. The measured shape of that signal is U-shaped: *both* poles precede
+above-average returns, so the sign **does not tell the direction**. `ml/signals.swing_exposure`
+wires in the only reading the measurement supports — `|prediction|` as an exposure switch, with
+hysteresis. Wiring `sign(prediction)`, which is the natural reading of a target in `[-1, 1]`, sells
+exactly the best bars: it is measured at a loss at every threshold and every cadence
+(`modello-swing.md` §5.1). That model **does not beat passive holding**.
 
 ## Data/model artifacts
 
-`models/` contiene gli artefatti (`.joblib` + `.json` di metadata) e **non ne traccia nessuno**:
-`models/.gitignore` copre `*.keras`, `*.joblib` e `*.json`, e tiene solo il `README.md`. Un clone
-del repository quindi non ha modelli, ed è la condizione in cui gira il servizio pubblico.
-Rigenerare con i trainer, non modificare a mano.
+`models/` contains the artifacts (`.joblib` + `.json` metadata) and **tracks none of them**:
+`models/.gitignore` covers `*.keras`, `*.joblib` and `*.json`, and keeps only the `README.md`. A
+clone of the repository therefore has no models, and that is the condition the public service runs
+in. Regenerate with the trainers, do not edit by hand.
 
-## Docker e CI
+## Docker and CI
 
-Un solo `Dockerfile` con quattro target: **`runtime`** (simulatore, trainer, store delle candele,
-`scripts.analysis`), **`dev`** (`runtime` + pytest/ruff/black, è l'immagine con cui gira la CI),
-**`dl`** (`runtime` + TensorFlow, per i modelli sequenziali) e **`web`**, che è quello che va in
-produzione ed è identico a `runtime`.
+A single `Dockerfile` with four targets: **`runtime`** (simulator, trainer, candle store,
+`scripts.analysis`), **`dev`** (`runtime` + pytest/ruff/black, the image the CI runs on), **`dl`**
+(`runtime` + TensorFlow, for the sequential models) and **`web`**, which is what goes to production
+and is identical to `runtime`.
 
-**`web` è l'ultimo stage del file, e deve restarci**: una build senza `--target` prende l'ultimo
-stage, e Render non ha un campo per sceglierlo. Spostarlo significa spedire in produzione
-l'immagine con TensorFlow. La CI costruisce anche senza `--target` proprio per accorgersene. Uno
-stage nuovo va aggiunto sopra `web`, mai sotto.
+**`web` is the last stage in the file, and must stay there**: a build without `--target` takes the
+last stage, and Render has no field to choose one. Moving it means shipping the TensorFlow image to
+production. The CI also builds without `--target` precisely to notice. A new stage goes above `web`,
+never below.
 
-Un'immagine più magra per la sola pagina non è ottenibile togliendo pyarrow: `streamlit` dipende da
-`pyarrow>=7.0`, quindi i 141 MB del motore parquet ci sono comunque.
+A leaner image for the page alone is not achievable by dropping pyarrow: `streamlit` depends on
+`pyarrow>=7.0`, so the 141 MB of the parquet engine are there anyway.
 
 ```bash
-mkdir -p models market_data                     # solo la prima volta: i bind mount devono esistere
+mkdir -p models market_data                     # first time only: the bind mounts must exist
 docker compose up simulator                     # http://localhost:8501
 docker compose --profile data  run --rm klines
 docker compose --profile train run --rm trainer
 docker compose --profile ci    run --rm tests
 ```
 
-Dentro l'immagine il pacchetto sta in `site-packages`, non in editable: la radice che `paths.py`
-dedurrebbe dalla posizione del file punterebbe dentro il virtualenv, quindi l'immagine imposta
-`CRYPTOFARM_MODELS_DIR=/app/models` e `CRYPTOFARM_MARKET_DATA_DIR=/app/market_data`, che è dove
-`compose.yaml` monta `./models` e `./market_data` dell'host. Chi tocca `paths.py` deve tenere
-funzionante l'override, altrimenti i modelli addestrati in container finiscono in un layer usa e
-getta.
+Inside the image the package sits in `site-packages`, not editable: the root `paths.py` would infer
+from the file's location would point inside the virtualenv, so the image sets
+`CRYPTOFARM_MODELS_DIR=/app/models` and `CRYPTOFARM_MARKET_DATA_DIR=/app/market_data`, which is
+where `compose.yaml` mounts the host's `./models` and `./market_data`. Whoever touches `paths.py`
+must keep the override working, otherwise models trained in a container end up in a throwaway layer.
 
-Il deploy pubblico sta in `render.yaml` (piano gratuito, regione `frankfurt`). Tre vincoli che
-non si vedono dal codice: il servizio deve legarsi a **`$PORT`** su `0.0.0.0` (il comando
-dell'immagine usa `${PORT:-8501}`); Binance blocca gli IP statunitensi su `api.binance.com`, da cui
-il simulatore prende le candele, quindi la regione non è un dettaglio; il piano gratuito non ha
-dischi persistenti, e con `models/*.joblib` gitignorato online girano le strategie classiche.
+The public deployment is in `render.yaml` (free plan, `frankfurt` region). Three constraints that
+are not visible from the code: the service must bind to **`$PORT`** on `0.0.0.0` (the image's
+command uses `${PORT:-8501}`); Binance blocks US IPs on `api.binance.com`, which is where the
+simulator gets its candles, so the region is not a detail; the free plan has no persistent disks,
+and with `models/*.joblib` gitignored the classic strategies are what run online.
 
-Il modello è **opzionale** per la pagina: gli artefatti sono gitignorati, quindi un clone del
-repository e l'immagine in produzione non ne hanno. `simulator.available_strategies` toglie la voce
-`config.AI_STRATEGY` dal menu quando `active_model_name()` non trova niente, e il caricamento
-all'avvio è condizionato allo stesso controllo. Chi tocca quel punto tenga presente che prima il
-`load_signal_model()` era incondizionato e faceva cadere l'intera pagina, non solo quella strategia.
+The model is **optional** for the page: the artifacts are gitignored, so a clone of the repository
+and the production image have none. `simulator.available_strategies` removes the
+`config.AI_STRATEGY` entry from the menu when `active_model_name()` finds nothing, and the load at
+startup is conditioned on the same check. Whoever touches that point should keep in mind that
+`load_signal_model()` used to be unconditional and brought down the whole page, not just that
+strategy.
 
-I quattro `@st.cache_data` di `trading/` hanno `ttl`/`max_entries` per una ragione operativa: i
-parametri arrivano dai widget, quindi la cardinalità la decide chi muove gli slider, e senza tetto
-un'istanza da 512 MB finisce in OOM mentre la si usa. Non toglierli.
+The four `@st.cache_data` in `trading/` have `ttl`/`max_entries` for an operational reason: the
+parameters come from the widgets, so cardinality is decided by whoever moves the sliders, and
+without a cap a 512 MB instance ends in OOM while in use. Do not remove them.
 
-`live_bot.py` **non** è un servizio di compose, di proposito: fa partire il ciclo `while True`
-all'import, senza `main()` e senza gestione dei segnali, quindi un container che si riavvia da solo
-lo rimetterebbe a piazzare ordini senza controllo. Prima serve quel refactor.
+`live_bot.py` is **not** a compose service, on purpose: it starts the `while True` loop at import,
+with no `main()` and no signal handling, so a container that restarts on its own would put it back
+to placing orders unsupervised. That refactor comes first.
 
-La CI (`.github/workflows/ci.yml`) gira su ogni pull request e sui push a `main`, in due job. Il
-primo installa `.[app,data,dev]` su Python 3.12 e passa `ruff check`, `black --check` e `pytest` su
-`src`, `tests` e `scripts`. Il secondo costruisce le immagini e verifica quattro cose che dal
-sorgente non si vedono: che il pacchetto si importi e risolva le directory dei dati a `/app/...`,
-che i test passino dentro l'immagine, che la build **senza `--target`** non porti TensorFlow (cioè
-che `web` sia ancora l'ultimo stage), e che il container si leghi davvero a `$PORT` — lo avvia con
-`PORT=10000` e interroga `/_stcore/health`.
+The CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`, in two jobs.
+The first installs `.[app,data,dev]` on Python 3.12 and passes `ruff check`, `black --check` and
+`pytest` over `src`, `tests` and `scripts`. The second builds the images and verifies four things
+that are not visible from the source: that the package imports and resolves the data directories to
+`/app/...`, that the tests pass inside the image, that the build **without `--target`** does not
+carry TensorFlow (i.e. that `web` is still the last stage), and that the container really binds to
+`$PORT` — it starts it with `PORT=10000` and queries `/_stcore/health`.
 
-Nessuna immagine viene pubblicata su un registry: Render costruisce il Dockerfile da sé a ogni
-push su `main`.
+No image is published to a registry: Render builds the Dockerfile itself on every push to `main`.
 
 ## Configuration
 
-Le credenziali Binance e i parametri del bot passano da variabili d'ambiente — vedi `.env.example`.
-Nulla nel repo carica `.env` da solo (non c'è `python-dotenv`): esportarle nella shell o nella
-configurazione di esecuzione dell'IDE.
+Binance credentials and the bot's parameters come from environment variables — see `.env.example`.
+Nothing in the repo loads `.env` on its own (there is no `python-dotenv`): export them in the shell
+or in the IDE's run configuration.
 
-- `API_KEY`, `API_SECRET` — solo `trading/live_bot.py`.
-- `live_bot.py` legge anche `ASSET`, `CURRENCY`, `CANDLES_TIME`, `SMA_WINDOW`, `ATR_WINDOW`,
+- `API_KEY`, `API_SECRET` — only `trading/live_bot.py`.
+- `live_bot.py` also reads `ASSET`, `CURRENCY`, `CANDLES_TIME`, `SMA_WINDOW`, `ATR_WINDOW`,
   `ATR_MULTIPLIER`, `RSI_WINDOW`, `RSI_BUY_LIMIT`, `RSI_SELL_LIMIT`, `NUM_CONDITIONS`.
-- `MARKET_DATA_CSV` — percorso del CSV storico nella pagina Streamlit (`trading/config.py`).
-- Il simulatore e i trainer usano gli endpoint pubblici di Binance e non hanno bisogno di credenziali.
+- `MARKET_DATA_CSV` — path of the historical CSV in the Streamlit page (`trading/config.py`).
+- The simulator and the trainers use Binance's public endpoints and need no credentials.
 
-`.streamlit/config.toml` imposta il tema scuro.
+`.streamlit/config.toml` sets the dark theme.
 
-### Plugin di Claude Code
+### Claude Code plugins
 
-`.claude/settings.json` è tracciato e dichiara tre marketplace con i plugin abilitati per il
-progetto: `ponytail`, `agent-skills` (raccolte di skill generaliste) e tre plugin di
+`.claude/settings.json` is tracked and declares three marketplaces with the plugins enabled for the
+project: `ponytail`, `agent-skills` (collections of general-purpose skills) and three plugins from
 `anthropics/financial-services` — `financial-analysis`, `equity-research`, `market-researcher` —
-scelti perché il lavoro qui è di analisi finanziaria quantitativa.
+chosen because the work here is quantitative financial analysis.
 
-Ogni marketplace è **agganciato a un commit** (`ref`, SHA a 40 caratteri): è l'unico modo di fissare
-le versioni dei plugin, perché `enabledPlugins` accetta solo un booleano e la versione la dichiara
-il manifesto del marketplace. Al momento dell'aggancio: ponytail 4.9.0, agent-skills 0.6.7,
-financial-analysis 0.1.1, equity-research 0.1.2, market-researcher 0.1.1. Per aggiornarli si sposta
-il `ref` su un commit più recente, deliberatamente — non succede da solo.
+Each marketplace is **pinned to a commit** (`ref`, a 40-character SHA): it is the only way to pin
+plugin versions, because `enabledPlugins` only accepts a boolean and the version is declared by the
+marketplace manifest. At the time of pinning: ponytail 4.9.0, agent-skills 0.6.7,
+financial-analysis 0.1.1, equity-research 0.1.2, market-researcher 0.1.1. To update them the `ref`
+is moved to a more recent commit, deliberately — it does not happen on its own.
 
-Le skill dei plugin sono disponibili dalla sessione successiva all'installazione, non da quella in
-cui si modifica il file.
+Plugin skills become available from the session after installation, not the one in which the file is
+edited.
 
-## Cosa è stato cancellato, e come si ritrova
+## What was deleted, and how to find it again
 
-Non c'è più nessun archivio nel repository. `backup/unused/` (dashboard live, bot a due account,
-grid search, visualizzatore dei risultati, dashboard di analisi), `backup/v2/` (il simulatore
-multi-timeframe della riscrittura precedente), `trading/live_frames.py` e le due famiglie di
-modelli chiuse in negativo sono stati cancellati il 2026-08-30. **git è l'archivio**: `git log
---diff-filter=D --name-only` li trova, e `git checkout <commit>^ -- <percorso>` li rimette con la
-storia intatta.
+There is no archive left in the repository. `backup/unused/` (live dashboard, two-account bot, grid
+search, results viewer, analysis dashboard), `backup/v2/` (the multi-timeframe simulator of the
+previous rewrite), `trading/live_frames.py` and the two model families closed with a negative result
+were deleted on 2026-08-30. **git is the archive**: `git log --diff-filter=D --name-only` finds
+them, and `git checkout <commit>^ -- <path>` puts them back with their history intact.

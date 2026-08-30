@@ -1,88 +1,88 @@
-# Mappa delle capacità — riaddestramento del modello AI (2026-08-28)
+# Capability map — retraining the AI model (2026-08-28)
 
-> **Stato: eseguita, e il bersaglio si è mosso due volte da qui.** Questo documento resta come
-> **preregistrazione**: dichiara i criteri di successo *prima* delle misure, ed è ciò che permette
-> di verificare che non siano stati riscritti dopo averli visti. Cosa è successo davvero:
-> `model-legs` è stato chiuso in negativo (`modello-swing.md` §1) e il suo codice cancellato;
-> `model-swing` l'ha sostituito e non ha battuto il caso a esposizione appaiata; il modello in
-> testa oggi è quello d'ingresso (`modello-ingresso.md`), che pone una domanda diversa da tutte e
-> due — non «quanto siamo vicini a un estremo» ma «quanto rende comprare qui».
-> Gli unici moduli di questa mappa che sono in servizio oggi sono `positioning` e `features-bar`.
-> **Non è una specifica da eseguire: è il metro con cui giudicare quanto è stato eseguito.** Nessuna spec di modulo va scritta prima che questa mappa
-sia approvata: sbagliare i confini costa, rivedere quindici righe no.
+> **Status: executed, and the target has moved twice since.** This document remains as a
+> **pre-registration**: it declares the success criteria *before* the measurements, which is what
+> makes it possible to check they were not rewritten after seeing them. What actually happened:
+> `model-legs` was closed with a negative result (`modello-swing.md` §1) and its code deleted;
+> `model-swing` replaced it and did not beat chance at matched exposure; the model leading today is
+> the entry model (`modello-ingresso.md`), which asks a different question from either — not "how
+> close are we to an extreme" but "what does buying here return".
+> The only modules from this map that are in service today are `positioning` and `features-bar`.
+> **It is not a specification to execute: it is the yardstick for judging what was executed.** No
+> module spec should be written before this map is approved: getting the boundaries wrong is
+> expensive, revising fifteen lines is not.
 
-## Perché una mappa e non una spec sola
+## Why a map and not a single spec
 
-La richiesta impacchetta cinque capacità che si verificano separatamente: uno store di dati
-nuovo, un insieme di feature, un addestramento, e **due** consumatori del modello che pongono
-domande diverse (la voce di menu decide *quando entrare e uscire da sola*; il votante decide
-*come votare in un collegio*). Una spec unica costringerebbe ogni task a valere su tutto il
-contratto.
+The request packages five capabilities that are verified separately: a new data store, a set of
+features, a training run, and **two** consumers of the model asking different questions (the menu
+entry decides *when to enter and exit on its own*; the voter decides *how to vote in a college*). A
+single spec would force every task to be judged against the whole contract.
 
-## I moduli
+## The modules
 
-| id | responsabilità | dipende da |
+| id | responsibility | depends on |
 |---|---|---|
-| `positioning` | store locale di funding rate, open interest, long/short e taker ratio dai dump bulk di Binance, gemello di `data/klines.py` | — |
-| `features-bar` | feature per barra, scale-free, con contesto trasversale e posizionamento; una sola definizione condivisa fra addestramento e inferenza | `positioning` |
-| `model-legs` | addestramento delle due teste (`P_su`, `P_giu`), validazione purgata + verifica temporale + controllo casuale, artefatto con metadata | `features-bar` |
-| `strategy-ai` | la voce di menu «AI Model»: ingresso su `P_su`, uscita su `P_giu` o barriera; e lo spostamento di `policy_model` fuori dalla precedenza | `model-legs` |
-| `voter-ai` | il `Votante` per barra dentro la confluenza, che vota +1/−1 e si registra come gli altri sei | `model-legs` |
+| `positioning` | local store of funding rate, open interest, long/short and taker ratio from Binance bulk dumps, twin of `data/klines.py` | — |
+| `features-bar` | per-bar, scale-free features, with cross-sectional context and positioning; one shared definition between training and inference | `positioning` |
+| `model-legs` | training of the two heads (`P_su`, `P_giu`), purged validation + temporal verification + random control, artifact with metadata | `features-bar` |
+| `strategy-ai` | the "AI Model" menu entry: entry on `P_su`, exit on `P_giu` or barrier; and moving `policy_model` out of the precedence list | `model-legs` |
+| `voter-ai` | the per-bar `Votante` inside the confluence, voting +1/−1 and registering like the other six | `model-legs` |
 
-Ordine di costruzione: `positioning` → `features-bar` → `model-legs` → `strategy-ai`, `voter-ai`
+Build order: `positioning` → `features-bar` → `model-legs` → `strategy-ai`, `voter-ai`
 
-Nessun ciclo. `strategy-ai` e `voter-ai` sono paralleli e non si conoscono: entrambi leggono
-l'artefatto di `model-legs`, che è l'interfaccia.
+No cycles. `strategy-ai` and `voter-ai` are parallel and do not know each other: both read the
+`model-legs` artifact, which is the interface.
 
-## Il criterio di successo dell'iniziativa, dichiarato prima
+## The initiative's success criterion, declared beforehand
 
-Non «l'AUC sale». Il progetto ha già misurato tre volte che un vantaggio di ordinamento reale non
-paga. Il numero da battere, dichiarato adesso e non dopo:
+Not "AUC goes up". The project has already measured three times that a real ranking advantage does
+not pay. The number to beat, declared now and not afterwards:
 
-1. **fuori campione** (addestrato < taglio, misurato dopo, un taglio solo dichiarato prima), il
-   netto medio per operazione deve stare sopra il **p95 di 500 selezioni casuali di pari
-   numerosità** — lo stesso controllo di `meta_gate`/`ai_voter`, che finora nessun disegno ha
-   superato in modo stabile;
-2. su **due soglie adiacenti**, non una: un solo picco fra soglie vicine è rumore, ed è già
-   successo (`ai_voter` a 0,45 rende −1,5% fra 0,40 e 0,50 che rendono +0,8% e +2,0%);
-3. la mediana degli ingressi deve cadere **prima del 43% della gamba** — il numero che la
-   confluenza fa oggi. È l'unico criterio che traduce «anticipare» in una misura.
+1. **out of sample** (trained before the cut, measured after, a single cut declared in advance), the
+   average net per trade must sit above the **p95 of 500 random selections of the same size** — the
+   same control as `meta_gate`/`ai_voter`, which no design has passed stably so far;
+2. on **two adjacent thresholds**, not one: a single peak between neighbouring thresholds is noise,
+   and it has happened before (`ai_voter` at 0.45 returns −1.5% between 0.40 and 0.50, which return
+   +0.8% and +2.0%);
+3. the median entry must fall **before 43% of the leg** — the number the confluence achieves today.
+   It is the only criterion that translates "anticipate" into a measurement.
 
-Se 1 e 2 non passano, il risultato si scrive e il filone si chiude con una misura, non con
-un'opinione. Il criterio 3 può passare da solo ed è comunque un'informazione.
+If 1 and 2 do not pass, the result is written up and the strand is closed with a measurement, not
+with an opinion. Criterion 3 can pass on its own and is information either way.
 
-## Quello che la mappa esclude di proposito
+## What the map deliberately excludes
 
-- **niente politica a tre azioni**: `strategy.md` §12-13, chiusa in negativo con la causa nota;
-- **niente `aggTrades`**: `sum_taker_long_short_vol_ratio` è la stessa informazione già aggregata
-  a 5 minuti, e nel pannello non ha superato il controllo di segno — quindi non vale centinaia
-  di GB;
-- **niente architetture profonde**: benchmark qlib, `ricerca-quant-ml.md` §1.1;
-- **niente ottimizzazione dei parametri dei votanti** insieme al modello.
+- **no three-action policy**: `strategy.md` §12-13, closed with a negative result and a known cause;
+- **no `aggTrades`**: `sum_taker_long_short_vol_ratio` is the same information already aggregated to
+  5 minutes, and in the panel it did not pass the sign check — so it is not worth hundreds of GB;
+- **no deep architectures**: qlib benchmark, `ricerca-quant-ml.md` §1.1;
+- **no optimisation of the voters' parameters** together with the model.
 
 ---
 
-## Decisioni prese con l'utente (2026-08-28)
+## Decisions taken with the user (2026-08-28)
 
-| bivio | scelta | conseguenza |
+| fork | choice | consequence |
 |---|---|---|
-| dati di posizionamento | **sì, solo `retail_pos` e `top_pos`** | `positioning` scarica e conserva tutte le colonne (arrivano nello stesso file, non costa niente), ma `features-bar` ne usa due. Le altre dieci — funding compreso — non hanno superato il controllo di segno sul pannello 5 asset × 2 finestre |
-| scala | **1h + 4h + 1d, con `TIMEFRAME` come feature** | un modello solo copre i piani su cui girano i votanti di conferma, struttura e regime. Sotto l'ora resta escluso: è la regione già misurata perdente |
-| teste | **una sola, tre classi su barriere simmetriche** | da ogni barra: `+k·ATR` per primo (SU), `−k·ATR` per primo (GIÙ), nessuno dei due entro `H` (FERMO). `P_su` entra, `P_giu` esce e vota −1 |
-| stato della posizione | **fuori dalle feature** | il modello non sa se una posizione è aperta. È un'opinione sulla barra, indipendente dal trading in corso — ed è ciò che rende identico l'artefatto per i due consumatori |
+| positioning data | **yes, only `retail_pos` and `top_pos`** | `positioning` downloads and keeps every column (they arrive in the same file, it costs nothing), but `features-bar` uses two of them. The other ten — funding included — did not pass the sign check on the 5 assets × 2 windows panel |
+| scale | **1h + 4h + 1d, with `TIMEFRAME` as a feature** | a single model covers the planes the confirmation, structure and regime voters run on. Below the hour stays excluded: it is the region already measured to be a loser |
+| heads | **one only, three classes on symmetric barriers** | from every bar: `+k·ATR` first (UP), `−k·ATR` first (DOWN), neither within `H` (FLAT). `P_su` enters, `P_giu` exits and votes −1 |
+| position state | **out of the features** | the model does not know whether a position is open. It is an opinion about the bar, independent of the trading in progress — and that is what makes the artifact identical for the two consumers |
 
-### Perché il tre-classi qui non è il tre-classi già bocciato
+### Why three classes here is not the three classes already rejected
 
-La differenza è la **simmetria delle barriere**, non il numero di classi. Con `TP_ATR_MULTIPLE = 1.5`
-e `SL_ATR_MULTIPLE = 1.0` la classe «sell» significa «lo stop di una posizione lunga è stato
-toccato per primo»: copre ~60% delle barre e confonde «scende» con «scende un po' e poi sale». È
-la ragione scritta in `ml/signals.py` per cui quella classe non va usata come segnale di vendita.
+The difference is the **symmetry of the barriers**, not the number of classes. With
+`TP_ATR_MULTIPLE = 1.5` and `SL_ATR_MULTIPLE = 1.0` the "sell" class means "the stop of a long
+position was hit first": it covers ~60% of the bars and confuses "it goes down" with "it goes down a
+little and then up". It is the reason written in `ml/signals.py` for why that class must not be used
+as a sell signal.
 
-Con barriere simmetriche la classe GIÙ significa «è sceso di `k·ATR` prima di salirne altrettanti»,
-cioè esattamente la gamba ribassista da evitare. Le due classi direzionali diventano confrontabili
-fra loro, che è la proprietà che serve a `P_su` contro `P_giu`.
+With symmetric barriers the DOWN class means "it fell `k·ATR` before rising as much", i.e. exactly
+the bearish leg to avoid. The two directional classes become comparable with each other, which is
+the property `P_su` against `P_giu` needs.
 
-Il prezzo della simmetria è che scompare l'argomento di `labeling.py` sul break-even (con barriere
-2:1 la precisione di pareggio scende dal 66,7% al 44,4%). Qui non si applica allo stesso modo:
-il modello sceglie una **direzione**, non solo se entrare, e il pavimento sulle commissioni resta
-il vincolo economico dentro l'etichetta.
+The price of symmetry is that the break-even argument in `labeling.py` disappears (with 2:1
+barriers the break-even precision drops from 66.7% to 44.4%). It does not apply the same way here:
+the model picks a **direction**, not only whether to enter, and the commission floor remains the
+economic constraint inside the label.
