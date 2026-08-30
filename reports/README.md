@@ -30,3 +30,35 @@ reinvestito, commissione 0,1% per gamba salvo dove indicato.
 Le viste `lab_*` sono su BTC/USD 2021-2026 (e ETH/USD 2017-2019 come controllo), commissione 0,05%
 per gamba piu' 0,03% al giorno di mantenimento: la lettura sta in
 [`.claude/docs/strategie-nuove.md`](../.claude/docs/strategie-nuove.md).
+
+## Rotazione trasversale e filtro meta
+
+Due famiglie prodotte da script diversi, che rispondono a domande diverse dalle precedenti. La
+lettura sta in [`.claude/docs/ricerca-quant-ml.md`](../.claude/docs/ricerca-quant-ml.md).
+
+| file | cosa contiene |
+|---|---|
+| `cs_majors_1d.csv` | rotazione sui *majors* a scala giornaliera: sceglie **quale** asset, non quando |
+| `cs_majors_1d_oos.csv` | la stessa griglia, scelta in campione e resa fuori |
+| `cs_pairs.csv` | l'universo a coppie |
+| `cs_pairs_2024.csv` | le stesse coppie sul solo 2024 |
+| `cs_wide_1d_oos.csv` | l'universo largo a 15 asset, fuori campione |
+| `meta_donchian_breakout_4h*.csv` | il secondario di meta-labeling sopra Donchian Breakout a 4h |
+| `meta_trend_pullback_4h*.csv` | lo stesso sopra Trend Pullback a 4h |
+
+Prodotte da `scripts/cross_section.py` e `scripts/meta_gate.py`:
+
+```bash
+.venv312/bin/python -m scripts.cross_section --universe majors --interval 1d --grid
+.venv312/bin/python -m scripts.meta_gate --strategy donchian_breakout --interval 4h --oos 2024-01-01
+```
+
+Due avvertenze che valgono su tutte le tabelle di questa cartella:
+
+**Il riferimento della rotazione è l'universo a peso uguale, non BTC.** Porta la stessa distorsione
+da sopravvivenza, quindi il confronto isola ciò che la rotazione aggiunge. Contro BTC la rotazione
+vince nel 95,6% delle configurazioni; contro l'universo, nel 44,4%.
+
+**La riga migliore di una griglia non è un risultato.** È la cella più fortunata: la correlazione
+fra resa in stima e resa in verifica sulle prime dieci configurazioni della rotazione è **−0,69**.
+`scripts/multiplicity.py` (DSR e PBO) esiste per dire quanto di un massimo è la griglia.

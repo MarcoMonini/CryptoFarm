@@ -164,8 +164,15 @@ cython_debug/
 # macOS
 .DS_Store
 .venv312/
-market_data/
-analysis_cache/
+
+# Dati e cache locali: pesano GB e si rigenerano. Del contenuto non si traccia niente, ma il
+# README di ognuna si': spiega cosa ci finisce dentro e con quale comando si ricostruisce.
+market_data/*
+!market_data/README.md
+analysis_cache/*
+!analysis_cache/README.md
+logs/*
+!logs/README.md
 
 # Artefatti del plugin headroom, finiti in un commit per sbaglio.
 .claude/.headroom_*

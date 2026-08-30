@@ -33,7 +33,7 @@ Le decisioni di progetto e lo stato del lavoro stanno in **`.claude/docs/`**:
   rende 2,4 volte meno), la selettività come unica leva, e i **primi numeri di questo progetto che
   passano il controllo a esposizione appaiata**: +2,071% netti per operazione fuori campione,
   14/15 simboli in utile, 100° percentile. Il veloce opera, il lento gli fa da cancello.
-- `.claude/docs/INDEX.md` — ordine di lettura consigliato.
+- `.claude/docs/README.md` — ordine di lettura consigliato.
 
 Prima di modificare la pipeline ML, leggere `strategy.md`: contiene misure che escludono
 esplicitamente diverse strade che sembrano ragionevoli a prima vista.
