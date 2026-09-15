@@ -1084,3 +1084,125 @@ def test_l_ampiezza_si_conta_sugli_stati_non_sui_voti(candele):
     assert not np.array_equal(
         dagli_stati, confluence._famiglie_concordi(bugiardi, famiglie, +1)
     ), "il conteggio deve leggere davvero gli stati che riceve"
+
+
+# -------------------------------------------------------------------------------------------------
+# La modalita' a inversione: sempre a mercato, lunga o corta
+# -------------------------------------------------------------------------------------------------
+
+
+def test_in_inversione_non_si_e_mai_fuori_dal_mercato(candele_con_inversione):
+    """La regola che definisce la modalita': dopo il primo attraversamento la posizione e' sempre
+    +1 o -1, e un evento a zero non esiste."""
+    r = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", allow_short=True)
+    versi = [e[2] for e in r.eventi]
+    assert versi, "senza operazioni questo test non misura niente"
+    assert 0 not in versi, "in inversione non si va mai a flat: si ribalta"
+    # E i versi si alternano: un ribaltamento porta sempre dalla parte opposta.
+    assert all(a != b for a, b in zip(versi, versi[1:])), "due eventi di fila nello stesso verso"
+    assert 1 in versi and -1 in versi, "devono esserci tutte e due le gambe"
+
+
+def test_in_inversione_la_soglia_e_simmetrica(candele_con_inversione):
+    """Lo sconto macro resta spento, e non per semplificare.
+
+    Su una serie con deriva il piano di regime satura: misurato, media +1,000 e deviazione
+    standard 0,000. Lo sconto non modula niente, sposta soltanto in permanenza la soglia lunga a
+    0,208 e quella corta a 0,492, e su 17.280 barre il punteggio bastava per un corto in **zero**.
+    In un sistema che deve stare sempre a mercato quella non e' un'opinione sul macro: e' una
+    gamba amputata.
+    """
+    r = confluence.evaluate(
+        candele_con_inversione, "15m", modalita="inversione", allow_short=True, theta_base=0.4, theta_macro=0.15
+    )
+    assert (r.soglia == 0.4).all(), "la soglia in inversione e' costante"
+    assert np.array_equal(r.soglia, r.soglia_corta), "e uguale per i due versi"
+
+    # E i due versi si misurano davvero contro la stessa barriera.
+    for quando, _, verso in r.eventi:
+        i = r.indice.get_loc(quando)
+        if r.motivi.get(quando) == "score crossed the threshold":
+            assert confluence.convinzione(r.punteggio[i], verso) >= r.soglia[i] - 1e-12
+
+
+def test_in_inversione_si_tiene_fra_i_due_attraversamenti(candele_con_inversione):
+    """Il cuore del disegno: fra le due soglie **non succede niente**.
+
+    Nessuna isteresi, nessuna pazienza, nessun pavimento di barre. Senza stop, la posizione cambia
+    se e solo se il punteggio ha attraversato la soglia opposta, e la durata di un'operazione e' la
+    distanza fra due attraversamenti -- non un parametro.
+    """
+    r = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", allow_short=True, atr_multiplier=0.0)
+    barre = [r.indice.get_loc(q) for q, _, _ in r.eventi]
+    assert len(barre) > 2, "servono abbastanza ribaltamenti"
+
+    for (inizio, fine), (_, _, verso) in zip(zip(barre, barre[1:]), r.eventi):
+        # Fra un ribaltamento e il successivo il punteggio non deve mai aver toccato la soglia
+        # opposta: se l'avesse fatto, si sarebbe ribaltato prima.
+        opposto = confluence.convinzione(r.punteggio[inizio + 1 : fine], -verso)
+        assert (opposto < r.soglia[inizio + 1 : fine]).all(), "ha tenuto una posizione oltre il segnale opposto"
+
+
+def test_in_inversione_lo_stop_ribalta_invece_di_chiudere(candele_con_inversione):
+    """Lo stop e' una regola di rischio e resta, ma non manda a flat: gira la posizione."""
+    r = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", allow_short=True, atr_multiplier=3.0)
+    da_stop = [q for q, m in r.motivi.items() if m == "trailing stop reversal"]
+    assert da_stop, "con tre ATR lo stop deve scattare"
+    for quando in da_stop:
+        verso = next(e[2] for e in r.eventi if e[0] == quando)
+        assert verso != 0, "lo stop ribalta, non chiude"
+
+
+def test_lo_stop_si_spegne_con_un_moltiplicatore_non_positivo(candele_con_inversione):
+    """E la misura per cui va spento: con lo stop acceso e' lui a decidere, non il punteggio.
+
+    Su queste candele, con lo stop a 3 ATR le operazioni sono 1.167 e il **97%** dei ribaltamenti
+    viene dallo stop, con durata mediana 4,2 ore; senza stop sono 12 e la mediana e' 171 ore. Con
+    lo stop acceso la modalita' non e' «si compra e si tiene fino al segnale opposto»: e' una
+    macchina a stop con il punteggio come comparsa.
+    """
+    comuni = dict(modalita="inversione", allow_short=True)
+    con = confluence.evaluate(candele_con_inversione, "15m", atr_multiplier=3.0, **comuni)
+    senza = confluence.evaluate(candele_con_inversione, "15m", atr_multiplier=0.0, **comuni)
+
+    assert not any(m == "trailing stop reversal" for m in senza.motivi.values()), "lo stop deve essere spento"
+    assert np.isnan(senza.stop).all(), "e non deve nemmeno disegnarsi"
+    assert len(senza.eventi) < len(con.eventi) / 10, "senza stop le operazioni sono un ordine di grandezza meno"
+
+    quota_stop = sum(1 for m in con.motivi.values() if m == "trailing stop reversal") / len(con.eventi)
+    assert quota_stop > 0.9, "con lo stop acceso e' lo stop a decidere quasi tutto"
+
+
+def test_una_modalita_sconosciuta_si_fa_notare(candele):
+    with pytest.raises(ValueError, match="modalita sconosciuta"):
+        confluence.evaluate(candele, "15m", modalita="inventata")
+
+
+def test_la_modalita_a_cancello_resta_il_default(candele):
+    """Le misure gia' scritte nei documenti valgono per quella: non deve cambiare da sotto."""
+    assert confluence.evaluate(candele, "15m").modalita == "cancello"
+    esplicita = confluence.evaluate(candele, "15m", modalita="cancello")
+    assert [e[:3] for e in esplicita.eventi] == [e[:3] for e in confluence.evaluate(candele, "15m").eventi]
+
+
+def test_lo_switch_della_pagina_arriva_al_motore(candele):
+    """Un widget che non cambia niente e' peggio di non averlo: qui si verifica il collegamento."""
+    valori = panels.valori_predefiniti()
+    valori["INTERVALLO"] = "15m"
+
+    a_cancello = panels.confluenza_di(candele, {**valori, "CONF_MODALITA": "cancello"})
+    a_inversione = panels.confluenza_di(candele, {**valori, "CONF_MODALITA": "inversione"})
+    assert a_cancello.modalita == "cancello" and a_inversione.modalita == "inversione"
+    assert [e[:3] for e in a_cancello.eventi] != [e[:3] for e in a_inversione.eventi]
+
+
+def test_in_inversione_la_pagina_accende_il_verso_corto_da_se(candele):
+    """Senza gamba corta una macchina che non va mai a flat sarebbe lunga per sempre: non e' una
+    scelta da lasciare a una casella che in una modalita' su due non ha senso spegnere."""
+    valori = panels.valori_predefiniti()
+    valori["INTERVALLO"] = "15m"
+    assert not valori["CONF_ALLOW_SHORT"], "in modalita' a cancello il default resta solo lunghe"
+
+    r = panels.confluenza_di(candele, {**valori, "CONF_MODALITA": "inversione"})
+    versi = [e[2] for e in r.eventi]
+    assert -1 in versi, "la pagina deve accendere il verso corto in inversione"

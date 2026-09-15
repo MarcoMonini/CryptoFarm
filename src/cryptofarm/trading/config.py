@@ -239,6 +239,14 @@ PSAR_MAX_STEP = 0.4
 
 # Interruttori delle strategie nuove.
 CONF_IN_FORMAZIONE = True
+
+# La macchina di esecuzione (`confluence.MODALITA`). «cancello» e' quella misurata su quindici asset
+# e sette anni e resta il default; «inversione» sta sempre a mercato e ribalta sugli attraversamenti
+# di soglia. Sono due strategie, non due tarature -- si veda `.claude/docs/strategia-confluenza.md`.
+CONF_MODALITA = "cancello"
+# Il verso corto. In «inversione» e' obbligatorio, perche' una macchina sempre a mercato senza gamba
+# corta sarebbe sempre lunga: la pagina lo accende da se' e non lo chiede.
+CONF_ALLOW_SHORT = False
 CONFIRM_VOLUME = True
 REQUIRE_CLOUD = True
 

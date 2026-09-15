@@ -174,6 +174,11 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
         "regime_ema": int(valori["CONF_REGIME_EMA"]),
         "struttura_ema": int(valori["CONF_STRUTTURA_EMA"]),
         "barre_in_formazione": bool(valori["CONF_IN_FORMAZIONE"]),
+        "modalita": str(valori["CONF_MODALITA"]),
+        # In «inversione» il verso corto non e' una scelta: senza, una macchina che non va mai a
+        # flat resterebbe lunga per sempre. Si accende qui invece di chiederlo con un widget che
+        # in una modalita' su due non avrebbe senso spegnere.
+        "allow_short": bool(valori["CONF_ALLOW_SHORT"]) or valori["CONF_MODALITA"] == "inversione",
     }
     intervallo = str(valori["INTERVALLO"])
     # Gli override dei votanti: quel che i widget hanno mosso rispetto ai loro default. Passarli
@@ -913,6 +918,8 @@ def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
     }
     valori["CONFIRM_VOLUME"] = config.CONFIRM_VOLUME
     valori["CONF_IN_FORMAZIONE"] = config.CONF_IN_FORMAZIONE
+    valori["CONF_MODALITA"] = config.CONF_MODALITA
+    valori["CONF_ALLOW_SHORT"] = config.CONF_ALLOW_SHORT
     # L'intervallo e' un parametro come gli altri per la confluenza, che da li' ricava i suoi
     # quattro piani. La pagina lo sovrascrive con quello scelto; fuori dalla pagina resta questo.
     valori["INTERVALLO"] = config.INTERVALS[config.INTERVAL_INDEX]

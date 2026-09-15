@@ -1121,3 +1121,61 @@ Worth stating plainly, because it is the question the chart raised. At a 15m bas
 
 More awake voters do not open a gate that has no history behind it. The 20-day window still trades
 nothing, and correctly says why.
+
+## Two execution machines: `cancello` and `inversione` (2026-09-15)
+
+`confluence.MODALITA` now holds two engines. They are not two tunings of one idea — they answer
+different questions, and in one of them half the parameters are not even read.
+
+| | `cancello` (default) | `inversione` |
+|---|---|---|
+| default position | **flat** | **always ±1, never flat** |
+| entry | gate open + score past threshold + k families + trigger | score crosses the threshold |
+| exit | trailing stop, hysteresis band, patience, gate shut | there is no exit: the opposite crossing **reverses** |
+| threshold | `theta_base ∓ theta_macro * macro`, asymmetric | `±theta_base`, symmetric, macro off |
+| ignored | — | `isteresi`, `pazienza`, `barre_minime`, `k_famiglie`, `innesco`, the gate, `theta_macro` |
+
+`cancello` stays the default: it is what the measurements over fifteen assets and seven years
+describe, and nothing in this document is restated for the other one.
+
+### Why the threshold is symmetric in `inversione`
+
+The macro discount is off, and not to simplify. Measured on a series with drift, the regime plane
+**saturates**: mean +1.000, standard deviation **0.000** — the price sits above its fifty-day
+average for the whole window. The discount modulates nothing; all it does is move the long
+threshold permanently to 0.208 and the short one to 0.492. Over 17,280 bars the score was enough
+for a long on 1,623 and for a short on **zero**. In a machine that must always hold a side, a fixed
+asymmetry is not an opinion about the macro — it is an amputated leg.
+
+### The reversing stop decides almost everything, and that is the thing to know
+
+The stop reverses the position instead of going flat, so the system stays in the market even when
+risk cuts the losing leg. But with it on it stops being the machine the design describes. Same 300
+synthetic days at 15m, threshold 0.35:
+
+| | trades | per year | median duration | in market |
+|---|---:|---:|---:|---:|
+| `cancello`, long only | 220 | 268 | 4.5 h | 7.0% |
+| `cancello` + short | 494 | 601 | 4.0 h | 15.0% |
+| `inversione`, stop at 3 ATR | 1,167 | 1,420 | **4.2 h** | 100% |
+| `inversione`, **no stop** | 12 | 15 | **171.5 h** | 100% |
+| `inversione`, no stop, threshold 0.20 | 55 | 67 | 45.8 h | 100% |
+
+With the stop at 3 ATR, **97% of the reversals are decided by the stop and not by the score**, and
+the median trade is back to the few hours that started this whole review. "Buy and hold until the
+opposite signal" is the fourth row, not the third. `atr_multiplier <= 0` switches the stop off — not
+a new parameter, just the value that one already had without meaning.
+
+The ping-pong the reversing stop can cause is counted in `Confluenza.ping_pong`: the score flipping
+the position back on the bar right after a stop reversal. At threshold 0.35 it is 15 out of 1,167;
+at 0.15 it is 322 out of 1,591. No brake is wired in, deliberately — a brake would be one more
+parameter — and the number is there so the decision to add one is taken on evidence.
+
+### What is **not** measured
+
+Everything above is trade counts, durations and exposure on synthetic data: **no return, no Sharpe,
+no drawdown, and nothing on real candles.** `inversione` is always in the market and can hold a
+losing leg indefinitely with the stop off, on a strategy family whose short side is measured at a
+loss on four of five names (`strategie-nuove.md` §4.5). Before it is anything other than a mode to
+look at on the page, it needs the same treatment `cancello` got: fifteen assets, out of sample,
+against passive holding at matched exposure.

@@ -630,6 +630,33 @@ if __name__ == "__main__":
             "Require cloud confirmation", value=bool(iniziali["REQUIRE_CLOUD"]), key=f"cloud_{interval}"
         )
     if strategia == config.CONFLUENCE_STRATEGY:
+        # Le due macchine di esecuzione. E' la prima scelta da fare, prima di ogni parametro,
+        # perche' cambia **quali** parametri contano: in «inversione» isteresi, pazienza, barre
+        # minime, ampiezza, innesco e cancello non vengono nemmeno letti.
+        valori["CONF_MODALITA"] = st.sidebar.radio(
+            "Execution",
+            confluence.MODALITA,
+            index=confluence.MODALITA.index(str(iniziali["CONF_MODALITA"])),
+            format_func=lambda m: {"cancello": "Gated (measured)", "inversione": "Always in (reversal)"}[m],
+            key=f"modalita_{interval}",
+            horizontal=True,
+        )
+        if valori["CONF_MODALITA"] == "inversione":
+            st.sidebar.caption(
+                "Always long or short, never flat: the score crossing **−threshold** goes long, "
+                "crossing **+threshold** flips to short, and nothing happens in between — so a "
+                "trade lasts from one crossing to the opposite one. The threshold is symmetric "
+                "and the macro discount is off. **The trailing stop reverses the position rather "
+                "than closing it, and with it on it decides ~97% of the flips**, which brings "
+                "trades back to a few hours: set the ATR multiplier to 0 to switch it off and get "
+                "the hold-to-opposite-signal behaviour. Short selling is forced on."
+            )
+        else:
+            st.sidebar.caption(
+                "Out of the market by default; enters when gate, score, breadth and trigger agree, "
+                "and leaves on the stop, the hysteresis band or the gate. This is the one measured "
+                "over fifteen assets and seven years."
+            )
         valori["CONF_IN_FORMAZIONE"] = st.sidebar.checkbox(
             "React inside forming higher-plane bars",
             value=bool(iniziali["CONF_IN_FORMAZIONE"]),
