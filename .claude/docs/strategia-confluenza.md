@@ -849,3 +849,690 @@ collegio nuovo non e' ne' meglio ne' peggio: e' diverso.
 - **le famiglie multiple per votante**. Oggi i sei sono uno per famiglia, quindi contare famiglie o
   votanti è lo stesso. La distinzione è scritta perché morderà appena entra un secondo votante di
   prezzo, ed è più facile scriverla ora che accorgersene dopo.
+
+## The two sign defects, found by re-reading the voters (2026-09-15)
+
+Both made the ensemble asymmetric between long and short **without anyone having decided it**, and
+neither raised anything: no exception, no warning, no failing test. They are written up here
+because the way they hid is more instructive than the fix.
+
+### 1. The `bande` family could not vote short
+
+`confluence._bande` called `strategies_ls.atr_band_bounce` without `allow_short`, and that function
+is the only one in `strategies_ls` whose default is `False` — every other one defaults to `True`.
+The default is right *for a strategy*: opened on its own on an asset with positive drift, the short
+leg pays for being on the wrong side of the drift four years out of five (§4.5 of
+`strategie-nuove.md`). It is wrong *for a voter*, which opens nothing and only states an opinion.
+
+Measured on 400 days of synthetic bars, raw voter states:
+
+| voter | +1 | 0 | −1 |
+|---|---:|---:|---:|
+| bande_conferma | 12.0% | 88.0% | **0.0%** |
+| bande_innesco | 37.6% | 62.4% | **0.0%** |
+
+Two voters out of eight — the whole `bande` family — structurally silent in one direction. The
+consequences were not caution: `concordi_corto` could never reach every family, and in the score an
+extension *above* the mean weighed nothing while one *below* it weighed fully. Mean reversion is
+also the one family the measurement supports on the short side (52.3% win rate, median contribution
+−3.6%, i.e. nearly costless), so the fix is to pass `allow_short=True` explicitly.
+
+### 2. The macro discount was applied to the long side in both directions
+
+```python
+soglia = theta_base - theta_macro * (regime + struttura) / 2   # no direction anywhere
+```
+
+The entry test for a short is `punteggio <= -soglia`. With regime and structure both at −1 — the
+macro picture that *agrees* with a short — the threshold rose to 0.50, while a long with macro at
++1 needed 0.20. Measured on the same candles: 0.201 against 0.499. The bar went up exactly where
+the design wanted it to come down, and the same threshold governed the hysteresis exit, so a
+favourable macro also made a short *leave* earlier.
+
+The fix is one `verso` in the formula, kept as two arrays because the page draws the long one:
+
+```python
+macro = (regime + struttura) / 2
+soglia       = theta_base - theta_macro * macro
+soglia_corta = theta_base + theta_macro * macro
+```
+
+### Why nothing caught them
+
+`allow_short` defaults to `False` everywhere the confluence is called, and the short side is
+measured at a loss, so no test ever opened a short. The two defects were therefore invisible
+*together*: with defect 1 in place the score could barely go negative, and with defect 2 in place
+the threshold a short had to clear was the highest one. On a series that spends half its window in
+a downtrend, `allow_short=True` produced **zero** short entries before the fix and 86 after it.
+
+### What it costs on the long-only default
+
+The `bande` short votes now enter the score, so they push it down and some marginal long entries no
+longer clear the threshold. Synthetic random walk, 400 days: 261 entries before, 245 after (−6%).
+Trend-up-then-down, 300 days: 73 before, 72 after. **The measured numbers elsewhere in this
+document predate the fix** and are not comparable cell by cell; the ranking of the voters by
+necessity is unchanged (`flusso` stays the most necessary, 0.621 → 0.620).
+
+### The guard
+
+`tests/test_confluence.py::test_ogni_votante_sa_dire_tutti_e_due_i_versi` asserts that every
+registered voter reaches both signs, with `modello` as the one declared exception (its signal is
+U-shaped, so the sign does not carry direction — `modello-swing.md` §5.1). It needs candles that
+actually offer both directions **at the volatility of the real ones**: with the noise scaled down
+ten times the series is so smooth that Ichimoku never crosses and 2.5-ATR bands are never touched,
+and those voters would read as "cannot vote short" when they simply never vote.
+
+## The orientation of the votes: −1 is long (2026-09-15)
+
+Part of what read as voters contradicting each other was not a defect in any voter: **the repository
+carried two opposite axes at once**, and the page showed both.
+
+| where | axis |
+|---|---|
+| `strategies_ls`, `voters.held_state`, `pnl.simulate_positions`, `portfolio`, `live_bot` | +1 = long (position) |
+| `ml/labeling.swing_leg_target` and the *Swing target* panel | −1 = local low, i.e. the buy zone |
+
+Side by side, the *Voters* panel and the *Swing target* panel ran on opposite axes, so two readings
+of the same market looked like disagreement. The votes now sit on the label's axis, declared once:
+
+```python
+VERSO_DEL_VOTO = -1          # -1 is long, +1 is short, for votes and score
+
+def convinzione(punteggio, verso):
+    """How much the score backs a trade in direction `verso`, as a positive number."""
+    return punteggio * verso * VERSO_DEL_VOTO
+```
+
+A long entry is therefore a score falling through a **negative** threshold with every supporting
+voter negative:
+
+```
+entry — score -0.28 / threshold -0.20 · 2 families · flusso -0.13, bande_innesco -0.14
+entry — score +0.32 / threshold +0.28 · 4 families · ichimoku +0.12, flusso +0.02, ...
+```
+
+### What did **not** change, and the test that proves it
+
+**The emitted events stay in the position convention** (+1 = long). That is the boundary: what got
+relabelled is the opinion, not the order. `pnl`, `portfolio`, `rotation` and the live bot are
+untouched, and `swing_leg_target` is untouched, so no model needs retraining.
+
+`test_l_inversione_del_segno_non_sposta_nessun_ordine` pins events captured **before** the flip —
+counts and a hash of the full list, over three configurations including one with shorts. All three
+came back identical. If it ever fails it must not be regenerated: it means a sign conversion has
+drifted from where things are *read* into where they are *decided*.
+
+`convinzione` is the single place the two axes meet, and every comparison in the module goes
+through it. Scattered through the inequalities, sign conversions are precisely the defect this
+module has now had twice.
+
+## A plane that is not known is NaN, not zero (2026-09-15)
+
+Found by looking at a chart the strategy was drawing on a 20-day window at 15m: the *Higher planes*
+panel showed the regime line **flat at exactly 0.0 for the whole window**, the two thresholds sat
+flat at ±0.35 until the ninth day, and no trade was ever taken while the voters kept firing.
+
+None of that was the voters. The regime plane at a 15m base is 1d, its moving average asks for 50
+bars, and a 20-day window holds 20. `ExtraCache.ema(50)` is therefore NaN everywhere, and
+`_forza_del_piano` closed with `np.nan_to_num(forza, nan=0.0)`. Zero is not a neutral encoding
+here — it is the value that means *price exactly on its own average*, i.e. a neutral macro. So:
+
+- **the gate was shut and looked open.** An entry needs `regime > 0` and a short needs
+  `regime < 0`; with the plane at 0 neither can ever be true, so zero trades were structurally
+  guaranteed. On the chart that state was indistinguishable from a balanced market;
+- **the unknown plane voted in the threshold.** `soglia = theta_base - theta_macro * (regime +
+  struttura) / 2` averaged the meaningless zero with the known plane and **halved its
+  contribution**. Measured over the same 20 days: mean threshold 0.371 against 0.392 when the
+  unknown plane abstains.
+
+The plane is now NaN where it is not known, the threshold averages over the known planes only, and
+the *Higher planes* traces are conditional — an unknown plane is **not drawn**, the same rule
+`_serie_stop` already followed. The gate's behaviour is unchanged (`NaN > 0` is False, so it stays
+shut); what changed is that it now says so where the chart is read. The four pinned event
+signatures did not move.
+
+### How much history the regime gate needs
+
+`ore_richieste(interval, regime_ema)`, the number that decides whether the strategy can trade at all:
+
+| base | regime plane | ema=50 | ema=30 | ema=20 | ema=10 |
+|---|---|---:|---:|---:|---:|
+| 5m | 8h | 400h | 240h | 160h | 80h |
+| **15m** | **1d** | **1200h** | 720h | 480h | 240h |
+| 30m | 2d | 2400h | 1440h | 960h | 480h |
+| 1h | 4d | 4800h | 2880h | 1920h | 960h |
+
+At 15m with the default `regime_ema=50` the gate needs **1,200 hours — fifty days**. A 480-hour
+window cannot open it whatever the voters do. This is not a defect to fix in code: it is the scale
+the design asks for, and the choice is to load more history or to shorten the regime average.
+
+### `bande_innesco` is the noisy one
+
+Same 20 days, direct sign reversals per voter — not returns to flat, changes of mind:
+
+| voter | reversals | one every |
+|---|---:|---|
+| **bande_innesco** | **43** | **11 h** |
+| flusso | 9 | 53 h |
+| bande_conferma | 3 | 160 h |
+| pullback, zone_struttura | 2 | 240 h |
+| ichimoku, zone_regime | 0 | — |
+
+Mean reversion on the trigger plane with a 6-bar half-life changes its mind twenty times more often
+than any other voter while carrying the same 1/7 of the score. It is the trace that reads as noise
+on the *Voters* panel. Note that it could not flip at all before the `allow_short=True` fix earlier
+the same day — it could only go +1 → 0 → +1 — so that fix is what made this visible. The fix is not
+the cause of the noise; it is what stopped hiding half of it.
+
+Also measured on that window: **2.5 voters out of 7 are awake on an average bar**, which is the
+staleness problem written up in the analysis above (a voter's vote tracks the recency of its last
+flip, not its opinion). With seven voters at 1/7 each, a 0.35 threshold needs two and a half of them
+at full strength and aligned — and the peak long conviction reached over 20 days was 0.406.
+
+## The vote is the opinion times its recency (2026-09-15)
+
+The vote used to be `v(t) = v(t-1) * lambda`, restarted at ±1 on a fire. That is **recency alone**:
+after the first bar the voter's actual opinion never entered the score again. Two opposite defects
+followed, both large, measured over 400 synthetic days at 15m:
+
+| defect | measurement |
+|---|---|
+| **voters mute while convinced** | `zone_regime` in a position on 74.5% of bars, its vote already at zero on **91.3%** of those. `zone_struttura` 67.1%, `bande_conferma` 84.4% |
+| **ghost votes** | `pullback` voting with its position already closed on **49.0%** of bars. The band voters enter at the lower band and exit at the **opposite** one, so the +1 survived the exit and kept saying "long" from the high down |
+
+The first is why signals do not arrive: with seven voters at 1/7 and a 0.35 threshold you need two
+and a half of them at full strength and aligned, and only **2.21 of 7 were awake** on an average bar.
+
+The new shape:
+
+```
+v(t) = 0                                                       if stato(t) == 0
+v(t) = stato(t) * (pavimento + (1 - pavimento) * lambda**eta)   otherwise
+```
+
+The state is still held forward, so a 4H voter keeps voting on every 15m bar while its position is
+open; what fades is the **strength**, from 1 down to the floor, never to silence.
+
+### What chooses the floor
+
+At weights summing to 1, a college that fully agrees and is **entirely stale** scores exactly
+`pavimento`. For a standing consensus not to open a position by itself, that has to stay below the
+**lowest reachable** threshold — which is `theta_base - theta_macro` (0.20 at the defaults), not
+`theta_base`, because a favourable macro discounts the threshold. Below that line the confluence
+stays a meeting of *events* and keeps deciding **when**; above it, it becomes a state detector that
+opens because everybody is in.
+
+A first attempt used 0.30 on the wrong rule (`< theta_base`) and would have let a fully stale
+college trade whenever the macro agreed. **0.15** is the value: a stale college scores 0.15 against
+a floor of 0.20 on the threshold, and one fresh fire adds (1−0.15)/7 = 0.121 → 0.271, enough with a
+favourable macro and about two fires at a neutral one. Anyone moving `theta_base` or `theta_macro`
+has to redo that arithmetic: the constraint is a relation between three numbers, not a value.
+
+### What it changes
+
+| | mute while in position | voters awake / bar | entries | max necessity |
+|---|---:|---:|---:|---:|
+| recency only | 50.6% | 2.21 / 7 | 218 | 0.638 (`flusso`) |
+| + floor | 0.0% | 4.47 / 7 | 388 | 0.595 |
+| + floor + cap (default) | 0.0% | 4.47 / 7 | 380 | 0.600 |
+
+`flusso` is still the most necessary voter and still sits **at the 0.60 line** the code itself calls
+"the ensemble is that voter in disguise". The fixes did not solve that, and it stays open.
+
+### The half-life cap buys less than it looked
+
+`TETTO_EMIVITA_MINUTI = 24 * 60` caps a vote's half-life at one day of calendar — 96 bars at a 15m
+base, 24 at 1h — against the 576 the regime plane reached uncapped. It is in minutes and not bars
+because it is a duration.
+
+But it must be reported for what it measures: **the floor already absorbed most of what the cap was
+meant to fix.** The sign of a vote is now the current opinion rather than a memory, so
+`zone_regime` holding "long" for 57 days after a trend reversal is no longer a decay artefact — it
+is its true opinion, its 1d crossover has not happened. What the cap still does is bound the
+**strength**: mean vote while in position 0.175 → 0.154, entries 388 → 380. It stays because 576
+bars are out of scale and would bite on a voter that changes its mind more often, not because it
+moves today's numbers.
+
+### Breadth is counted on the state
+
+`_famiglie_concordi` now takes the held states rather than the decayed votes. With the floor and the
+zeroing the two counts coincide by construction — the vote is zero exactly when the state is — but
+depending on that invariant would mean a future change to the vote's shape would silently change
+the breadth rule. It asks directly for what it wants to know.
+
+### This moved the pinned events, deliberately
+
+`test_gli_eventi_emessi_sono_quelli_pinnati` (formerly the sign-inversion golden) was regenerated
+after inspecting the diff: 81 long entries became 85 on the first case, 72 became 110 on the second.
+That is the intended direction — voters stopped falling silent while convinced. A refactor or a
+relabelling must still not move it by a single event.
+
+### It does not make a starved gate trade
+
+Worth stating plainly, because it is the question the chart raised. At a 15m base with
+`regime_ema=50`:
+
+| window | regime gate | voters awake | entries |
+|---|---|---:|---:|
+| 20 days (480 h) | **unknown** | 3.27 / 7 | 0 |
+| 50 days (1,200 h) | unknown | 3.82 / 7 | 0 |
+| 90 days | known | 3.86 / 7 | 1 |
+| 180 days | known | 4.42 / 7 | 31 |
+
+More awake voters do not open a gate that has no history behind it. The 20-day window still trades
+nothing, and correctly says why.
+
+## Two execution machines: `cancello` and `inversione` (2026-09-15)
+
+`confluence.MODALITA` now holds two engines. They are not two tunings of one idea — they answer
+different questions, and in one of them half the parameters are not even read.
+
+| | `cancello` (default) | `inversione` |
+|---|---|---|
+| default position | **flat** | **always ±1, never flat** |
+| entry | gate open + score past threshold + k families + trigger | score crosses the threshold |
+| exit | trailing stop, hysteresis band, patience, gate shut | there is no exit: the opposite crossing **reverses** |
+| threshold | `theta_base ∓ theta_macro * macro`, asymmetric | `±theta_base`, symmetric, macro off |
+| ignored | — | `isteresi`, `pazienza`, `barre_minime`, `k_famiglie`, `innesco`, the gate, `theta_macro` |
+
+`cancello` stays the default: it is what the measurements over fifteen assets and seven years
+describe, and nothing in this document is restated for the other one.
+
+### Why the threshold is symmetric in `inversione`
+
+The macro discount is off, and not to simplify. Measured on a series with drift, the regime plane
+**saturates**: mean +1.000, standard deviation **0.000** — the price sits above its fifty-day
+average for the whole window. The discount modulates nothing; all it does is move the long
+threshold permanently to 0.208 and the short one to 0.492. Over 17,280 bars the score was enough
+for a long on 1,623 and for a short on **zero**. In a machine that must always hold a side, a fixed
+asymmetry is not an opinion about the macro — it is an amputated leg.
+
+### The reversing stop decides almost everything, and that is the thing to know
+
+The stop reverses the position instead of going flat, so the system stays in the market even when
+risk cuts the losing leg. But with it on it stops being the machine the design describes. Same 300
+synthetic days at 15m, threshold 0.35:
+
+| | trades | per year | median duration | in market |
+|---|---:|---:|---:|---:|
+| `cancello`, long only | 220 | 268 | 4.5 h | 7.0% |
+| `cancello` + short | 494 | 601 | 4.0 h | 15.0% |
+| `inversione`, stop at 3 ATR | 1,167 | 1,420 | **4.2 h** | 100% |
+| `inversione`, **no stop** | 12 | 15 | **171.5 h** | 100% |
+| `inversione`, no stop, threshold 0.20 | 55 | 67 | 45.8 h | 100% |
+
+With the stop at 3 ATR, **97% of the reversals are decided by the stop and not by the score**, and
+the median trade is back to the few hours that started this whole review. "Buy and hold until the
+opposite signal" is the fourth row, not the third. `atr_multiplier <= 0` switches the stop off — not
+a new parameter, just the value that one already had without meaning.
+
+The ping-pong the reversing stop can cause is counted in `Confluenza.ping_pong`: the score flipping
+the position back on the bar right after a stop reversal. At threshold 0.35 it is 15 out of 1,167;
+at 0.15 it is 322 out of 1,591. No brake is wired in, deliberately — a brake would be one more
+parameter — and the number is there so the decision to add one is taken on evidence.
+
+### The page could not draw it, and the first version shipped broken
+
+Worth writing down because the engine was tested and the page was not, and the failure was visible
+at a glance while every test passed.
+
+The page is built on two lists, buys and sells, which `simulate_trading_with_commisions` pairs by
+index. `_solo_lunghe` maps them from position changes by keeping `obiettivo > 0` as buys and
+`obiettivo == 0` as sells. In `inversione` **there are no zero events by construction** — that is
+the whole point of the mode — so every short reversal was dropped and the chart showed nothing but
+green buy triangles, with not one sell. The hover made it worse: `spiega` labelled anything with a
+reason as `exit —`, so a reversal read "exit — trailing stop reversal" printed above a *buy* marker.
+
+Three fixes, and the third is the one that was not visible:
+
+- **markers**: a short reversal *is* the sale of the preceding long, so it draws as a sell;
+- **`spiega`**: in `inversione` there are no exits, only reversals, and the line names the side it
+  ended up on (`long — score -0.38 crossed -0.35 · …`, `short — reversed by the trailing stop at …`);
+- **the P&L**: two lists can say "in" and "out", never "short". On an always-in strategy
+  `simulate_trading_with_commisions` counts the long legs and treats every short leg as time spent
+  in cash — a number that looks authoritative and is not the strategy's. `panels.eventi_di_posizione`
+  hands the raw position changes to `pnl.simulate_positions`, which knows the side and also charges
+  the daily carry that an always-open position cannot be shown without. The markers can be drawn
+  either way; the accounting cannot.
+
+### What was **not** measured, at the time
+
+Everything above was trade counts, durations and exposure on synthetic data: no return, no Sharpe,
+no drawdown, and nothing on real candles. That measurement is the section below, and it is the
+reason this mode now ships with a verdict attached.
+
+## `inversione` measured on real candles: it loses, and the threshold does not save it (2026-09-15)
+
+Fifteen assets, 15m, from 2021-01-01, split in sample 2021-2023 and out of sample 2024-2026.
+Perpetual fees, 0.05% per leg, carry 0.03%/day. The threshold swept over the twelve values of
+`SCANSIONE["theta_base"]`, the rest at the centre, the stop off. Reproduce with:
+
+```bash
+.venv312/bin/python -m scripts.confluence_lab --grid coordinate --modalita inversione --interval 15m
+```
+
+Three defects were found first, and they had to be fixed before the measurement meant anything.
+
+### Defect 1: the reversing stop decided the trades, not the votes
+
+`atr_multiplier` defaulted to 3.0 in both modes. In `cancello` the stop closes and the position
+goes flat; in `inversione` it **reverses**, so every time it fires it opens the next trade. On
+BTCUSDT at 15m from 2024 (92,321 bars), threshold 0.35:
+
+| | reversals | decided by the stop | median hold | capital from 100 |
+|---|---:|---:|---:|---:|
+| stop at 3 ATR | 5,328 | 5,056 (**95%**) | 3.5 h | **0.61** |
+| stop off | 84 | 0 | 180.0 h | 182.26 |
+
+With the inherited default the "always in" machine was not following the votes, it was following a
+3-ATR channel. The default is now per mode (`confluence.STOP_PREDEFINITO`: 3.0 gated, 0.0 reversal),
+resolved inside `evaluate` so the page, the lab and library callers all get it from one place. An
+explicit value still wins.
+
+The page could not even express the fix it recommended: the caption said to set the multiplier to
+0, and `config.CONF_ATR_MULT` had a **minimum of 0.5**, so the field refused it. The minimum is now
+0. Note that zero means two different things in the two machines — `_percorri` has no
+`atr_multiplier > 0` guard, so there a zero puts the stop *on the extreme* and fires it at once.
+
+### Defect 2: a mute voter was carrying an eighth of the weight
+
+Weights are fixed and normalised over the collegio, so they assume everyone speaks with comparable
+frequency. A voter that abstains is not neutral: on every bar it is silent it subtracts its weight
+from everyone else's score, which **raises the threshold without saying so**.
+
+`modello` is silent by design — the entry model's selectivity lives in its artifact's metadata and
+is its whole measured advantage. Fraction of bars holding a position, fifteen symbols at 15m from
+2021, 197,371 bars each:
+
+| voter | duty cycle |
+|---|---|
+| `modello` | 0.004 – 0.033 |
+| `pullback` | 0.253 – 0.282 |
+| `ichimoku` | 0.272 – 0.318 |
+| `bande_conferma` | 0.831 – 0.915 |
+| `bande_innesco` | 0.892 – 0.949 |
+| `zone_regime` | 0.950 |
+| `flusso` | 0.957 – 0.971 |
+| `zone_struttura` | 0.996 |
+
+An order of magnitude below the second-lowest, on all fifteen. On BTCUSDT it took the score from
+standard deviation 0.161 to 0.141 and the bars above 0.35 from **2.22% to 0.82%** — a third of the
+other seven's opportunities, removed by someone who was not voting.
+
+`votanti_predefiniti()` already argued this and guarded on the wrong thing: whether the artifact was
+on disk. In production `models/` is empty so the voter was absent; **locally the artifacts exist, so
+it was present and mute** — and the test suite changed outcome depending on what was in `models/`
+(two tests failed locally and passed in CI). It is now out of the default always, and still in the
+registry, so `selezione("modello")` reaches it.
+
+**This is not a return improvement, and the measurement says the opposite.** At a fixed threshold,
+removing it raises the score, so the strategy trades more — BTCUSDT gated, 456 trades against 622 —
+and on this data trading more is always worse: median over the fifteen from −39.2% to −46.8%. The
+dilution was acting as a hidden increase in the threshold. A hidden increase in the threshold is
+exactly what is not wanted: the threshold is chosen and measured, not inherited from whoever is
+silent. Which is what the next section does.
+
+### Defect 3 was the threshold, and it has no good value
+
+0.35 was inherited from `cancello`, where it is one of four `and` conditions behind a gate. Alone,
+it means *never*: the score has standard deviation 0.141 and range [−0.534, +0.544], so 0.35 is
+2.5 sigma and the score sat in the dead zone on **99.2% of bars**. Worse, reversing requires the
+score to travel the full 0.70 from −θ to +θ, more than its entire observed range on one side. That
+silence is what the stop was filling.
+
+Median over the fifteen symbols, one row per threshold:
+
+| θ | rank IS | return IS | rank OOS | return OOS | trades OOS | drawdown OOS |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.05 | 0.167 | −96.6% | 0.083 | −95.3% | 1,294 | 96.6% |
+| 0.10 | 0.333 | −90.4% | 0.250 | −88.1% | 755 | 92.9% |
+| 0.15 | 0.417 | −84.7% | 0.417 | −73.9% | 429 | 87.8% |
+| 0.20 | 0.500 | −62.5% | 0.417 | −71.2% | 288 | 87.8% |
+| 0.25 | **0.750** | −4.9% | 0.500 | −51.4% | 186 | 83.1% |
+| 0.30 | **0.750** | +14.1% | 0.500 | −52.9% | 125 | 84.8% |
+| 0.35 | 0.583 | −29.6% | 0.583 | −35.0% | 83 | 83.4% |
+| 0.40 | 0.583 | −20.9% | **0.917** | +25.7% | 43 | 64.7% |
+| 0.45 | 0.167 | −99.2% | 0.667 | −20.4% | 18 | 63.7% |
+| 0.50 | 0.583 | −44.6% | 0.750 | −39.0% | 6 | 41.9% |
+| 0.60 | 0.708 | 0.0% | 0.792 | 0.0% | **0** | 0.0% |
+| 0.70 | 0.708 | 0.0% | 0.792 | 0.0% | **0** | 0.0% |
+
+Passive holding: +184.2% in sample, −33.8% out of sample, medians.
+
+Read the last two rows first. At θ ≥ 0.60 the strategy makes **zero trades**, and ranks near the top
+of its own sweep in both periods — out of sample doing nothing beats the sweep on 9 and 11 of the
+fifteen symbols. This is the same gradient the rest of this document already reports for `cancello`:
+every parameter points at not trading.
+
+**No value passes the two checks this project requires** (`scripts/tune_defaults.py`): the best
+in-sample threshold is 0.25-0.30, the best out-of-sample one is 0.40, and they do not agree. By the
+rule, the hand-written default stands. `theta_base` stays 0.35 and is not tuned for this mode,
+because there is nothing to tune it to.
+
+### It is not a sign defect, and that is worth knowing precisely
+
+"It buys and sells at random" invites the guess that a sign is inverted somewhere. It is not.
+Threshold 0.35, out of sample, medians over the fifteen:
+
+| | return gross | return net | profitable | payoff (avg win / avg loss) |
+|---|---:|---:|---:|---:|
+| as emitted | −7.9% | −35.0% | 7/15 → 4/15 | **1.82** |
+| every position inverted | −80.6% | −88.1% | 1/15 → 0/15 | 0.24 |
+
+Inverting is far worse, so the side the score picks is the right one. The engine is faithful too:
+with the stop off its reversals coincide exactly with the score's threshold crossings (84 = 84) and
+no event has an inconsistent direction.
+
+What fails is arithmetic, not sign. Winners are 1.82× losers, so break-even needs a hit rate of
+1/(1+1.82) = **35.5%**. Measured: **33.7%**. It misses by 1.8 points gross — and then an always-in
+machine pays carry every single day, 0.03%/day over the window, which is most of the distance
+between −7.9% gross and −35.0% net. That also explains why the loss shrinks as the threshold rises:
+it is not that the signal gets better, it is that there is less of it.
+
+| θ | gross | without carry | net |
+|---:|---:|---:|---:|
+| 0.25 | −22.9% | −36.1% | −51.4% |
+| 0.35 | −7.9% | −15.3% | −35.0% |
+| 0.45 | −1.2% | −2.2% | −20.4% |
+
+### The verdict, and what would have to change
+
+`inversione` is measured and it does not work. It is kept because it is a mode to look at, the page
+now says so, and the defects it exposed were real ones in the shared machinery. Two things would
+have to move, and neither is a parameter:
+
+- **the hit rate, by about two points.** That is a better score, not a better threshold — the
+  threshold sweep is exhausted above;
+- **or the right to be flat.** Carry is paid on 100% of the bars by construction, and it is the
+  single largest cost. The mode that is allowed to stand aside is `cancello`, which is why it
+  remains the default.
+
+The honest summary of both modes is now the same one: no configuration of this family beats holding
+the asset, and the gradient of every parameter points at not trading.
+
+
+## The gated mode re-entered on a signal that had never gone away (2026-09-15)
+
+Found by looking at the page. The chart showed dense clusters of overlapping green and red
+triangles in places where the score never crossed anything — trades that corresponded to no
+decision — while the score line itself was crossing the thresholds at sensible moments elsewhere.
+This is the gated mode, not the reversal one: the two threshold lines are `2·theta_base` apart and
+move in opposite directions, which only `cancello` does.
+
+### The sequence
+
+BTCUSDT at 15m, `theta_base = 0.25`, everything else at its default:
+
+```
+07-22 01:15  →  0   trailing stop     conv +0.312 vs threshold 0.164
+07-22 01:30  → +1   entry             conv +0.308 vs threshold 0.164
+07-22 05:15  →  0   trailing stop     conv +0.258 vs threshold 0.176
+07-22 05:30  → +1   entry             conv +0.256 vs threshold 0.179
+07-22 12:30  →  0   trailing stop     conv +0.271 vs threshold 0.192
+07-22 12:45  → +1   entry             conv +0.268 vs threshold 0.200
+```
+
+The conviction never leaves the 0.26–0.31 band and the threshold never leaves 0.16–0.20. **The
+opinion does not change once.** What changes is that the trailing stop keeps firing, and one bar
+later the entry condition is — still — true, so it buys back. Two commissions per round trip to
+return exactly where it was. 27% of all event gaps were a single bar.
+
+### Why the existing brakes did not catch it
+
+The hysteresis brakes the score oscillating around the threshold, and it brakes **only the
+score-driven exit**: you leave when conviction falls under `soglia - isteresi`. The stop is a risk
+rule and fires while conviction is still well above `soglia`, so no band is ever crossed and the
+entry condition is untouched by the exit. The only brake on re-entry was `not uscito_ora` — one bar
+wide — and its own comment gave the right reason ("a stop fired inside the bar leaves the score
+where it was, and without the brake it would buy back immediately paying two commissions to return
+exactly where we were") for a guard that expires after one bar while the reason does not.
+
+### The rule: entry is edge-triggered, and the edge is the band
+
+Every exit disarms entry. Entry re-arms only on a bar where interest has fallen away — and
+"fallen away" is measured against `soglia - isteresi`, the same band that governs the exit, not
+against `soglia`. Re-arming at `soglia` means re-arming *inside* the band, so a score flickering by
+a thousandth on the threshold reopens anyway.
+
+No new parameter: it is the difference between "the signal is still on" and "the signal has
+arrived". The trigger (`innesco`) is deliberately **not** part of the re-arm condition — a breakout
+is a timing condition, not an interest one, and a trigger that fails to fire must not re-arm
+anything.
+
+Fifteen assets at 15m from 2021, the three engines being the old one-bar brake, edge-on-threshold
+and edge-on-band:
+
+| θ = 0.35 | trades (median) | return (median) | drawdown (median) | `stop → entry` within 2 bars |
+|---|---:|---:|---:|---:|
+| one-bar brake | 757 | −57.5% | 66.0% | 4,631 |
+| edge on the threshold | 583 | −55.5% | 62.6% | 32 |
+| **edge on the band** | **484** | **−46.8%** | **54.9%** | **6** |
+
+| θ = 0.25 | trades | return | drawdown |
+|---|---:|---:|---:|
+| one-bar brake | 1,637 | −85.1% | 87.3% |
+| edge on the band | 682 | −65.4% | 69.3% |
+
+Better on every axis and at both thresholds, and still nowhere near profitable — which is the same
+answer this document has given for every other change.
+
+### The check that says it is a de-churn and not a new strategy
+
+The pinned events moved a lot: 170 → 88, 220 → 140, 494 → 308. The regeneration was accepted
+because of one measurement: **the new event set is a strict subset of the old one — 82, 80 and 186
+events removed, and zero events added.** No trade moved to a different bar or price; trades only
+disappeared, and the ones that disappeared are the re-entries on an unchanged opinion. The mix of
+exit reasons keeps its shape (entry, stop, hysteresis, patience all still present).
+
+That subset check is the thing to repeat before regenerating this golden for a change that claims
+to remove duplicated trades. Without it, "fewer trades" and "different trades" look identical in
+the diff.
+
+### A side effect worth recording: `pazienza` barely binds any more
+
+`pazienza` exists to cut the tail where the score decays slowly and a position stays open for hours
+past the first exit signal. With entries now firing on a fresh signal instead of a stale one,
+positions open further above the threshold and that tail has largely gone: on BTCUSDT at 15m from
+2024 the 90th percentile of the tail is 19.4 bars, i.e. **below** the default patience of 24, which
+closes 7 exits out of 556. The mechanism still works and is still monotone — on the synthetic
+scenario the p90 tail is 3.0 bars at patience 2 and 4, 7.0 at 8, 31.6 at 16, and 35.2 at 24 and
+above — it simply is no longer the default that bites. The test now measures it at 8, and says why.
+
+
+## Tuning of `inversione`: every parameter, and the answer is «none of them» (2026-09-15)
+
+A full coordinate scan of every parameter the reversal mode actually reads, on fifteen assets at
+15m from 2021, split in sample 2021-2023 and out of sample 2024-2026. 1,980 cells. Selection rule
+identical to `scripts/tune_defaults.py`: percentile rank within each symbol, median of those ranks
+across symbols, a value adopted only if it moves the median rank by at least 0.06 **and** the
+out-of-sample period picks the same value.
+
+### First: five parameters out of seventeen are inert here
+
+Measured, not read off the source — each run at both ends of its scan range, demanding identical
+events. `theta_macro`, `isteresi`, `barre_minime`, `pazienza`, `k_famiglie` and `innesco` were
+already known; the scan added four more:
+
+- `regime_ema` and `struttura_ema` feed only `macro`, and in `inversione` the macro discount is off,
+  so the two planes are drawn on the chart and nothing else;
+- `barre_in_formazione` decides *which price* enters those two planes, so it falls with them;
+- `w_max` is the per-voter cap, and with seven equal-weight voters (0.143) a cap of 0.30 never
+  binds — it is inert in `cancello` too, and exists for a tuned unequal-weight version.
+
+`atr_window` is deliberately **not** on that list: it is inert only while the stop is off, which is
+its default in this mode. Turning the stop on makes it live. `PARAMETRI_IGNORATI` is now pinned by
+a test that runs each entry at both extremes, so the list cannot quietly become a lie.
+
+Two live parameters were missing from the coordinate scan and are now in it: `pavimento` and
+`tetto_emivita`. They have no widget — they are ablation knobs — but they are live, and the cap
+bites hard: from 1,440 minutes to 180, BTCUSDT goes from 76 events to 9.
+
+### The result: 26 of 28 discriminate, 3 are stable, and 0 are worth adopting
+
+| | |
+|---|---|
+| parameters that move the median rank by ≥ 0.06 | 26 / 28 |
+| …of those, that pick the same value out of sample | **3** |
+| …of those, that are not already the default | 2 |
+| …of those, that improve the out-of-sample return | **0** |
+
+The three stable ones are `atr_multiplier = 0` (already the default since the stop fix, and by far
+the strongest result in the whole table: rank 1.000, range 0.800), `ichimoku.span 52 → 104` and
+`zone_struttura.slow 50 → 25`. Both of the latter make the out-of-sample median *worse* — −54.7%
+and −61.6% against −54.1% at the current value. They win on rank and lose on return, which fifteen
+heavily skewed symbols allow.
+
+### Why nothing is worth adopting, in one number
+
+**The in-sample rank does not predict the out-of-sample rank: Spearman +0.056** over all 1,980
+cells. There is nothing to tune towards. This is the same finding the rotation produced (−0.69
+between in-sample and out-of-sample return) in a milder form: not actively misleading, just empty.
+
+The combination check makes it concrete. Taking every coordinate winner and applying them together:
+
+| configuration | return IS | return OOS | trades OOS | drawdown OOS | beats passive OOS |
+|---|---:|---:|---:|---:|---:|
+| `theta_base = 0.45` alone | −99.2% | **+24.2%** | 17 | 55.5% | 9/15 |
+| the 2 stable winners | +100.4% | −16.5% | 93 | 68.0% | 7/15 |
+| **all in-sample winners together** | −51.7% | −31.5% | 333 | 73.9% | 6/15 |
+| passive holding | +184.2% | −33.8% | 1 | — | — |
+| `theta_base = 0.25` alone | −4.9% | −52.6% | 185 | 83.1% | 6/15 |
+| current defaults | −29.6% | −54.1% | 86 | 85.8% | 6/15 |
+
+Two things to read there. The combined winner set is worse than the centre **in sample as well**
+(−51.7% against −29.6%): each winner was chosen with everything else at the centre, and together
+they interact. And `theta_base = 0.45` is the *worst* configuration in sample and the *best* out of
+sample, which is the anti-correlation itself, in one row. Adopting 0.45 because it wins out of
+sample is the same mistake aimed at the other half of the data, and it is not adopted.
+
+### The one thing that does transfer: trading less
+
+| | Spearman vs out-of-sample return | vs in-sample return |
+|---|---:|---:|
+| in-sample rank | +0.056 | — |
+| **number of trades** | **−0.413** | −0.040 |
+
+Trade count predicts the out-of-sample return and does *not* predict the in-sample one — so it is
+not a fitted relationship, it is a cost. By decile of trade count, over all cells:
+
+| trades (median) | 16 | 68 | 77 | 80 | 82 | 86 | 90 | 93 | 108 | 2,000 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| return OOS | −15.8% | −48.6% | −42.7% | −51.1% | −50.4% | −62.3% | −57.3% | −62.5% | −57.0% | −95.4% |
+| drawdown OOS | 57.9% | 76.4% | 74.8% | 80.9% | 81.9% | 84.9% | 82.4% | 83.5% | 80.7% | 96.4% |
+
+Every parameter in this strategy is, out of sample, a proxy for how often it trades, and the
+gradient runs monotonically to the limit of not trading at all. That is not a tuning; it is the
+same verdict this document has recorded for the gated mode, reached from the other direction.
+
+### What changed in the defaults
+
+Nothing, and that is the result. The only parameter the scan confirms is `atr_multiplier = 0`,
+which the stop fix had already made the default and which this scan ranks first by a wide margin.
+Every other default stands because no alternative passes both checks — which is the rule
+`tune_defaults` applies, used here for the first time on the confluence.
+
+Reproduce the scan with:
+
+```bash
+.venv312/bin/python -m scripts.confluence_lab --grid coordinate --modalita inversione --interval 15m
+```

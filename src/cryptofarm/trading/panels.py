@@ -157,7 +157,10 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
     # riempie i buchi per conto suo, ma non e' l'unico chiamante -- `diagnosi_confluenza` riceve il
     # dizionario della barra laterale cosi' com'e', e cadeva con `KeyError` proprio nel caso per cui
     # esiste, quello senza operazioni. Riempirli qui copre tutti i chiamanti in una volta.
-    valori = {**valori_predefiniti(), **valori}
+    # I buchi si riempiono col default della modalita' **richiesta**: un chiamante che chiede
+    # «inversione» senza dire niente sullo stop non deve ricevere il 3.0 dell'altra macchina, che
+    # li' ribalta invece di chiudere e deciderebbe lui il 98% delle operazioni.
+    valori = {**valori_predefiniti(modalita=str(valori.get("CONF_MODALITA", ""))), **valori}
 
     parametri = {
         "theta_base": float(valori["CONF_THETA_BASE"]),
@@ -174,6 +177,11 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
         "regime_ema": int(valori["CONF_REGIME_EMA"]),
         "struttura_ema": int(valori["CONF_STRUTTURA_EMA"]),
         "barre_in_formazione": bool(valori["CONF_IN_FORMAZIONE"]),
+        "modalita": str(valori["CONF_MODALITA"]),
+        # In «inversione» il verso corto non e' una scelta: senza, una macchina che non va mai a
+        # flat resterebbe lunga per sempre. Si accende qui invece di chiederlo con un widget che
+        # in una modalita' su due non avrebbe senso spegnere.
+        "allow_short": bool(valori["CONF_ALLOW_SHORT"]) or valori["CONF_MODALITA"] == "inversione",
     }
     intervallo = str(valori["INTERVALLO"])
     # Gli override dei votanti: quel che i widget hanno mosso rispetto ai loro default. Passarli
@@ -219,17 +227,41 @@ def diagnosi_confluenza(df: pd.DataFrame, valori: dict, intervallo: str) -> str:
 
 
 def _serie_confluenza(df, cache, valori):
+    """Il punteggio e le **due** soglie, sull'asse dei voti: -1 e' lungo, +1 e' corto.
+
+    Le soglie sono magnitudini in `Confluenza`; qui vanno portate sull'asse del punteggio, una per
+    verso e con il segno giusto, altrimenti si vedrebbe una linea sola a +0,35 mentre il punteggio
+    scende a -0,41 per comprare -- cioe' un ingresso che avviene dalla parte opposta della sua
+    soglia. Sono due linee e non una anche perche' il macro le muove all'opposto: quando scende
+    quella lunga sale quella corta.
+    """
     risultato = confluenza_di(df, valori)
     if risultato is None:
         return {}
-    return _serie(df.index, punteggio=risultato.punteggio, soglia=risultato.soglia)
+    return _serie(
+        df.index,
+        punteggio=risultato.punteggio,
+        soglia=confluence.VERSO_DEL_VOTO * risultato.soglia,
+        soglia_corta=-confluence.VERSO_DEL_VOTO * risultato.soglia_corta,
+    )
 
 
 def _serie_piani(df, cache, valori):
+    """I due piani lunghi, **omettendo quello che non si sa**.
+
+    Un piano la cui media chiede piu' barre di quante la finestra ne offra vale NaN dappertutto, e
+    va lasciato fuori invece di essere disegnato: e' la stessa regola di `_serie_stop`, e qui pesa
+    di piu'. Il piano di regime e' il cancello, e finche' resta ignoto **nessun ingresso e'
+    possibile**; disegnarlo come una riga piatta a 0,0 -- che e' cio' che faceva `nan_to_num` --
+    lo faceva leggere come «macro neutro» invece che «non lo so», cioe' mostrava una strategia
+    che sembrava poter operare e non poteva. Una traccia assente, con la didascalia che dice
+    quante ore mancano, e' l'unica lettura onesta.
+    """
     risultato = confluenza_di(df, valori)
     if risultato is None:
         return {}
-    return _serie(df.index, regime=risultato.regime, struttura=risultato.struttura)
+    piani = {"regime": risultato.regime, "struttura": risultato.struttura}
+    return _serie(df.index, **{nome: v for nome, v in piani.items() if np.isfinite(v).any()})
 
 
 def _serie_stop(df, cache, valori):
@@ -420,7 +452,8 @@ INDICATORI: dict[str, Indicatore] = {
         serie=_serie_confluenza,
         tracce=(
             Traccia("punteggio", "Score", BLU, larghezza=2.0),
-            Traccia("soglia", "Threshold", ARANCIO, tratteggio="dash", larghezza=1.4),
+            Traccia("soglia", "Long threshold", ARANCIO, tratteggio="dash", larghezza=1.4),
+            Traccia("soglia_corta", "Short threshold", ARANCIO, tratteggio="dot", larghezza=1.2),
         ),
     ),
     "piani_lunghi": Indicatore(
@@ -434,8 +467,10 @@ INDICATORI: dict[str, Indicatore] = {
         pannello="Higher planes",
         serie=_serie_piani,
         tracce=(
-            Traccia("regime", "Regime plane (gate)", ACQUA, larghezza=2.0),
-            Traccia("struttura", "Structure plane", ARANCIO, tratteggio="dash", larghezza=1.4),
+            # Condizionali tutte e due: su una finestra troppo corta per la loro media il piano
+            # non si sa, e allora non si disegna. Il riquadro vuoto e' il segnale.
+            Traccia("regime", "Regime plane (gate)", ACQUA, larghezza=2.0, condizionale=True),
+            Traccia("struttura", "Structure plane", ARANCIO, tratteggio="dash", larghezza=1.4, condizionale=True),
         ),
     ),
     "stop_confluenza": Indicatore(
@@ -782,11 +817,41 @@ def _confluenza_lunga(df: pd.DataFrame, valori: dict) -> tuple[list, list]:
     risultato = confluenza_di(df, valori)
     if risultato is None:
         return [], []
-    compra, vende = _solo_lunghe(risultato.eventi)
+    if risultato.modalita == "inversione":
+        # **`_solo_lunghe` qui non funziona, e falliva in silenzio.** Tiene come vendite i soli
+        # eventi con obiettivo zero, e in questa modalita' gli eventi a zero non esistono per
+        # costruzione: ogni ribaltamento corto finiva scartato e sul grafico restavano solo
+        # triangoli d'acquisto, senza una sola vendita. Qui un ribaltamento corto **e'** la
+        # vendita della posizione lunga precedente, ed e' cosi' che va disegnato.
+        compra = [(q, pr) for q, pr, o in risultato.eventi if o > 0]
+        vende = [(q, pr) for q, pr, o in risultato.eventi if o <= 0]
+    else:
+        compra, vende = _solo_lunghe(risultato.eventi)
     return (
         [(quando, prezzo, risultato.spiega(quando)) for quando, prezzo in compra],
         [(quando, prezzo, risultato.spiega(quando)) for quando, prezzo in vende],
     )
+
+
+def eventi_di_posizione(strategia: str, df: pd.DataFrame, valori: dict) -> list | None:
+    """I cambi di posizione da eseguire con `pnl.simulate_positions`, o `None` se non servono.
+
+    La pagina e' costruita su due liste, acquisti e vendite, che `simulate_trading_with_commisions`
+    accoppia per indice. Quel formato sa dire «dentro» e «fuori» e **non sa rappresentare una
+    posizione corta**: su una strategia sempre a mercato conterebbe le gambe lunghe e tratterebbe
+    quelle corte come tempo passato in contanti, cioe' mostrerebbe un profitto che non e' quello
+    della strategia. I marcatori si possono disegnare lo stesso -- un ribaltamento corto e' la
+    vendita del lungo precedente -- ma il conto no.
+
+    Restituisce gli eventi grezzi `(quando, prezzo, obiettivo)` solo per la confluenza in modalita'
+    inversione; per tutto il resto `None`, e la pagina resta sul motore di sempre.
+    """
+    if strategia != CONFLUENZA:
+        return None
+    risultato = confluenza_di(df, valori)
+    if risultato is None or risultato.modalita != "inversione":
+        return None
+    return [e[:3] for e in risultato.eventi]
 
 
 VUOTA = "-"  # la voce che non seleziona nessuna strategia: si mostra tutto
@@ -870,7 +935,7 @@ def valori_del_piano(votante, intervallo: str) -> dict:
     }
 
 
-def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
+def valori_predefiniti(strategia: str = "", intervallo: str = "", modalita: str = "") -> dict:
     """Il valore iniziale di ogni parametro noto, cioe' cosa vede la pagina prima che si tocchi
     qualcosa. Serve alla pagina come base su cui scrivere le scelte dei widget, e ai test come
     contesto per calcolare le serie.
@@ -878,6 +943,11 @@ def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
     Con `strategia` e `intervallo` i valori misurati per quella coppia si sovrappongono a quelli
     scritti a mano. Senza, si ottengono i default di `config` e basta -- che e' quel che serve ai
     test e a chi calcola una serie fuori dalla pagina.
+
+    `modalita` e' il terzo strato e riguarda la sola confluenza: lo stop non vuol dire la stessa
+    cosa nelle due macchine -- in «cancello» chiude, in «inversione» ribalta, cioe' apre
+    l'operazione successiva -- e il suo valore di partenza viene da `confluence.STOP_PREDEFINITO`,
+    che e' l'unico posto in cui quel numero e' scritto.
     """
     from cryptofarm.trading import config
 
@@ -886,12 +956,18 @@ def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
     }
     valori["CONFIRM_VOLUME"] = config.CONFIRM_VOLUME
     valori["CONF_IN_FORMAZIONE"] = config.CONF_IN_FORMAZIONE
+    valori["CONF_MODALITA"] = config.CONF_MODALITA
+    valori["CONF_ALLOW_SHORT"] = config.CONF_ALLOW_SHORT
     # L'intervallo e' un parametro come gli altri per la confluenza, che da li' ricava i suoi
     # quattro piani. La pagina lo sovrascrive con quello scelto; fuori dalla pagina resta questo.
     valori["INTERVALLO"] = config.INTERVALS[config.INTERVAL_INDEX]
     valori["REQUIRE_CLOUD"] = config.REQUIRE_CLOUD
     if strategia and intervallo:
         valori.update(valori_misurati(strategia, intervallo))
+    modalita = modalita or str(valori["CONF_MODALITA"])
+    if modalita in confluence.STOP_PREDEFINITO:
+        valori["CONF_MODALITA"] = modalita
+        valori["CONF_ATR_MULT"] = confluence.STOP_PREDEFINITO[modalita]
     return valori
 
 

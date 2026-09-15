@@ -18,7 +18,7 @@ from streamlit.testing.v1 import AppTest
 
 from cryptofarm.ml import signals
 from cryptofarm.ml.signals import entry_model_disponibile
-from cryptofarm.trading import config, rotation
+from cryptofarm.trading import config, confluence, rotation
 
 PAGINA = "src/cryptofarm/trading/simulator.py"
 ROTAZIONE = config.ROTATION_MODES[1]
@@ -134,6 +134,36 @@ def test_la_confluenza_offre_l_interruttore_delle_barre_in_formazione(pagina: Ap
     interruttore = next(c for c in pagina.checkbox if c.label.startswith("React inside forming"))
     assert interruttore.value is config.CONF_IN_FORMAZIONE
     assert interruttore.key.endswith(f"_{intervallo}")
+
+
+def test_cambiare_modalita_ricarica_i_valori_di_partenza(pagina: AppTest) -> None:
+    """Lo stop vale 3 ATR dove chiude e 0 dove ribalta, e il campo deve seguirlo.
+
+    Stesso difetto invisibile di `test_cambiare_intervallo_ricarica_i_valori_di_partenza`, su un
+    altro asse: Streamlit conserva lo stato di un widget con la stessa chiave, quindi senza la
+    modalita' dentro la chiave, passando a «inversione» il campo resterebbe sui 3 ATR dell'altra
+    macchina -- dove lo stop non chiude ma **ribalta**, e a 3 ATR decide il 98% delle operazioni.
+
+    L'asserzione che conta e' sulla **chiave**: `AppTest` ricostruisce lo stato a ogni `run()`,
+    quindi il confronto fra i soli valori passa anche con la chiave sbagliata. Verificato
+    togliendo la modalita' dalla chiave: i valori restano giusti e la chiave no.
+    """
+    next(box for box in pagina.selectbox if box.label == "Strategy").set_value(config.CONFLUENCE_STRATEGY).run()
+
+    def stop(modalita: str) -> tuple:
+        """Valore e chiave letti **subito**: gli elementi di `AppTest` si rilegano al run corrente."""
+        next(r for r in pagina.radio if r.label == "Execution").set_value(modalita).run()
+        campo = next(n for n in pagina.number_input if n.label.startswith("Stop distance"))
+        return campo.value, campo.key
+
+    (valore_cancello, chiave_cancello), (valore_inversione, chiave_inversione) = (
+        stop("cancello"),
+        stop("inversione"),
+    )
+    assert valore_cancello == confluence.STOP_PREDEFINITO["cancello"]
+    assert valore_inversione == confluence.STOP_PREDEFINITO["inversione"]
+    assert chiave_cancello != chiave_inversione, "la chiave del widget non porta la modalita'"
+    assert chiave_cancello.endswith("_cancello") and chiave_inversione.endswith("_inversione")
 
 
 @pytest.mark.skipif(

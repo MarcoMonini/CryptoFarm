@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cryptofarm.trading import config as confluence_config
 from cryptofarm.trading import confluence, panels
 from cryptofarm.trading.indicators_extra import ExtraCache
 
@@ -194,7 +195,7 @@ def _figura(candele, strategia="Confluence"):
 
 def test_la_pagina_mostra_la_decisione_e_i_votanti(candele):
     nomi = {traccia.name for traccia in _figura(candele).data}
-    assert {"Score", "Threshold"} <= nomi, "manca il riquadro della decisione"
+    assert {"Score", "Long threshold", "Short threshold"} <= nomi, "manca il riquadro della decisione"
     assert {"Regime plane (gate)", "Structure plane"} <= nomi, "mancano i piani lunghi"
     assert sum("·" in (n or "") for n in nomi) == len(confluence.VOTANTI), "manca un votante"
 
@@ -337,8 +338,13 @@ def test_ogni_ingresso_soddisfa_tutte_e_quattro_le_condizioni(candele):
             continue
         i = posizione[quando]
         assert risultato.regime[i] > 0, f"{quando}: aperto col cancello chiuso"
-        assert risultato.punteggio[i] >= risultato.soglia[i], f"{quando}: aperto sotto la soglia"
-        assert risultato.concordi_lungo[i] >= risultato.k_famiglie, f"{quando}: aperto senza ampiezza"
+        # Il punteggio e' nell'orientamento dei voti (-1 e' lungo): il confronto con la soglia,
+        # che e' una magnitudine, passa da `convinzione` esattamente come nel motore.
+        sostegno = confluence.convinzione(risultato.punteggio[i], obiettivo)
+        attiva = risultato.soglia[i] if obiettivo > 0 else risultato.soglia_corta[i]
+        assert sostegno >= attiva, f"{quando}: aperto sotto la soglia del proprio verso"
+        concordi = risultato.concordi_lungo if obiettivo > 0 else risultato.concordi_corto
+        assert concordi[i] >= risultato.k_famiglie, f"{quando}: aperto senza ampiezza"
 
 
 def test_ogni_uscita_ha_un_motivo_registrato(candele):
@@ -385,7 +391,7 @@ def test_il_cancello_non_sta_sullo_stesso_riquadro_del_punteggio():
     decisione = panels.INDICATORI["confluenza"]
     piani = panels.INDICATORI["piani_lunghi"]
     assert decisione.pannello != piani.pannello
-    assert {t.serie for t in decisione.tracce} == {"punteggio", "soglia"}
+    assert {t.serie for t in decisione.tracce} == {"punteggio", "soglia", "soglia_corta"}
     assert {t.serie for t in piani.tracce} == {"regime", "struttura"}
 
 
@@ -423,7 +429,10 @@ def test_la_soglia_si_muove_con_continuita(candele):
     # La prima barra in cui il piano lungo diventa disponibile e' un gradino per forza: si passa
     # da «non c'e' dato» a un valore. Non e' quella il difetto, e contarla renderebbe il test una
     # misura della lunghezza del riscaldamento invece che della continuita'.
-    partenza = int(np.flatnonzero(risultato.regime != 0)[0])
+    # Il piano e' NaN finche' non si sa e non zero, quindi «disponibile» si chiede con `isfinite`:
+    # con `!= 0` il NaN risponde di si' e la partenza cadrebbe sulla barra zero, includendo proprio
+    # il gradino di riscaldamento che questo test esiste per escludere.
+    partenza = int(np.flatnonzero(np.isfinite(risultato.regime) & (risultato.regime != 0))[0])
     salti = salti[partenza:]
     assert salti.max() < 0.05, f"la soglia salta di {salti.max():.3f} in una barra"
     assert (salti > 0.02).mean() < 0.001, "troppi salti grossi"
@@ -469,7 +478,17 @@ def test_il_pavimento_non_trattiene_ne_lo_stop_ne_il_cancello(candele):
 
 def test_la_pazienza_taglia_la_coda_dell_isteresi(candele):
     """L'isteresi come idea e' buona, ma il punteggio decade piano e la posizione restava aperta
-    per ore oltre il primo segnale di uscita."""
+    per ore oltre il primo segnale di uscita.
+
+    **Si misura a 8 e non al default di 24, e il motivo e' una misura.** Con l'ingresso a fronte
+    (il riarmo sotto `soglia - isteresi`) le posizioni si aprono su un segnale appena arrivato
+    invece che su uno ancora acceso, e la coda che `pazienza` era stata inventata per tagliare si
+    e' in gran parte accorciata da sola: su BTCUSDT a 15m dal 2024 il novantesimo percentile e'
+    19,4 barre, cioe' **sotto** le 24 della pazienza, che infatti chiude 7 uscite su 556. Il
+    meccanismo pero' funziona e resta monotono -- su queste candele la coda p90 e' 3,0 barre a
+    pazienza 2 e 4, 7,0 a 8, 31,6 a 16, 35,2 a 24 e senza limite -- ed e' quello che si verifica
+    qui. Il default non e' piu' il valore che morde, ed e' un risultato, non un guasto.
+    """
     import numpy as np
 
     posizione = {quando: i for i, quando in enumerate(candele.index)}
@@ -482,13 +501,18 @@ def test_la_pazienza_taglia_la_coda_dell_isteresi(candele):
             if obiettivo != 0:
                 apertura = i
             elif apertura is not None:
-                sotto = np.flatnonzero(risultato.punteggio[apertura:i] < risultato.soglia[apertura:i])
+                # «Sotto la soglia» si chiede con `convinzione`: il punteggio e' sull'asse dei
+                # voti, dove una posizione lunga e' negativa, e il confronto crudo sarebbe vero
+                # quasi sempre.
+                sostegno = confluence.convinzione(risultato.punteggio[apertura:i], +1)
+                sotto = np.flatnonzero(sostegno < risultato.soglia[apertura:i])
                 if len(sotto):
                     ritardi.append(i - (apertura + int(sotto[0])))
                 apertura = None
         return np.percentile(ritardi, 90)
 
-    assert coda(pazienza=24) < coda(pazienza=10**9), "la pazienza non accorcia niente"
+    assert coda(pazienza=8) < coda(pazienza=10**9), "la pazienza non accorcia niente"
+    assert coda(pazienza=8) <= coda(pazienza=16) <= coda(pazienza=10**9), "e non lo fa in modo monotono"
 
 
 def test_la_pazienza_ha_un_motivo_suo(candele):
@@ -620,6 +644,7 @@ def test_la_necessarieta_vale_quanto_la_definizione_che_la_descrive(candele):
     """
     risultato = confluence.evaluate(candele, "15m")
     voti, pesi, soglia = risultato.voti, risultato.pesi, risultato.soglia
+    stati = risultato.stati
     famiglie = {v.nome: v.famiglia for v in confluence.VOTANTI}
 
     # La definizione, trascritta senza furbizie: per ogni votante, la frazione di ingressi in cui
@@ -627,15 +652,21 @@ def test_la_necessarieta_vale_quanto_la_definizione_che_la_descrive(candele):
     # minimo di famiglie.
     barre = np.array([risultato.indice.get_loc(q) for q, _, obiettivo in risultato.eventi if obiettivo != 0])
     assert len(barre) > 10, "servono abbastanza ingressi perche' il confronto significhi qualcosa"
-    verso = np.sign(sum(pesi[n] * voti[n] for n in voti)[barre])
+    # Il verso dell'**operazione**: il punteggio e' sull'asse dei voti, dove un consenso lungo e'
+    # negativo, quindi il segno va convertito e non letto cosi' com'e'.
+    verso = np.sign(confluence.convinzione(sum(pesi[n] * voti[n] for n in voti)[barre], +1))
     verso[verso == 0] = 1
+    attiva = np.where(verso > 0, soglia[barre], risultato.soglia_corta[barre])
     atteso = {}
     for nome in voti:
         restanti = {n: v for n, v in voti.items() if n != nome}
         punteggio = sum(pesi[n] * restanti[n] for n in restanti)[barre]
-        sotto_soglia = punteggio * verso < soglia[barre]
+        sotto_soglia = confluence.convinzione(punteggio, verso) < attiva
+        # L'ampiezza si conta sugli **stati**: togliere un votante e' togliere la sua opinione,
+        # non la coda del suo voto.
+        altri_stati = {n: v for n, v in stati.items() if n != nome}
         ampiezza = np.array(
-            [confluence._famiglie_concordi(restanti, famiglie, int(v))[b] for b, v in zip(barre, verso)]
+            [confluence._famiglie_concordi(altri_stati, famiglie, int(v))[b] for b, v in zip(barre, verso)]
         )
         atteso[nome] = float(np.mean(sotto_soglia | (ampiezza < risultato.k_famiglie)))
 
@@ -671,21 +702,702 @@ def test_il_votante_a_modello_non_vota_mai_corto(candele, monkeypatch):
     assert stati == {0, 1}, f"servono ingressi e uscite per misurare qualcosa, visti {stati}"
 
 
-def test_senza_artefatto_il_votante_a_modello_tace_e_resta_fuori_dal_default(candele, monkeypatch):
-    """In produzione `models/` e' vuoto, e li' la confluenza deve restare quella misurata.
+def test_il_votante_a_modello_resta_fuori_dal_default_con_o_senza_artefatto(candele, monkeypatch):
+    """Il collegio non dipende da cosa c'e' in `models/`, e prima dipendeva.
 
-    Non basta che il votante si astenga: i pesi si normalizzano sui votanti **presenti**, quindi
-    un ottavo che tace sempre alzerebbe di fatto la soglia per gli altri sette. Deve proprio
-    restare fuori dall'insieme di default -- pur restando nel registro, cosi' `selezione` lo
-    raggiunge per misurarlo.
+    La condizione era l'artefatto su disco, e la domanda era sbagliata: quel che rovina l'insieme
+    non e' un votante assente, e' un votante **presente e muto**. I pesi sono fissi e si
+    normalizzano sul collegio, quindi chi tace non e' neutro -- toglie il suo peso al punteggio di
+    tutti gli altri su ogni barra in cui non parla, cioe' alza la soglia senza dirlo. `modello`
+    tace per disegno: la selettivita' del modello d'ingresso sta nei metadata del suo artefatto, e
+    misurato su quindici simboli a 15m tiene una posizione fra lo 0,4% e il 3,3% delle barre
+    contro il 25% del penultimo votante.
+
+    Con gli artefatti sul disco -- che e' la condizione in locale, non in produzione -- entrava
+    lo stesso e portava le barre sopra soglia di BTCUSDT da 2,22% a 0,82%. E faceva **cambiare
+    esito ai test** a seconda di cosa c'era in `models/`, che e' il difetto che questo test chiude.
     """
+    assert "modello" not in [v.nome for v in confluence.votanti_predefiniti()]
+    assert "modello" not in [v.nome for v in confluence.VOTANTI]
+    assert len(confluence.VOTANTI) == len(confluence.REGISTRO) - 1
+    assert confluence.selezione("modello")[0].nome == "modello", "il registro lo tiene comunque"
+
+    # E la stessa risposta senza artefatti, che e' la condizione del servizio pubblico: prima i
+    # due rami davano collegi diversi, ora e' lo stesso.
+    con_artefatti = confluence.votanti_predefiniti()
     monkeypatch.setattr(confluence.signals, "MODELS_DIR", Path("/nessun/modello/qui"))
     for nome in ("swing_model", "rl_model", "entry_model"):
         getattr(confluence.signals, nome).cache_clear()
         monkeypatch.setattr(confluence.signals, nome, getattr(confluence.signals, nome).__wrapped__)
-
     assert confluence._modello(candele, ExtraCache(candele), {"entra": 0.5, "esci": 0.4}) == []
-    nomi = [v.nome for v in confluence.votanti_predefiniti()]
-    assert "modello" not in nomi
-    assert len(nomi) == len(confluence.REGISTRO) - 1
-    assert confluence.selezione("modello")[0].nome == "modello", "il registro lo tiene comunque"
+    assert confluence.votanti_predefiniti() == con_artefatti
+
+
+# -------------------------------------------------------------------------------------------------
+# I due versi: ogni votante li sa dire tutti e due, e la soglia li tratta allo stesso modo
+# -------------------------------------------------------------------------------------------------
+
+
+def _candele_con_inversione(giorni: int = 300, seme: int = 0) -> pd.DataFrame:
+    """Candele che salgono per meta' finestra e scendono per l'altra meta'.
+
+    Il random walk di `_candele` ha deriva positiva e su una finestra qualunque puo' non offrire
+    mai a un votante lento l'occasione di dire «corto». Qui l'occasione c'e' per costruzione in
+    tutti e due i versi, che e' la condizione minima perche' «non vota mai corto» voglia dire
+    qualcosa invece di «su questi dati non gli e' capitato».
+
+    La **volatilita' resta quella di `_candele`** (`sigma = 0,4` per barra, non riscalata), e non
+    e' un dettaglio: con un rumore dieci volte piu' piccolo la serie e' cosi' liscia che ichimoku
+    non incrocia mai e le bande a 2,5 ATR non si toccano mai. Quei due votanti risultavano allora
+    «incapaci di votare corto» perche' non votavano affatto, e il test avrebbe accusato il codice
+    di un difetto del dato di prova.
+    """
+    n = 96 * giorni
+    idx = pd.date_range("2024-01-01", periods=n, freq="15min", name="Open time")
+    rng = np.random.default_rng(seme)
+    t = np.arange(n)
+    passo = 100 + np.where(t < n // 2, t * 0.02, (n // 2) * 0.02 - (t - n // 2) * 0.02)
+    passo = passo + np.cumsum(rng.normal(0, 0.4, n))
+    return pd.DataFrame(
+        {
+            "Open": passo,
+            "High": passo + abs(rng.normal(0, 0.5, n)),
+            "Low": passo - abs(rng.normal(0, 0.5, n)),
+            "Close": passo + rng.normal(0, 0.1, n),
+            "Volume": rng.random(n) * 10,
+        },
+        index=idx,
+    )
+
+
+@pytest.fixture(scope="module")
+def candele_con_inversione():
+    return _candele_con_inversione()
+
+
+def test_ogni_votante_sa_dire_tutti_e_due_i_versi(candele_con_inversione):
+    """Il difetto che questo test esiste per prendere: un votante che non puo' votare corto.
+
+    `_bande` chiamava `atr_band_bounce` senza `allow_short`, e quella funzione e' l'unica di
+    `strategies_ls` che ha `False` per default. La famiglia `bande` -- due votanti su otto --
+    era percio' **strutturalmente incapace** di dire «corto»: non per prudenza e non per misura,
+    per un default preso in silenzio. Non sollevava niente e nessun test lo vedeva.
+
+    Il modello e' l'unica eccezione, e dichiarata: la forma misurata del suo segnale e' a U, il
+    segno non dice il verso, quindi vota +1 o tace (`.claude/docs/modello-swing.md` §5.1).
+    """
+    stati = confluence.stati_dei_votanti(candele_con_inversione, "15m", votanti=confluence.selezione())
+    for nome, stato in stati.items():
+        if nome == "modello":
+            assert not (stato < 0).any(), "il votante a modello non vota mai corto, per disegno"
+            continue
+        assert (stato > 0).any(), f"{nome} non vota mai lungo su candele che salgono per meta' finestra"
+        assert (stato < 0).any(), f"{nome} non vota mai corto: controlla il default di `allow_short`"
+
+
+def test_il_macro_sconta_la_soglia_nel_verso_dell_operazione(candele_con_inversione):
+    """Il difetto: `theta_base - theta_macro * macro` abbassava la soglia per **tutti e due** i
+    versi quando il macro saliva.
+
+    Sul lungo e' il disegno. Sul corto era il suo contrario esatto: con regime e struttura a -1,
+    cioe' con il quadro macro che da' ragione al corto, la soglia saliva a 0,50 -- mentre il lungo
+    con macro a +1 ne chiedeva 0,20. La barra si alzava proprio dove doveva abbassarsi.
+    """
+    r = confluence.evaluate(candele_con_inversione, "15m", theta_base=0.35, theta_macro=0.15)
+    su = (r.regime > 0.5) & (r.struttura > 0.5)
+    giu = (r.regime < -0.5) & (r.struttura < -0.5)
+    assert su.any() and giu.any(), "le candele devono offrire tutti e due i quadri macro"
+
+    # Il macro favorevole sconta la soglia del **proprio** verso, e alza quella dell'altro.
+    assert r.soglia[su].mean() < 0.35 < r.soglia_corta[su].mean()
+    assert r.soglia_corta[giu].mean() < 0.35 < r.soglia[giu].mean()
+
+    # E lo sconto e' lo stesso numero: i due versi sono simmetrici rispetto a `theta_base`.
+    assert np.allclose(r.soglia + r.soglia_corta, 2 * 0.35)
+
+
+def test_con_macro_favorevole_il_corto_non_e_piu_difficile_del_lungo(candele_con_inversione):
+    """La lettura operativa del test precedente, sugli ingressi che avvengono davvero.
+
+    Con il difetto in casa gli ingressi corti erano piu' rari di quanto il disegno volesse, e la
+    causa non era il punteggio: era la soglia. Qui si chiede che, a quadro macro ugualmente
+    favorevole, la barra da superare sia la stessa nei due versi.
+    """
+    r = confluence.evaluate(candele_con_inversione, "15m", allow_short=True)
+    barre = {e[0]: e[2] for e in r.eventi if e[2] != 0}
+    posizioni = r.indice.get_indexer(list(barre))
+    versi = list(barre.values())
+    assert -1 in versi, "senza ingressi corti questo test non misura niente"
+
+    for i, verso in zip(posizioni, versi):
+        attiva = r.soglia[i] if verso > 0 else r.soglia_corta[i]
+        assert abs(r.punteggio[i]) >= attiva - 1e-12, "un ingresso deve superare la soglia del proprio verso"
+        # E la soglia superata e' quella scontata dal macro, non quella dell'altro verso.
+        assert attiva == pytest.approx((0.35 - 0.15 * (r.regime[i] + r.struttura[i]) / 2 * verso))
+
+
+# -------------------------------------------------------------------------------------------------
+# L'orientamento dei voti: -1 e' lungo, +1 e' corto
+# -------------------------------------------------------------------------------------------------
+
+
+def test_i_voti_di_un_consenso_lungo_vanno_tutti_verso_meno_uno(candele):
+    """La domanda da cui e' partita la revisione: perche' i votanti sembrano contraddirsi.
+
+    Una delle risposte era che sulla stessa pagina convivevano **due assi opposti**: il riquadro
+    *Voters* con +1 = lungo (convenzione di posizione) e il riquadro *Swing target* con -1 = zona
+    d'acquisto (`ml/labeling.swing_leg_target`). Letti insieme sembravano darsi torto mentre
+    dicevano la stessa cosa. Ora i voti stanno sull'asse dell'etichetta, dichiarato da
+    `VERSO_DEL_VOTO`.
+    """
+    risultato = confluence.evaluate(candele, "15m")
+    assert confluence.VERSO_DEL_VOTO == -1
+
+    barre = [risultato.indice.get_loc(q) for q, _, obiettivo in risultato.eventi if obiettivo > 0]
+    assert len(barre) > 10, "servono abbastanza ingressi lunghi perche' il confronto significhi qualcosa"
+
+    for i in barre:
+        assert risultato.punteggio[i] < 0, "un ingresso lungo avviene su un punteggio negativo"
+        # E i votanti che lo sostengono sono negativi anche loro: e' l'accordo che si deve vedere.
+        sostenitori = [v[i] for v in risultato.voti.values() if abs(v[i]) > 1e-9 and v[i] < 0]
+        assert sostenitori, "nessun votante sostiene un ingresso lungo"
+
+    # `convinzione` e' l'unico posto in cui i due assi si incontrano, e va in tutte e due le
+    # direzioni: un punteggio negativo sostiene il lungo, uno positivo sostiene il corto.
+    assert confluence.convinzione(-0.4, +1) == pytest.approx(0.4)
+    assert confluence.convinzione(-0.4, -1) == pytest.approx(-0.4)
+    assert confluence.convinzione(+0.4, -1) == pytest.approx(0.4)
+
+
+def test_gli_eventi_emessi_sono_quelli_pinnati(candele, candele_con_inversione):
+    """Il golden del comportamento: **quali** operazioni escono, su che barra e a che prezzo.
+
+    Nato per un vincolo piu' stretto -- dimostrare che portare i voti sull'asse `-1 = lungo` era
+    una rietichettatura e non un cambio di strategia -- e quel giro lo passo' con le firme
+    identiche. Resta come golden generale, e va letto per quel che pinna: gli eventi emessi sono
+    nella convenzione di **posizione** (+1 = lungo), che e' quella di `pnl.simulate_positions`, di
+    `portfolio` e del bot live che piazza ordini veri.
+
+    **Quando cade, la domanda e' se il cambio era voluto.** Una rietichettatura, una correzione di
+    segno o una riscrittura che non cambia la strategia non devono spostarlo di un evento: li' si
+    cerca il difetto, non si rigenera. Un cambio deliberato della forma del punteggio lo sposta per
+    definizione, e allora si rigenera **dopo** aver guardato il diff -- che e' cio' che e' successo
+    con il pavimento e l'azzeramento del voto: 81 ingressi lunghi diventarono 85 sul primo caso e
+    72 diventarono 110 sul secondo, perche' i votanti hanno smesso di ammutolire mentre erano
+    convinti. Il conto dei numeri qui sotto e' quel passaggio, non una rigenerazione automatica.
+
+    ## 2026-09-15: il rientro a fronte, e perche' questi numeri si sono quasi dimezzati
+
+    Gli eventi sono passati da 170/220/494 a 88/140/308, e gli ingressi lunghi da 85/110/247 a
+    44/70/154. La rigenerazione e' stata fatta dopo aver guardato il diff, e il diff dice una cosa
+    sola: **il nuovo insieme di eventi e' un sottoinsieme stretto del vecchio -- 82, 80 e 186
+    eventi tolti, e zero eventi nuovi.** Nessuna operazione si e' spostata di una barra o di un
+    prezzo; ne sono semplicemente sparite. Quelle sparite sono i rientri su un segnale ancora
+    acceso dopo un'uscita dallo stop, che pagavano due commissioni per tornare dov'erano.
+
+    Un sottoinsieme stretto e' il controllo che distingue una **de-duplicazione** da un cambio di
+    strategia, ed e' il motivo per cui questa rigenerazione e' accettabile mentre quasi nessun'altra
+    lo sarebbe. La composizione dei motivi non cambia forma: ingresso, stop, isteresi, pazienza
+    restano tutti presenti e nelle stesse proporzioni.
+    """
+    import hashlib
+    import json
+
+    atteso = {
+        "base_long_only": (88, 44, 0, "2722d4acb1b2a41e"),
+        "inversione_long_only": (140, 70, 0, "d2ede53ad692a0d1"),
+        "inversione_short": (308, 70, 84, "c391598fa8161c47"),
+    }
+    casi = {
+        "base_long_only": (candele, {}),
+        "inversione_long_only": (candele_con_inversione, {}),
+        "inversione_short": (candele_con_inversione, {"allow_short": True}),
+    }
+
+    for nome, (df, kw) in casi.items():
+        eventi = confluence.evaluate(df, "15m", **kw).eventi
+        crudi = [(str(t), round(float(p), 6), int(o)) for t, p, o in eventi]
+        n, lunghi, corti, firma = atteso[nome]
+        assert len(crudi) == n, f"{nome}: il numero di eventi e' cambiato"
+        assert sum(1 for e in crudi if e[2] > 0) == lunghi, f"{nome}: gli ingressi lunghi sono cambiati"
+        assert sum(1 for e in crudi if e[2] < 0) == corti, f"{nome}: gli ingressi corti sono cambiati"
+        # Il conteggio puo' tornare mentre un'operazione si e' spostata di barra o di prezzo.
+        assert (
+            hashlib.sha256(json.dumps(crudi).encode()).hexdigest()[:16] == firma
+        ), f"{nome}: stesso numero di operazioni, ma almeno una e' su una barra o un prezzo diverso"
+
+
+# -------------------------------------------------------------------------------------------------
+# Un piano che non si sa: NaN, non zero
+# -------------------------------------------------------------------------------------------------
+
+
+def _finestra_corta_per_il_regime():
+    """Venti giorni a 15m: il piano di regime e' 1d e la sua media ne chiede cinquanta.
+
+    E' la finestra con cui si guarda la pagina, non un caso limite costruito: il valore iniziale
+    sono 240 ore e il cancello ne chiede 1.200.
+    """
+    return _candele(giorni=20, seme=5)
+
+
+def test_un_piano_che_non_si_sa_vale_nan_e_non_zero():
+    """Il difetto: `nan_to_num(..., nan=0.0)` faceva valere zero un piano ignoto.
+
+    Zero qui e' una bugia, e non solo sul grafico: e' il valore che significa «prezzo esattamente
+    sulla sua media», cioe' **macro neutro**. Un cancello chiuso per ignoranza si leggeva percio'
+    come un cancello neutro, e la pagina mostrava una strategia che sembrava poter operare mentre
+    nessun ingresso era possibile.
+    """
+    candele = _finestra_corta_per_il_regime()
+    r = confluence.evaluate(candele, "15m")
+
+    assert np.isnan(r.regime).all(), "il piano di regime non e' noto su questa finestra: deve essere NaN"
+    assert np.isfinite(r.struttura).any(), "il piano di struttura invece si sa: non deve essere NaN ovunque"
+
+    # Il cancello non cambia comportamento -- `NaN > 0` e' False -- ma adesso lo dichiara.
+    assert r.ingressi == 0
+    assert "not enough history" in r.perche_non_entra()
+
+
+def test_un_piano_che_non_si_sa_non_vota_nella_soglia():
+    """L'altra meta' del difetto, quella che non si vedeva affatto.
+
+    La soglia era `theta_base - theta_macro * (regime + struttura) / 2`. Con il regime ignoto a
+    zero, quella media **dimezzava** il contributo del piano noto: il piano che non si sa votava,
+    e votava «neutro». Ora si astiene e la media e' sui piani noti.
+    """
+    candele = _finestra_corta_per_il_regime()
+    r = confluence.evaluate(candele, "15m", theta_base=0.35, theta_macro=0.15)
+
+    noto = np.isfinite(r.struttura)
+    # Con un piano solo noto, la soglia e' scontata da quello **per intero**.
+    atteso = 0.35 - 0.15 * r.struttura[noto]
+    assert r.soglia[noto] == pytest.approx(atteso), "il piano noto deve scontare la soglia per intero"
+
+    # E la versione col difetto -- la media che conta lo zero -- dava un numero diverso.
+    diluito = 0.35 - 0.15 * (0.0 + r.struttura[noto]) / 2
+    assert not np.allclose(r.soglia[noto], diluito), "la soglia e' ancora diluita dal piano ignoto"
+
+    # Dove non si sa nessuno dei due piani lo sconto e' nullo, non NaN: `theta_base` e basta.
+    if (~noto).any():
+        assert r.soglia[~noto] == pytest.approx(0.35)
+
+
+def test_un_piano_che_non_si_sa_non_si_disegna():
+    """Il riquadro vuoto e' il segnale, e va dove l'utente guarda.
+
+    La pagina diceva gia' «not enough history», ma nella sezione *Trades*: chi guarda il grafico
+    vedeva una linea verde a 0,0 e la leggeva come un cancello neutro. Stessa regola dello stop a
+    trailing (`_serie_stop`): una serie che non ha niente da disegnare non entra in legenda.
+    """
+    candele = _finestra_corta_per_il_regime()
+    serie = panels._serie_piani(candele, ExtraCache(candele), {"INTERVALLO": "15m"})
+
+    assert "regime" not in serie, "un piano ignoto non deve comparire come una riga piatta a zero"
+    assert "struttura" in serie, "il piano noto invece si disegna"
+
+    # Su una finestra lunga abbastanza tornano tutti e due.
+    lunga = _candele(giorni=120, seme=5)
+    completa = panels._serie_piani(lunga, ExtraCache(lunga), {"INTERVALLO": "15m"})
+    assert {"regime", "struttura"} <= set(completa)
+
+
+# -------------------------------------------------------------------------------------------------
+# Il voto e' opinione per recenza, non recenza soltanto
+# -------------------------------------------------------------------------------------------------
+
+
+def test_nessun_votante_ammutolisce_mentre_tiene_la_posizione(candele):
+    """Il difetto grosso, e quello che produceva «i segnali non arrivano».
+
+    Il voto decadeva verso zero dall'ultimo scatto, indipendentemente dal fatto che il votante
+    fosse ancora convinto. Misurato su 400 giorni sintetici: `zone_regime` in posizione sul 74,5%
+    delle barre e **muto sul 91,3%** di quelle, `zone_struttura` 67,1%, `bande_conferma` 84,4%.
+    Con sette votanti a 1/7 e una soglia di 0,35 servivano due voti e mezzo pieni e allineati, e
+    quasi mai lo erano: il collegio era quasi sempre in minoranza di se stesso.
+    """
+    r = confluence.evaluate(candele, "15m")
+    for nome, voto in r.voti.items():
+        stato = np.asarray(r.stati[nome])
+        in_posizione = stato != 0
+        if not in_posizione.any():
+            continue
+        assert (voto[in_posizione] != 0).all(), f"{nome}: muto mentre tiene la posizione"
+
+    # E il conto che conta: quanti votanti parlano su una barra media.
+    accesi = np.mean([(np.abs(v) > 0).mean() for v in r.voti.values()]) * len(r.voti)
+    assert accesi > len(r.voti) / 2, f"solo {accesi:.2f} votanti su {len(r.voti)} parlano su una barra media"
+
+
+def test_nessun_votante_vota_dopo_essere_uscito(candele):
+    """Il difetto opposto: i voti fantasma.
+
+    `pullback` aveva un voto acceso a posizione gia' chiusa sul 49,0% delle barre. Le bande sono
+    il caso che si vede a occhio: entrano sulla banda inferiore, escono su quella **opposta**, e
+    il voto +1 sopravviveva all'uscita continuando a dire «lungo» dal massimo in giu'.
+    """
+    r = confluence.evaluate(candele, "15m")
+    for nome, voto in r.voti.items():
+        fuori = np.asarray(r.stati[nome]) == 0
+        assert (voto[fuori] == 0).all(), f"{nome}: vota mentre e' fuori posizione"
+
+
+def test_il_voto_e_lo_stato_per_la_recenza(candele):
+    """La forma, in una riga: stesso segno dello stato, forza fra il pavimento e uno."""
+    from cryptofarm.trading.voters import PAVIMENTO_DEL_VOTO
+
+    r = confluence.evaluate(candele, "15m")
+    for nome, voto in r.voti.items():
+        stato = np.asarray(r.stati[nome])
+        dentro = stato != 0
+        if not dentro.any():
+            continue
+        # Il voto e' sull'asse dei voti, lo stato su quello delle posizioni: `convinzione` converte.
+        assert (confluence.convinzione(voto[dentro], 1) * stato[dentro] > 0).all(), f"{nome}: segno discorde"
+        forza = np.abs(voto[dentro])
+        assert (forza >= PAVIMENTO_DEL_VOTO - 1e-9).all(), f"{nome}: sotto il pavimento"
+        assert (forza <= 1.0 + 1e-9).all(), f"{nome}: sopra uno"
+
+
+def test_un_collegio_fermo_non_apre_da_solo(candele):
+    """Il vincolo che sceglie il pavimento, verificato sul motore e non solo sull'aritmetica.
+
+    A pesi a somma 1 un collegio interamente d'accordo e interamente vecchio vale esattamente
+    `pavimento`. Deve restare sotto la soglia **minima raggiungibile** -- `theta_base -
+    theta_macro`, perche' un macro a favore sconta la soglia -- altrimenti la confluenza apre
+    perche' tutti sono dentro, e smette di decidere *quando*.
+    """
+    from cryptofarm.trading.voters import PAVIMENTO_DEL_VOTO
+
+    theta_base, theta_macro = 0.35, 0.15
+    assert PAVIMENTO_DEL_VOTO < theta_base - theta_macro, "un collegio fermo supererebbe la soglia piu' bassa"
+
+    r = confluence.evaluate(candele, "15m", theta_base=theta_base, theta_macro=theta_macro)
+    assert r.soglia.min() >= theta_base - theta_macro - 1e-9, "la soglia non scende sotto il minimo previsto"
+
+
+def test_l_emivita_di_un_voto_ha_un_tetto():
+    """Senza, il piano di regime arriva a `6 x 96 = 576` barre di base: sei giorni di emivita.
+
+    Il tetto e' in **minuti di calendario**, non in barre, perche' e' una durata: «un giorno» deve
+    voler dire un giorno tanto a 15m quanto a 1h, mentre «96 barre» vuol dire due cose diverse.
+    """
+    senza = {p: confluence.emivita_in_barre(6.0, p, 15, None) for p in confluence.FATTORI}
+    assert senza["regime"] == 576.0, "senza tetto il regime resta fuori scala"
+
+    con = {p: confluence.emivita_in_barre(6.0, p, 15, confluence.TETTO_EMIVITA_MINUTI) for p in confluence.FATTORI}
+    assert con["regime"] == 96.0, "un giorno a base 15m sono 96 barre"
+    assert con["innesco"] == senza["innesco"], "i piani corti non vengono toccati dal tetto"
+    assert con["conferma"] == senza["conferma"]
+
+    # La stessa durata su una base diversa da' un numero di barre diverso, che e' il punto.
+    a_un_ora = confluence.emivita_in_barre(6.0, "regime", 60, confluence.TETTO_EMIVITA_MINUTI)
+    assert a_un_ora == 24.0, "un giorno a base 1h sono 24 barre"
+
+    # E il tetto non puo' scendere sotto una barra, che sarebbe un'emivita non rappresentabile.
+    assert confluence.emivita_in_barre(6.0, "regime", 1440, 60) == 1.0
+
+
+def test_l_ampiezza_si_conta_sugli_stati_non_sui_voti(candele):
+    """Punto (5): una famiglia «concorde» dev'essere una famiglia che **ha una posizione**.
+
+    Con i voti, una famiglia contava come concorde finche' la coda del suo voto era sopra epsilon,
+    anche a posizione chiusa da un pezzo -- meta' delle barre, per `pullback`. Oggi il voto e' zero
+    fuori posizione e i due conteggi coincidono, ma il conteggio non deve **dipendere** da quella
+    coincidenza: se un domani il voto cambia forma, l'ampiezza non deve cambiare di nascosto.
+    """
+    r = confluence.evaluate(candele, "15m")
+    famiglie = {v.nome: v.famiglia for v in confluence.VOTANTI}
+
+    # Un voto inventato, di segno opposto allo stato e acceso ovunque, non deve spostare nulla.
+    bugiardi = {n: -np.ones(len(r.indice)) for n in r.stati}
+    assert np.array_equal(
+        confluence._famiglie_concordi(r.stati, famiglie, +1),
+        confluence._famiglie_concordi(r.stati, famiglie, +1),
+    )
+    dagli_stati = confluence._famiglie_concordi(r.stati, famiglie, +1)
+    assert np.array_equal(dagli_stati, r.concordi_lungo), "il motore conta l'ampiezza sugli stati"
+    assert not np.array_equal(
+        dagli_stati, confluence._famiglie_concordi(bugiardi, famiglie, +1)
+    ), "il conteggio deve leggere davvero gli stati che riceve"
+
+
+# -------------------------------------------------------------------------------------------------
+# La modalita' a inversione: sempre a mercato, lunga o corta
+# -------------------------------------------------------------------------------------------------
+
+
+def test_in_inversione_non_si_e_mai_fuori_dal_mercato(candele_con_inversione):
+    """La regola che definisce la modalita': dopo il primo attraversamento la posizione e' sempre
+    +1 o -1, e un evento a zero non esiste."""
+    r = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", allow_short=True)
+    versi = [e[2] for e in r.eventi]
+    assert versi, "senza operazioni questo test non misura niente"
+    assert 0 not in versi, "in inversione non si va mai a flat: si ribalta"
+    # E i versi si alternano: un ribaltamento porta sempre dalla parte opposta.
+    assert all(a != b for a, b in zip(versi, versi[1:])), "due eventi di fila nello stesso verso"
+    assert 1 in versi and -1 in versi, "devono esserci tutte e due le gambe"
+
+
+def test_in_inversione_la_soglia_e_simmetrica(candele_con_inversione):
+    """Lo sconto macro resta spento, e non per semplificare.
+
+    Su una serie con deriva il piano di regime satura: misurato, media +1,000 e deviazione
+    standard 0,000. Lo sconto non modula niente, sposta soltanto in permanenza la soglia lunga a
+    0,208 e quella corta a 0,492, e su 17.280 barre il punteggio bastava per un corto in **zero**.
+    In un sistema che deve stare sempre a mercato quella non e' un'opinione sul macro: e' una
+    gamba amputata.
+    """
+    r = confluence.evaluate(
+        candele_con_inversione, "15m", modalita="inversione", allow_short=True, theta_base=0.4, theta_macro=0.15
+    )
+    assert (r.soglia == 0.4).all(), "la soglia in inversione e' costante"
+    assert np.array_equal(r.soglia, r.soglia_corta), "e uguale per i due versi"
+
+    # E i due versi si misurano davvero contro la stessa barriera.
+    for quando, _, verso in r.eventi:
+        i = r.indice.get_loc(quando)
+        if r.motivi.get(quando) == "score crossed the threshold":
+            assert confluence.convinzione(r.punteggio[i], verso) >= r.soglia[i] - 1e-12
+
+
+def test_in_inversione_si_tiene_fra_i_due_attraversamenti(candele_con_inversione):
+    """Il cuore del disegno: fra le due soglie **non succede niente**.
+
+    Nessuna isteresi, nessuna pazienza, nessun pavimento di barre. Senza stop, la posizione cambia
+    se e solo se il punteggio ha attraversato la soglia opposta, e la durata di un'operazione e' la
+    distanza fra due attraversamenti -- non un parametro.
+    """
+    r = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", allow_short=True, atr_multiplier=0.0)
+    barre = [r.indice.get_loc(q) for q, _, _ in r.eventi]
+    assert len(barre) > 2, "servono abbastanza ribaltamenti"
+
+    for (inizio, fine), (_, _, verso) in zip(zip(barre, barre[1:]), r.eventi):
+        # Fra un ribaltamento e il successivo il punteggio non deve mai aver toccato la soglia
+        # opposta: se l'avesse fatto, si sarebbe ribaltato prima.
+        opposto = confluence.convinzione(r.punteggio[inizio + 1 : fine], -verso)
+        assert (opposto < r.soglia[inizio + 1 : fine]).all(), "ha tenuto una posizione oltre il segnale opposto"
+
+
+def test_in_inversione_lo_stop_ribalta_invece_di_chiudere(candele_con_inversione):
+    """Lo stop e' una regola di rischio e resta, ma non manda a flat: gira la posizione."""
+    r = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", allow_short=True, atr_multiplier=3.0)
+    da_stop = [q for q, m in r.motivi.items() if m == "trailing stop reversal"]
+    assert da_stop, "con tre ATR lo stop deve scattare"
+    for quando in da_stop:
+        verso = next(e[2] for e in r.eventi if e[0] == quando)
+        assert verso != 0, "lo stop ribalta, non chiude"
+
+
+def test_lo_stop_si_spegne_con_un_moltiplicatore_non_positivo(candele_con_inversione):
+    """E la misura per cui va spento: con lo stop acceso e' lui a decidere, non il punteggio.
+
+    Su queste candele, con lo stop a 3 ATR le operazioni sono 1.167 e il **97%** dei ribaltamenti
+    viene dallo stop, con durata mediana 4,2 ore; senza stop sono 12 e la mediana e' 171 ore. Con
+    lo stop acceso la modalita' non e' «si compra e si tiene fino al segnale opposto»: e' una
+    macchina a stop con il punteggio come comparsa.
+    """
+    comuni = dict(modalita="inversione", allow_short=True)
+    con = confluence.evaluate(candele_con_inversione, "15m", atr_multiplier=3.0, **comuni)
+    senza = confluence.evaluate(candele_con_inversione, "15m", atr_multiplier=0.0, **comuni)
+
+    assert not any(m == "trailing stop reversal" for m in senza.motivi.values()), "lo stop deve essere spento"
+    assert np.isnan(senza.stop).all(), "e non deve nemmeno disegnarsi"
+    assert len(senza.eventi) < len(con.eventi) / 10, "senza stop le operazioni sono un ordine di grandezza meno"
+
+    quota_stop = sum(1 for m in con.motivi.values() if m == "trailing stop reversal") / len(con.eventi)
+    assert quota_stop > 0.9, "con lo stop acceso e' lo stop a decidere quasi tutto"
+
+
+def test_in_inversione_lo_stop_parte_spento(candele_con_inversione):
+    """Il default dello stop segue la modalita', e non e' una taratura: e' un'altra macchina.
+
+    In «cancello» lo stop chiude e la posizione va a flat, quindi sbagliarlo costa un'uscita
+    anticipata. In «inversione» lo stop **ribalta**, cioe' ogni volta che salta apre l'operazione
+    successiva: a 3 ATR salta di continuo e decide lui. Misurato su BTCUSDT a 15m dal 2024, con
+    la soglia a 0,35: 5.328 ribaltamenti di cui 5.056 (95%) dallo stop, tenuta mediana 3,5 ore,
+    capitale da 100 a 0,61; con lo stop spento 84 ribaltamenti, tenuta mediana 180 ore, capitale
+    182. Col default ereditato la modalita' «always in» non seguiva i voti, seguiva un canale a
+    3 ATR.
+
+    Reintroducendo il difetto -- `STOP_PREDEFINITO["inversione"] = 3.0` -- la prima asserzione
+    cade: verificato.
+    """
+    assert confluence.STOP_PREDEFINITO["inversione"] == 0.0
+    assert confluence.STOP_PREDEFINITO["cancello"] == 3.0
+
+    senza = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione")
+    assert not any(m == "trailing stop reversal" for m in senza.motivi.values()), "lo stop deve partire spento"
+    assert np.isnan(senza.stop).all(), "e non deve nemmeno disegnarsi"
+
+    # In «cancello» il default resta quello misurato, altrimenti si sarebbe spento anche li'.
+    a_cancello = confluence.evaluate(candele_con_inversione, "15m")
+    assert np.isfinite(a_cancello.stop).any(), "a cancello lo stop e' acceso per default"
+
+    # Un valore esplicito vince in tutte e due, zero compreso: il default non e' un divieto.
+    acceso = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", atr_multiplier=3.0)
+    assert any(m == "trailing stop reversal" for m in acceso.motivi.values())
+    assert len(acceso.eventi) > 10 * len(senza.eventi), "acceso, lo stop decide quasi tutto"
+
+    # Da sapere: lo zero **non** e' «niente stop» in «cancello», dove `_percorri` non ha la
+    # guardia `atr_multiplier > 0` e mette lo stop esattamente sull'estremo, cioe' lo fa saltare
+    # subito. E' comportamento di prima e resta tale: qui si pinna solo che le due macchine
+    # leggono quel numero in modo diverso, perche' chi cambia una delle due non lo indovina.
+    spento_a_cancello = confluence.evaluate(candele_con_inversione, "15m", atr_multiplier=0.0)
+    assert np.isfinite(spento_a_cancello.stop).any(), "a cancello lo zero mette lo stop sull'estremo"
+
+
+def test_il_default_dello_stop_arriva_ai_widget(candele):
+    """Un default che il motore conosce e la pagina no e' un default che nessuno vede.
+
+    La pagina legge sempre `CONF_ATR_MULT` dal widget, quindi il valore risolto in `evaluate` non
+    la raggiungerebbe mai da solo: e' il valore **iniziale** del widget che deve seguire la
+    modalita'. Il numero sta scritto in un posto solo, `confluence.STOP_PREDEFINITO`.
+    """
+    for modalita, atteso in confluence.STOP_PREDEFINITO.items():
+        assert panels.valori_predefiniti("Confluence", "15m", modalita)["CONF_ATR_MULT"] == atteso
+        assert panels.valori_predefiniti("Confluence", "15m", modalita)["CONF_MODALITA"] == modalita
+
+    # E chi chiama con un dizionario parziale riceve il default della **sua** modalita', non
+    # quello dell'altra macchina: `confluenza_di` riempie i buchi, ed e' li' che si sbagliava.
+    a_inversione = panels.confluenza_di(candele, {"INTERVALLO": "15m", "CONF_MODALITA": "inversione"})
+    assert np.isnan(a_inversione.stop).all(), "il buco si e' riempito con lo stop dell'altra modalita'"
+
+
+def test_dopo_un_uscita_non_si_rientra_su_un_segnale_ancora_acceso(candele_con_inversione):
+    """Il difetto che si vedeva a occhio sul grafico: grappoli di triangoli verdi e rossi.
+
+    Lo stop chiude **mentre il punteggio e' ancora sopra la soglia** -- e' una regola di rischio,
+    non di opinione -- quindi sulla barra dopo la condizione d'ingresso era ancora vera e si
+    ricomprava subito. L'isteresi non lo frenava, perche' frena solo l'uscita dal punteggio, e il
+    freno che c'era era largo una barra. Misurato su BTCUSDT a 15m con soglia 0,25, la sequenza era
+    `stop / ingresso / stop / ingresso` a una barra di distanza con la convinzione ferma fra 0,26
+    e 0,31 contro una soglia fra 0,16 e 0,20: l'opinione non cambiava mai.
+
+    Due asserzioni, e la seconda e' quella che conta davvero.
+    """
+    r = confluence.evaluate(candele_con_inversione, "15m", theta_base=0.25, k_famiglie=2)
+    indice = candele_con_inversione.index
+    posizioni = [indice.get_loc(e[0]) for e in r.eventi]
+    motivi = [("ingresso" if e[2] != 0 else r.motivi.get(e[0], "")) for e in r.eventi]
+
+    # 1. Nessuna uscita seguita da un ingresso sulla barra dopo: era la firma del difetto.
+    subito = [
+        motivi[k]
+        for k in range(len(motivi) - 1)
+        if posizioni[k + 1] - posizioni[k] <= 1 and motivi[k] != "ingresso" and motivi[k + 1] == "ingresso"
+    ]
+    assert not subito, f"si rientra sulla barra dopo l'uscita: {len(subito)} volte, da {set(subito)}"
+
+    # 2. Quella che conta: fra un'uscita e l'ingresso seguente ci deve essere **almeno una barra**
+    #    in cui la condizione d'ingresso era falsa. Senza, si passerebbe la prima asserzione anche
+    #    solo allargando il freno a due barre -- cioe' lo stesso difetto con un numero diverso.
+    #
+    #    La condizione si legge dalle serie pubblicate invece di riderivare `debole`: un test che
+    #    ricopia la regola che sta verificando non verifica niente. Con `innesco=0` (il default)
+    #    la rottura e' sempre vera, quindi restano cancello, punteggio e ampiezza. Il confronto e'
+    #    sulla **soglia** e non sulla banda, cioe' e' piu' debole della regola vera: qui si vuole
+    #    pinnare «non si rientra su un segnale che non se n'e' mai andato», non la taratura.
+    acceso = (r.regime > 0) & (confluence.convinzione(r.punteggio, +1) >= r.soglia) & (r.concordi_lungo >= 2)
+    for k in range(1, len(r.eventi)):
+        if r.eventi[k][2] == 0:
+            continue
+        fra = acceso[posizioni[k - 1] + 1 : posizioni[k]]
+        assert (
+            len(fra) and not fra.all()
+        ), f"ingresso a {r.eventi[k][0]} su un segnale mai spentosi dall'uscita precedente"
+
+
+def test_una_modalita_sconosciuta_si_fa_notare(candele):
+    with pytest.raises(ValueError, match="modalita sconosciuta"):
+        confluence.evaluate(candele, "15m", modalita="inventata")
+
+
+def test_la_modalita_a_cancello_resta_il_default(candele):
+    """Le misure gia' scritte nei documenti valgono per quella: non deve cambiare da sotto."""
+    assert confluence.evaluate(candele, "15m").modalita == "cancello"
+    esplicita = confluence.evaluate(candele, "15m", modalita="cancello")
+    assert [e[:3] for e in esplicita.eventi] == [e[:3] for e in confluence.evaluate(candele, "15m").eventi]
+
+
+def test_lo_switch_della_pagina_arriva_al_motore(candele):
+    """Un widget che non cambia niente e' peggio di non averlo: qui si verifica il collegamento."""
+    valori = panels.valori_predefiniti()
+    valori["INTERVALLO"] = "15m"
+
+    a_cancello = panels.confluenza_di(candele, {**valori, "CONF_MODALITA": "cancello"})
+    a_inversione = panels.confluenza_di(candele, {**valori, "CONF_MODALITA": "inversione"})
+    assert a_cancello.modalita == "cancello" and a_inversione.modalita == "inversione"
+    assert [e[:3] for e in a_cancello.eventi] != [e[:3] for e in a_inversione.eventi]
+
+
+def test_in_inversione_la_pagina_accende_il_verso_corto_da_se(candele):
+    """Senza gamba corta una macchina che non va mai a flat sarebbe lunga per sempre: non e' una
+    scelta da lasciare a una casella che in una modalita' su due non ha senso spegnere."""
+    valori = panels.valori_predefiniti()
+    valori["INTERVALLO"] = "15m"
+    assert not valori["CONF_ALLOW_SHORT"], "in modalita' a cancello il default resta solo lunghe"
+
+    r = panels.confluenza_di(candele, {**valori, "CONF_MODALITA": "inversione"})
+    versi = [e[2] for e in r.eventi]
+    assert -1 in versi, "la pagina deve accendere il verso corto in inversione"
+
+
+# -------------------------------------------------------------------------------------------------
+# La pagina in modalita' inversione: due liste che non sanno dire «corto»
+# -------------------------------------------------------------------------------------------------
+
+
+def test_in_inversione_la_pagina_disegna_anche_le_vendite(candele_con_inversione):
+    """Il difetto che si vedeva a occhio: solo triangoli verdi, nemmeno una vendita.
+
+    `_solo_lunghe` tiene come vendite i soli eventi con obiettivo **zero**, e in inversione gli
+    eventi a zero non esistono per costruzione: ogni ribaltamento corto finiva scartato. Un
+    ribaltamento corto *e'* la vendita della posizione lunga precedente, ed e' cosi' che va
+    disegnato.
+    """
+    valori = {**panels.valori_predefiniti(), "INTERVALLO": "15m", "CONF_MODALITA": "inversione"}
+    compra, vende = panels.STRATEGIE[confluence_config.CONFLUENCE_STRATEGY].esegui(candele_con_inversione, None, valori)
+
+    assert compra and vende, "servono marcatori in tutti e due i versi"
+    assert abs(len(compra) - len(vende)) <= 1, "sempre a mercato: acquisti e vendite si alternano"
+
+    # E si alternano davvero nel tempo, non sono due grappoli separati.
+    ordinati = sorted([(q, "buy") for q, _, _ in compra] + [(q, "sell") for q, _, _ in vende])
+    versi = [v for _, v in ordinati]
+    assert all(a != b for a, b in zip(versi, versi[1:])), "due marcatori di fila nello stesso verso"
+
+
+def test_in_inversione_nessun_marcatore_si_chiama_uscita(candele_con_inversione):
+    """«exit — trailing stop reversal» sopra un triangolo d'acquisto: la riga diceva il contrario
+    di quel che il marcatore mostrava. In inversione non ci sono uscite, solo ribaltamenti."""
+    r = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", allow_short=True)
+    for quando, _, verso in r.eventi:
+        riga = r.spiega(quando)
+        assert not riga.startswith("exit"), f"{quando}: un ribaltamento chiamato uscita"
+        assert riga.startswith("long" if verso > 0 else "short"), f"{quando}: la riga non dice il verso"
+
+
+def test_il_conto_in_inversione_passa_dal_motore_che_conosce_il_verso(candele_con_inversione):
+    """Il difetto peggiore, perche' non si vedeva: il profitto era quello delle sole gambe lunghe.
+
+    Due liste sanno dire «dentro» e «fuori», non «corto»: su una strategia sempre a mercato
+    `simulate_trading_with_commisions` tratta ogni gamba corta come tempo passato in contanti. I
+    marcatori si possono disegnare lo stesso, il conto no.
+    """
+    from cryptofarm.trading.pnl import simulate_positions
+
+    valori = {**panels.valori_predefiniti(), "INTERVALLO": "15m", "CONF_MODALITA": "inversione"}
+    eventi = panels.eventi_di_posizione(confluence_config.CONFLUENCE_STRATEGY, candele_con_inversione, valori)
+    assert eventi is not None, "in inversione la pagina deve passare dagli eventi di posizione"
+    assert {e[2] for e in eventi} == {1, -1}, "gli eventi portano il verso"
+
+    operazioni = simulate_positions(eventi, wallet=100, fee_percent=0.1)
+    lati = {o["Side"] for o in operazioni}
+    assert lati == {"long", "short"}, "il conto deve contenere tutte e due le gambe"
+
+    # E fuori da quella modalita' la pagina resta sul motore di sempre.
+    a_cancello = {**valori, "CONF_MODALITA": "cancello"}
+    assert panels.eventi_di_posizione(confluence_config.CONFLUENCE_STRATEGY, candele_con_inversione, a_cancello) is None
+    assert panels.eventi_di_posizione("Ichimoku Trend", candele_con_inversione, valori) is None

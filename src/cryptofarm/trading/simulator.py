@@ -21,7 +21,7 @@ from cryptofarm.trading.market_data import (
     get_market_data,
     get_market_data_between_dates,
 )
-from cryptofarm.trading.pnl import simulate_trading_with_commisions
+from cryptofarm.trading.pnl import simulate_positions, simulate_trading_with_commisions
 from cryptofarm.trading.strategies import identify_trend_zones
 
 # Disattiva i FutureWarning
@@ -166,9 +166,18 @@ def trading_analysis(
             st.stop()
         buy_signals, sell_signals = voce.esegui(df, cache, valori)
 
-    operations = simulate_trading_with_commisions(
-        wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
-    )
+    # Una strategia sempre a mercato non e' rappresentabile con due liste: `buy_signals` e
+    # `sell_signals` sanno dire «dentro» e «fuori», non «corto». Quando la confluenza gira a
+    # inversione il conto passa da `simulate_positions`, che il verso lo conosce -- e che addebita
+    # anche il costo di mantenimento, il quale su una posizione sempre aperta non e' un dettaglio.
+    # I marcatori restano quelli di sopra: un ribaltamento corto **e'** la vendita del lungo.
+    eventi_posizione = panels.eventi_di_posizione(strategia, df, valori)
+    if eventi_posizione is not None:
+        operations = simulate_positions(eventi_posizione, wallet=wallet, fee_percent=fee_percent)
+    else:
+        operations = simulate_trading_with_commisions(
+            wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
+        )
 
     # ======================================
     # Il grafico, costruito da `panels` invece che da un elenco fisso.
@@ -549,6 +558,9 @@ if __name__ == "__main__":
         st.session_state["df"], _ = get_market_data(asset=symbol, interval=interval, time_hours=time_hours)
 
     # --- Strategia ----------------------------------------------------------------------------
+    # `valori` nasce qui e non sotto i parametri: la modalita' della confluenza si sceglie nel
+    # riquadro della strategia, perche' decide quali parametri contano e con che valore partono.
+    valori: dict = {}
     st.sidebar.header("Strategy")
     strategia = st.sidebar.selectbox(
         label="Strategy",
@@ -581,6 +593,42 @@ if __name__ == "__main__":
         fuori = confluence.scala_fuori_misura(interval)
         if fuori:
             st.sidebar.warning(f"{interval}: {fuori}. Use 15m, 30m or 1h.")
+        # Le due macchine di esecuzione. E' la prima scelta da fare, prima di ogni parametro,
+        # perche' cambia **quali** parametri contano: in «inversione» isteresi, pazienza, barre
+        # minime, ampiezza, innesco e cancello non vengono nemmeno letti.
+        valori["CONF_MODALITA"] = st.sidebar.radio(
+            "Execution",
+            confluence.MODALITA,
+            index=confluence.MODALITA.index(str(config.CONF_MODALITA)),
+            format_func=lambda m: {"cancello": "Gated (measured)", "inversione": "Always in (reversal)"}[m],
+            key=f"modalita_{interval}",
+            horizontal=True,
+        )
+        if valori["CONF_MODALITA"] == "inversione":
+            st.sidebar.caption(
+                "Always long or short, never flat: the score crossing **−threshold** goes long, "
+                "crossing **+threshold** flips to short, and nothing happens in between — so a "
+                "trade lasts from one crossing to the opposite one. The threshold is symmetric "
+                "and the macro discount is off. Short selling is forced on.\n\n"
+                "**The trailing stop starts off here** (multiplier 0), and that is the difference "
+                "between this machine and the gated one: here the stop *reverses* instead of "
+                "closing, so every time it fires it opens the next trade. Measured on BTCUSDT at "
+                "15m: at 3 ATR it decided **95% of the flips** — 5,056 of 5,328 — with a 3.5-hour "
+                "median hold and the capital down 99%. Turn it on knowing it, not by default.\n\n"
+                "**Measured, and it loses.** Fifteen assets, 15m, threshold swept from 0.05 to "
+                "0.70: every value that trades loses on the median out of sample, and no value "
+                "is picked by both 2021–2023 and 2024–2026, so the threshold keeps its "
+                "hand-written default. The direction is not the defect — inverting every position "
+                "is far worse (−81% against −8% gross) and winners are 1.8× losers — but the hit "
+                "rate is 33.7% against the 35.5% that payoff needs, and an always-in machine pays "
+                "carry every day. See `.claude/docs/strategia-confluenza.md`."
+            )
+        else:
+            st.sidebar.caption(
+                "Out of the market by default; enters when gate, score, breadth and trigger agree, "
+                "and leaves on the stop, the hysteresis band or the gate. This is the one measured "
+                "over fifteen assets and seven years."
+            )
     elif voce is None:
         st.sidebar.caption("No strategy selected: every available indicator is shown.")
 
@@ -597,8 +645,19 @@ if __name__ == "__main__":
     st.sidebar.header("Parameters")
     misurati = panels.valori_misurati(strategia, interval)
     ancora = panels.ancora_di(interval)
-    iniziali = panels.valori_predefiniti(strategia, interval)
-    valori: dict = {}
+    # La modalita' e' gia' stata scelta sopra, ed e' voluto: decide **quali** parametri contano e
+    # con che valore partono -- lo stop a 3 ATR in «cancello» e a 0 in «inversione», dove
+    # ribalterebbe invece di chiudere. Passarla qui e' cio' che fa arrivare quel default ai widget.
+    modalita_scelta = str(valori.get("CONF_MODALITA", ""))
+    iniziali = panels.valori_predefiniti(strategia, interval, modalita_scelta)
+    valori.update({nome: valore for nome, valore in iniziali.items() if nome not in valori})
+    # La chiave del widget include la modalita' per la stessa ragione per cui include l'intervallo:
+    # Streamlit conserva lo stato di un widget con la stessa chiave, quindi senza, passando da
+    # «cancello» a «inversione» i campi resterebbero fermi sui numeri dell'altra macchina e il
+    # default della modalita' non comparirebbe mai. E' lo stesso difetto invisibile alla lettura
+    # che l'intervallo ha gia' avuto, e `AppTest` non lo vede perche' ricostruisce lo stato a ogni
+    # esecuzione: il test asserisce sulla **chiave**, non sul valore.
+    suffisso = f"_{modalita_scelta}" if modalita_scelta else ""
     for titolo, nomi in panels.gruppi_di(strategia):
         with st.sidebar.expander(titolo, expanded=True):
             colonne = st.columns(2)
@@ -607,7 +666,7 @@ if __name__ == "__main__":
                 etichetta = panels.ETICHETTE[nome] + (" ·" if nome in misurati else "")
                 valori[nome] = colonne[posizione % 2].number_input(
                     label=etichetta,
-                    key=f"par_{nome}_{interval}",
+                    key=f"par_{nome}_{interval}{suffisso}",
                     **{**campo.widget, "value": type(campo.value)(iniziali[nome])},
                 )
 
@@ -639,7 +698,7 @@ if __name__ == "__main__":
             "On, the regime gate and the structure compare **the price now** with the closed "
             "higher-plane average — what the live bot sees mid-period. Off, they wait for the "
             "long bar to close: it is the ablation that measures what reacting early is worth. "
-            "The six voters decide at their own close either way."
+            "The seven voters decide at their own close either way."
         )
     # --- L'etichetta del modello, a richiesta -------------------------------------------------
     # Non e' una strategia e non entra in nessun conto: e' la domanda che il modello a swing viene

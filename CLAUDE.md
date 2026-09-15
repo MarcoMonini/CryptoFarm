@@ -36,10 +36,20 @@ Project decisions and the state of the work live in **`.claude/docs/`**:
 - `.claude/docs/backtest-strategie.md` — the indicator strategies measured over nine years: 3,129
   configurations, parameter sensitivity, out-of-sample behaviour, defects found by measuring.
 - `.claude/docs/strategia-confluenza.md` — the multi-timeframe multi-signal strategy: four planes
-  with disjoint questions, six voters chosen by family, signal memory, threshold set by the higher
+  with disjoint questions, seven voters chosen by family, signal memory, threshold set by the higher
   planes. **Measured (2026-08-28) on 15 assets and seven years: it does not beat passive holding.**
   No look-ahead, uncorrelated voters, but the gradient of every parameter points at not trading.
-  The conclusions and what to do with them are at the bottom of that document.
+  The conclusions and what to do with them are at the bottom of that document. The always-in
+  `inversione` mode got the same treatment on 2026-09-15 and the same answer: three defects fixed
+  (the reversing stop deciding 95% of the trades, a mute voter carrying an eighth of the weight, a
+  threshold inherited from the gated mode), and then no threshold that trades makes money — at
+  θ ≥ 0.60 it makes **zero trades** and ranks at the top of its own sweep. Not a sign defect:
+  inverting every position is far worse, the payoff ratio is 1.82 and the hit rate 33.7% against
+  the 35.5% it needs. A full coordinate scan of every live parameter followed (1,980 cells, fifteen
+  assets, in/out of sample) and **changed no default**: the in-sample rank does not predict the
+  out-of-sample one (Spearman **+0.056**), the combined in-sample winners are worse than the centre
+  even in sample, and the only thing that transfers is trading less (trade count vs out-of-sample
+  return, Spearman −0.413; vs in-sample return, −0.040);
 - `.claude/docs/strategie-nuove.md` — the sequel: the four corrections applied, the 2021-2026 cycle
   as a dataset, five new strategies and the engine that can also go short.
 - `.claude/docs/politica-rl.md` — **the reinforcement policy, wired in (2026-08-28).** The three
@@ -103,7 +113,7 @@ src/cryptofarm/
     │                     and `simulate_positions` (long/short, with leverage and carry cost)
     ├── mtf.py            alignment across intervals: reads the **closed** long bar, never the current one
     ├── voters.py         from position changes to a per-bar vote, with memory and decay
-    ├── confluence.py     the confluence strategy: six voters on four planes, dynamic threshold
+    ├── confluence.py     the confluence strategy: seven voters on four planes, dynamic threshold
     ├── portfolio.py      one pot of capital across several assets: it opens on the first that speaks
     ├── rotation.py       cross-sectional rotation: it picks *which* asset, not *when*
     ├── tuned_defaults.py generated: measured starting values, per interval
@@ -168,6 +178,7 @@ streamlit run src/cryptofarm/trading/simulator.py
 .venv312/bin/python -m scripts.confluence_lab --grid coordinate --symbol BTCUSDT --interval 15m
 .venv312/bin/python -m scripts.confluence_lab --grid ampia --interval 15m --since 2021-01-01
 .venv312/bin/python -m scripts.confluence_lab --grid veloce --paniere majors
+.venv312/bin/python -m scripts.confluence_lab --grid coordinate --modalita inversione   # always-in
 
 # Two-sided strategies, long and short (see .claude/docs/strategie-nuove.md)
 .venv312/bin/python -m scripts.strategy_lab --all --interval 1d --since 2021-01-01
@@ -296,13 +307,23 @@ Things to know before touching it:
   that is the point. The only list left to keep aligned by hand is the traces of the *Voters* panel
   in `panels.INDICATORI`, and there is a test that notices: it counts the traces with `·` against
   `len(VOTANTI)`;
-- **the `modello` voter is in the default only if an artifact exists.** `votanti_predefiniti()`
-  removes it when none of the four (`entry_model_veloce`, `entry_model`, `rl_model`, `swing_model`)
-  is on disk, which is the production condition: weights are normalised over the voters present, so
-  an eighth one that is always silent would effectively raise the threshold for the other seven. It
-  stays in the registry, so `selezione("modello")` still reaches it. It is also the only **long
-  only** voter: it votes +1 or 0, never −1. With the entry model it votes +1 while one of its trades
-  is open and the two thresholds have no effect — the selectivity lives in the artifact's metadata;
+- **the `modello` voter is never in the default collegio** (2026-09-15), and the collegio therefore
+  does not depend on what is in `models/`. The condition used to be "is an artifact on disk", and
+  that was the wrong question: what dilutes the ensemble is not an absent voter but a **present and
+  mute** one. Weights are fixed and normalised over the collegio, so a voter that abstains subtracts
+  its weight from everyone else's score on every bar it is silent, which raises the threshold
+  without saying so. Measured on fifteen symbols at 15m, `modello` holds a position on 0.4–3.3% of
+  bars against 25%+ for the second-lowest voter, and on BTCUSDT it took the bars above threshold
+  from 2.22% to 0.82%. It stays in the registry, so `selezione("modello")` still reaches it. It is
+  also the only **long only** voter: it votes +1 or 0, never −1. With the entry model it votes +1
+  while one of its trades is open and the two thresholds have no effect — the selectivity lives in
+  the artifact's metadata, which is exactly why it is silent so often;
+- **the trailing stop's default depends on the execution mode** (`confluence.STOP_PREDEFINITO`:
+  3.0 gated, 0.0 reversal), resolved inside `evaluate` so page, lab and library callers share one
+  source. In `inversione` the stop *reverses* instead of closing, so every time it fires it opens
+  the next trade: at 3 ATR it decided 95% of the flips and took the capital to zero. Note zero means
+  two different things — `_percorri` has no `atr_multiplier > 0` guard, so in `cancello` a zero puts
+  the stop on the extreme and fires it at once;
 - **voter parameters resolve in three layers**: the function default (`config.CONF_*`), the value
   measured in `tuned_defaults` for the interval of the **plane** the voter runs on — not the page's
   — and the caller's override. The second layer is the one that is easy to get wrong: on a 15m base
@@ -315,6 +336,15 @@ Things to know before touching it:
   0.15 at a time and one score-driven exit in four was decided by that jump;
 - **the hysteresis has a floor and a ceiling** (`barre_minime`, `pazienza`), and they apply **only
   to the score-driven exit**. The stop and the gate do not: they are risk rules, not opinions;
+- **entry is edge-triggered after an exit** (2026-09-15). Every exit disarms entry; it re-arms only
+  on a bar where interest has fallen below `soglia - isteresi` — the same band that governs the
+  exit, so the band means one thing in both directions. Before this, the brake was one bar wide, and
+  since the stop fires while the score is still above the threshold, the strategy bought back the
+  next bar on an unchanged opinion: on BTCUSDT the sequence was literally `stop / entry / stop /
+  entry` one bar apart, which is the cluster of overlapping markers that made the chart look random.
+  Fixing it cut the median trade count from 757 to 484 at θ=0.35 and the drawdown from 66.0% to
+  54.9%, and the new event set is a **strict subset** of the old one — zero events added. It also
+  made `pazienza` nearly inert at its default, which is recorded rather than re-tuned;
 - **the expensive part does not depend on the grid.** Frozen voters have a state that depends only
   on (symbol, interval): `stati_dei_votanti` computes it once and `scripts/confluence_lab.py` reuses
   it across every cell. Measured over 11,520 bars: 351 ms per cell against 104 ms;

@@ -57,6 +57,7 @@ from cryptofarm.trading import confluence, rotation, strategies_ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.pnl import annualised, drawdown, simulate_positions
 from cryptofarm.trading.portfolio import curva_capitale, simulate_shared_capital
+from cryptofarm.trading.voters import PAVIMENTO_DEL_VOTO
 
 SIMBOLO = "BTCUSDT"
 INTERVALLO = "15m"
@@ -106,7 +107,17 @@ CENTRO: dict = {
     "k_famiglie": 2,
     "innesco": 0,
     "atr_window": 14,
-    "atr_multiplier": 3.0,
+    # Lo stop **non** e' nel centro, ed e' voluto: il suo valore dipende dalla modalita' e lo
+    # risolve `confluence.evaluate` da `STOP_PREDEFINITO` -- 3 ATR dove chiude, 0 dove ribalta.
+    # Scriverlo qui avrebbe acceso nella modalita' a inversione lo stop che li' decide il 98%
+    # delle operazioni, cioe' avrebbe misurato l'altra macchina.
+    #
+    # La forma del voto. Non hanno widget -- si girano per misurare l'ablazione, non a occhio sulla
+    # pagina -- ma sono **vivi**, e una scansione per coordinata che non li copre lascia due
+    # parametri scelti e mai messi alla prova. Il tetto in particolare morde forte: da 1.440 minuti
+    # a 180 gli eventi di BTCUSDT passano da 76 a 9.
+    "pavimento": PAVIMENTO_DEL_VOTO,
+    "tetto_emivita": float(confluence.TETTO_EMIVITA_MINUTI),
     "regime_ema": 50,
     "struttura_ema": 50,
     "barre_in_formazione": True,
@@ -123,7 +134,10 @@ SCANSIONE: dict[str, list] = {
     "k_famiglie": [1, 2, 3, 4, 5, 6],
     "innesco": [0, 2, 4, 8, 12, 24, 48],
     "atr_window": [5, 7, 10, 14, 20, 30, 50],
-    "atr_multiplier": [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0],
+    "atr_multiplier": [0.0, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0],
+    "pavimento": [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40],
+    # `None` e' «nessun tetto», che e' il comportamento vecchio e l'estremo dell'ablazione.
+    "tetto_emivita": [180.0, 360.0, 720.0, 1440.0, 2880.0, 5760.0, None],
     "regime_ema": [10, 20, 30, 50, 80, 120, 200],
     "struttura_ema": [10, 20, 30, 50, 80, 120, 200],
     "barre_in_formazione": [True, False],
@@ -171,24 +185,62 @@ def _dividi(cella: dict) -> tuple[dict, dict]:
 NOMI_GRIGLIA = [*GRIGLIE, "coordinate", "votanti"]
 
 
-def celle(nome: str) -> list[dict]:
+def celle(nome: str, modalita: str = "cancello") -> list[dict]:
     """Tutte le configurazioni della griglia, come dizionari pronti per `confluence.evaluate`.
 
     Le celle cartesiane portano solo i parametri che la griglia muove, e gli altri restano ai
     default di `confluence.evaluate`. Le celle per coordinata li portano tutti, perche' li' il
     centro e' parte della definizione: senza, non si saprebbe rispetto a cosa si e' scostati.
     """
+    scarta = PARAMETRI_IGNORATI if modalita == "inversione" else ()
     if nome in ("coordinate", "votanti"):
         scansione = SCANSIONE if nome == "coordinate" else scansione_dei_votanti()
-        centro = dict(CENTRO)
+        scansione = {k: v for k, v in scansione.items() if k not in scarta}
+        # Lo stop entra nel centro col valore della **sua** modalita': la scansione per coordinata
+        # ha bisogno di un riferimento rispetto a cui dirsi scostata, e in inversione quel
+        # riferimento e' lo stop spento. Restare senza avrebbe fatto sollevare il confronto sotto.
+        centro = {k: v for k, v in CENTRO.items() if k not in scarta}
+        centro["atr_multiplier"] = confluence.STOP_PREDEFINITO[modalita]
         if nome == "votanti":
             centro |= {chiave: valori[len(valori) // 2] for chiave, valori in scansione.items()}
         configurazioni = [dict(centro)]
         for parametro, valori in scansione.items():
             configurazioni += [{**centro, parametro: valore} for valore in valori if valore != centro[parametro]]
-        return configurazioni
-    griglia = GRIGLIE[nome]
-    return [dict(zip(griglia, valori)) for valori in itertools.product(*griglia.values())]
+        return [{**c, "modalita": modalita} for c in configurazioni]
+    griglia = {k: v for k, v in GRIGLIE[nome].items() if k not in scarta}
+    return [{**dict(zip(griglia, valori)), "modalita": modalita} for valori in itertools.product(*griglia.values())]
+
+
+# I parametri che la modalita' a inversione **non legge**: metterli in una griglia moltiplicherebbe
+# le celle per il numero dei loro valori senza cambiare una sola operazione, cioe' spenderebbe ore
+# per righe identiche e gonfierebbe la correzione di molteplicita' con prove che non sono prove.
+#
+# L'elenco e' verificato a misura, non a lettura: `test_in_inversione_i_parametri_ignorati_sono_inerti`
+# gira ciascuno di questi ai due estremi del suo intervallo e pretende **gli stessi eventi**. Chi
+# collega uno di questi al motore a inversione lo vede fallire, che e' il solo modo per cui una
+# lista scritta a mano non diventa una bugia.
+#
+# Le quattro aggiunte del 2026-09-15 rispetto alla prima versione:
+# - `regime_ema` e `struttura_ema` alimentano solo `macro`, e in inversione lo sconto macro e'
+#   spento (soglia costante), quindi i due piani restano disegnati sul grafico e basta;
+# - `barre_in_formazione` decide *quale prezzo* entra in quei due piani, quindi cade con loro;
+# - `w_max` e' il tetto per votante, e con sette votanti a peso uguale (0,143) un tetto di 0,30
+#   non morde mai. E' inerte anche a cancello, ed e' li' per la versione tarata a pesi disuguali.
+#
+# `atr_window` **non** e' in lista, ed e' una distinzione che conta: e' inerte solo finche' lo stop
+# e' spento, cioe' al suo default in questa modalita'. Chi accende lo stop lo rende vivo.
+PARAMETRI_IGNORATI = (
+    "theta_macro",
+    "isteresi",
+    "barre_minime",
+    "pazienza",
+    "k_famiglie",
+    "innesco",
+    "regime_ema",
+    "struttura_ema",
+    "barre_in_formazione",
+    "w_max",
+)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -470,13 +522,22 @@ def _selfcheck() -> None:
         abs(tre[1]["trade_anno"] - uno["trade_anno"]), 1e-9
     ), "il riferimento appaiato non e' quello piu' vicino per frequenza"
 
-    # La scansione per coordinata copre ogni parametro e parte dal centro.
+    # La scansione per coordinata copre ogni parametro e parte dal centro. Lo stop nel centro e'
+    # quello della modalita', non quello scritto in `CENTRO`: li' non c'e' piu' apposta.
     coordinate = celle("coordinate")
-    assert coordinate[0] == CENTRO
+    assert coordinate[0] == {**CENTRO, "atr_multiplier": 3.0, "modalita": "cancello"}
     assert set(SCANSIONE) <= set(coordinate[0])
     for parametro, valori in SCANSIONE.items():
         visti = {c[parametro] for c in coordinate}
         assert set(valori) <= visti, f"{parametro}: la scansione non copre {set(valori) - visti}"
+
+    # In inversione le celle portano la modalita' e **non** i parametri che quella macchina non
+    # legge: una griglia che li muovesse spenderebbe ore per righe identiche.
+    inversione = celle("coordinate", "inversione")
+    assert all(c["modalita"] == "inversione" for c in inversione)
+    assert inversione[0]["atr_multiplier"] == 0.0, "il centro in inversione ha lo stop spento"
+    assert not {p for c in inversione for p in c} & set(PARAMETRI_IGNORATI)
+    assert len(inversione) < len(coordinate)
 
     # La scansione dei votanti si ricava dal registro: un votante nuovo porta la sua griglia.
     dei_votanti = celle("votanti")
@@ -497,6 +558,7 @@ def main() -> None:
     parser.add_argument("--symbol", default=SIMBOLO)
     parser.add_argument("--paniere", default=None, choices=list(rotation.UNIVERSI))
     parser.add_argument("--interval", default=INTERVALLO)
+    parser.add_argument("--modalita", default="cancello", choices=list(confluence.MODALITA))
     parser.add_argument("--since", default=DA)
     parser.add_argument("--until", default=None)
     parser.add_argument("--fee", type=float, default=COMMISSIONE)
@@ -510,8 +572,8 @@ def main() -> None:
         _selfcheck()
         return
 
-    configurazioni = celle(argomenti.grid)
-    print(f"griglia «{argomenti.grid}»: {len(configurazioni)} configurazioni")
+    configurazioni = celle(argomenti.grid, argomenti.modalita)
+    print(f"griglia «{argomenti.grid}» in modalita' «{argomenti.modalita}»: {len(configurazioni)} configurazioni")
     inizio = time.time()
 
     if argomenti.paniere:
@@ -524,7 +586,7 @@ def main() -> None:
                 for p in configurazioni
             ]
         )
-        nome = f"paniere_{argomenti.paniere}_{argomenti.interval}_{argomenti.grid}"
+        nome = f"paniere_{argomenti.paniere}_{argomenti.interval}_{argomenti.grid}_{argomenti.modalita}"
     else:
         risultati = esegui_griglia(
             argomenti.symbol,
@@ -546,7 +608,7 @@ def main() -> None:
                     f"{k}={v}" for k, v in riga.items() if k in ("riferimento", "rendimento_%", "sharpe", "trade_anno")
                 )
             )
-        nome = f"{argomenti.symbol}_{argomenti.interval}_{argomenti.grid}"
+        nome = f"{argomenti.symbol}_{argomenti.interval}_{argomenti.grid}_{argomenti.modalita}"
 
     salva(nome + argomenti.suffix, risultati, len(configurazioni))
     print(riassunto(risultati))

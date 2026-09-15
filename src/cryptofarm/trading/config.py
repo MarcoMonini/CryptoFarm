@@ -148,7 +148,10 @@ CONF_W_MAX = Param(0.30, 0.15, 1.0, 0.05)
 CONF_K_FAMIGLIE = Param(2, 1, 6, 1)
 CONF_INNESCO = Param(0, 0, 50, 1)
 CONF_ATR_WINDOW = Param(14, 2, 100, 1)
-CONF_ATR_MULT = Param(3.0, 0.5, 10.0, 0.1)
+# Il minimo e' 0 e non 0,5: lo zero e' il valore con cui lo stop **si spegne** nella modalita' a
+# inversione, dove ribalta invece di chiudere. Con il minimo a 0,5 la pagina diceva di metterlo a
+# zero per spegnerlo e il campo non lo accettava -- un'istruzione che non si poteva eseguire.
+CONF_ATR_MULT = Param(3.0, 0.0, 10.0, 0.1)
 CONF_REGIME_EMA = Param(50, 5, 300, 5)
 CONF_STRUTTURA_EMA = Param(50, 5, 300, 5)
 
@@ -239,6 +242,14 @@ PSAR_MAX_STEP = 0.4
 
 # Interruttori delle strategie nuove.
 CONF_IN_FORMAZIONE = True
+
+# La macchina di esecuzione (`confluence.MODALITA`). «cancello» e' quella misurata su quindici asset
+# e sette anni e resta il default; «inversione» sta sempre a mercato e ribalta sugli attraversamenti
+# di soglia. Sono due strategie, non due tarature -- si veda `.claude/docs/strategia-confluenza.md`.
+CONF_MODALITA = "cancello"
+# Il verso corto. In «inversione» e' obbligatorio, perche' una macchina sempre a mercato senza gamba
+# corta sarebbe sempre lunga: la pagina lo accende da se' e non lo chiede.
+CONF_ALLOW_SHORT = False
 CONFIRM_VOLUME = True
 REQUIRE_CLOUD = True
 

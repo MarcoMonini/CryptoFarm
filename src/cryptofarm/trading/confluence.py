@@ -1,4 +1,4 @@
-"""La strategia a confluenza: quattro piani, sei votanti, una soglia che si muove.
+"""La strategia a confluenza: quattro piani, sette votanti, una soglia che si muove.
 
 Il disegno completo, con le ragioni di ogni scelta, sta in `.claude/docs/strategia-confluenza.md`.
 Qui c'e' l'attuazione degli stadi S3-S5, e questa docstring dice **solo** le cose che servono a
@@ -26,7 +26,7 @@ look-ahead. Ma sollevare a valore provvisorio una *strategia* qualunque non e'
 generico -- ogni indicatore ricorsivo va sollevato a mano -- e il disegno **congela i votanti**,
 cioe' vieta di riscriverli. Quindi:
 
-- **i sei votanti decidono alla chiusura della propria barra lunga** e il loro stato entra
+- **i sette votanti decidono alla chiusura della propria barra lunga** e il loro stato entra
   nell'indice breve con `mtf.align_to_lower`, cioe' un periodo dopo. Nessun look-ahead, ma
   nemmeno reattivita' intra-periodo;
 - **il cancello e la struttura leggono il prezzo di adesso** contro la media del piano lungo
@@ -63,7 +63,7 @@ from cryptofarm.ml import signals
 from cryptofarm.trading import strategies_ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.mtf import align_to_lower
-from cryptofarm.trading.voters import decayed_vote, held_state
+from cryptofarm.trading.voters import PAVIMENTO_DEL_VOTO, decayed_vote, held_state
 
 # I quattro piani, in multipli dell'intervallo di base. Su 15m: innesco 15m, conferma 1h,
 # struttura 4h, regime 1d -- la scala del disegno, ottenuta senza scriverci dentro nessun
@@ -80,8 +80,90 @@ FATTORI = {"innesco": 1, "conferma": 4, "struttura": 16, "regime": 96}
 # esatto, e renderlo tarabile aggiungerebbe un grado di liberta' che non compra niente.
 ATR_DI_NORMALIZZAZIONE = 14
 
+# Il tetto all'emivita di un voto, in **minuti di calendario** e non in barre, perche' e' una
+# durata e deve voler dire la stessa cosa su ogni intervallo di base.
+#
+# L'emivita e' una sola e si converte in barre di base moltiplicando per `FATTORI[piano]`. Senza
+# tetto il piano di regime arriva a `6 x 96 = 576` barre: su base 15m sono sei giorni di emivita,
+# cioe' un votante che resta a forza quasi piena per settimane sulla scorta di un solo incrocio.
+#
+# Va detto per quel che vale: con il pavimento in casa questo tetto compra poco. Il segno del voto
+# adesso e' l'opinione di adesso, non un ricordo, quindi la persistenza lunga di `zone_regime` non
+# e' piu' un difetto del voto -- e' la sua opinione vera, il suo incrocio a 1d non e' avvenuto.
+# Misurato, l'effetto e' sulla sola **forza**: 0,175 contro 0,154 di voto medio in posizione, e
+# 388 ingressi contro 380. Resta perche' 576 barre sono comunque fuori scala e morderebbero su un
+# votante che cambia idea piu' spesso, non perche' sposti i numeri di oggi.
+TETTO_EMIVITA_MINUTI = 24 * 60
+
+# Le due macchine di esecuzione. Non sono due tarature: rispondono a due domande diverse.
+#
+# `cancello` e' quella misurata su quindici asset e sette anni: sta fuori dal mercato per
+# definizione e ci entra quando quattro condizioni cadono insieme, uscendo sullo stop,
+# sull'isteresi o sul cancello. E' il default, e resta il default finche' l'altra non e' misurata.
+#
+# `inversione` sta **sempre a mercato**, lunga o corta, e la posizione e' il segno dell'ultimo
+# attraversamento di soglia. Niente cancello, niente ampiezza minima, niente innesco, niente
+# isteresi: la durata di un'operazione e' la distanza fra due attraversamenti opposti.
+MODALITA = ("cancello", "inversione")
+
+# Il moltiplicatore dello stop **per modalita'**, perche' in una delle due lo stop non e' un
+# freno: e' il pilota.
+#
+# In `cancello` lo stop chiude e la posizione va a flat: sbagliarlo costa un'uscita anticipata.
+# In `inversione` lo stop **ribalta**, quindi ogni volta che salta apre l'operazione successiva,
+# e a 3 ATR salta di continuo. Misurato su BTCUSDT a 15m dal 2024 (92.321 barre), con la soglia
+# a 0,35 e il collegio a sette: 5.328 ribaltamenti di cui **5.056 (95%) decisi dallo stop**,
+# tenuta mediana 3,5 ore, capitale da 100 a 0,61. Con lo stop spento: 84 ribaltamenti, tutti dal
+# punteggio, tenuta mediana 180 ore, capitale 182. Cioe' col default ereditato l'«always in» non
+# seguiva i voti, seguiva un canale a 3 ATR -- che e' il difetto per cui questa costante esiste.
+#
+# Il valore 0 non e' un parametro nuovo: e' quello che `atr_multiplier` gia' aveva senza
+# significato. Chi vuole lo stop nella modalita' a inversione lo accende sapendo che decide lui.
+STOP_PREDEFINITO: dict[str, float] = {"cancello": 3.0, "inversione": 0.0}
+
+# L'orientamento dei **voti e del punteggio**: -1 vuol dire lungo, +1 vuol dire corto.
+#
+# E' l'asse dell'etichetta a swing (`ml/labeling.swing_leg_target`: -1 su un minimo locale, +1 su
+# un massimo), non quello delle posizioni. I due convivevano nel repo e sulla stessa pagina i due
+# riquadri giravano su assi opposti: il *Voters* con +1 = lungo, lo *Swing target* con -1 = zona
+# d'acquisto. Letti insieme sembravano darsi torto mentre dicevano la stessa cosa.
+#
+# **Gli eventi emessi restano nella convenzione di posizione** (+1 = lungo), che e' quella di
+# `strategies_ls`, `pnl.simulate_positions`, `portfolio` e del bot live. Qui si rietichetta
+# l'opinione, non l'ordine: nessuna operazione si sposta di una barra, e
+# `test_l_inversione_del_segno_non_sposta_nessun_ordine` e' li' per tenerlo fermo.
+VERSO_DEL_VOTO = -1
+
+
+def convinzione(punteggio, verso):
+    """Quanto il punteggio sostiene un'operazione in direzione `verso`, come numero **positivo**.
+
+    `verso` e' nella convenzione di posizione (+1 lungo, -1 corto) perche' e' quella in cui e'
+    scritto il resto del ciclo; il punteggio e' nell'orientamento dei voti. Questa funzione e'
+    l'unico posto in cui i due si incontrano, ed e' voluto: sparse nelle disuguaglianze, le
+    conversioni di segno sono esattamente il difetto che questo modulo ha gia' avuto due volte.
+    Chi un domani rigira l'asse cambia `VERSO_DEL_VOTO` e nient'altro.
+    """
+    return punteggio * verso * VERSO_DEL_VOTO
+
+
 REGIME_MIN_MINUTI = 12 * 60
 REGIME_MAX_MINUTI = 7 * 24 * 60
+
+
+def emivita_in_barre(emivita: float, piano: str, minuti_base: int, tetto_minuti: float | None = None) -> float:
+    """L'emivita di un voto in barre dell'indice di base, tosata al tetto.
+
+    `emivita` e' in barre del **piano** del votante; moltiplicarla per `FATTORI[piano]` la porta in
+    barre di base. Il tetto e' in minuti di calendario perche' e' quel che si vuole limitare: sei
+    giorni di memoria restano sei giorni tanto a 15m quanto a 1h, mentre «576 barre» vuol dire due
+    durate diverse. `tetto_minuti=None` toglie il tetto, ed e' l'ablazione con cui si misura
+    quanto vale averlo.
+    """
+    barre = emivita * FATTORI[piano]
+    if tetto_minuti is None:
+        return barre
+    return min(barre, max(tetto_minuti / minuti_base, 1.0))
 
 
 def piani(interval: str) -> dict[str, str]:
@@ -239,12 +321,32 @@ def _reversione(df, cache, p):
 
 
 def _bande(df, cache, p):
+    """Le bande ATR come votante, e **con il verso corto acceso, esplicitamente**.
+
+    `atr_band_bounce` e' l'unica di `strategies_ls` che ha `allow_short=False` per default, e
+    quel default e' giusto **per una strategia**: aperta da sola su un asset con deriva positiva,
+    la gamba corta paga quattro anni su cinque di essere dalla parte sbagliata della deriva.
+
+    Un votante non e' una strategia: non apre niente, dice un'opinione. Prendere il default
+    silenziosamente rendeva questa famiglia -- due votanti su sette, i due della famiglia
+    `bande` -- **strutturalmente incapace di votare corto**, e la conseguenza non era una
+    prudenza: era che `concordi_corto` non poteva mai arrivare a tutte le famiglie, e che sul
+    punteggio l'estensione *sopra* la media non pesava mentre quella *sotto* pesava. Un'asimmetria
+    fra i due versi che nessuno aveva deciso e che nessun test vedeva.
+
+    E' anche l'unica famiglia per cui la misura sostiene il verso corto: sul ritorno alla media il
+    corto ha il 52,3% di operazioni in utile e un contributo mediano di −3,6%, cioe' costa quasi
+    niente (`.claude/docs/strategie-nuove.md` §4.5). Vendere un'estensione sopra la media in un
+    mercato laterale e' simmetrico a comprarne una sotto, ed e' esattamente cio' che questo
+    votante deve poter dire.
+    """
     return strategies_ls.atr_band_bounce(
         df,
         cache,
         kama_window=int(p["kama_window"]),
         band_multiplier=float(p["band_multiplier"]),
         stop_multiplier=float(p["stop_multiplier"]),
+        allow_short=True,
     )
 
 
@@ -428,26 +530,50 @@ for _votante in (
 
 
 def votanti_predefiniti() -> tuple[Votante, ...]:
-    """I votanti con cui la confluenza gira quando nessuno ne indica altri.
+    """I sette votanti a indicatore. **Il votante a modello non e' nel default**, mai.
 
-    Il votante a modello resta **fuori** quando l'artefatto non c'e', e non e' prudenza: i pesi si
-    normalizzano sui votanti presenti, quindi un ottavo votante che si astiene sempre alzerebbe
-    di fatto la soglia per gli altri sette. In produzione `models/` e' vuoto per costruzione -- gli
-    artefatti sono gitignorati -- e li' la confluenza deve restare **esattamente** quella misurata
-    su quindici asset e sette anni, non una sua versione silenziosamente piu' rigida.
+    Prima la condizione era l'artefatto su disco, e la domanda era sbagliata. Quel che rovina
+    l'insieme non e' un votante assente: e' un votante **presente e muto**. I pesi sono fissi e
+    si normalizzano sui votanti del collegio, quindi presuppongono che tutti parlino con frequenza
+    confrontabile; chi tace non e' neutro, toglie il suo peso dal punteggio di tutti gli altri su
+    ogni barra in cui non parla, cioe' **alza la soglia senza dirlo**.
 
-    Resta comunque nel registro, cosi' `selezione("modello", ...)` lo raggiunge sempre: escluderlo
-    dal default non e' escluderlo dalla misura.
+    `modello` tace per disegno, non per caso. La selettivita' del modello d'ingresso sta nei
+    metadata del suo artefatto ed e' tutto il suo vantaggio misurato (`modello-ingresso.md`): a
+    cinque minuti marca una barra su millecinquecento. Misurato su quindici simboli a 15m dal 2021,
+    197.371 barre ciascuno, la frazione di barre in cui ciascun votante tiene una posizione:
+
+        modello        0,004 - 0,033      (mediana 0,020)
+        pullback       0,253 - 0,282
+        ichimoku       0,272 - 0,318
+        bande_conferma 0,831 - 0,915
+        bande_innesco  0,892 - 0,949
+        zone_regime    0,950
+        flusso         0,957 - 0,971
+        zone_struttura 0,996
+
+    Un ordine di grandezza sotto il penultimo, su tutti e quindici. Con un ottavo del peso e lo
+    0,2% delle barre, su BTCUSDT il punteggio passava da deviazione 0,161 a 0,141 e le barre sopra
+    0,35 da **2,22% a 0,82%**: un terzo delle occasioni degli altri sette, tolte da chi non stava
+    votando.
+
+    **Quel che questo non e'.** Non e' un miglioramento del rendimento, e va detto perche' e'
+    misurato ed e' il contrario: a soglia ferma, toglierlo fa salire il punteggio, quindi si opera
+    di piu' (BTCUSDT a cancello, 456 operazioni contro 622) e su questi dati operare di piu'
+    peggiora sempre -- mediana sui quindici simboli da -39,2% a -46,8%. La diluizione stava
+    facendo da rialzo occulto della soglia, e un rialzo occulto della soglia e' esattamente cio'
+    che non si vuole: la soglia si sceglie e si misura, non si eredita da chi tace.
+    **Ne segue che `theta_base` va misurato sul collegio corretto**, ed e' quel che fa la sezione
+    sulla modalita' a inversione in `.claude/docs/strategia-confluenza.md`.
+
+    Resta nel registro, cosi' `selezione("modello", ...)` lo raggiunge sempre: fuori dal default
+    non vuol dire fuori dalla misura. Chi vuole rimetterlo nel collegio deve prima dargli un peso
+    che tenga conto di quanto parla, che e' un disegno diverso da quello a pesi fissi.
+
+    Il collegio non dipende piu' da cosa c'e' in `models/`: la pagina in locale e il servizio
+    pubblico girano lo stesso insieme, e i test non cambiano esito con gli artefatti sul disco.
     """
-    tutti = selezione()
-    if (
-        signals.entry_model_disponibile(signals.ENTRY_VELOCE)
-        or signals.entry_model_disponibile(signals.ENTRY_LENTO)
-        or signals.rl_model_disponibile()
-        or signals.swing_model_disponibile()
-    ):
-        return tutti
-    return tuple(v for v in tutti if v.nome != "modello")
+    return tuple(v for v in selezione() if v.nome != "modello")
 
 
 VOTANTI: tuple[Votante, ...] = votanti_predefiniti()
@@ -465,14 +591,21 @@ class Confluenza:
     eventi: list
     indice: pd.DatetimeIndex
     voti: dict[str, np.ndarray]
+    stati: dict[str, np.ndarray]
     pesi: dict[str, float]
     punteggio: np.ndarray
     soglia: np.ndarray
+    soglia_corta: np.ndarray
     regime: np.ndarray
     struttura: np.ndarray
     famiglie_concordi: np.ndarray
     stop: np.ndarray | None = None
     motivi: dict = field(default_factory=dict)
+    modalita: str = "cancello"
+    # Quante volte il punteggio ha riribaltato la posizione sulla barra **subito dopo** un
+    # ribaltamento dello stop. E' il costo dichiarato dello stop che inverte invece di chiudere, e
+    # sta qui perche' la decisione di mettergli un freno si prenda su un numero e non a sensazione.
+    ping_pong: int = 0
     concordi_lungo: np.ndarray | None = None
     k_famiglie: int = 2
     barre_del_regime: int = 0
@@ -490,6 +623,14 @@ class Confluenza:
         """
         if self.ingressi:
             return ""
+        if self.modalita == "inversione":
+            # Qui le condizioni non sono quattro in `and`: ce n'e' una sola, e zero operazioni
+            # vuol dire che il punteggio non ha mai attraversato la soglia in nessuno dei due versi.
+            picco = float(np.abs(self.punteggio).max()) if len(self.punteggio) else 0.0
+            return (
+                f"the score never crossed the threshold in either direction: it peaked at "
+                f"{picco:.2f} against a threshold of {self.soglia[0]:.2f}. Lower «Entry threshold»."
+            )
         if self.barre_del_regime < self.barre_chieste_dal_regime:
             return (
                 f"not enough history: the regime plane has {self.barre_del_regime} bars and its "
@@ -499,9 +640,13 @@ class Confluenza:
         aperto = self.regime > 0
         if not aperto.any():
             return "the regime gate never opened: price stayed below the regime plane average the whole window."
-        sopra = aperto & (self.punteggio >= self.soglia)
+        sopra = aperto & (convinzione(self.punteggio, +1) >= self.soglia)
         if not sopra.any():
-            picco = float(self.punteggio[aperto].max())
+            # Il punteggio e' nell'orientamento dei voti, quindi il consenso lungo piu' forte e'
+            # il suo **minimo**. Si riporta a numero positivo per stamparlo accanto alla soglia,
+            # che e' una magnitudine: «picco +0,28 contro una soglia di 0,35» si legge, «-0,28
+            # contro 0,35» fa sembrare che manchi il segno.
+            picco = float(convinzione(self.punteggio[aperto], +1).max())
             minima = float(self.soglia[aperto].min())
             return (
                 f"the gate opened but the score never reached the threshold: peak {picco:+.2f} "
@@ -523,31 +668,63 @@ class Confluenza:
         """
         posizioni = self.indice.get_indexer([e[0] for e in self.eventi])
         return [
-            (*evento[:3], abs(self.punteggio[i]) - self.soglia[i] if evento[2] != 0 else 0.0)
+            (*evento[:3], abs(self.punteggio[i]) - self._soglia_del_verso(evento[2])[i] if evento[2] != 0 else 0.0)
             for evento, i in zip(self.eventi, posizioni)
         ]
 
-    def spiega(self, quando) -> str:
-        """Perche' quella barra ha operato. Una riga, e **diversa per gli ingressi e le uscite**.
+    def _soglia_del_verso(self, verso: int) -> np.ndarray:
+        """La soglia contro cui quel verso si misura. Non e' la stessa: il macro le muove
+        all'opposto, perche' un quadro che da' ragione al lungo la toglie al corto."""
+        return self.soglia if verso >= 0 else self.soglia_corta
 
-        Non e' una rifinitura: quattro uscite su cinque sono lo stop a trailing, e su quelle il
-        punteggio e i votanti non c'entrano niente. Mostrarli lo stesso -- com'era scritto la prima
-        volta -- fa leggere «venduto mentre cinque votanti dicevano di comprare», che e' vero e del
-        tutto fuorviante: quella posizione l'ha chiusa il prezzo, non il voto.
+    def spiega(self, quando) -> str:
+        """Perche' quella barra ha operato. Una riga, e **diversa per ogni modalita'**.
+
+        In `cancello` distingue ingressi e uscite, e non e' una rifinitura: quattro uscite su
+        cinque sono lo stop a trailing, e su quelle il punteggio e i votanti non c'entrano niente.
+        Mostrarli lo stesso -- com'era scritto la prima volta -- fa leggere «venduto mentre cinque
+        votanti dicevano di comprare», che e' vero e del tutto fuorviante.
+
+        In `inversione` **non esistono uscite**: ogni evento e' un ribaltamento, e la riga dice il
+        verso in cui si e' finiti. Riusare il ramo di `cancello` scriveva «exit — trailing stop
+        reversal» sopra un marcatore d'acquisto, che e' la stessa illeggibilita' al contrario.
         """
         quando = pd.Timestamp(quando)
         i = self.indice.get_indexer([quando], method="pad")[0]
         if i < 0:
             return ""
         motivo = self.motivi.get(quando)
+        if self.modalita == "inversione":
+            # Qui **non esistono uscite**: ogni evento e' un ribaltamento, e chiamarlo «exit» su un
+            # marcatore d'acquisto e' esattamente il modo di rendere illeggibile un grafico. La riga
+            # dice il verso in cui si e' finiti, poi cosa l'ha deciso.
+            verso = next((e[2] for e in self.eventi if e[0] == quando), 0)
+            if not verso:
+                return ""
+            testa = "long" if verso > 0 else "short"
+            if motivo == "trailing stop reversal":
+                livello = f" at {self.stop[i]:.2f}" if self.stop is not None and not np.isnan(self.stop[i]) else ""
+                return f"{testa} — reversed by the trailing stop{livello}"
+            parti = [
+                f"{nome} {self.pesi[nome] * voto[i]:+.2f}" for nome, voto in self.voti.items() if abs(voto[i]) > 1e-9
+            ]
+            limite = VERSO_DEL_VOTO * verso * self.soglia[i]
+            return f"{testa} — score {self.punteggio[i]:+.2f} crossed {limite:+.2f} · " + ", ".join(
+                parti or ["no active voter"]
+            )
         if motivo:
             coda = ""
             if motivo == "trailing stop" and self.stop is not None and not np.isnan(self.stop[i]):
                 coda = f" at {self.stop[i]:.2f}"
             return f"exit — {motivo}{coda}"
         parti = [f"{nome} {self.pesi[nome] * voto[i]:+.2f}" for nome, voto in self.voti.items() if abs(voto[i]) > 1e-9]
+        # La soglia si stampa **con il segno del verso in cui si e' entrati**, altrimenti accanto a
+        # un punteggio di -0,41 comparirebbe una soglia di 0,35 e si leggerebbe come un ingresso
+        # avvenuto sotto la soglia. Punteggio e soglia devono stare sullo stesso asse: -1 e' lungo.
+        verso = 1 if convinzione(self.punteggio[i], +1) >= 0 else -1
+        limite = VERSO_DEL_VOTO * verso * self._soglia_del_verso(verso)[i]
         return (
-            f"entry — score {self.punteggio[i]:+.2f} / threshold {self.soglia[i]:.2f} · "
+            f"entry — score {self.punteggio[i]:+.2f} / threshold {limite:+.2f} · "
             f"{int(self.famiglie_concordi[i])} families · " + ", ".join(parti or ["no active voter"])
         )
 
@@ -591,7 +768,7 @@ def valori_del_votante(votante: Votante, intervallo: str, override: dict | None 
 def _pesi(nomi: list[str], w_max: float, pesi: dict[str, float] | None = None) -> dict[str, float]:
     """Pesi normalizzati a somma 1 con tetto `w_max`, applicato ripetutamente fino a tenuta.
 
-    A pesi uguali il tetto non morde mai -- con sei votanti ognuno vale 0,167 contro un tetto di
+    A pesi uguali il tetto non morde mai -- con sette votanti ognuno vale 0,143 contro un tetto di
     0,30 -- e questo e' voluto: il tetto e' li' per la versione tarata (S7), dove serve a impedire
     che l'insieme diventi *un* segnale con delle decorazioni.
     """
@@ -603,7 +780,7 @@ def _pesi(nomi: list[str], w_max: float, pesi: dict[str, float] | None = None) -
     # Con `n` votanti non esiste nessuna assegnazione che sommi a 1 e stia tutta sotto `1/n`:
     # applicando il tetto alla lettera si capperebbero tutti e la somma verrebbe minore di uno,
     # cioe' il punteggio sarebbe sistematicamente piu' piccolo della soglia **senza che niente lo
-    # dica**. Con sei votanti non si vedeva (0,167 sta sotto 0,30); con tre la somma faceva 0,90.
+    # dica**. Con sette votanti non si vedeva (0,143 sta sotto 0,30); con tre la somma faceva 0,90.
     w_max = max(w_max, 1.0 / len(nomi))
     for _ in range(len(nomi)):
         eccedenti = {n for n, p in valori.items() if p > w_max + 1e-12}
@@ -670,15 +847,18 @@ def evaluate(
     barre_minime: int = 4,
     pazienza: int = 24,
     emivita: float = 6.0,
+    pavimento: float = PAVIMENTO_DEL_VOTO,
+    tetto_emivita: float | None = TETTO_EMIVITA_MINUTI,
     w_max: float = 0.30,
     k_famiglie: int = 2,
     innesco: int = 0,
     atr_window: int = 14,
-    atr_multiplier: float = 3.0,
+    atr_multiplier: float | None = None,
     regime_ema: int = 50,
     struttura_ema: int = 50,
     barre_in_formazione: bool = True,
     allow_short: bool = False,
+    modalita: str = "cancello",
     pesi: dict[str, float] | None = None,
     votanti: tuple[Votante, ...] = VOTANTI,
     parametri_votanti: dict | None = None,
@@ -700,9 +880,23 @@ def evaluate(
 
     L'**isteresi non e' un dettaglio**: senza, si entra e si esce sulla stessa barra ogni volta
     che il punteggio oscilla attorno alla soglia, e il conto delle commissioni mangia tutto.
+
+    `pavimento` e `tetto_emivita` sono le due manopole della forma del voto, e stanno qui con i
+    loro default e **senza un widget**: servono a misurare l'ablazione (`pavimento=0` e
+    `tetto_emivita=None` riportano al voto che seguiva la sola recenza), non a essere girate a
+    occhio sulla pagina. Il conto dei parametri liberi della confluenza e' gia' il problema che
+    `scripts/multiplicity.py` misura.
     """
     if len(candles) < 3:
         raise ValueError("servono almeno tre barre")
+    if modalita not in MODALITA:
+        raise ValueError(f"modalita sconosciuta: {modalita!r}. Sono {MODALITA}")
+    # Lo stop dipende dalla modalita' e non e' una taratura: le ragioni, con i numeri, stanno su
+    # `STOP_PREDEFINITO`. Si risolve qui perche' qui passano tutti -- la pagina, il banco e chi
+    # chiama da libreria -- e un default per modalita' scritto in tre posti sarebbe tre posti in
+    # cui dimenticarsene. Un valore esplicito vince sempre, anche lo zero.
+    if atr_multiplier is None:
+        atr_multiplier = STOP_PREDEFINITO[modalita]
     if stati is not None and parametri_votanti:
         # Gli stati precalcolati valgono per i parametri con cui sono stati calcolati. Accettarli
         # insieme a un override darebbe un risultato sbagliato **senza dirlo**, che e' il modo in
@@ -711,12 +905,21 @@ def evaluate(
     minuti_base = interval_to_minutes(interval)
 
     voti: dict[str, np.ndarray] = {}
+    stati_usati: dict[str, np.ndarray] = {}
     famiglie: dict[str, str] = {}
     for votante in votanti:
         stato = stati[votante.nome] if stati else _stato_del_votante(votante, candles, minuti_base, parametri_votanti)
         # L'emivita e' una sola, espressa in barre del timeframe del votante: qui si converte in
-        # barre di base. Un segnale di struttura resta vivo giorni, uno di innesco ore.
-        voti[votante.nome] = decayed_vote(stato, emivita * FATTORI[votante.piano])
+        # barre di base e si tosa a `TETTO_EMIVITA_MINUTI`. Un segnale di struttura resta vivo
+        # giorni, uno di innesco ore, e nessuno piu' di un giorno di calendario.
+        #
+        # `decayed_vote` lavora sullo stato tenuto, che e' una posizione: +1 e' lungo. Il voto
+        # esce nell'orientamento dichiarato da `VERSO_DEL_VOTO`, e questa e' l'unica moltiplicazione
+        # che lo produce -- da qui in giu' tutto legge voti e punteggio in quell'asse.
+        stati_usati[votante.nome] = stato
+        voti[votante.nome] = VERSO_DEL_VOTO * decayed_vote(
+            stato, emivita_in_barre(emivita, votante.piano, minuti_base, tetto_emivita), pavimento
+        )
         famiglie[votante.nome] = votante.famiglia
 
     w = _pesi([v.nome for v in votanti], w_max, pesi)
@@ -724,36 +927,76 @@ def evaluate(
 
     regime = _forza_del_piano(candles, minuti_base, "regime", regime_ema, barre_in_formazione)
     struttura = _forza_del_piano(candles, minuti_base, "struttura", struttura_ema, barre_in_formazione)
-    soglia = theta_base - theta_macro * (regime + struttura) / 2
+    # I piani lunghi scontano la soglia **nel verso dell'operazione candidata**, e il verso in
+    # questa formula e' cio' che mancava: `theta_base - theta_macro * macro` da sola abbassa la
+    # soglia quando il macro sale, per tutti e due i versi. Sul lungo e' quel che si vuole; sul
+    # corto e' il contrario esatto del disegno -- con regime e struttura entrambi a -1 la soglia
+    # saliva a 0,50 proprio mentre il quadro macro dava ragione al corto, mentre il lungo con
+    # macro a +1 ne chiedeva 0,20. Misurato sulle stesse candele: 0,201 contro 0,499.
+    # La media sui piani **noti**: un piano che non si sa si astiene, non vota «neutro». Dove non
+    # se ne sa nessuno dei due la soglia resta `theta_base`, che e' lo sconto nullo.
+    # Scritta a mano invece che con `nanmean`, che su una barra senza nessun piano noto avverte e
+    # restituisce NaN: qui quel caso non e' un'anomalia, e' la pagina appena aperta.
+    noti = np.isfinite(regime).astype(float) + np.isfinite(struttura).astype(float)
+    somma = np.nan_to_num(regime) + np.nan_to_num(struttura)
+    macro = np.divide(somma, noti, out=np.zeros_like(somma), where=noti > 0)
+    if modalita == "inversione":
+        # Soglia **simmetrica**, e lo sconto macro spento: le ragioni, con i numeri, stanno in
+        # `_percorri_inversione`. In breve: su una serie con deriva il piano di regime satura a
+        # +1,000 con deviazione 0,000, quindi non modula niente e lascia solo un'asimmetria fissa
+        # che rende la gamba corta irraggiungibile -- zero barre buone per un corto su 17.280.
+        soglia = np.full(len(candles), float(theta_base))
+        soglia_corta = soglia
+    else:
+        soglia = theta_base - theta_macro * macro
+        soglia_corta = theta_base + theta_macro * macro
 
-    concordi_lungo = _famiglie_concordi(voti, famiglie, +1)
-    concordi_corto = _famiglie_concordi(voti, famiglie, -1)
-    famiglie_concordi = np.where(punteggio >= 0, concordi_lungo, concordi_corto)
+    # **Sullo stato, non sul voto.** L'ampiezza e' un conteggio di opinioni presenti, e un voto in
+    # coda di decadimento non e' un'opinione: e' un ricordo. Con il pavimento e l'azzeramento
+    # all'uscita i due conteggi coincidono per costruzione -- il voto e' zero se e solo se lo stato
+    # lo e' -- ma dipendere da quell'invariante vorrebbe dire che cambiare la forma del voto
+    # cambierebbe l'ampiezza di nascosto. Qui si chiede direttamente cio' che si vuole sapere.
+    concordi_lungo = _famiglie_concordi(stati_usati, famiglie, +1)
+    concordi_corto = _famiglie_concordi(stati_usati, famiglie, -1)
+    famiglie_concordi = np.where(convinzione(punteggio, +1) >= 0, concordi_lungo, concordi_corto)
 
-    eventi, ingressi, livello_stop, motivi = _percorri(
-        candles,
-        punteggio=punteggio,
-        soglia=soglia,
-        regime=regime,
-        concordi_lungo=concordi_lungo,
-        concordi_corto=concordi_corto,
-        isteresi=isteresi,
-        barre_minime=barre_minime,
-        pazienza=pazienza,
-        k_famiglie=k_famiglie,
-        innesco=innesco,
-        atr_window=atr_window,
-        atr_multiplier=atr_multiplier,
-        allow_short=allow_short,
-    )
+    ping_pong = 0
+    if modalita == "inversione":
+        eventi, ingressi, livello_stop, motivi, ping_pong = _percorri_inversione(
+            candles,
+            punteggio=punteggio,
+            soglia=soglia,
+            atr_window=atr_window,
+            atr_multiplier=atr_multiplier,
+        )
+    else:
+        eventi, ingressi, livello_stop, motivi = _percorri(
+            candles,
+            punteggio=punteggio,
+            soglia=soglia,
+            soglia_corta=soglia_corta,
+            regime=regime,
+            concordi_lungo=concordi_lungo,
+            concordi_corto=concordi_corto,
+            isteresi=isteresi,
+            barre_minime=barre_minime,
+            pazienza=pazienza,
+            k_famiglie=k_famiglie,
+            innesco=innesco,
+            atr_window=atr_window,
+            atr_multiplier=atr_multiplier,
+            allow_short=allow_short,
+        )
 
     risultato = Confluenza(
         eventi=eventi,
         indice=candles.index,
         voti=voti,
+        stati=stati_usati,
         pesi=w,
         punteggio=punteggio,
         soglia=soglia,
+        soglia_corta=soglia_corta,
         regime=regime,
         struttura=struttura,
         famiglie_concordi=famiglie_concordi,
@@ -764,8 +1007,10 @@ def evaluate(
         barre_del_regime=len(resample_klines(candles, _intervallo(minuti_base * FATTORI["regime"]))),
         barre_chieste_dal_regime=regime_ema,
         ingressi=len(ingressi),
+        modalita=modalita,
+        ping_pong=ping_pong,
     )
-    risultato.necessarieta = _necessarieta(voti, famiglie, w, soglia, ingressi, k_famiglie)
+    risultato.necessarieta = _necessarieta(voti, stati_usati, famiglie, w, soglia, soglia_corta, ingressi, k_famiglie)
     return risultato
 
 
@@ -805,10 +1050,9 @@ def _forza_del_piano(candele, minuti_base, piano, span, in_formazione) -> np.nda
     lungo = resample_klines(candele, intervallo) if fattore > 1 else candele
     if len(lungo) <= ATR_DI_NORMALIZZAZIONE:
         # Meno barre della finestra dell'ATR: `ta` solleverebbe un IndexError invece di dare NaN.
-        # Qui la risposta giusta e' «forza nulla», che chiude il cancello e fa dire alla diagnosi
-        # che manca la storia -- degradare, non cadere, e' la condizione in cui gira la pagina
-        # appena aperta.
-        return np.zeros(len(candele))
+        # La risposta giusta e' «non lo so», che e' NaN e non zero -- degradare, non cadere, e'
+        # la condizione in cui gira la pagina appena aperta.
+        return np.full(len(candele), np.nan)
 
     cache = ExtraCache(lungo)
     media, ampiezza = cache.ema(span), cache.atr(ATR_DI_NORMALIZZAZIONE)
@@ -821,19 +1065,36 @@ def _forza_del_piano(candele, minuti_base, piano, span, in_formazione) -> np.nda
 
     with np.errstate(invalid="ignore", divide="ignore"):
         forza = np.tanh((prezzo - media) / (2.0 * ampiezza))
-    return np.nan_to_num(forza, nan=0.0, posinf=0.0, neginf=0.0)
+    # **NaN dove il piano non si sa, non zero.** Prima era `nan_to_num(..., nan=0.0)`, e uno zero
+    # qui e' una bugia con due conseguenze. Sul grafico: un piano che chiede cinquanta barre e ne
+    # ha venti si disegnava come una linea piatta a 0,0, indistinguibile da «prezzo esattamente
+    # sulla sua media» -- il cancello risultava *neutro* mentre era *chiuso per ignoranza*, ed e'
+    # esattamente il quadro in cui non si capisce perche' non arrivino segnali. Sulla soglia: uno
+    # zero medializzato con il piano noto ne **dimezza** il contributo (misurato su venti giorni a
+    # 15m: soglia media 0,371 contro 0,392), cioe' il piano ignoto vota, e vota «neutro».
+    #
+    # Il cancello non cambia comportamento: `NaN > 0` e' False, quindi resta chiuso come prima.
+    # Cambia che adesso lo dice.
+    forza[np.isinf(forza)] = np.nan
+    return forza
 
 
-def _famiglie_concordi(voti, famiglie, verso) -> np.ndarray:
-    """Quante **famiglie distinte** votano in quel verso, barra per barra.
+def _famiglie_concordi(stati, famiglie, verso) -> np.ndarray:
+    """Quante **famiglie distinte** tengono una posizione in quel verso, barra per barra.
 
     Famiglie e non votanti: e' il freno che impedisce a un peso grande, da solo, di aprire una
     posizione. Oggi la distinzione non morde -- i sei sono uno per famiglia -- ma mordera' appena
     si aggiunge un secondo votante di prezzo, ed e' allora che serve gia' scritta.
+
+    **Prende gli stati, non i voti**, e `verso` e gli stati sono tutti e due nella convenzione di
+    posizione (+1 lungo): qui non c'e' nessuna conversione d'asse da fare, perche' `held_state` non
+    passa mai per l'orientamento dei voti. L'ampiezza e' un conteggio di opinioni **presenti** e un
+    voto in coda di decadimento non e' un'opinione, e' un ricordo: con i voti, meta' delle
+    «famiglie concordi» di `pullback` erano posizioni gia' chiuse.
     """
     per_famiglia: dict[str, np.ndarray] = {}
-    for nome, voto in voti.items():
-        attivo = (voto * verso) > 0
+    for nome, stato in stati.items():
+        attivo = (np.asarray(stato) * verso) > 0
         famiglia = famiglie[nome]
         per_famiglia[famiglia] = attivo if famiglia not in per_famiglia else (per_famiglia[famiglia] | attivo)
     return np.sum(list(per_famiglia.values()), axis=0).astype(float)
@@ -844,6 +1105,7 @@ def _percorri(
     *,
     punteggio,
     soglia,
+    soglia_corta,
     regime,
     concordi_lungo,
     concordi_corto,
@@ -906,10 +1168,12 @@ def _percorri(
     livello_stop = np.full(len(candele), np.nan)
     posizione = 0
     estremo = 0.0
+    # Vero quando un ingresso e' permesso. Parte vero -- il primo segnale della finestra deve poter
+    # entrare -- e ogni uscita lo spegne finche' la condizione d'ingresso non torna falsa.
+    armato = True
 
     for i in range(1, len(candele)):
         prezzo = chiusure[i]
-        uscito_ora = False
 
         if posizione != 0 and not np.isnan(atr[i - 1]):
             if posizione > 0:
@@ -918,7 +1182,7 @@ def _percorri(
                 if minimi[i] <= stop:
                     eventi.append((indice[i], float(stop), 0))
                     motivi[indice[i]] = "trailing stop"
-                    posizione, uscito_ora = 0, True
+                    posizione, armato = 0, False
                 else:
                     estremo = max(estremo, massimi[i])
             else:
@@ -927,14 +1191,19 @@ def _percorri(
                 if massimi[i] >= stop:
                     eventi.append((indice[i], float(stop), 0))
                     motivi[indice[i]] = "trailing stop"
-                    posizione, uscito_ora = 0, True
+                    posizione, armato = 0, False
                 else:
                     estremo = min(estremo, minimi[i])
 
         if posizione != 0:
             verso = 1 if posizione > 0 else -1
-            barre_sotto = barre_sotto + 1 if punteggio[i] * verso < soglia[i] else 0
-            per_isteresi = punteggio[i] * verso < soglia[i] - isteresi
+            # La soglia del verso in cui si e' dentro, non quella lunga per tutti e due: uscire
+            # da un corto misurandosi contro la soglia lunga vuol dire che il macro favorevole al
+            # corto *anticipa* l'uscita invece di ritardarla.
+            attiva = soglia[i] if verso > 0 else soglia_corta[i]
+            sostegno = convinzione(punteggio[i], verso)
+            barre_sotto = barre_sotto + 1 if sostegno < attiva else 0
+            per_isteresi = sostegno < attiva - isteresi
             per_pazienza = barre_sotto >= pazienza
             maturo = (i - barra_ingresso) >= barre_minime
             cancello_contro = regime[i] * verso < 0
@@ -949,22 +1218,70 @@ def _percorri(
                         else "score fell through the hysteresis band"
                     )
                 )
-                posizione, uscito_ora = 0, True
+                posizione, armato = 0, False
 
-        # Chi e' appena uscito non rientra sulla stessa barra. L'isteresi frena il punteggio che
-        # oscilla attorno alla soglia, ma non questo: uno stop scattato dentro la barra lascia il
-        # punteggio dov'era, e senza il freno si ricomprerebbe subito pagando due commissioni per
-        # tornare esattamente dov'eravamo.
-        if posizione == 0 and not uscito_ora:
-            lungo = regime[i] > 0 and punteggio[i] >= soglia[i] and concordi_lungo[i] >= k_famiglie and prezzo > alto[i]
+        # **Dopo un'uscita si rientra su un segnale nuovo, non su uno ancora acceso.**
+        #
+        # Il freno di prima era largo una barra (`not uscito_ora`), e la ragione per cui esisteva
+        # non scade dopo una barra. L'isteresi frena il punteggio che oscilla attorno alla soglia,
+        # ma frenava **solo l'uscita dal punteggio**: quando esce lo stop il punteggio resta dov'e'
+        # -- sopra la soglia -- quindi la condizione d'ingresso era ancora vera sulla barra dopo e
+        # si ricomprava subito. Misurato su BTCUSDT a 15m con soglia 0,25, la sequenza era
+        # letteralmente `stop / ingresso / stop / ingresso` a una barra di distanza, con la
+        # convinzione ferma fra 0,26 e 0,31 contro una soglia fra 0,16 e 0,20: l'opinione non
+        # cambiava mai e si pagavano due commissioni per tornare dov'eravamo. Sul grafico e' il
+        # grappolo di triangoli verdi e rossi sovrapposti che non corrisponde a nessun
+        # attraversamento del punteggio, ed e' da li' che questa correzione e' partita.
+        #
+        # La regola e' a **fronte** e non a livello: ogni uscita disarma, e si riarma solo su una
+        # barra in cui l'interesse e' caduto. Non e' un parametro nuovo e non e' un'attesa: e' la
+        # differenza fra «il segnale c'e' ancora» e «il segnale e' arrivato».
+        #
+        # **Il riarmo guarda la banda, non la soglia**, ed e' la meta' che vale i numeri. La banda
+        # `[soglia - isteresi, soglia]` e' per disegno la zona in cui non si cambia stato: riarmare
+        # a `punteggio < soglia` vuol dire riarmare *dentro* la banda, e allora un punteggio che
+        # sfarfalla di un millesimo sulla soglia riapre lo stesso. Con il riarmo sotto
+        # `soglia - isteresi` la banda vuol dire una cosa sola, all'andata e al ritorno. Misurato
+        # sui quindici simboli a 15m dal 2021, soglia 0,35: operazioni mediane 757 -> 583 -> 484,
+        # rendimento mediano -57,5% -> -55,5% -> -46,8%, drawdown 66,0% -> 62,6% -> 54,9%, dove i
+        # tre valori sono il freno di una barra, il fronte sulla soglia e il fronte sulla banda.
+        #
+        # `debole` **non contiene l'innesco**, di proposito: la rottura e' una condizione di
+        # tempismo, non di interesse, e un innesco che non scatta non deve riarmare niente.
+        #
+        # Sull'uscita da punteggio non cambia quasi niente, ed e' voluto: li' si esce gia' sotto
+        # `soglia - isteresi`, quindi il riarmo e' immediato e la banda resta l'unico freno.
+        # Cambia dove il freno non c'era: lo stop e il cancello.
+        #
+        # `uscito_ora` non serve piu': su una barra d'uscita `armato` e' False per costruzione, e
+        # una barra in cui l'interesse e' caduto non e' una barra d'ingresso.
+        if posizione == 0:
+            lungo = (
+                regime[i] > 0
+                and convinzione(punteggio[i], +1) >= soglia[i]
+                and concordi_lungo[i] >= k_famiglie
+                and prezzo > alto[i]
+            )
             corto = (
                 allow_short
                 and regime[i] < 0
-                and punteggio[i] <= -soglia[i]
+                and convinzione(punteggio[i], -1) >= soglia_corta[i]
                 and concordi_corto[i] >= k_famiglie
                 and prezzo < basso[i]
             )
-            if lungo or corto:
+            debole = (
+                regime[i] > 0
+                and convinzione(punteggio[i], +1) >= soglia[i] - isteresi
+                and concordi_lungo[i] >= k_famiglie
+            ) or (
+                allow_short
+                and regime[i] < 0
+                and convinzione(punteggio[i], -1) >= soglia_corta[i] - isteresi
+                and concordi_corto[i] >= k_famiglie
+            )
+            if not debole:
+                armato = True
+            elif armato and (lungo or corto):
                 posizione = 1 if lungo else -1
                 eventi.append((indice[i], float(prezzo), posizione))
                 ingressi.append(i)
@@ -974,7 +1291,121 @@ def _percorri(
     return eventi, ingressi, livello_stop, motivi
 
 
-def _necessarieta(voti, famiglie, pesi, soglia, ingressi, k_famiglie) -> dict[str, float]:
+def _percorri_inversione(
+    candele,
+    *,
+    punteggio,
+    soglia,
+    atr_window,
+    atr_multiplier,
+):
+    """Il motore **sempre a mercato**: la posizione e' il segno dell'ultimo attraversamento.
+
+    Una macchina diversa da `_percorri`, non una sua taratura. Le regole sono tre e basta:
+
+    - **punteggio sotto `-soglia` -> lungo**, punteggio sopra `+soglia` -> corto. Sull'asse dei
+      voti il lungo e' negativo (`VERSO_DEL_VOTO`), quindi «superata la soglia in negativo» e
+      «compra» sono la stessa frase;
+    - **fra i due attraversamenti non succede niente.** Nessuna isteresi, nessuna pazienza,
+      nessun pavimento di barre: si tiene la posizione finche' il punteggio non attraversa la
+      soglia *opposta*. E' da li' che viene la durata delle operazioni, e non da un parametro;
+    - **non si va mai a flat.** Un attraversamento opposto non chiude e riapre: **ribalta**, in un
+      evento solo, che e' cio' che `pnl.simulate_positions` sa eseguire e che le due liste
+      separate di `simulate_trading_with_commisions` non saprebbero rappresentare.
+
+    ## La soglia e' simmetrica, e qui non la sconta nessun macro
+
+    `theta_macro` resta spento in questa modalita', e non per semplificare. Misurato su una serie
+    con deriva positiva: il piano di regime satura a **+1,000 con deviazione standard 0,000** --
+    il prezzo sta sopra la sua media a cinquanta giorni per tutta la finestra -- quindi lo sconto
+    non modula niente, e' una costante. L'effetto e' solo di spostare in permanenza la soglia
+    lunga a 0,208 e quella corta a 0,492: su 17.280 barre il punteggio bastava per un lungo in
+    1.623 e per un corto in **zero**. In un sistema che deve stare sempre a mercato una asimmetria
+    fissa non e' un'opinione sul macro, e' una gamba amputata.
+
+    ## Lo stop ribalta, non chiude -- e con `atr_multiplier <= 0` non c'e'
+
+    Stessa convenzione di `_percorri` -- ATR ed estremo a `i-1`, mai quelli della barra su cui lo
+    stop viene testato -- ma l'esito e' diverso: la posizione si inverte invece di andare a flat,
+    cosi' il sistema resta sempre a mercato anche quando lo stop taglia la gamba perdente. Il
+    prezzo da pagare e' il **ping-pong**: lo stop ribalta contro il punteggio, e il punteggio puo'
+    riribaltare subito dopo. Non c'e' nessun freno contro quello, di proposito -- un freno sarebbe
+    un parametro in piu' -- e `Confluenza.ping_pong` lo conta.
+
+    **Va acceso sapendo cosa fa, perche' qui domina.** Misurato su 300 giorni sintetici a 15m con
+    soglia 0,35: con lo stop a 3 ATR le operazioni sono 1.167 e **il 97% delle inversioni le decide
+    lo stop, non il punteggio**, con una durata mediana di 4,2 ore; senza stop sono 12, durata
+    mediana **171 ore**. Cioe' con lo stop acceso questa non e' la macchina descritta -- «si compra
+    e si tiene fino al segnale opposto» -- ma una macchina a stop con il punteggio come comparsa, e
+    le operazioni restano corte esattamente come nella modalita' a cancello.
+
+    `atr_multiplier <= 0` toglie lo stop del tutto, e non e' un parametro nuovo: e' il valore che
+    quel parametro gia' aveva senza significato.
+    """
+    indice = candele.index
+    chiusure = candele["Close"].to_numpy()
+    massimi = candele["High"].to_numpy()
+    minimi = candele["Low"].to_numpy()
+    atr = ExtraCache(candele).atr(atr_window)
+
+    eventi: list = []
+    ingressi: list[int] = []
+    motivi: dict = {}
+    livello_stop = np.full(len(candele), np.nan)
+    posizione = 0
+    estremo = 0.0
+    ping_pong = 0
+    ribaltata_dallo_stop = -1
+
+    for i in range(1, len(candele)):
+        prezzo = chiusure[i]
+
+        # 1. Lo stop, che ribalta. Va prima della soglia: e' una regola di rischio e non
+        #    un'opinione, e sulla barra in cui salta decide lui.
+        if posizione != 0 and atr_multiplier > 0 and not np.isnan(atr[i - 1]):
+            if posizione > 0:
+                stop = estremo - atr_multiplier * atr[i - 1]
+                livello_stop[i] = stop
+                saltato = minimi[i] <= stop
+            else:
+                stop = estremo + atr_multiplier * atr[i - 1]
+                livello_stop[i] = stop
+                saltato = massimi[i] >= stop
+            if saltato:
+                posizione = -posizione
+                eventi.append((indice[i], float(stop), posizione))
+                motivi[indice[i]] = "trailing stop reversal"
+                ingressi.append(i)
+                estremo = float(stop)
+                ribaltata_dallo_stop = i
+                continue
+            estremo = max(estremo, massimi[i]) if posizione > 0 else min(estremo, minimi[i])
+        elif posizione != 0:
+            estremo = max(estremo, massimi[i]) if posizione > 0 else min(estremo, minimi[i])
+
+        # 2. La soglia. Simmetrica, e l'unico modo di cambiare verso che non sia lo stop.
+        if convinzione(punteggio[i], +1) >= soglia[i]:
+            voluta = 1
+        elif convinzione(punteggio[i], -1) >= soglia[i]:
+            voluta = -1
+        else:
+            continue  # fra le due soglie non si fa niente: si tiene
+
+        if voluta != posizione:
+            # Un ribaltamento dal punteggio sulla barra **subito dopo** uno dallo stop e' il
+            # ping-pong: si conta e si lascia avvenire, perche' il freno sarebbe un parametro.
+            if i == ribaltata_dallo_stop + 1 and posizione != 0:
+                ping_pong += 1
+            posizione = voluta
+            eventi.append((indice[i], float(prezzo), posizione))
+            motivi[indice[i]] = "score crossed the threshold"
+            ingressi.append(i)
+            estremo = prezzo
+
+    return eventi, ingressi, livello_stop, motivi, ping_pong
+
+
+def _necessarieta(voti, stati, famiglie, pesi, soglia, soglia_corta, ingressi, k_famiglie) -> dict[str, float]:
     """In che frazione degli ingressi ciascun votante era **indispensabile**.
 
     Indispensabile vuol dire: azzerandolo, quell'ingresso non sarebbe avvenuto -- perche' il
@@ -991,14 +1422,23 @@ def _necessarieta(voti, famiglie, pesi, soglia, ingressi, k_famiglie) -> dict[st
     # `_famiglie_concordi` lavora elemento per elemento, quindi accetta il `verso` come vettore e
     # una passata sola sostituisce le seimila.
     ai_bordi = {nome: voto[barre] for nome, voto in voti.items()}
-    verso = np.sign(sum(pesi[n] * ai_bordi[n] for n in ai_bordi))
+    stati_ai_bordi = {nome: np.asarray(stato)[barre] for nome, stato in stati.items()}
+    # Il verso dell'**operazione**, non il segno del punteggio: i due sono opposti, perche' un
+    # consenso lungo produce un punteggio negativo.
+    verso = np.sign(convinzione(sum(pesi[n] * ai_bordi[n] for n in ai_bordi), +1))
     verso[verso == 0] = 1
+    # La soglia contro cui quell'ingresso si e' misurato davvero: quella lunga se e' un lungo,
+    # quella corta se e' un corto. Con una sola soglia la diagnosi sui corti chiedeva a ogni
+    # votante di superare una barriera che l'ingresso non aveva dovuto superare.
+    attiva = np.where(verso > 0, soglia[barre], soglia_corta[barre])
 
     conteggi = {}
     for nome in voti:
         restanti = {n: v for n, v in ai_bordi.items() if n != nome}
         punteggio = sum(pesi[n] * restanti[n] for n in restanti) if restanti else np.zeros(len(barre))
-        sotto_soglia = punteggio * verso < soglia[barre]
-        ampiezza = _famiglie_concordi(restanti, famiglie, verso)
+        sotto_soglia = convinzione(punteggio, verso) < attiva
+        # L'ampiezza si conta sugli stati, come nel motore: togliere un votante vuol dire togliere
+        # la sua opinione, non la coda del suo voto.
+        ampiezza = _famiglie_concordi({n: v for n, v in stati_ai_bordi.items() if n != nome}, famiglie, verso)
         conteggi[nome] = float(np.mean(sotto_soglia | (ampiezza < k_famiglie)))
     return conteggi
