@@ -794,7 +794,11 @@ def evaluate(
     # corto e' il contrario esatto del disegno -- con regime e struttura entrambi a -1 la soglia
     # saliva a 0,50 proprio mentre il quadro macro dava ragione al corto, mentre il lungo con
     # macro a +1 ne chiedeva 0,20. Misurato sulle stesse candele: 0,201 contro 0,499.
-    macro = (regime + struttura) / 2
+    # La media sui piani **noti**: un piano che non si sa si astiene, non vota «neutro». Dove non
+    # se ne sa nessuno dei due la soglia resta `theta_base`, che e' lo sconto nullo.
+    with np.errstate(invalid="ignore"):
+        macro = np.nanmean(np.vstack([regime, struttura]), axis=0)
+    macro = np.nan_to_num(macro, nan=0.0)
     soglia = theta_base - theta_macro * macro
     soglia_corta = theta_base + theta_macro * macro
 
@@ -879,10 +883,9 @@ def _forza_del_piano(candele, minuti_base, piano, span, in_formazione) -> np.nda
     lungo = resample_klines(candele, intervallo) if fattore > 1 else candele
     if len(lungo) <= ATR_DI_NORMALIZZAZIONE:
         # Meno barre della finestra dell'ATR: `ta` solleverebbe un IndexError invece di dare NaN.
-        # Qui la risposta giusta e' «forza nulla», che chiude il cancello e fa dire alla diagnosi
-        # che manca la storia -- degradare, non cadere, e' la condizione in cui gira la pagina
-        # appena aperta.
-        return np.zeros(len(candele))
+        # La risposta giusta e' «non lo so», che e' NaN e non zero -- degradare, non cadere, e'
+        # la condizione in cui gira la pagina appena aperta.
+        return np.full(len(candele), np.nan)
 
     cache = ExtraCache(lungo)
     media, ampiezza = cache.ema(span), cache.atr(ATR_DI_NORMALIZZAZIONE)
@@ -895,7 +898,18 @@ def _forza_del_piano(candele, minuti_base, piano, span, in_formazione) -> np.nda
 
     with np.errstate(invalid="ignore", divide="ignore"):
         forza = np.tanh((prezzo - media) / (2.0 * ampiezza))
-    return np.nan_to_num(forza, nan=0.0, posinf=0.0, neginf=0.0)
+    # **NaN dove il piano non si sa, non zero.** Prima era `nan_to_num(..., nan=0.0)`, e uno zero
+    # qui e' una bugia con due conseguenze. Sul grafico: un piano che chiede cinquanta barre e ne
+    # ha venti si disegnava come una linea piatta a 0,0, indistinguibile da «prezzo esattamente
+    # sulla sua media» -- il cancello risultava *neutro* mentre era *chiuso per ignoranza*, ed e'
+    # esattamente il quadro in cui non si capisce perche' non arrivino segnali. Sulla soglia: uno
+    # zero medializzato con il piano noto ne **dimezza** il contributo (misurato su venti giorni a
+    # 15m: soglia media 0,371 contro 0,392), cioe' il piano ignoto vota, e vota «neutro».
+    #
+    # Il cancello non cambia comportamento: `NaN > 0` e' False, quindi resta chiuso come prima.
+    # Cambia che adesso lo dice.
+    forza[np.isinf(forza)] = np.nan
+    return forza
 
 
 def _famiglie_concordi(voti, famiglie, verso) -> np.ndarray:

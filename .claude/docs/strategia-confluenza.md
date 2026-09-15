@@ -965,3 +965,66 @@ drifted from where things are *read* into where they are *decided*.
 `convinzione` is the single place the two axes meet, and every comparison in the module goes
 through it. Scattered through the inequalities, sign conversions are precisely the defect this
 module has now had twice.
+
+## A plane that is not known is NaN, not zero (2026-09-15)
+
+Found by looking at a chart the strategy was drawing on a 20-day window at 15m: the *Higher planes*
+panel showed the regime line **flat at exactly 0.0 for the whole window**, the two thresholds sat
+flat at ±0.35 until the ninth day, and no trade was ever taken while the voters kept firing.
+
+None of that was the voters. The regime plane at a 15m base is 1d, its moving average asks for 50
+bars, and a 20-day window holds 20. `ExtraCache.ema(50)` is therefore NaN everywhere, and
+`_forza_del_piano` closed with `np.nan_to_num(forza, nan=0.0)`. Zero is not a neutral encoding
+here — it is the value that means *price exactly on its own average*, i.e. a neutral macro. So:
+
+- **the gate was shut and looked open.** An entry needs `regime > 0` and a short needs
+  `regime < 0`; with the plane at 0 neither can ever be true, so zero trades were structurally
+  guaranteed. On the chart that state was indistinguishable from a balanced market;
+- **the unknown plane voted in the threshold.** `soglia = theta_base - theta_macro * (regime +
+  struttura) / 2` averaged the meaningless zero with the known plane and **halved its
+  contribution**. Measured over the same 20 days: mean threshold 0.371 against 0.392 when the
+  unknown plane abstains.
+
+The plane is now NaN where it is not known, the threshold averages over the known planes only, and
+the *Higher planes* traces are conditional — an unknown plane is **not drawn**, the same rule
+`_serie_stop` already followed. The gate's behaviour is unchanged (`NaN > 0` is False, so it stays
+shut); what changed is that it now says so where the chart is read. The four pinned event
+signatures did not move.
+
+### How much history the regime gate needs
+
+`ore_richieste(interval, regime_ema)`, the number that decides whether the strategy can trade at all:
+
+| base | regime plane | ema=50 | ema=30 | ema=20 | ema=10 |
+|---|---|---:|---:|---:|---:|
+| 5m | 8h | 400h | 240h | 160h | 80h |
+| **15m** | **1d** | **1200h** | 720h | 480h | 240h |
+| 30m | 2d | 2400h | 1440h | 960h | 480h |
+| 1h | 4d | 4800h | 2880h | 1920h | 960h |
+
+At 15m with the default `regime_ema=50` the gate needs **1,200 hours — fifty days**. A 480-hour
+window cannot open it whatever the voters do. This is not a defect to fix in code: it is the scale
+the design asks for, and the choice is to load more history or to shorten the regime average.
+
+### `bande_innesco` is the noisy one
+
+Same 20 days, direct sign reversals per voter — not returns to flat, changes of mind:
+
+| voter | reversals | one every |
+|---|---:|---|
+| **bande_innesco** | **43** | **11 h** |
+| flusso | 9 | 53 h |
+| bande_conferma | 3 | 160 h |
+| pullback, zone_struttura | 2 | 240 h |
+| ichimoku, zone_regime | 0 | — |
+
+Mean reversion on the trigger plane with a 6-bar half-life changes its mind twenty times more often
+than any other voter while carrying the same 1/7 of the score. It is the trace that reads as noise
+on the *Voters* panel. Note that it could not flip at all before the `allow_short=True` fix earlier
+the same day — it could only go +1 → 0 → +1 — so that fix is what made this visible. The fix is not
+the cause of the noise; it is what stopped hiding half of it.
+
+Also measured on that window: **2.5 voters out of 7 are awake on an average bar**, which is the
+staleness problem written up in the analysis above (a voter's vote tracks the recency of its last
+flip, not its opinion). With seven voters at 1/7 each, a 0.35 threshold needs two and a half of them
+at full strength and aligned — and the peak long conviction reached over 20 days was 0.406.

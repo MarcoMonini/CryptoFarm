@@ -428,7 +428,10 @@ def test_la_soglia_si_muove_con_continuita(candele):
     # La prima barra in cui il piano lungo diventa disponibile e' un gradino per forza: si passa
     # da «non c'e' dato» a un valore. Non e' quella il difetto, e contarla renderebbe il test una
     # misura della lunghezza del riscaldamento invece che della continuita'.
-    partenza = int(np.flatnonzero(risultato.regime != 0)[0])
+    # Il piano e' NaN finche' non si sa e non zero, quindi «disponibile» si chiede con `isfinite`:
+    # con `!= 0` il NaN risponde di si' e la partenza cadrebbe sulla barra zero, includendo proprio
+    # il gradino di riscaldamento che questo test esiste per escludere.
+    partenza = int(np.flatnonzero(np.isfinite(risultato.regime) & (risultato.regime != 0))[0])
     salti = salti[partenza:]
     assert salti.max() < 0.05, f"la soglia salta di {salti.max():.3f} in una barra"
     assert (salti > 0.02).mean() < 0.001, "troppi salti grossi"
@@ -871,3 +874,79 @@ def test_l_inversione_del_segno_non_sposta_nessun_ordine(candele, candele_con_in
         assert (
             hashlib.sha256(json.dumps(crudi).encode()).hexdigest()[:16] == firma
         ), f"{nome}: stesso numero di operazioni, ma almeno una e' su una barra o un prezzo diverso"
+
+
+# -------------------------------------------------------------------------------------------------
+# Un piano che non si sa: NaN, non zero
+# -------------------------------------------------------------------------------------------------
+
+
+def _finestra_corta_per_il_regime():
+    """Venti giorni a 15m: il piano di regime e' 1d e la sua media ne chiede cinquanta.
+
+    E' la finestra con cui si guarda la pagina, non un caso limite costruito: il valore iniziale
+    sono 240 ore e il cancello ne chiede 1.200.
+    """
+    return _candele(giorni=20, seme=5)
+
+
+def test_un_piano_che_non_si_sa_vale_nan_e_non_zero():
+    """Il difetto: `nan_to_num(..., nan=0.0)` faceva valere zero un piano ignoto.
+
+    Zero qui e' una bugia, e non solo sul grafico: e' il valore che significa «prezzo esattamente
+    sulla sua media», cioe' **macro neutro**. Un cancello chiuso per ignoranza si leggeva percio'
+    come un cancello neutro, e la pagina mostrava una strategia che sembrava poter operare mentre
+    nessun ingresso era possibile.
+    """
+    candele = _finestra_corta_per_il_regime()
+    r = confluence.evaluate(candele, "15m")
+
+    assert np.isnan(r.regime).all(), "il piano di regime non e' noto su questa finestra: deve essere NaN"
+    assert np.isfinite(r.struttura).any(), "il piano di struttura invece si sa: non deve essere NaN ovunque"
+
+    # Il cancello non cambia comportamento -- `NaN > 0` e' False -- ma adesso lo dichiara.
+    assert r.ingressi == 0
+    assert "not enough history" in r.perche_non_entra()
+
+
+def test_un_piano_che_non_si_sa_non_vota_nella_soglia():
+    """L'altra meta' del difetto, quella che non si vedeva affatto.
+
+    La soglia era `theta_base - theta_macro * (regime + struttura) / 2`. Con il regime ignoto a
+    zero, quella media **dimezzava** il contributo del piano noto: il piano che non si sa votava,
+    e votava «neutro». Ora si astiene e la media e' sui piani noti.
+    """
+    candele = _finestra_corta_per_il_regime()
+    r = confluence.evaluate(candele, "15m", theta_base=0.35, theta_macro=0.15)
+
+    noto = np.isfinite(r.struttura)
+    # Con un piano solo noto, la soglia e' scontata da quello **per intero**.
+    atteso = 0.35 - 0.15 * r.struttura[noto]
+    assert r.soglia[noto] == pytest.approx(atteso), "il piano noto deve scontare la soglia per intero"
+
+    # E la versione col difetto -- la media che conta lo zero -- dava un numero diverso.
+    diluito = 0.35 - 0.15 * (0.0 + r.struttura[noto]) / 2
+    assert not np.allclose(r.soglia[noto], diluito), "la soglia e' ancora diluita dal piano ignoto"
+
+    # Dove non si sa nessuno dei due piani lo sconto e' nullo, non NaN: `theta_base` e basta.
+    if (~noto).any():
+        assert r.soglia[~noto] == pytest.approx(0.35)
+
+
+def test_un_piano_che_non_si_sa_non_si_disegna():
+    """Il riquadro vuoto e' il segnale, e va dove l'utente guarda.
+
+    La pagina diceva gia' «not enough history», ma nella sezione *Trades*: chi guarda il grafico
+    vedeva una linea verde a 0,0 e la leggeva come un cancello neutro. Stessa regola dello stop a
+    trailing (`_serie_stop`): una serie che non ha niente da disegnare non entra in legenda.
+    """
+    candele = _finestra_corta_per_il_regime()
+    serie = panels._serie_piani(candele, ExtraCache(candele), {"INTERVALLO": "15m"})
+
+    assert "regime" not in serie, "un piano ignoto non deve comparire come una riga piatta a zero"
+    assert "struttura" in serie, "il piano noto invece si disegna"
+
+    # Su una finestra lunga abbastanza tornano tutti e due.
+    lunga = _candele(giorni=120, seme=5)
+    completa = panels._serie_piani(lunga, ExtraCache(lunga), {"INTERVALLO": "15m"})
+    assert {"regime", "struttura"} <= set(completa)

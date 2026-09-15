@@ -239,10 +239,21 @@ def _serie_confluenza(df, cache, valori):
 
 
 def _serie_piani(df, cache, valori):
+    """I due piani lunghi, **omettendo quello che non si sa**.
+
+    Un piano la cui media chiede piu' barre di quante la finestra ne offra vale NaN dappertutto, e
+    va lasciato fuori invece di essere disegnato: e' la stessa regola di `_serie_stop`, e qui pesa
+    di piu'. Il piano di regime e' il cancello, e finche' resta ignoto **nessun ingresso e'
+    possibile**; disegnarlo come una riga piatta a 0,0 -- che e' cio' che faceva `nan_to_num` --
+    lo faceva leggere come «macro neutro» invece che «non lo so», cioe' mostrava una strategia
+    che sembrava poter operare e non poteva. Una traccia assente, con la didascalia che dice
+    quante ore mancano, e' l'unica lettura onesta.
+    """
     risultato = confluenza_di(df, valori)
     if risultato is None:
         return {}
-    return _serie(df.index, regime=risultato.regime, struttura=risultato.struttura)
+    piani = {"regime": risultato.regime, "struttura": risultato.struttura}
+    return _serie(df.index, **{nome: v for nome, v in piani.items() if np.isfinite(v).any()})
 
 
 def _serie_stop(df, cache, valori):
@@ -448,8 +459,10 @@ INDICATORI: dict[str, Indicatore] = {
         pannello="Higher planes",
         serie=_serie_piani,
         tracce=(
-            Traccia("regime", "Regime plane (gate)", ACQUA, larghezza=2.0),
-            Traccia("struttura", "Structure plane", ARANCIO, tratteggio="dash", larghezza=1.4),
+            # Condizionali tutte e due: su una finestra troppo corta per la loro media il piano
+            # non si sa, e allora non si disegna. Il riquadro vuoto e' il segnale.
+            Traccia("regime", "Regime plane (gate)", ACQUA, larghezza=2.0, condizionale=True),
+            Traccia("struttura", "Structure plane", ARANCIO, tratteggio="dash", larghezza=1.4, condizionale=True),
         ),
     ),
     "stop_confluenza": Indicatore(
