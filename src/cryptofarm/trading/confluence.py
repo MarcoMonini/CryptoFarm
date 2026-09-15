@@ -80,6 +80,32 @@ FATTORI = {"innesco": 1, "conferma": 4, "struttura": 16, "regime": 96}
 # esatto, e renderlo tarabile aggiungerebbe un grado di liberta' che non compra niente.
 ATR_DI_NORMALIZZAZIONE = 14
 
+# L'orientamento dei **voti e del punteggio**: -1 vuol dire lungo, +1 vuol dire corto.
+#
+# E' l'asse dell'etichetta a swing (`ml/labeling.swing_leg_target`: -1 su un minimo locale, +1 su
+# un massimo), non quello delle posizioni. I due convivevano nel repo e sulla stessa pagina i due
+# riquadri giravano su assi opposti: il *Voters* con +1 = lungo, lo *Swing target* con -1 = zona
+# d'acquisto. Letti insieme sembravano darsi torto mentre dicevano la stessa cosa.
+#
+# **Gli eventi emessi restano nella convenzione di posizione** (+1 = lungo), che e' quella di
+# `strategies_ls`, `pnl.simulate_positions`, `portfolio` e del bot live. Qui si rietichetta
+# l'opinione, non l'ordine: nessuna operazione si sposta di una barra, e
+# `test_l_inversione_del_segno_non_sposta_nessun_ordine` e' li' per tenerlo fermo.
+VERSO_DEL_VOTO = -1
+
+
+def convinzione(punteggio, verso):
+    """Quanto il punteggio sostiene un'operazione in direzione `verso`, come numero **positivo**.
+
+    `verso` e' nella convenzione di posizione (+1 lungo, -1 corto) perche' e' quella in cui e'
+    scritto il resto del ciclo; il punteggio e' nell'orientamento dei voti. Questa funzione e'
+    l'unico posto in cui i due si incontrano, ed e' voluto: sparse nelle disuguaglianze, le
+    conversioni di segno sono esattamente il difetto che questo modulo ha gia' avuto due volte.
+    Chi un domani rigira l'asse cambia `VERSO_DEL_VOTO` e nient'altro.
+    """
+    return punteggio * verso * VERSO_DEL_VOTO
+
+
 REGIME_MIN_MINUTI = 12 * 60
 REGIME_MAX_MINUTI = 7 * 24 * 60
 
@@ -520,9 +546,13 @@ class Confluenza:
         aperto = self.regime > 0
         if not aperto.any():
             return "the regime gate never opened: price stayed below the regime plane average the whole window."
-        sopra = aperto & (self.punteggio >= self.soglia)
+        sopra = aperto & (convinzione(self.punteggio, +1) >= self.soglia)
         if not sopra.any():
-            picco = float(self.punteggio[aperto].max())
+            # Il punteggio e' nell'orientamento dei voti, quindi il consenso lungo piu' forte e'
+            # il suo **minimo**. Si riporta a numero positivo per stamparlo accanto alla soglia,
+            # che e' una magnitudine: «picco +0,28 contro una soglia di 0,35» si legge, «-0,28
+            # contro 0,35» fa sembrare che manchi il segno.
+            picco = float(convinzione(self.punteggio[aperto], +1).max())
             minima = float(self.soglia[aperto].min())
             return (
                 f"the gate opened but the score never reached the threshold: peak {picco:+.2f} "
@@ -572,8 +602,13 @@ class Confluenza:
                 coda = f" at {self.stop[i]:.2f}"
             return f"exit — {motivo}{coda}"
         parti = [f"{nome} {self.pesi[nome] * voto[i]:+.2f}" for nome, voto in self.voti.items() if abs(voto[i]) > 1e-9]
+        # La soglia si stampa **con il segno del verso in cui si e' entrati**, altrimenti accanto a
+        # un punteggio di -0,41 comparirebbe una soglia di 0,35 e si leggerebbe come un ingresso
+        # avvenuto sotto la soglia. Punteggio e soglia devono stare sullo stesso asse: -1 e' lungo.
+        verso = 1 if convinzione(self.punteggio[i], +1) >= 0 else -1
+        limite = VERSO_DEL_VOTO * verso * self._soglia_del_verso(verso)[i]
         return (
-            f"entry — score {self.punteggio[i]:+.2f} / threshold {self.soglia[i]:.2f} · "
+            f"entry — score {self.punteggio[i]:+.2f} / threshold {limite:+.2f} · "
             f"{int(self.famiglie_concordi[i])} families · " + ", ".join(parti or ["no active voter"])
         )
 
@@ -742,7 +777,10 @@ def evaluate(
         stato = stati[votante.nome] if stati else _stato_del_votante(votante, candles, minuti_base, parametri_votanti)
         # L'emivita e' una sola, espressa in barre del timeframe del votante: qui si converte in
         # barre di base. Un segnale di struttura resta vivo giorni, uno di innesco ore.
-        voti[votante.nome] = decayed_vote(stato, emivita * FATTORI[votante.piano])
+        # `decayed_vote` lavora sullo stato tenuto, che e' una posizione: +1 e' lungo. Il voto
+        # esce nell'orientamento dichiarato da `VERSO_DEL_VOTO`, e questa e' l'unica moltiplicazione
+        # che lo produce -- da qui in giu' tutto legge voti e punteggio in quell'asse.
+        voti[votante.nome] = VERSO_DEL_VOTO * decayed_vote(stato, emivita * FATTORI[votante.piano])
         famiglie[votante.nome] = votante.famiglia
 
     w = _pesi([v.nome for v in votanti], w_max, pesi)
@@ -762,7 +800,7 @@ def evaluate(
 
     concordi_lungo = _famiglie_concordi(voti, famiglie, +1)
     concordi_corto = _famiglie_concordi(voti, famiglie, -1)
-    famiglie_concordi = np.where(punteggio >= 0, concordi_lungo, concordi_corto)
+    famiglie_concordi = np.where(convinzione(punteggio, +1) >= 0, concordi_lungo, concordi_corto)
 
     eventi, ingressi, livello_stop, motivi = _percorri(
         candles,
@@ -869,7 +907,9 @@ def _famiglie_concordi(voti, famiglie, verso) -> np.ndarray:
     """
     per_famiglia: dict[str, np.ndarray] = {}
     for nome, voto in voti.items():
-        attivo = (voto * verso) > 0
+        # `verso` e' la direzione dell'operazione (+1 lungo), i voti sono nell'altro asse: la
+        # conversione passa da `convinzione`, come ogni altro confronto di questo modulo.
+        attivo = convinzione(voto, verso) > 0
         famiglia = famiglie[nome]
         per_famiglia[famiglia] = attivo if famiglia not in per_famiglia else (per_famiglia[famiglia] | attivo)
     return np.sum(list(per_famiglia.values()), axis=0).astype(float)
@@ -974,8 +1014,9 @@ def _percorri(
             # da un corto misurandosi contro la soglia lunga vuol dire che il macro favorevole al
             # corto *anticipa* l'uscita invece di ritardarla.
             attiva = soglia[i] if verso > 0 else soglia_corta[i]
-            barre_sotto = barre_sotto + 1 if punteggio[i] * verso < attiva else 0
-            per_isteresi = punteggio[i] * verso < attiva - isteresi
+            sostegno = convinzione(punteggio[i], verso)
+            barre_sotto = barre_sotto + 1 if sostegno < attiva else 0
+            per_isteresi = sostegno < attiva - isteresi
             per_pazienza = barre_sotto >= pazienza
             maturo = (i - barra_ingresso) >= barre_minime
             cancello_contro = regime[i] * verso < 0
@@ -997,11 +1038,16 @@ def _percorri(
         # punteggio dov'era, e senza il freno si ricomprerebbe subito pagando due commissioni per
         # tornare esattamente dov'eravamo.
         if posizione == 0 and not uscito_ora:
-            lungo = regime[i] > 0 and punteggio[i] >= soglia[i] and concordi_lungo[i] >= k_famiglie and prezzo > alto[i]
+            lungo = (
+                regime[i] > 0
+                and convinzione(punteggio[i], +1) >= soglia[i]
+                and concordi_lungo[i] >= k_famiglie
+                and prezzo > alto[i]
+            )
             corto = (
                 allow_short
                 and regime[i] < 0
-                and punteggio[i] <= -soglia_corta[i]
+                and convinzione(punteggio[i], -1) >= soglia_corta[i]
                 and concordi_corto[i] >= k_famiglie
                 and prezzo < basso[i]
             )
@@ -1032,7 +1078,9 @@ def _necessarieta(voti, famiglie, pesi, soglia, soglia_corta, ingressi, k_famigl
     # `_famiglie_concordi` lavora elemento per elemento, quindi accetta il `verso` come vettore e
     # una passata sola sostituisce le seimila.
     ai_bordi = {nome: voto[barre] for nome, voto in voti.items()}
-    verso = np.sign(sum(pesi[n] * ai_bordi[n] for n in ai_bordi))
+    # Il verso dell'**operazione**, non il segno del punteggio: i due sono opposti, perche' un
+    # consenso lungo produce un punteggio negativo.
+    verso = np.sign(convinzione(sum(pesi[n] * ai_bordi[n] for n in ai_bordi), +1))
     verso[verso == 0] = 1
     # La soglia contro cui quell'ingresso si e' misurato davvero: quella lunga se e' un lungo,
     # quella corta se e' un corto. Con una sola soglia la diagnosi sui corti chiedeva a ogni
@@ -1043,7 +1091,7 @@ def _necessarieta(voti, famiglie, pesi, soglia, soglia_corta, ingressi, k_famigl
     for nome in voti:
         restanti = {n: v for n, v in ai_bordi.items() if n != nome}
         punteggio = sum(pesi[n] * restanti[n] for n in restanti) if restanti else np.zeros(len(barre))
-        sotto_soglia = punteggio * verso < attiva
+        sotto_soglia = convinzione(punteggio, verso) < attiva
         ampiezza = _famiglie_concordi(restanti, famiglie, verso)
         conteggi[nome] = float(np.mean(sotto_soglia | (ampiezza < k_famiglie)))
     return conteggi

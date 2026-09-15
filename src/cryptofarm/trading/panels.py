@@ -219,10 +219,23 @@ def diagnosi_confluenza(df: pd.DataFrame, valori: dict, intervallo: str) -> str:
 
 
 def _serie_confluenza(df, cache, valori):
+    """Il punteggio e le **due** soglie, sull'asse dei voti: -1 e' lungo, +1 e' corto.
+
+    Le soglie sono magnitudini in `Confluenza`; qui vanno portate sull'asse del punteggio, una per
+    verso e con il segno giusto, altrimenti si vedrebbe una linea sola a +0,35 mentre il punteggio
+    scende a -0,41 per comprare -- cioe' un ingresso che avviene dalla parte opposta della sua
+    soglia. Sono due linee e non una anche perche' il macro le muove all'opposto: quando scende
+    quella lunga sale quella corta.
+    """
     risultato = confluenza_di(df, valori)
     if risultato is None:
         return {}
-    return _serie(df.index, punteggio=risultato.punteggio, soglia=risultato.soglia)
+    return _serie(
+        df.index,
+        punteggio=risultato.punteggio,
+        soglia=confluence.VERSO_DEL_VOTO * risultato.soglia,
+        soglia_corta=-confluence.VERSO_DEL_VOTO * risultato.soglia_corta,
+    )
 
 
 def _serie_piani(df, cache, valori):
@@ -420,7 +433,8 @@ INDICATORI: dict[str, Indicatore] = {
         serie=_serie_confluenza,
         tracce=(
             Traccia("punteggio", "Score", BLU, larghezza=2.0),
-            Traccia("soglia", "Threshold", ARANCIO, tratteggio="dash", larghezza=1.4),
+            Traccia("soglia", "Long threshold", ARANCIO, tratteggio="dash", larghezza=1.4),
+            Traccia("soglia_corta", "Short threshold", ARANCIO, tratteggio="dot", larghezza=1.2),
         ),
     ),
     "piani_lunghi": Indicatore(

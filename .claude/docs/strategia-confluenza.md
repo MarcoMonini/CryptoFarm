@@ -921,3 +921,47 @@ U-shaped, so the sign does not carry direction — `modello-swing.md` §5.1). It
 actually offer both directions **at the volatility of the real ones**: with the noise scaled down
 ten times the series is so smooth that Ichimoku never crosses and 2.5-ATR bands are never touched,
 and those voters would read as "cannot vote short" when they simply never vote.
+
+## The orientation of the votes: −1 is long (2026-09-15)
+
+Part of what read as voters contradicting each other was not a defect in any voter: **the repository
+carried two opposite axes at once**, and the page showed both.
+
+| where | axis |
+|---|---|
+| `strategies_ls`, `voters.held_state`, `pnl.simulate_positions`, `portfolio`, `live_bot` | +1 = long (position) |
+| `ml/labeling.swing_leg_target` and the *Swing target* panel | −1 = local low, i.e. the buy zone |
+
+Side by side, the *Voters* panel and the *Swing target* panel ran on opposite axes, so two readings
+of the same market looked like disagreement. The votes now sit on the label's axis, declared once:
+
+```python
+VERSO_DEL_VOTO = -1          # -1 is long, +1 is short, for votes and score
+
+def convinzione(punteggio, verso):
+    """How much the score backs a trade in direction `verso`, as a positive number."""
+    return punteggio * verso * VERSO_DEL_VOTO
+```
+
+A long entry is therefore a score falling through a **negative** threshold with every supporting
+voter negative:
+
+```
+entry — score -0.28 / threshold -0.20 · 2 families · flusso -0.13, bande_innesco -0.14
+entry — score +0.32 / threshold +0.28 · 4 families · ichimoku +0.12, flusso +0.02, ...
+```
+
+### What did **not** change, and the test that proves it
+
+**The emitted events stay in the position convention** (+1 = long). That is the boundary: what got
+relabelled is the opinion, not the order. `pnl`, `portfolio`, `rotation` and the live bot are
+untouched, and `swing_leg_target` is untouched, so no model needs retraining.
+
+`test_l_inversione_del_segno_non_sposta_nessun_ordine` pins events captured **before** the flip —
+counts and a hash of the full list, over three configurations including one with shorts. All three
+came back identical. If it ever fails it must not be regenerated: it means a sign conversion has
+drifted from where things are *read* into where they are *decided*.
+
+`convinzione` is the single place the two axes meet, and every comparison in the module goes
+through it. Scattered through the inequalities, sign conversions are precisely the defect this
+module has now had twice.

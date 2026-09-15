@@ -194,7 +194,7 @@ def _figura(candele, strategia="Confluence"):
 
 def test_la_pagina_mostra_la_decisione_e_i_votanti(candele):
     nomi = {traccia.name for traccia in _figura(candele).data}
-    assert {"Score", "Threshold"} <= nomi, "manca il riquadro della decisione"
+    assert {"Score", "Long threshold", "Short threshold"} <= nomi, "manca il riquadro della decisione"
     assert {"Regime plane (gate)", "Structure plane"} <= nomi, "mancano i piani lunghi"
     assert sum("·" in (n or "") for n in nomi) == len(confluence.VOTANTI), "manca un votante"
 
@@ -337,8 +337,13 @@ def test_ogni_ingresso_soddisfa_tutte_e_quattro_le_condizioni(candele):
             continue
         i = posizione[quando]
         assert risultato.regime[i] > 0, f"{quando}: aperto col cancello chiuso"
-        assert risultato.punteggio[i] >= risultato.soglia[i], f"{quando}: aperto sotto la soglia"
-        assert risultato.concordi_lungo[i] >= risultato.k_famiglie, f"{quando}: aperto senza ampiezza"
+        # Il punteggio e' nell'orientamento dei voti (-1 e' lungo): il confronto con la soglia,
+        # che e' una magnitudine, passa da `convinzione` esattamente come nel motore.
+        sostegno = confluence.convinzione(risultato.punteggio[i], obiettivo)
+        attiva = risultato.soglia[i] if obiettivo > 0 else risultato.soglia_corta[i]
+        assert sostegno >= attiva, f"{quando}: aperto sotto la soglia del proprio verso"
+        concordi = risultato.concordi_lungo if obiettivo > 0 else risultato.concordi_corto
+        assert concordi[i] >= risultato.k_famiglie, f"{quando}: aperto senza ampiezza"
 
 
 def test_ogni_uscita_ha_un_motivo_registrato(candele):
@@ -385,7 +390,7 @@ def test_il_cancello_non_sta_sullo_stesso_riquadro_del_punteggio():
     decisione = panels.INDICATORI["confluenza"]
     piani = panels.INDICATORI["piani_lunghi"]
     assert decisione.pannello != piani.pannello
-    assert {t.serie for t in decisione.tracce} == {"punteggio", "soglia"}
+    assert {t.serie for t in decisione.tracce} == {"punteggio", "soglia", "soglia_corta"}
     assert {t.serie for t in piani.tracce} == {"regime", "struttura"}
 
 
@@ -627,13 +632,16 @@ def test_la_necessarieta_vale_quanto_la_definizione_che_la_descrive(candele):
     # minimo di famiglie.
     barre = np.array([risultato.indice.get_loc(q) for q, _, obiettivo in risultato.eventi if obiettivo != 0])
     assert len(barre) > 10, "servono abbastanza ingressi perche' il confronto significhi qualcosa"
-    verso = np.sign(sum(pesi[n] * voti[n] for n in voti)[barre])
+    # Il verso dell'**operazione**: il punteggio e' sull'asse dei voti, dove un consenso lungo e'
+    # negativo, quindi il segno va convertito e non letto cosi' com'e'.
+    verso = np.sign(confluence.convinzione(sum(pesi[n] * voti[n] for n in voti)[barre], +1))
     verso[verso == 0] = 1
+    attiva = np.where(verso > 0, soglia[barre], risultato.soglia_corta[barre])
     atteso = {}
     for nome in voti:
         restanti = {n: v for n, v in voti.items() if n != nome}
         punteggio = sum(pesi[n] * restanti[n] for n in restanti)[barre]
-        sotto_soglia = punteggio * verso < soglia[barre]
+        sotto_soglia = confluence.convinzione(punteggio, verso) < attiva
         ampiezza = np.array(
             [confluence._famiglie_concordi(restanti, famiglie, int(v))[b] for b, v in zip(barre, verso)]
         )
@@ -792,3 +800,74 @@ def test_con_macro_favorevole_il_corto_non_e_piu_difficile_del_lungo(candele_con
         assert abs(r.punteggio[i]) >= attiva - 1e-12, "un ingresso deve superare la soglia del proprio verso"
         # E la soglia superata e' quella scontata dal macro, non quella dell'altro verso.
         assert attiva == pytest.approx((0.35 - 0.15 * (r.regime[i] + r.struttura[i]) / 2 * verso))
+
+
+# -------------------------------------------------------------------------------------------------
+# L'orientamento dei voti: -1 e' lungo, +1 e' corto
+# -------------------------------------------------------------------------------------------------
+
+
+def test_i_voti_di_un_consenso_lungo_vanno_tutti_verso_meno_uno(candele):
+    """La domanda da cui e' partita la revisione: perche' i votanti sembrano contraddirsi.
+
+    Una delle risposte era che sulla stessa pagina convivevano **due assi opposti**: il riquadro
+    *Voters* con +1 = lungo (convenzione di posizione) e il riquadro *Swing target* con -1 = zona
+    d'acquisto (`ml/labeling.swing_leg_target`). Letti insieme sembravano darsi torto mentre
+    dicevano la stessa cosa. Ora i voti stanno sull'asse dell'etichetta, dichiarato da
+    `VERSO_DEL_VOTO`.
+    """
+    risultato = confluence.evaluate(candele, "15m")
+    assert confluence.VERSO_DEL_VOTO == -1
+
+    barre = [risultato.indice.get_loc(q) for q, _, obiettivo in risultato.eventi if obiettivo > 0]
+    assert len(barre) > 10, "servono abbastanza ingressi lunghi perche' il confronto significhi qualcosa"
+
+    for i in barre:
+        assert risultato.punteggio[i] < 0, "un ingresso lungo avviene su un punteggio negativo"
+        # E i votanti che lo sostengono sono negativi anche loro: e' l'accordo che si deve vedere.
+        sostenitori = [v[i] for v in risultato.voti.values() if abs(v[i]) > 1e-9 and v[i] < 0]
+        assert sostenitori, "nessun votante sostiene un ingresso lungo"
+
+    # `convinzione` e' l'unico posto in cui i due assi si incontrano, e va in tutte e due le
+    # direzioni: un punteggio negativo sostiene il lungo, uno positivo sostiene il corto.
+    assert confluence.convinzione(-0.4, +1) == pytest.approx(0.4)
+    assert confluence.convinzione(-0.4, -1) == pytest.approx(-0.4)
+    assert confluence.convinzione(+0.4, -1) == pytest.approx(0.4)
+
+
+def test_l_inversione_del_segno_non_sposta_nessun_ordine(candele, candele_con_inversione):
+    """Il vincolo che rende l'inversione una rietichettatura invece di un cambio di strategia.
+
+    Gli eventi emessi restano nella convenzione di **posizione** (+1 = lungo), che e' quella di
+    `pnl.simulate_positions`, di `portfolio` e del bot live che piazza ordini veri. Invertire i
+    voti non deve spostare una singola operazione di una singola barra, e questo golden e' cio'
+    che lo dice: i quattro numeri sono stati misurati **prima** dell'inversione.
+
+    Se cade, non si rigenera: vuol dire che una conversione di segno e' finita dove decide invece
+    che dove si legge, ed e' esattamente il difetto che `convinzione` esiste per impedire.
+    """
+    import hashlib
+    import json
+
+    atteso = {
+        "base_long_only": (162, 81, 0, "1893915780142472"),
+        "inversione_long_only": (144, 72, 0, "e0bbc454989d0858"),
+        "inversione_short": (316, 72, 86, "8a449d9886d245b5"),
+    }
+    casi = {
+        "base_long_only": (candele, {}),
+        "inversione_long_only": (candele_con_inversione, {}),
+        "inversione_short": (candele_con_inversione, {"allow_short": True}),
+    }
+
+    for nome, (df, kw) in casi.items():
+        eventi = confluence.evaluate(df, "15m", **kw).eventi
+        crudi = [(str(t), round(float(p), 6), int(o)) for t, p, o in eventi]
+        n, lunghi, corti, firma = atteso[nome]
+        assert len(crudi) == n, f"{nome}: il numero di eventi e' cambiato"
+        assert sum(1 for e in crudi if e[2] > 0) == lunghi, f"{nome}: gli ingressi lunghi sono cambiati"
+        assert sum(1 for e in crudi if e[2] < 0) == corti, f"{nome}: gli ingressi corti sono cambiati"
+        # Il conteggio puo' tornare mentre un'operazione si e' spostata di barra o di prezzo.
+        assert (
+            hashlib.sha256(json.dumps(crudi).encode()).hexdigest()[:16] == firma
+        ), f"{nome}: stesso numero di operazioni, ma almeno una e' su una barra o un prezzo diverso"
