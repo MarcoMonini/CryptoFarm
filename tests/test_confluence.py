@@ -691,24 +691,35 @@ def test_il_votante_a_modello_non_vota_mai_corto(candele, monkeypatch):
     assert stati == {0, 1}, f"servono ingressi e uscite per misurare qualcosa, visti {stati}"
 
 
-def test_senza_artefatto_il_votante_a_modello_tace_e_resta_fuori_dal_default(candele, monkeypatch):
-    """In produzione `models/` e' vuoto, e li' la confluenza deve restare quella misurata.
+def test_il_votante_a_modello_resta_fuori_dal_default_con_o_senza_artefatto(candele, monkeypatch):
+    """Il collegio non dipende da cosa c'e' in `models/`, e prima dipendeva.
 
-    Non basta che il votante si astenga: i pesi si normalizzano sui votanti **presenti**, quindi
-    un ottavo che tace sempre alzerebbe di fatto la soglia per gli altri sette. Deve proprio
-    restare fuori dall'insieme di default -- pur restando nel registro, cosi' `selezione` lo
-    raggiunge per misurarlo.
+    La condizione era l'artefatto su disco, e la domanda era sbagliata: quel che rovina l'insieme
+    non e' un votante assente, e' un votante **presente e muto**. I pesi sono fissi e si
+    normalizzano sul collegio, quindi chi tace non e' neutro -- toglie il suo peso al punteggio di
+    tutti gli altri su ogni barra in cui non parla, cioe' alza la soglia senza dirlo. `modello`
+    tace per disegno: la selettivita' del modello d'ingresso sta nei metadata del suo artefatto, e
+    misurato su quindici simboli a 15m tiene una posizione fra lo 0,4% e il 3,3% delle barre
+    contro il 25% del penultimo votante.
+
+    Con gli artefatti sul disco -- che e' la condizione in locale, non in produzione -- entrava
+    lo stesso e portava le barre sopra soglia di BTCUSDT da 2,22% a 0,82%. E faceva **cambiare
+    esito ai test** a seconda di cosa c'era in `models/`, che e' il difetto che questo test chiude.
     """
+    assert "modello" not in [v.nome for v in confluence.votanti_predefiniti()]
+    assert "modello" not in [v.nome for v in confluence.VOTANTI]
+    assert len(confluence.VOTANTI) == len(confluence.REGISTRO) - 1
+    assert confluence.selezione("modello")[0].nome == "modello", "il registro lo tiene comunque"
+
+    # E la stessa risposta senza artefatti, che e' la condizione del servizio pubblico: prima i
+    # due rami davano collegi diversi, ora e' lo stesso.
+    con_artefatti = confluence.votanti_predefiniti()
     monkeypatch.setattr(confluence.signals, "MODELS_DIR", Path("/nessun/modello/qui"))
     for nome in ("swing_model", "rl_model", "entry_model"):
         getattr(confluence.signals, nome).cache_clear()
         monkeypatch.setattr(confluence.signals, nome, getattr(confluence.signals, nome).__wrapped__)
-
     assert confluence._modello(candele, ExtraCache(candele), {"entra": 0.5, "esci": 0.4}) == []
-    nomi = [v.nome for v in confluence.votanti_predefiniti()]
-    assert "modello" not in nomi
-    assert len(nomi) == len(confluence.REGISTRO) - 1
-    assert confluence.selezione("modello")[0].nome == "modello", "il registro lo tiene comunque"
+    assert confluence.votanti_predefiniti() == con_artefatti
 
 
 # -------------------------------------------------------------------------------------------------
@@ -1172,6 +1183,61 @@ def test_lo_stop_si_spegne_con_un_moltiplicatore_non_positivo(candele_con_invers
 
     quota_stop = sum(1 for m in con.motivi.values() if m == "trailing stop reversal") / len(con.eventi)
     assert quota_stop > 0.9, "con lo stop acceso e' lo stop a decidere quasi tutto"
+
+
+def test_in_inversione_lo_stop_parte_spento(candele_con_inversione):
+    """Il default dello stop segue la modalita', e non e' una taratura: e' un'altra macchina.
+
+    In «cancello» lo stop chiude e la posizione va a flat, quindi sbagliarlo costa un'uscita
+    anticipata. In «inversione» lo stop **ribalta**, cioe' ogni volta che salta apre l'operazione
+    successiva: a 3 ATR salta di continuo e decide lui. Misurato su BTCUSDT a 15m dal 2024, con
+    la soglia a 0,35: 5.328 ribaltamenti di cui 5.056 (95%) dallo stop, tenuta mediana 3,5 ore,
+    capitale da 100 a 0,61; con lo stop spento 84 ribaltamenti, tenuta mediana 180 ore, capitale
+    182. Col default ereditato la modalita' «always in» non seguiva i voti, seguiva un canale a
+    3 ATR.
+
+    Reintroducendo il difetto -- `STOP_PREDEFINITO["inversione"] = 3.0` -- la prima asserzione
+    cade: verificato.
+    """
+    assert confluence.STOP_PREDEFINITO["inversione"] == 0.0
+    assert confluence.STOP_PREDEFINITO["cancello"] == 3.0
+
+    senza = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione")
+    assert not any(m == "trailing stop reversal" for m in senza.motivi.values()), "lo stop deve partire spento"
+    assert np.isnan(senza.stop).all(), "e non deve nemmeno disegnarsi"
+
+    # In «cancello» il default resta quello misurato, altrimenti si sarebbe spento anche li'.
+    a_cancello = confluence.evaluate(candele_con_inversione, "15m")
+    assert np.isfinite(a_cancello.stop).any(), "a cancello lo stop e' acceso per default"
+
+    # Un valore esplicito vince in tutte e due, zero compreso: il default non e' un divieto.
+    acceso = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", atr_multiplier=3.0)
+    assert any(m == "trailing stop reversal" for m in acceso.motivi.values())
+    assert len(acceso.eventi) > 10 * len(senza.eventi), "acceso, lo stop decide quasi tutto"
+
+    # Da sapere: lo zero **non** e' «niente stop» in «cancello», dove `_percorri` non ha la
+    # guardia `atr_multiplier > 0` e mette lo stop esattamente sull'estremo, cioe' lo fa saltare
+    # subito. E' comportamento di prima e resta tale: qui si pinna solo che le due macchine
+    # leggono quel numero in modo diverso, perche' chi cambia una delle due non lo indovina.
+    spento_a_cancello = confluence.evaluate(candele_con_inversione, "15m", atr_multiplier=0.0)
+    assert np.isfinite(spento_a_cancello.stop).any(), "a cancello lo zero mette lo stop sull'estremo"
+
+
+def test_il_default_dello_stop_arriva_ai_widget(candele):
+    """Un default che il motore conosce e la pagina no e' un default che nessuno vede.
+
+    La pagina legge sempre `CONF_ATR_MULT` dal widget, quindi il valore risolto in `evaluate` non
+    la raggiungerebbe mai da solo: e' il valore **iniziale** del widget che deve seguire la
+    modalita'. Il numero sta scritto in un posto solo, `confluence.STOP_PREDEFINITO`.
+    """
+    for modalita, atteso in confluence.STOP_PREDEFINITO.items():
+        assert panels.valori_predefiniti("Confluence", "15m", modalita)["CONF_ATR_MULT"] == atteso
+        assert panels.valori_predefiniti("Confluence", "15m", modalita)["CONF_MODALITA"] == modalita
+
+    # E chi chiama con un dizionario parziale riceve il default della **sua** modalita', non
+    # quello dell'altra macchina: `confluenza_di` riempie i buchi, ed e' li' che si sbagliava.
+    a_inversione = panels.confluenza_di(candele, {"INTERVALLO": "15m", "CONF_MODALITA": "inversione"})
+    assert np.isnan(a_inversione.stop).all(), "il buco si e' riempito con lo stop dell'altra modalita'"
 
 
 def test_una_modalita_sconosciuta_si_fa_notare(candele):

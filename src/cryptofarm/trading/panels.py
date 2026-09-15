@@ -157,7 +157,10 @@ def confluenza_di(df: pd.DataFrame, valori: dict):
     # riempie i buchi per conto suo, ma non e' l'unico chiamante -- `diagnosi_confluenza` riceve il
     # dizionario della barra laterale cosi' com'e', e cadeva con `KeyError` proprio nel caso per cui
     # esiste, quello senza operazioni. Riempirli qui copre tutti i chiamanti in una volta.
-    valori = {**valori_predefiniti(), **valori}
+    # I buchi si riempiono col default della modalita' **richiesta**: un chiamante che chiede
+    # «inversione» senza dire niente sullo stop non deve ricevere il 3.0 dell'altra macchina, che
+    # li' ribalta invece di chiudere e deciderebbe lui il 98% delle operazioni.
+    valori = {**valori_predefiniti(modalita=str(valori.get("CONF_MODALITA", ""))), **valori}
 
     parametri = {
         "theta_base": float(valori["CONF_THETA_BASE"]),
@@ -932,7 +935,7 @@ def valori_del_piano(votante, intervallo: str) -> dict:
     }
 
 
-def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
+def valori_predefiniti(strategia: str = "", intervallo: str = "", modalita: str = "") -> dict:
     """Il valore iniziale di ogni parametro noto, cioe' cosa vede la pagina prima che si tocchi
     qualcosa. Serve alla pagina come base su cui scrivere le scelte dei widget, e ai test come
     contesto per calcolare le serie.
@@ -940,6 +943,11 @@ def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
     Con `strategia` e `intervallo` i valori misurati per quella coppia si sovrappongono a quelli
     scritti a mano. Senza, si ottengono i default di `config` e basta -- che e' quel che serve ai
     test e a chi calcola una serie fuori dalla pagina.
+
+    `modalita` e' il terzo strato e riguarda la sola confluenza: lo stop non vuol dire la stessa
+    cosa nelle due macchine -- in «cancello» chiude, in «inversione» ribalta, cioe' apre
+    l'operazione successiva -- e il suo valore di partenza viene da `confluence.STOP_PREDEFINITO`,
+    che e' l'unico posto in cui quel numero e' scritto.
     """
     from cryptofarm.trading import config
 
@@ -956,6 +964,10 @@ def valori_predefiniti(strategia: str = "", intervallo: str = "") -> dict:
     valori["REQUIRE_CLOUD"] = config.REQUIRE_CLOUD
     if strategia and intervallo:
         valori.update(valori_misurati(strategia, intervallo))
+    modalita = modalita or str(valori["CONF_MODALITA"])
+    if modalita in confluence.STOP_PREDEFINITO:
+        valori["CONF_MODALITA"] = modalita
+        valori["CONF_ATR_MULT"] = confluence.STOP_PREDEFINITO[modalita]
     return valori
 
 

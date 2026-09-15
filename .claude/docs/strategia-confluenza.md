@@ -1195,11 +1195,157 @@ Three fixes, and the third is the one that was not visible:
   the daily carry that an always-open position cannot be shown without. The markers can be drawn
   either way; the accounting cannot.
 
-### What is **not** measured
+### What was **not** measured, at the time
 
-Everything above is trade counts, durations and exposure on synthetic data: **no return, no Sharpe,
-no drawdown, and nothing on real candles.** `inversione` is always in the market and can hold a
-losing leg indefinitely with the stop off, on a strategy family whose short side is measured at a
-loss on four of five names (`strategie-nuove.md` §4.5). Before it is anything other than a mode to
-look at on the page, it needs the same treatment `cancello` got: fifteen assets, out of sample,
-against passive holding at matched exposure.
+Everything above was trade counts, durations and exposure on synthetic data: no return, no Sharpe,
+no drawdown, and nothing on real candles. That measurement is the section below, and it is the
+reason this mode now ships with a verdict attached.
+
+## `inversione` measured on real candles: it loses, and the threshold does not save it (2026-09-15)
+
+Fifteen assets, 15m, from 2021-01-01, split in sample 2021-2023 and out of sample 2024-2026.
+Perpetual fees, 0.05% per leg, carry 0.03%/day. The threshold swept over the twelve values of
+`SCANSIONE["theta_base"]`, the rest at the centre, the stop off. Reproduce with:
+
+```bash
+.venv312/bin/python -m scripts.confluence_lab --grid coordinate --modalita inversione --interval 15m
+```
+
+Three defects were found first, and they had to be fixed before the measurement meant anything.
+
+### Defect 1: the reversing stop decided the trades, not the votes
+
+`atr_multiplier` defaulted to 3.0 in both modes. In `cancello` the stop closes and the position
+goes flat; in `inversione` it **reverses**, so every time it fires it opens the next trade. On
+BTCUSDT at 15m from 2024 (92,321 bars), threshold 0.35:
+
+| | reversals | decided by the stop | median hold | capital from 100 |
+|---|---:|---:|---:|---:|
+| stop at 3 ATR | 5,328 | 5,056 (**95%**) | 3.5 h | **0.61** |
+| stop off | 84 | 0 | 180.0 h | 182.26 |
+
+With the inherited default the "always in" machine was not following the votes, it was following a
+3-ATR channel. The default is now per mode (`confluence.STOP_PREDEFINITO`: 3.0 gated, 0.0 reversal),
+resolved inside `evaluate` so the page, the lab and library callers all get it from one place. An
+explicit value still wins.
+
+The page could not even express the fix it recommended: the caption said to set the multiplier to
+0, and `config.CONF_ATR_MULT` had a **minimum of 0.5**, so the field refused it. The minimum is now
+0. Note that zero means two different things in the two machines — `_percorri` has no
+`atr_multiplier > 0` guard, so there a zero puts the stop *on the extreme* and fires it at once.
+
+### Defect 2: a mute voter was carrying an eighth of the weight
+
+Weights are fixed and normalised over the collegio, so they assume everyone speaks with comparable
+frequency. A voter that abstains is not neutral: on every bar it is silent it subtracts its weight
+from everyone else's score, which **raises the threshold without saying so**.
+
+`modello` is silent by design — the entry model's selectivity lives in its artifact's metadata and
+is its whole measured advantage. Fraction of bars holding a position, fifteen symbols at 15m from
+2021, 197,371 bars each:
+
+| voter | duty cycle |
+|---|---|
+| `modello` | 0.004 – 0.033 |
+| `pullback` | 0.253 – 0.282 |
+| `ichimoku` | 0.272 – 0.318 |
+| `bande_conferma` | 0.831 – 0.915 |
+| `bande_innesco` | 0.892 – 0.949 |
+| `zone_regime` | 0.950 |
+| `flusso` | 0.957 – 0.971 |
+| `zone_struttura` | 0.996 |
+
+An order of magnitude below the second-lowest, on all fifteen. On BTCUSDT it took the score from
+standard deviation 0.161 to 0.141 and the bars above 0.35 from **2.22% to 0.82%** — a third of the
+other seven's opportunities, removed by someone who was not voting.
+
+`votanti_predefiniti()` already argued this and guarded on the wrong thing: whether the artifact was
+on disk. In production `models/` is empty so the voter was absent; **locally the artifacts exist, so
+it was present and mute** — and the test suite changed outcome depending on what was in `models/`
+(two tests failed locally and passed in CI). It is now out of the default always, and still in the
+registry, so `selezione("modello")` reaches it.
+
+**This is not a return improvement, and the measurement says the opposite.** At a fixed threshold,
+removing it raises the score, so the strategy trades more — BTCUSDT gated, 766 trades against 1,088
+— and on this data trading more is always worse: median over the fifteen from −48.6% to −57.5%. The
+dilution was acting as a hidden increase in the threshold. A hidden increase in the threshold is
+exactly what is not wanted: the threshold is chosen and measured, not inherited from whoever is
+silent. Which is what the next section does.
+
+### Defect 3 was the threshold, and it has no good value
+
+0.35 was inherited from `cancello`, where it is one of four `and` conditions behind a gate. Alone,
+it means *never*: the score has standard deviation 0.141 and range [−0.534, +0.544], so 0.35 is
+2.5 sigma and the score sat in the dead zone on **99.2% of bars**. Worse, reversing requires the
+score to travel the full 0.70 from −θ to +θ, more than its entire observed range on one side. That
+silence is what the stop was filling.
+
+Median over the fifteen symbols, one row per threshold:
+
+| θ | rank IS | return IS | rank OOS | return OOS | trades OOS | drawdown OOS |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.05 | 0.167 | −96.6% | 0.083 | −95.3% | 1,294 | 96.6% |
+| 0.10 | 0.333 | −90.4% | 0.250 | −88.1% | 755 | 92.9% |
+| 0.15 | 0.417 | −84.7% | 0.417 | −73.9% | 429 | 87.8% |
+| 0.20 | 0.500 | −62.5% | 0.417 | −71.2% | 288 | 87.8% |
+| 0.25 | **0.750** | −4.9% | 0.500 | −51.4% | 186 | 83.1% |
+| 0.30 | **0.750** | +14.1% | 0.500 | −52.9% | 125 | 84.8% |
+| 0.35 | 0.583 | −29.6% | 0.583 | −35.0% | 83 | 83.4% |
+| 0.40 | 0.583 | −20.9% | **0.917** | +25.7% | 43 | 64.7% |
+| 0.45 | 0.167 | −99.2% | 0.667 | −20.4% | 18 | 63.7% |
+| 0.50 | 0.583 | −44.6% | 0.750 | −39.0% | 6 | 41.9% |
+| 0.60 | 0.708 | 0.0% | 0.792 | 0.0% | **0** | 0.0% |
+| 0.70 | 0.708 | 0.0% | 0.792 | 0.0% | **0** | 0.0% |
+
+Passive holding: +184.2% in sample, −33.8% out of sample, medians.
+
+Read the last two rows first. At θ ≥ 0.60 the strategy makes **zero trades**, and ranks near the top
+of its own sweep in both periods — out of sample doing nothing beats the sweep on 9 and 11 of the
+fifteen symbols. This is the same gradient the rest of this document already reports for `cancello`:
+every parameter points at not trading.
+
+**No value passes the two checks this project requires** (`scripts/tune_defaults.py`): the best
+in-sample threshold is 0.25-0.30, the best out-of-sample one is 0.40, and they do not agree. By the
+rule, the hand-written default stands. `theta_base` stays 0.35 and is not tuned for this mode,
+because there is nothing to tune it to.
+
+### It is not a sign defect, and that is worth knowing precisely
+
+"It buys and sells at random" invites the guess that a sign is inverted somewhere. It is not.
+Threshold 0.35, out of sample, medians over the fifteen:
+
+| | return gross | return net | profitable | payoff (avg win / avg loss) |
+|---|---:|---:|---:|---:|
+| as emitted | −7.9% | −35.0% | 7/15 → 4/15 | **1.82** |
+| every position inverted | −80.6% | −88.1% | 1/15 → 0/15 | 0.24 |
+
+Inverting is far worse, so the side the score picks is the right one. The engine is faithful too:
+with the stop off its reversals coincide exactly with the score's threshold crossings (84 = 84) and
+no event has an inconsistent direction.
+
+What fails is arithmetic, not sign. Winners are 1.82× losers, so break-even needs a hit rate of
+1/(1+1.82) = **35.5%**. Measured: **33.7%**. It misses by 1.8 points gross — and then an always-in
+machine pays carry every single day, 0.03%/day over the window, which is most of the distance
+between −7.9% gross and −35.0% net. That also explains why the loss shrinks as the threshold rises:
+it is not that the signal gets better, it is that there is less of it.
+
+| θ | gross | without carry | net |
+|---:|---:|---:|---:|
+| 0.25 | −22.9% | −36.1% | −51.4% |
+| 0.35 | −7.9% | −15.3% | −35.0% |
+| 0.45 | −1.2% | −2.2% | −20.4% |
+
+### The verdict, and what would have to change
+
+`inversione` is measured and it does not work. It is kept because it is a mode to look at, the page
+now says so, and the defects it exposed were real ones in the shared machinery. Two things would
+have to move, and neither is a parameter:
+
+- **the hit rate, by about two points.** That is a better score, not a better threshold — the
+  threshold sweep is exhausted above;
+- **or the right to be flat.** Carry is paid on 100% of the bars by construction, and it is the
+  single largest cost. The mode that is allowed to stand aside is `cancello`, which is why it
+  remains the default.
+
+The honest summary of both modes is now the same one: no configuration of this family beats holding
+the asset, and the gradient of every parameter points at not trading.

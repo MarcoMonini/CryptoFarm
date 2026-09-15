@@ -30,15 +30,32 @@ def test_la_scansione_per_coordinata_copre_ogni_parametro():
     """La cartesiana congela cinque parametri su undici: se non li scandisse nessuno, il loro
     valore resterebbe una scelta mai messa alla prova."""
     configurazioni = lab.celle("coordinate")
-    assert configurazioni[0] == lab.CENTRO
+    # Lo stop non sta in `CENTRO` apposta: il suo valore dipende dalla modalita' -- 3 ATR dove
+    # chiude, 0 dove ribalta -- e lo mette `celle` leggendo `confluence.STOP_PREDEFINITO`.
+    assert configurazioni[0] == {**lab.CENTRO, "atr_multiplier": 3.0, "modalita": "cancello"}
     for parametro, valori in lab.SCANSIONE.items():
         assert set(valori) <= {c[parametro] for c in configurazioni}, parametro
 
 
 def test_il_centro_e_dentro_ogni_scansione():
     """Altrimenti la riga di partenza non sarebbe confrontabile con le sue variazioni."""
+    centro = lab.celle("coordinate")[0]
     for parametro, valori in lab.SCANSIONE.items():
-        assert lab.CENTRO[parametro] in valori, f"{parametro}: il centro non e' fra i valori provati"
+        assert centro[parametro] in valori, f"{parametro}: il centro non e' fra i valori provati"
+
+
+def test_in_inversione_la_griglia_non_muove_quel_che_quella_macchina_non_legge():
+    """`_percorri_inversione` non riceve isteresi, pazienza, barre minime, ampiezza ne' innesco.
+
+    Muoverli in griglia costerebbe ore per righe **identiche**, e ogni riga identica entra nel
+    conto delle prove che `scripts/multiplicity.py` corregge: prove che non sono prove rendono la
+    correzione piu' severa senza aver misurato niente.
+    """
+    inversione = lab.celle("coordinate", "inversione")
+    assert all(c["modalita"] == "inversione" for c in inversione)
+    assert not {p for c in inversione for p in c} & set(lab.PARAMETRI_IGNORATI)
+    assert inversione[0]["atr_multiplier"] == 0.0, "in inversione il centro ha lo stop spento"
+    assert len(inversione) < len(lab.celle("coordinate")), "e la griglia e' piu' piccola"
 
 
 def test_il_riferimento_appaiato_si_sceglie_sulla_frequenza_non_sulla_resa():

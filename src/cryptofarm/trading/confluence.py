@@ -1,4 +1,4 @@
-"""La strategia a confluenza: quattro piani, sei votanti, una soglia che si muove.
+"""La strategia a confluenza: quattro piani, sette votanti, una soglia che si muove.
 
 Il disegno completo, con le ragioni di ogni scelta, sta in `.claude/docs/strategia-confluenza.md`.
 Qui c'e' l'attuazione degli stadi S3-S5, e questa docstring dice **solo** le cose che servono a
@@ -26,7 +26,7 @@ look-ahead. Ma sollevare a valore provvisorio una *strategia* qualunque non e'
 generico -- ogni indicatore ricorsivo va sollevato a mano -- e il disegno **congela i votanti**,
 cioe' vieta di riscriverli. Quindi:
 
-- **i sei votanti decidono alla chiusura della propria barra lunga** e il loro stato entra
+- **i sette votanti decidono alla chiusura della propria barra lunga** e il loro stato entra
   nell'indice breve con `mtf.align_to_lower`, cioe' un periodo dopo. Nessun look-ahead, ma
   nemmeno reattivita' intra-periodo;
 - **il cancello e la struttura leggono il prezzo di adesso** contro la media del piano lungo
@@ -105,6 +105,21 @@ TETTO_EMIVITA_MINUTI = 24 * 60
 # attraversamento di soglia. Niente cancello, niente ampiezza minima, niente innesco, niente
 # isteresi: la durata di un'operazione e' la distanza fra due attraversamenti opposti.
 MODALITA = ("cancello", "inversione")
+
+# Il moltiplicatore dello stop **per modalita'**, perche' in una delle due lo stop non e' un
+# freno: e' il pilota.
+#
+# In `cancello` lo stop chiude e la posizione va a flat: sbagliarlo costa un'uscita anticipata.
+# In `inversione` lo stop **ribalta**, quindi ogni volta che salta apre l'operazione successiva,
+# e a 3 ATR salta di continuo. Misurato su BTCUSDT a 15m dal 2024 (92.321 barre), con la soglia
+# a 0,35 e il collegio a sette: 5.328 ribaltamenti di cui **5.056 (95%) decisi dallo stop**,
+# tenuta mediana 3,5 ore, capitale da 100 a 0,61. Con lo stop spento: 84 ribaltamenti, tutti dal
+# punteggio, tenuta mediana 180 ore, capitale 182. Cioe' col default ereditato l'«always in» non
+# seguiva i voti, seguiva un canale a 3 ATR -- che e' il difetto per cui questa costante esiste.
+#
+# Il valore 0 non e' un parametro nuovo: e' quello che `atr_multiplier` gia' aveva senza
+# significato. Chi vuole lo stop nella modalita' a inversione lo accende sapendo che decide lui.
+STOP_PREDEFINITO: dict[str, float] = {"cancello": 3.0, "inversione": 0.0}
 
 # L'orientamento dei **voti e del punteggio**: -1 vuol dire lungo, +1 vuol dire corto.
 #
@@ -313,7 +328,7 @@ def _bande(df, cache, p):
     la gamba corta paga quattro anni su cinque di essere dalla parte sbagliata della deriva.
 
     Un votante non e' una strategia: non apre niente, dice un'opinione. Prendere il default
-    silenziosamente rendeva questa famiglia -- due votanti su otto, i due della famiglia
+    silenziosamente rendeva questa famiglia -- due votanti su sette, i due della famiglia
     `bande` -- **strutturalmente incapace di votare corto**, e la conseguenza non era una
     prudenza: era che `concordi_corto` non poteva mai arrivare a tutte le famiglie, e che sul
     punteggio l'estensione *sopra* la media non pesava mentre quella *sotto* pesava. Un'asimmetria
@@ -515,26 +530,50 @@ for _votante in (
 
 
 def votanti_predefiniti() -> tuple[Votante, ...]:
-    """I votanti con cui la confluenza gira quando nessuno ne indica altri.
+    """I sette votanti a indicatore. **Il votante a modello non e' nel default**, mai.
 
-    Il votante a modello resta **fuori** quando l'artefatto non c'e', e non e' prudenza: i pesi si
-    normalizzano sui votanti presenti, quindi un ottavo votante che si astiene sempre alzerebbe
-    di fatto la soglia per gli altri sette. In produzione `models/` e' vuoto per costruzione -- gli
-    artefatti sono gitignorati -- e li' la confluenza deve restare **esattamente** quella misurata
-    su quindici asset e sette anni, non una sua versione silenziosamente piu' rigida.
+    Prima la condizione era l'artefatto su disco, e la domanda era sbagliata. Quel che rovina
+    l'insieme non e' un votante assente: e' un votante **presente e muto**. I pesi sono fissi e
+    si normalizzano sui votanti del collegio, quindi presuppongono che tutti parlino con frequenza
+    confrontabile; chi tace non e' neutro, toglie il suo peso dal punteggio di tutti gli altri su
+    ogni barra in cui non parla, cioe' **alza la soglia senza dirlo**.
 
-    Resta comunque nel registro, cosi' `selezione("modello", ...)` lo raggiunge sempre: escluderlo
-    dal default non e' escluderlo dalla misura.
+    `modello` tace per disegno, non per caso. La selettivita' del modello d'ingresso sta nei
+    metadata del suo artefatto ed e' tutto il suo vantaggio misurato (`modello-ingresso.md`): a
+    cinque minuti marca una barra su millecinquecento. Misurato su quindici simboli a 15m dal 2021,
+    197.371 barre ciascuno, la frazione di barre in cui ciascun votante tiene una posizione:
+
+        modello        0,004 - 0,033      (mediana 0,020)
+        pullback       0,253 - 0,282
+        ichimoku       0,272 - 0,318
+        bande_conferma 0,831 - 0,915
+        bande_innesco  0,892 - 0,949
+        zone_regime    0,950
+        flusso         0,957 - 0,971
+        zone_struttura 0,996
+
+    Un ordine di grandezza sotto il penultimo, su tutti e quindici. Con un ottavo del peso e lo
+    0,2% delle barre, su BTCUSDT il punteggio passava da deviazione 0,161 a 0,141 e le barre sopra
+    0,35 da **2,22% a 0,82%**: un terzo delle occasioni degli altri sette, tolte da chi non stava
+    votando.
+
+    **Quel che questo non e'.** Non e' un miglioramento del rendimento, e va detto perche' e'
+    misurato ed e' il contrario: a soglia ferma, toglierlo fa salire il punteggio, quindi si opera
+    di piu' (BTCUSDT a cancello, 766 operazioni contro 1.088) e su questi dati operare di piu'
+    peggiora sempre -- mediana sui quindici simboli da -48,6% a -57,5%. La diluizione stava
+    facendo da rialzo occulto della soglia, e un rialzo occulto della soglia e' esattamente cio'
+    che non si vuole: la soglia si sceglie e si misura, non si eredita da chi tace.
+    **Ne segue che `theta_base` va misurato sul collegio corretto**, ed e' quel che fa la sezione
+    sulla modalita' a inversione in `.claude/docs/strategia-confluenza.md`.
+
+    Resta nel registro, cosi' `selezione("modello", ...)` lo raggiunge sempre: fuori dal default
+    non vuol dire fuori dalla misura. Chi vuole rimetterlo nel collegio deve prima dargli un peso
+    che tenga conto di quanto parla, che e' un disegno diverso da quello a pesi fissi.
+
+    Il collegio non dipende piu' da cosa c'e' in `models/`: la pagina in locale e il servizio
+    pubblico girano lo stesso insieme, e i test non cambiano esito con gli artefatti sul disco.
     """
-    tutti = selezione()
-    if (
-        signals.entry_model_disponibile(signals.ENTRY_VELOCE)
-        or signals.entry_model_disponibile(signals.ENTRY_LENTO)
-        or signals.rl_model_disponibile()
-        or signals.swing_model_disponibile()
-    ):
-        return tutti
-    return tuple(v for v in tutti if v.nome != "modello")
+    return tuple(v for v in selezione() if v.nome != "modello")
 
 
 VOTANTI: tuple[Votante, ...] = votanti_predefiniti()
@@ -729,7 +768,7 @@ def valori_del_votante(votante: Votante, intervallo: str, override: dict | None 
 def _pesi(nomi: list[str], w_max: float, pesi: dict[str, float] | None = None) -> dict[str, float]:
     """Pesi normalizzati a somma 1 con tetto `w_max`, applicato ripetutamente fino a tenuta.
 
-    A pesi uguali il tetto non morde mai -- con sei votanti ognuno vale 0,167 contro un tetto di
+    A pesi uguali il tetto non morde mai -- con sette votanti ognuno vale 0,143 contro un tetto di
     0,30 -- e questo e' voluto: il tetto e' li' per la versione tarata (S7), dove serve a impedire
     che l'insieme diventi *un* segnale con delle decorazioni.
     """
@@ -741,7 +780,7 @@ def _pesi(nomi: list[str], w_max: float, pesi: dict[str, float] | None = None) -
     # Con `n` votanti non esiste nessuna assegnazione che sommi a 1 e stia tutta sotto `1/n`:
     # applicando il tetto alla lettera si capperebbero tutti e la somma verrebbe minore di uno,
     # cioe' il punteggio sarebbe sistematicamente piu' piccolo della soglia **senza che niente lo
-    # dica**. Con sei votanti non si vedeva (0,167 sta sotto 0,30); con tre la somma faceva 0,90.
+    # dica**. Con sette votanti non si vedeva (0,143 sta sotto 0,30); con tre la somma faceva 0,90.
     w_max = max(w_max, 1.0 / len(nomi))
     for _ in range(len(nomi)):
         eccedenti = {n for n, p in valori.items() if p > w_max + 1e-12}
@@ -814,7 +853,7 @@ def evaluate(
     k_famiglie: int = 2,
     innesco: int = 0,
     atr_window: int = 14,
-    atr_multiplier: float = 3.0,
+    atr_multiplier: float | None = None,
     regime_ema: int = 50,
     struttura_ema: int = 50,
     barre_in_formazione: bool = True,
@@ -852,6 +891,12 @@ def evaluate(
         raise ValueError("servono almeno tre barre")
     if modalita not in MODALITA:
         raise ValueError(f"modalita sconosciuta: {modalita!r}. Sono {MODALITA}")
+    # Lo stop dipende dalla modalita' e non e' una taratura: le ragioni, con i numeri, stanno su
+    # `STOP_PREDEFINITO`. Si risolve qui perche' qui passano tutti -- la pagina, il banco e chi
+    # chiama da libreria -- e un default per modalita' scritto in tre posti sarebbe tre posti in
+    # cui dimenticarsene. Un valore esplicito vince sempre, anche lo zero.
+    if atr_multiplier is None:
+        atr_multiplier = STOP_PREDEFINITO[modalita]
     if stati is not None and parametri_votanti:
         # Gli stati precalcolati valgono per i parametri con cui sono stati calcolati. Accettarli
         # insieme a un override darebbe un risultato sbagliato **senza dirlo**, che e' il modo in
