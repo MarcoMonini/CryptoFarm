@@ -63,7 +63,7 @@ from cryptofarm.ml import signals
 from cryptofarm.trading import strategies_ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.mtf import align_to_lower
-from cryptofarm.trading.voters import decayed_vote, held_state
+from cryptofarm.trading.voters import PAVIMENTO_DEL_VOTO, decayed_vote, held_state
 
 # I quattro piani, in multipli dell'intervallo di base. Su 15m: innesco 15m, conferma 1h,
 # struttura 4h, regime 1d -- la scala del disegno, ottenuta senza scriverci dentro nessun
@@ -79,6 +79,21 @@ FATTORI = {"innesco": 1, "conferma": 4, "struttura": 16, "regime": 96}
 # misura, non un parametro: la tangente iperbolica rende il risultato insensibile al suo valore
 # esatto, e renderlo tarabile aggiungerebbe un grado di liberta' che non compra niente.
 ATR_DI_NORMALIZZAZIONE = 14
+
+# Il tetto all'emivita di un voto, in **minuti di calendario** e non in barre, perche' e' una
+# durata e deve voler dire la stessa cosa su ogni intervallo di base.
+#
+# L'emivita e' una sola e si converte in barre di base moltiplicando per `FATTORI[piano]`. Senza
+# tetto il piano di regime arriva a `6 x 96 = 576` barre: su base 15m sono sei giorni di emivita,
+# cioe' un votante che resta a forza quasi piena per settimane sulla scorta di un solo incrocio.
+#
+# Va detto per quel che vale: con il pavimento in casa questo tetto compra poco. Il segno del voto
+# adesso e' l'opinione di adesso, non un ricordo, quindi la persistenza lunga di `zone_regime` non
+# e' piu' un difetto del voto -- e' la sua opinione vera, il suo incrocio a 1d non e' avvenuto.
+# Misurato, l'effetto e' sulla sola **forza**: 0,175 contro 0,154 di voto medio in posizione, e
+# 388 ingressi contro 380. Resta perche' 576 barre sono comunque fuori scala e morderebbero su un
+# votante che cambia idea piu' spesso, non perche' sposti i numeri di oggi.
+TETTO_EMIVITA_MINUTI = 24 * 60
 
 # L'orientamento dei **voti e del punteggio**: -1 vuol dire lungo, +1 vuol dire corto.
 #
@@ -108,6 +123,21 @@ def convinzione(punteggio, verso):
 
 REGIME_MIN_MINUTI = 12 * 60
 REGIME_MAX_MINUTI = 7 * 24 * 60
+
+
+def emivita_in_barre(emivita: float, piano: str, minuti_base: int, tetto_minuti: float | None = None) -> float:
+    """L'emivita di un voto in barre dell'indice di base, tosata al tetto.
+
+    `emivita` e' in barre del **piano** del votante; moltiplicarla per `FATTORI[piano]` la porta in
+    barre di base. Il tetto e' in minuti di calendario perche' e' quel che si vuole limitare: sei
+    giorni di memoria restano sei giorni tanto a 15m quanto a 1h, mentre «576 barre» vuol dire due
+    durate diverse. `tetto_minuti=None` toglie il tetto, ed e' l'ablazione con cui si misura
+    quanto vale averlo.
+    """
+    barre = emivita * FATTORI[piano]
+    if tetto_minuti is None:
+        return barre
+    return min(barre, max(tetto_minuti / minuti_base, 1.0))
 
 
 def piani(interval: str) -> dict[str, str]:
@@ -511,6 +541,7 @@ class Confluenza:
     eventi: list
     indice: pd.DatetimeIndex
     voti: dict[str, np.ndarray]
+    stati: dict[str, np.ndarray]
     pesi: dict[str, float]
     punteggio: np.ndarray
     soglia: np.ndarray
@@ -731,6 +762,8 @@ def evaluate(
     barre_minime: int = 4,
     pazienza: int = 24,
     emivita: float = 6.0,
+    pavimento: float = PAVIMENTO_DEL_VOTO,
+    tetto_emivita: float | None = TETTO_EMIVITA_MINUTI,
     w_max: float = 0.30,
     k_famiglie: int = 2,
     innesco: int = 0,
@@ -761,6 +794,12 @@ def evaluate(
 
     L'**isteresi non e' un dettaglio**: senza, si entra e si esce sulla stessa barra ogni volta
     che il punteggio oscilla attorno alla soglia, e il conto delle commissioni mangia tutto.
+
+    `pavimento` e `tetto_emivita` sono le due manopole della forma del voto, e stanno qui con i
+    loro default e **senza un widget**: servono a misurare l'ablazione (`pavimento=0` e
+    `tetto_emivita=None` riportano al voto che seguiva la sola recenza), non a essere girate a
+    occhio sulla pagina. Il conto dei parametri liberi della confluenza e' gia' il problema che
+    `scripts/multiplicity.py` misura.
     """
     if len(candles) < 3:
         raise ValueError("servono almeno tre barre")
@@ -772,15 +811,21 @@ def evaluate(
     minuti_base = interval_to_minutes(interval)
 
     voti: dict[str, np.ndarray] = {}
+    stati_usati: dict[str, np.ndarray] = {}
     famiglie: dict[str, str] = {}
     for votante in votanti:
         stato = stati[votante.nome] if stati else _stato_del_votante(votante, candles, minuti_base, parametri_votanti)
         # L'emivita e' una sola, espressa in barre del timeframe del votante: qui si converte in
-        # barre di base. Un segnale di struttura resta vivo giorni, uno di innesco ore.
+        # barre di base e si tosa a `TETTO_EMIVITA_MINUTI`. Un segnale di struttura resta vivo
+        # giorni, uno di innesco ore, e nessuno piu' di un giorno di calendario.
+        #
         # `decayed_vote` lavora sullo stato tenuto, che e' una posizione: +1 e' lungo. Il voto
         # esce nell'orientamento dichiarato da `VERSO_DEL_VOTO`, e questa e' l'unica moltiplicazione
         # che lo produce -- da qui in giu' tutto legge voti e punteggio in quell'asse.
-        voti[votante.nome] = VERSO_DEL_VOTO * decayed_vote(stato, emivita * FATTORI[votante.piano])
+        stati_usati[votante.nome] = stato
+        voti[votante.nome] = VERSO_DEL_VOTO * decayed_vote(
+            stato, emivita_in_barre(emivita, votante.piano, minuti_base, tetto_emivita), pavimento
+        )
         famiglie[votante.nome] = votante.famiglia
 
     w = _pesi([v.nome for v in votanti], w_max, pesi)
@@ -802,8 +847,13 @@ def evaluate(
     soglia = theta_base - theta_macro * macro
     soglia_corta = theta_base + theta_macro * macro
 
-    concordi_lungo = _famiglie_concordi(voti, famiglie, +1)
-    concordi_corto = _famiglie_concordi(voti, famiglie, -1)
+    # **Sullo stato, non sul voto.** L'ampiezza e' un conteggio di opinioni presenti, e un voto in
+    # coda di decadimento non e' un'opinione: e' un ricordo. Con il pavimento e l'azzeramento
+    # all'uscita i due conteggi coincidono per costruzione -- il voto e' zero se e solo se lo stato
+    # lo e' -- ma dipendere da quell'invariante vorrebbe dire che cambiare la forma del voto
+    # cambierebbe l'ampiezza di nascosto. Qui si chiede direttamente cio' che si vuole sapere.
+    concordi_lungo = _famiglie_concordi(stati_usati, famiglie, +1)
+    concordi_corto = _famiglie_concordi(stati_usati, famiglie, -1)
     famiglie_concordi = np.where(convinzione(punteggio, +1) >= 0, concordi_lungo, concordi_corto)
 
     eventi, ingressi, livello_stop, motivi = _percorri(
@@ -828,6 +878,7 @@ def evaluate(
         eventi=eventi,
         indice=candles.index,
         voti=voti,
+        stati=stati_usati,
         pesi=w,
         punteggio=punteggio,
         soglia=soglia,
@@ -843,7 +894,7 @@ def evaluate(
         barre_chieste_dal_regime=regime_ema,
         ingressi=len(ingressi),
     )
-    risultato.necessarieta = _necessarieta(voti, famiglie, w, soglia, soglia_corta, ingressi, k_famiglie)
+    risultato.necessarieta = _necessarieta(voti, stati_usati, famiglie, w, soglia, soglia_corta, ingressi, k_famiglie)
     return risultato
 
 
@@ -912,18 +963,22 @@ def _forza_del_piano(candele, minuti_base, piano, span, in_formazione) -> np.nda
     return forza
 
 
-def _famiglie_concordi(voti, famiglie, verso) -> np.ndarray:
-    """Quante **famiglie distinte** votano in quel verso, barra per barra.
+def _famiglie_concordi(stati, famiglie, verso) -> np.ndarray:
+    """Quante **famiglie distinte** tengono una posizione in quel verso, barra per barra.
 
     Famiglie e non votanti: e' il freno che impedisce a un peso grande, da solo, di aprire una
     posizione. Oggi la distinzione non morde -- i sei sono uno per famiglia -- ma mordera' appena
     si aggiunge un secondo votante di prezzo, ed e' allora che serve gia' scritta.
+
+    **Prende gli stati, non i voti**, e `verso` e gli stati sono tutti e due nella convenzione di
+    posizione (+1 lungo): qui non c'e' nessuna conversione d'asse da fare, perche' `held_state` non
+    passa mai per l'orientamento dei voti. L'ampiezza e' un conteggio di opinioni **presenti** e un
+    voto in coda di decadimento non e' un'opinione, e' un ricordo: con i voti, meta' delle
+    «famiglie concordi» di `pullback` erano posizioni gia' chiuse.
     """
     per_famiglia: dict[str, np.ndarray] = {}
-    for nome, voto in voti.items():
-        # `verso` e' la direzione dell'operazione (+1 lungo), i voti sono nell'altro asse: la
-        # conversione passa da `convinzione`, come ogni altro confronto di questo modulo.
-        attivo = convinzione(voto, verso) > 0
+    for nome, stato in stati.items():
+        attivo = (np.asarray(stato) * verso) > 0
         famiglia = famiglie[nome]
         per_famiglia[famiglia] = attivo if famiglia not in per_famiglia else (per_famiglia[famiglia] | attivo)
     return np.sum(list(per_famiglia.values()), axis=0).astype(float)
@@ -1075,7 +1130,7 @@ def _percorri(
     return eventi, ingressi, livello_stop, motivi
 
 
-def _necessarieta(voti, famiglie, pesi, soglia, soglia_corta, ingressi, k_famiglie) -> dict[str, float]:
+def _necessarieta(voti, stati, famiglie, pesi, soglia, soglia_corta, ingressi, k_famiglie) -> dict[str, float]:
     """In che frazione degli ingressi ciascun votante era **indispensabile**.
 
     Indispensabile vuol dire: azzerandolo, quell'ingresso non sarebbe avvenuto -- perche' il
@@ -1092,6 +1147,7 @@ def _necessarieta(voti, famiglie, pesi, soglia, soglia_corta, ingressi, k_famigl
     # `_famiglie_concordi` lavora elemento per elemento, quindi accetta il `verso` come vettore e
     # una passata sola sostituisce le seimila.
     ai_bordi = {nome: voto[barre] for nome, voto in voti.items()}
+    stati_ai_bordi = {nome: np.asarray(stato)[barre] for nome, stato in stati.items()}
     # Il verso dell'**operazione**, non il segno del punteggio: i due sono opposti, perche' un
     # consenso lungo produce un punteggio negativo.
     verso = np.sign(convinzione(sum(pesi[n] * ai_bordi[n] for n in ai_bordi), +1))
@@ -1106,6 +1162,8 @@ def _necessarieta(voti, famiglie, pesi, soglia, soglia_corta, ingressi, k_famigl
         restanti = {n: v for n, v in ai_bordi.items() if n != nome}
         punteggio = sum(pesi[n] * restanti[n] for n in restanti) if restanti else np.zeros(len(barre))
         sotto_soglia = convinzione(punteggio, verso) < attiva
-        ampiezza = _famiglie_concordi(restanti, famiglie, verso)
+        # L'ampiezza si conta sugli stati, come nel motore: togliere un votante vuol dire togliere
+        # la sua opinione, non la coda del suo voto.
+        ampiezza = _famiglie_concordi({n: v for n, v in stati_ai_bordi.items() if n != nome}, famiglie, verso)
         conteggi[nome] = float(np.mean(sotto_soglia | (ampiezza < k_famiglie)))
     return conteggi

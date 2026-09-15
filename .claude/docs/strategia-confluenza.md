@@ -1028,3 +1028,96 @@ Also measured on that window: **2.5 voters out of 7 are awake on an average bar*
 staleness problem written up in the analysis above (a voter's vote tracks the recency of its last
 flip, not its opinion). With seven voters at 1/7 each, a 0.35 threshold needs two and a half of them
 at full strength and aligned — and the peak long conviction reached over 20 days was 0.406.
+
+## The vote is the opinion times its recency (2026-09-15)
+
+The vote used to be `v(t) = v(t-1) * lambda`, restarted at ±1 on a fire. That is **recency alone**:
+after the first bar the voter's actual opinion never entered the score again. Two opposite defects
+followed, both large, measured over 400 synthetic days at 15m:
+
+| defect | measurement |
+|---|---|
+| **voters mute while convinced** | `zone_regime` in a position on 74.5% of bars, its vote already at zero on **91.3%** of those. `zone_struttura` 67.1%, `bande_conferma` 84.4% |
+| **ghost votes** | `pullback` voting with its position already closed on **49.0%** of bars. The band voters enter at the lower band and exit at the **opposite** one, so the +1 survived the exit and kept saying "long" from the high down |
+
+The first is why signals do not arrive: with seven voters at 1/7 and a 0.35 threshold you need two
+and a half of them at full strength and aligned, and only **2.21 of 7 were awake** on an average bar.
+
+The new shape:
+
+```
+v(t) = 0                                                       if stato(t) == 0
+v(t) = stato(t) * (pavimento + (1 - pavimento) * lambda**eta)   otherwise
+```
+
+The state is still held forward, so a 4H voter keeps voting on every 15m bar while its position is
+open; what fades is the **strength**, from 1 down to the floor, never to silence.
+
+### What chooses the floor
+
+At weights summing to 1, a college that fully agrees and is **entirely stale** scores exactly
+`pavimento`. For a standing consensus not to open a position by itself, that has to stay below the
+**lowest reachable** threshold — which is `theta_base - theta_macro` (0.20 at the defaults), not
+`theta_base`, because a favourable macro discounts the threshold. Below that line the confluence
+stays a meeting of *events* and keeps deciding **when**; above it, it becomes a state detector that
+opens because everybody is in.
+
+A first attempt used 0.30 on the wrong rule (`< theta_base`) and would have let a fully stale
+college trade whenever the macro agreed. **0.15** is the value: a stale college scores 0.15 against
+a floor of 0.20 on the threshold, and one fresh fire adds (1−0.15)/7 = 0.121 → 0.271, enough with a
+favourable macro and about two fires at a neutral one. Anyone moving `theta_base` or `theta_macro`
+has to redo that arithmetic: the constraint is a relation between three numbers, not a value.
+
+### What it changes
+
+| | mute while in position | voters awake / bar | entries | max necessity |
+|---|---:|---:|---:|---:|
+| recency only | 50.6% | 2.21 / 7 | 218 | 0.638 (`flusso`) |
+| + floor | 0.0% | 4.47 / 7 | 388 | 0.595 |
+| + floor + cap (default) | 0.0% | 4.47 / 7 | 380 | 0.600 |
+
+`flusso` is still the most necessary voter and still sits **at the 0.60 line** the code itself calls
+"the ensemble is that voter in disguise". The fixes did not solve that, and it stays open.
+
+### The half-life cap buys less than it looked
+
+`TETTO_EMIVITA_MINUTI = 24 * 60` caps a vote's half-life at one day of calendar — 96 bars at a 15m
+base, 24 at 1h — against the 576 the regime plane reached uncapped. It is in minutes and not bars
+because it is a duration.
+
+But it must be reported for what it measures: **the floor already absorbed most of what the cap was
+meant to fix.** The sign of a vote is now the current opinion rather than a memory, so
+`zone_regime` holding "long" for 57 days after a trend reversal is no longer a decay artefact — it
+is its true opinion, its 1d crossover has not happened. What the cap still does is bound the
+**strength**: mean vote while in position 0.175 → 0.154, entries 388 → 380. It stays because 576
+bars are out of scale and would bite on a voter that changes its mind more often, not because it
+moves today's numbers.
+
+### Breadth is counted on the state
+
+`_famiglie_concordi` now takes the held states rather than the decayed votes. With the floor and the
+zeroing the two counts coincide by construction — the vote is zero exactly when the state is — but
+depending on that invariant would mean a future change to the vote's shape would silently change
+the breadth rule. It asks directly for what it wants to know.
+
+### This moved the pinned events, deliberately
+
+`test_gli_eventi_emessi_sono_quelli_pinnati` (formerly the sign-inversion golden) was regenerated
+after inspecting the diff: 81 long entries became 85 on the first case, 72 became 110 on the second.
+That is the intended direction — voters stopped falling silent while convinced. A refactor or a
+relabelling must still not move it by a single event.
+
+### It does not make a starved gate trade
+
+Worth stating plainly, because it is the question the chart raised. At a 15m base with
+`regime_ema=50`:
+
+| window | regime gate | voters awake | entries |
+|---|---|---:|---:|
+| 20 days (480 h) | **unknown** | 3.27 / 7 | 0 |
+| 50 days (1,200 h) | unknown | 3.82 / 7 | 0 |
+| 90 days | known | 3.86 / 7 | 1 |
+| 180 days | known | 4.42 / 7 | 31 |
+
+More awake voters do not open a gate that has no history behind it. The 20-day window still trades
+nothing, and correctly says why.

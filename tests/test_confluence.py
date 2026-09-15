@@ -490,7 +490,11 @@ def test_la_pazienza_taglia_la_coda_dell_isteresi(candele):
             if obiettivo != 0:
                 apertura = i
             elif apertura is not None:
-                sotto = np.flatnonzero(risultato.punteggio[apertura:i] < risultato.soglia[apertura:i])
+                # «Sotto la soglia» si chiede con `convinzione`: il punteggio e' sull'asse dei
+                # voti, dove una posizione lunga e' negativa, e il confronto crudo sarebbe vero
+                # quasi sempre.
+                sostegno = confluence.convinzione(risultato.punteggio[apertura:i], +1)
+                sotto = np.flatnonzero(sostegno < risultato.soglia[apertura:i])
                 if len(sotto):
                     ritardi.append(i - (apertura + int(sotto[0])))
                 apertura = None
@@ -628,6 +632,7 @@ def test_la_necessarieta_vale_quanto_la_definizione_che_la_descrive(candele):
     """
     risultato = confluence.evaluate(candele, "15m")
     voti, pesi, soglia = risultato.voti, risultato.pesi, risultato.soglia
+    stati = risultato.stati
     famiglie = {v.nome: v.famiglia for v in confluence.VOTANTI}
 
     # La definizione, trascritta senza furbizie: per ogni votante, la frazione di ingressi in cui
@@ -645,8 +650,11 @@ def test_la_necessarieta_vale_quanto_la_definizione_che_la_descrive(candele):
         restanti = {n: v for n, v in voti.items() if n != nome}
         punteggio = sum(pesi[n] * restanti[n] for n in restanti)[barre]
         sotto_soglia = confluence.convinzione(punteggio, verso) < attiva
+        # L'ampiezza si conta sugli **stati**: togliere un votante e' togliere la sua opinione,
+        # non la coda del suo voto.
+        altri_stati = {n: v for n, v in stati.items() if n != nome}
         ampiezza = np.array(
-            [confluence._famiglie_concordi(restanti, famiglie, int(v))[b] for b, v in zip(barre, verso)]
+            [confluence._famiglie_concordi(altri_stati, famiglie, int(v))[b] for b, v in zip(barre, verso)]
         )
         atteso[nome] = float(np.mean(sotto_soglia | (ampiezza < risultato.k_famiglie)))
 
@@ -838,24 +846,30 @@ def test_i_voti_di_un_consenso_lungo_vanno_tutti_verso_meno_uno(candele):
     assert confluence.convinzione(+0.4, -1) == pytest.approx(0.4)
 
 
-def test_l_inversione_del_segno_non_sposta_nessun_ordine(candele, candele_con_inversione):
-    """Il vincolo che rende l'inversione una rietichettatura invece di un cambio di strategia.
+def test_gli_eventi_emessi_sono_quelli_pinnati(candele, candele_con_inversione):
+    """Il golden del comportamento: **quali** operazioni escono, su che barra e a che prezzo.
 
-    Gli eventi emessi restano nella convenzione di **posizione** (+1 = lungo), che e' quella di
-    `pnl.simulate_positions`, di `portfolio` e del bot live che piazza ordini veri. Invertire i
-    voti non deve spostare una singola operazione di una singola barra, e questo golden e' cio'
-    che lo dice: i quattro numeri sono stati misurati **prima** dell'inversione.
+    Nato per un vincolo piu' stretto -- dimostrare che portare i voti sull'asse `-1 = lungo` era
+    una rietichettatura e non un cambio di strategia -- e quel giro lo passo' con le firme
+    identiche. Resta come golden generale, e va letto per quel che pinna: gli eventi emessi sono
+    nella convenzione di **posizione** (+1 = lungo), che e' quella di `pnl.simulate_positions`, di
+    `portfolio` e del bot live che piazza ordini veri.
 
-    Se cade, non si rigenera: vuol dire che una conversione di segno e' finita dove decide invece
-    che dove si legge, ed e' esattamente il difetto che `convinzione` esiste per impedire.
+    **Quando cade, la domanda e' se il cambio era voluto.** Una rietichettatura, una correzione di
+    segno o una riscrittura che non cambia la strategia non devono spostarlo di un evento: li' si
+    cerca il difetto, non si rigenera. Un cambio deliberato della forma del punteggio lo sposta per
+    definizione, e allora si rigenera **dopo** aver guardato il diff -- che e' cio' che e' successo
+    con il pavimento e l'azzeramento del voto: 81 ingressi lunghi diventarono 85 sul primo caso e
+    72 diventarono 110 sul secondo, perche' i votanti hanno smesso di ammutolire mentre erano
+    convinti. Il conto dei numeri qui sotto e' quel passaggio, non una rigenerazione automatica.
     """
     import hashlib
     import json
 
     atteso = {
-        "base_long_only": (162, 81, 0, "1893915780142472"),
-        "inversione_long_only": (144, 72, 0, "e0bbc454989d0858"),
-        "inversione_short": (316, 72, 86, "8a449d9886d245b5"),
+        "base_long_only": (170, 85, 0, "1f8b9b36a490eff2"),
+        "inversione_long_only": (220, 110, 0, "86ca177d5df050ab"),
+        "inversione_short": (494, 110, 137, "53ea55974cacdcf6"),
     }
     casi = {
         "base_long_only": (candele, {}),
@@ -950,3 +964,123 @@ def test_un_piano_che_non_si_sa_non_si_disegna():
     lunga = _candele(giorni=120, seme=5)
     completa = panels._serie_piani(lunga, ExtraCache(lunga), {"INTERVALLO": "15m"})
     assert {"regime", "struttura"} <= set(completa)
+
+
+# -------------------------------------------------------------------------------------------------
+# Il voto e' opinione per recenza, non recenza soltanto
+# -------------------------------------------------------------------------------------------------
+
+
+def test_nessun_votante_ammutolisce_mentre_tiene_la_posizione(candele):
+    """Il difetto grosso, e quello che produceva «i segnali non arrivano».
+
+    Il voto decadeva verso zero dall'ultimo scatto, indipendentemente dal fatto che il votante
+    fosse ancora convinto. Misurato su 400 giorni sintetici: `zone_regime` in posizione sul 74,5%
+    delle barre e **muto sul 91,3%** di quelle, `zone_struttura` 67,1%, `bande_conferma` 84,4%.
+    Con sette votanti a 1/7 e una soglia di 0,35 servivano due voti e mezzo pieni e allineati, e
+    quasi mai lo erano: il collegio era quasi sempre in minoranza di se stesso.
+    """
+    r = confluence.evaluate(candele, "15m")
+    for nome, voto in r.voti.items():
+        stato = np.asarray(r.stati[nome])
+        in_posizione = stato != 0
+        if not in_posizione.any():
+            continue
+        assert (voto[in_posizione] != 0).all(), f"{nome}: muto mentre tiene la posizione"
+
+    # E il conto che conta: quanti votanti parlano su una barra media.
+    accesi = np.mean([(np.abs(v) > 0).mean() for v in r.voti.values()]) * len(r.voti)
+    assert accesi > len(r.voti) / 2, f"solo {accesi:.2f} votanti su {len(r.voti)} parlano su una barra media"
+
+
+def test_nessun_votante_vota_dopo_essere_uscito(candele):
+    """Il difetto opposto: i voti fantasma.
+
+    `pullback` aveva un voto acceso a posizione gia' chiusa sul 49,0% delle barre. Le bande sono
+    il caso che si vede a occhio: entrano sulla banda inferiore, escono su quella **opposta**, e
+    il voto +1 sopravviveva all'uscita continuando a dire «lungo» dal massimo in giu'.
+    """
+    r = confluence.evaluate(candele, "15m")
+    for nome, voto in r.voti.items():
+        fuori = np.asarray(r.stati[nome]) == 0
+        assert (voto[fuori] == 0).all(), f"{nome}: vota mentre e' fuori posizione"
+
+
+def test_il_voto_e_lo_stato_per_la_recenza(candele):
+    """La forma, in una riga: stesso segno dello stato, forza fra il pavimento e uno."""
+    from cryptofarm.trading.voters import PAVIMENTO_DEL_VOTO
+
+    r = confluence.evaluate(candele, "15m")
+    for nome, voto in r.voti.items():
+        stato = np.asarray(r.stati[nome])
+        dentro = stato != 0
+        if not dentro.any():
+            continue
+        # Il voto e' sull'asse dei voti, lo stato su quello delle posizioni: `convinzione` converte.
+        assert (confluence.convinzione(voto[dentro], 1) * stato[dentro] > 0).all(), f"{nome}: segno discorde"
+        forza = np.abs(voto[dentro])
+        assert (forza >= PAVIMENTO_DEL_VOTO - 1e-9).all(), f"{nome}: sotto il pavimento"
+        assert (forza <= 1.0 + 1e-9).all(), f"{nome}: sopra uno"
+
+
+def test_un_collegio_fermo_non_apre_da_solo(candele):
+    """Il vincolo che sceglie il pavimento, verificato sul motore e non solo sull'aritmetica.
+
+    A pesi a somma 1 un collegio interamente d'accordo e interamente vecchio vale esattamente
+    `pavimento`. Deve restare sotto la soglia **minima raggiungibile** -- `theta_base -
+    theta_macro`, perche' un macro a favore sconta la soglia -- altrimenti la confluenza apre
+    perche' tutti sono dentro, e smette di decidere *quando*.
+    """
+    from cryptofarm.trading.voters import PAVIMENTO_DEL_VOTO
+
+    theta_base, theta_macro = 0.35, 0.15
+    assert PAVIMENTO_DEL_VOTO < theta_base - theta_macro, "un collegio fermo supererebbe la soglia piu' bassa"
+
+    r = confluence.evaluate(candele, "15m", theta_base=theta_base, theta_macro=theta_macro)
+    assert r.soglia.min() >= theta_base - theta_macro - 1e-9, "la soglia non scende sotto il minimo previsto"
+
+
+def test_l_emivita_di_un_voto_ha_un_tetto():
+    """Senza, il piano di regime arriva a `6 x 96 = 576` barre di base: sei giorni di emivita.
+
+    Il tetto e' in **minuti di calendario**, non in barre, perche' e' una durata: «un giorno» deve
+    voler dire un giorno tanto a 15m quanto a 1h, mentre «96 barre» vuol dire due cose diverse.
+    """
+    senza = {p: confluence.emivita_in_barre(6.0, p, 15, None) for p in confluence.FATTORI}
+    assert senza["regime"] == 576.0, "senza tetto il regime resta fuori scala"
+
+    con = {p: confluence.emivita_in_barre(6.0, p, 15, confluence.TETTO_EMIVITA_MINUTI) for p in confluence.FATTORI}
+    assert con["regime"] == 96.0, "un giorno a base 15m sono 96 barre"
+    assert con["innesco"] == senza["innesco"], "i piani corti non vengono toccati dal tetto"
+    assert con["conferma"] == senza["conferma"]
+
+    # La stessa durata su una base diversa da' un numero di barre diverso, che e' il punto.
+    a_un_ora = confluence.emivita_in_barre(6.0, "regime", 60, confluence.TETTO_EMIVITA_MINUTI)
+    assert a_un_ora == 24.0, "un giorno a base 1h sono 24 barre"
+
+    # E il tetto non puo' scendere sotto una barra, che sarebbe un'emivita non rappresentabile.
+    assert confluence.emivita_in_barre(6.0, "regime", 1440, 60) == 1.0
+
+
+def test_l_ampiezza_si_conta_sugli_stati_non_sui_voti(candele):
+    """Punto (5): una famiglia «concorde» dev'essere una famiglia che **ha una posizione**.
+
+    Con i voti, una famiglia contava come concorde finche' la coda del suo voto era sopra epsilon,
+    anche a posizione chiusa da un pezzo -- meta' delle barre, per `pullback`. Oggi il voto e' zero
+    fuori posizione e i due conteggi coincidono, ma il conteggio non deve **dipendere** da quella
+    coincidenza: se un domani il voto cambia forma, l'ampiezza non deve cambiare di nascosto.
+    """
+    r = confluence.evaluate(candele, "15m")
+    famiglie = {v.nome: v.famiglia for v in confluence.VOTANTI}
+
+    # Un voto inventato, di segno opposto allo stato e acceso ovunque, non deve spostare nulla.
+    bugiardi = {n: -np.ones(len(r.indice)) for n in r.stati}
+    assert np.array_equal(
+        confluence._famiglie_concordi(r.stati, famiglie, +1),
+        confluence._famiglie_concordi(r.stati, famiglie, +1),
+    )
+    dagli_stati = confluence._famiglie_concordi(r.stati, famiglie, +1)
+    assert np.array_equal(dagli_stati, r.concordi_lungo), "il motore conta l'ampiezza sugli stati"
+    assert not np.array_equal(
+        dagli_stati, confluence._famiglie_concordi(bugiardi, famiglie, +1)
+    ), "il conteggio deve leggere davvero gli stati che riceve"
