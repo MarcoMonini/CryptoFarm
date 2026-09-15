@@ -559,8 +559,8 @@ def votanti_predefiniti() -> tuple[Votante, ...]:
 
     **Quel che questo non e'.** Non e' un miglioramento del rendimento, e va detto perche' e'
     misurato ed e' il contrario: a soglia ferma, toglierlo fa salire il punteggio, quindi si opera
-    di piu' (BTCUSDT a cancello, 766 operazioni contro 1.088) e su questi dati operare di piu'
-    peggiora sempre -- mediana sui quindici simboli da -48,6% a -57,5%. La diluizione stava
+    di piu' (BTCUSDT a cancello, 456 operazioni contro 622) e su questi dati operare di piu'
+    peggiora sempre -- mediana sui quindici simboli da -39,2% a -46,8%. La diluizione stava
     facendo da rialzo occulto della soglia, e un rialzo occulto della soglia e' esattamente cio'
     che non si vuole: la soglia si sceglie e si misura, non si eredita da chi tace.
     **Ne segue che `theta_base` va misurato sul collegio corretto**, ed e' quel che fa la sezione
@@ -1168,10 +1168,12 @@ def _percorri(
     livello_stop = np.full(len(candele), np.nan)
     posizione = 0
     estremo = 0.0
+    # Vero quando un ingresso e' permesso. Parte vero -- il primo segnale della finestra deve poter
+    # entrare -- e ogni uscita lo spegne finche' la condizione d'ingresso non torna falsa.
+    armato = True
 
     for i in range(1, len(candele)):
         prezzo = chiusure[i]
-        uscito_ora = False
 
         if posizione != 0 and not np.isnan(atr[i - 1]):
             if posizione > 0:
@@ -1180,7 +1182,7 @@ def _percorri(
                 if minimi[i] <= stop:
                     eventi.append((indice[i], float(stop), 0))
                     motivi[indice[i]] = "trailing stop"
-                    posizione, uscito_ora = 0, True
+                    posizione, armato = 0, False
                 else:
                     estremo = max(estremo, massimi[i])
             else:
@@ -1189,7 +1191,7 @@ def _percorri(
                 if massimi[i] >= stop:
                     eventi.append((indice[i], float(stop), 0))
                     motivi[indice[i]] = "trailing stop"
-                    posizione, uscito_ora = 0, True
+                    posizione, armato = 0, False
                 else:
                     estremo = min(estremo, minimi[i])
 
@@ -1216,13 +1218,44 @@ def _percorri(
                         else "score fell through the hysteresis band"
                     )
                 )
-                posizione, uscito_ora = 0, True
+                posizione, armato = 0, False
 
-        # Chi e' appena uscito non rientra sulla stessa barra. L'isteresi frena il punteggio che
-        # oscilla attorno alla soglia, ma non questo: uno stop scattato dentro la barra lascia il
-        # punteggio dov'era, e senza il freno si ricomprerebbe subito pagando due commissioni per
-        # tornare esattamente dov'eravamo.
-        if posizione == 0 and not uscito_ora:
+        # **Dopo un'uscita si rientra su un segnale nuovo, non su uno ancora acceso.**
+        #
+        # Il freno di prima era largo una barra (`not uscito_ora`), e la ragione per cui esisteva
+        # non scade dopo una barra. L'isteresi frena il punteggio che oscilla attorno alla soglia,
+        # ma frenava **solo l'uscita dal punteggio**: quando esce lo stop il punteggio resta dov'e'
+        # -- sopra la soglia -- quindi la condizione d'ingresso era ancora vera sulla barra dopo e
+        # si ricomprava subito. Misurato su BTCUSDT a 15m con soglia 0,25, la sequenza era
+        # letteralmente `stop / ingresso / stop / ingresso` a una barra di distanza, con la
+        # convinzione ferma fra 0,26 e 0,31 contro una soglia fra 0,16 e 0,20: l'opinione non
+        # cambiava mai e si pagavano due commissioni per tornare dov'eravamo. Sul grafico e' il
+        # grappolo di triangoli verdi e rossi sovrapposti che non corrisponde a nessun
+        # attraversamento del punteggio, ed e' da li' che questa correzione e' partita.
+        #
+        # La regola e' a **fronte** e non a livello: ogni uscita disarma, e si riarma solo su una
+        # barra in cui l'interesse e' caduto. Non e' un parametro nuovo e non e' un'attesa: e' la
+        # differenza fra «il segnale c'e' ancora» e «il segnale e' arrivato».
+        #
+        # **Il riarmo guarda la banda, non la soglia**, ed e' la meta' che vale i numeri. La banda
+        # `[soglia - isteresi, soglia]` e' per disegno la zona in cui non si cambia stato: riarmare
+        # a `punteggio < soglia` vuol dire riarmare *dentro* la banda, e allora un punteggio che
+        # sfarfalla di un millesimo sulla soglia riapre lo stesso. Con il riarmo sotto
+        # `soglia - isteresi` la banda vuol dire una cosa sola, all'andata e al ritorno. Misurato
+        # sui quindici simboli a 15m dal 2021, soglia 0,35: operazioni mediane 757 -> 583 -> 484,
+        # rendimento mediano -57,5% -> -55,5% -> -46,8%, drawdown 66,0% -> 62,6% -> 54,9%, dove i
+        # tre valori sono il freno di una barra, il fronte sulla soglia e il fronte sulla banda.
+        #
+        # `debole` **non contiene l'innesco**, di proposito: la rottura e' una condizione di
+        # tempismo, non di interesse, e un innesco che non scatta non deve riarmare niente.
+        #
+        # Sull'uscita da punteggio non cambia quasi niente, ed e' voluto: li' si esce gia' sotto
+        # `soglia - isteresi`, quindi il riarmo e' immediato e la banda resta l'unico freno.
+        # Cambia dove il freno non c'era: lo stop e il cancello.
+        #
+        # `uscito_ora` non serve piu': su una barra d'uscita `armato` e' False per costruzione, e
+        # una barra in cui l'interesse e' caduto non e' una barra d'ingresso.
+        if posizione == 0:
             lungo = (
                 regime[i] > 0
                 and convinzione(punteggio[i], +1) >= soglia[i]
@@ -1236,7 +1269,19 @@ def _percorri(
                 and concordi_corto[i] >= k_famiglie
                 and prezzo < basso[i]
             )
-            if lungo or corto:
+            debole = (
+                regime[i] > 0
+                and convinzione(punteggio[i], +1) >= soglia[i] - isteresi
+                and concordi_lungo[i] >= k_famiglie
+            ) or (
+                allow_short
+                and regime[i] < 0
+                and convinzione(punteggio[i], -1) >= soglia_corta[i] - isteresi
+                and concordi_corto[i] >= k_famiglie
+            )
+            if not debole:
+                armato = True
+            elif armato and (lungo or corto):
                 posizione = 1 if lungo else -1
                 eventi.append((indice[i], float(prezzo), posizione))
                 ingressi.append(i)

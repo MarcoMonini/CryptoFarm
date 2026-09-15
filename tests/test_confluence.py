@@ -478,7 +478,17 @@ def test_il_pavimento_non_trattiene_ne_lo_stop_ne_il_cancello(candele):
 
 def test_la_pazienza_taglia_la_coda_dell_isteresi(candele):
     """L'isteresi come idea e' buona, ma il punteggio decade piano e la posizione restava aperta
-    per ore oltre il primo segnale di uscita."""
+    per ore oltre il primo segnale di uscita.
+
+    **Si misura a 8 e non al default di 24, e il motivo e' una misura.** Con l'ingresso a fronte
+    (il riarmo sotto `soglia - isteresi`) le posizioni si aprono su un segnale appena arrivato
+    invece che su uno ancora acceso, e la coda che `pazienza` era stata inventata per tagliare si
+    e' in gran parte accorciata da sola: su BTCUSDT a 15m dal 2024 il novantesimo percentile e'
+    19,4 barre, cioe' **sotto** le 24 della pazienza, che infatti chiude 7 uscite su 556. Il
+    meccanismo pero' funziona e resta monotono -- su queste candele la coda p90 e' 3,0 barre a
+    pazienza 2 e 4, 7,0 a 8, 31,6 a 16, 35,2 a 24 e senza limite -- ed e' quello che si verifica
+    qui. Il default non e' piu' il valore che morde, ed e' un risultato, non un guasto.
+    """
     import numpy as np
 
     posizione = {quando: i for i, quando in enumerate(candele.index)}
@@ -501,7 +511,8 @@ def test_la_pazienza_taglia_la_coda_dell_isteresi(candele):
                 apertura = None
         return np.percentile(ritardi, 90)
 
-    assert coda(pazienza=24) < coda(pazienza=10**9), "la pazienza non accorcia niente"
+    assert coda(pazienza=8) < coda(pazienza=10**9), "la pazienza non accorcia niente"
+    assert coda(pazienza=8) <= coda(pazienza=16) <= coda(pazienza=10**9), "e non lo fa in modo monotono"
 
 
 def test_la_pazienza_ha_un_motivo_suo(candele):
@@ -874,14 +885,28 @@ def test_gli_eventi_emessi_sono_quelli_pinnati(candele, candele_con_inversione):
     con il pavimento e l'azzeramento del voto: 81 ingressi lunghi diventarono 85 sul primo caso e
     72 diventarono 110 sul secondo, perche' i votanti hanno smesso di ammutolire mentre erano
     convinti. Il conto dei numeri qui sotto e' quel passaggio, non una rigenerazione automatica.
+
+    ## 2026-09-15: il rientro a fronte, e perche' questi numeri si sono quasi dimezzati
+
+    Gli eventi sono passati da 170/220/494 a 88/140/308, e gli ingressi lunghi da 85/110/247 a
+    44/70/154. La rigenerazione e' stata fatta dopo aver guardato il diff, e il diff dice una cosa
+    sola: **il nuovo insieme di eventi e' un sottoinsieme stretto del vecchio -- 82, 80 e 186
+    eventi tolti, e zero eventi nuovi.** Nessuna operazione si e' spostata di una barra o di un
+    prezzo; ne sono semplicemente sparite. Quelle sparite sono i rientri su un segnale ancora
+    acceso dopo un'uscita dallo stop, che pagavano due commissioni per tornare dov'erano.
+
+    Un sottoinsieme stretto e' il controllo che distingue una **de-duplicazione** da un cambio di
+    strategia, ed e' il motivo per cui questa rigenerazione e' accettabile mentre quasi nessun'altra
+    lo sarebbe. La composizione dei motivi non cambia forma: ingresso, stop, isteresi, pazienza
+    restano tutti presenti e nelle stesse proporzioni.
     """
     import hashlib
     import json
 
     atteso = {
-        "base_long_only": (170, 85, 0, "1f8b9b36a490eff2"),
-        "inversione_long_only": (220, 110, 0, "86ca177d5df050ab"),
-        "inversione_short": (494, 110, 137, "53ea55974cacdcf6"),
+        "base_long_only": (88, 44, 0, "2722d4acb1b2a41e"),
+        "inversione_long_only": (140, 70, 0, "d2ede53ad692a0d1"),
+        "inversione_short": (308, 70, 84, "c391598fa8161c47"),
     }
     casi = {
         "base_long_only": (candele, {}),
@@ -1238,6 +1263,50 @@ def test_il_default_dello_stop_arriva_ai_widget(candele):
     # quello dell'altra macchina: `confluenza_di` riempie i buchi, ed e' li' che si sbagliava.
     a_inversione = panels.confluenza_di(candele, {"INTERVALLO": "15m", "CONF_MODALITA": "inversione"})
     assert np.isnan(a_inversione.stop).all(), "il buco si e' riempito con lo stop dell'altra modalita'"
+
+
+def test_dopo_un_uscita_non_si_rientra_su_un_segnale_ancora_acceso(candele_con_inversione):
+    """Il difetto che si vedeva a occhio sul grafico: grappoli di triangoli verdi e rossi.
+
+    Lo stop chiude **mentre il punteggio e' ancora sopra la soglia** -- e' una regola di rischio,
+    non di opinione -- quindi sulla barra dopo la condizione d'ingresso era ancora vera e si
+    ricomprava subito. L'isteresi non lo frenava, perche' frena solo l'uscita dal punteggio, e il
+    freno che c'era era largo una barra. Misurato su BTCUSDT a 15m con soglia 0,25, la sequenza era
+    `stop / ingresso / stop / ingresso` a una barra di distanza con la convinzione ferma fra 0,26
+    e 0,31 contro una soglia fra 0,16 e 0,20: l'opinione non cambiava mai.
+
+    Due asserzioni, e la seconda e' quella che conta davvero.
+    """
+    r = confluence.evaluate(candele_con_inversione, "15m", theta_base=0.25, k_famiglie=2)
+    indice = candele_con_inversione.index
+    posizioni = [indice.get_loc(e[0]) for e in r.eventi]
+    motivi = [("ingresso" if e[2] != 0 else r.motivi.get(e[0], "")) for e in r.eventi]
+
+    # 1. Nessuna uscita seguita da un ingresso sulla barra dopo: era la firma del difetto.
+    subito = [
+        motivi[k]
+        for k in range(len(motivi) - 1)
+        if posizioni[k + 1] - posizioni[k] <= 1 and motivi[k] != "ingresso" and motivi[k + 1] == "ingresso"
+    ]
+    assert not subito, f"si rientra sulla barra dopo l'uscita: {len(subito)} volte, da {set(subito)}"
+
+    # 2. Quella che conta: fra un'uscita e l'ingresso seguente ci deve essere **almeno una barra**
+    #    in cui la condizione d'ingresso era falsa. Senza, si passerebbe la prima asserzione anche
+    #    solo allargando il freno a due barre -- cioe' lo stesso difetto con un numero diverso.
+    #
+    #    La condizione si legge dalle serie pubblicate invece di riderivare `debole`: un test che
+    #    ricopia la regola che sta verificando non verifica niente. Con `innesco=0` (il default)
+    #    la rottura e' sempre vera, quindi restano cancello, punteggio e ampiezza. Il confronto e'
+    #    sulla **soglia** e non sulla banda, cioe' e' piu' debole della regola vera: qui si vuole
+    #    pinnare «non si rientra su un segnale che non se n'e' mai andato», non la taratura.
+    acceso = (r.regime > 0) & (confluence.convinzione(r.punteggio, +1) >= r.soglia) & (r.concordi_lungo >= 2)
+    for k in range(1, len(r.eventi)):
+        if r.eventi[k][2] == 0:
+            continue
+        fra = acceso[posizioni[k - 1] + 1 : posizioni[k]]
+        assert (
+            len(fra) and not fra.all()
+        ), f"ingresso a {r.eventi[k][0]} su un segnale mai spentosi dall'uscita precedente"
 
 
 def test_una_modalita_sconosciuta_si_fa_notare(candele):

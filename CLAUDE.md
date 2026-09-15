@@ -332,6 +332,15 @@ Things to know before touching it:
   0.15 at a time and one score-driven exit in four was decided by that jump;
 - **the hysteresis has a floor and a ceiling** (`barre_minime`, `pazienza`), and they apply **only
   to the score-driven exit**. The stop and the gate do not: they are risk rules, not opinions;
+- **entry is edge-triggered after an exit** (2026-09-15). Every exit disarms entry; it re-arms only
+  on a bar where interest has fallen below `soglia - isteresi` — the same band that governs the
+  exit, so the band means one thing in both directions. Before this, the brake was one bar wide, and
+  since the stop fires while the score is still above the threshold, the strategy bought back the
+  next bar on an unchanged opinion: on BTCUSDT the sequence was literally `stop / entry / stop /
+  entry` one bar apart, which is the cluster of overlapping markers that made the chart look random.
+  Fixing it cut the median trade count from 757 to 484 at θ=0.35 and the drawdown from 66.0% to
+  54.9%, and the new event set is a **strict subset** of the old one — zero events added. It also
+  made `pazienza` nearly inert at its default, which is recorded rather than re-tuned;
 - **the expensive part does not depend on the grid.** Frozen voters have a state that depends only
   on (symbol, interval): `stati_dei_votanti` computes it once and `scripts/confluence_lab.py` reuses
   it across every cell. Measured over 11,520 bars: 351 ms per cell against 104 ms;

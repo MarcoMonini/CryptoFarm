@@ -1266,8 +1266,8 @@ it was present and mute** — and the test suite changed outcome depending on wh
 registry, so `selezione("modello")` reaches it.
 
 **This is not a return improvement, and the measurement says the opposite.** At a fixed threshold,
-removing it raises the score, so the strategy trades more — BTCUSDT gated, 766 trades against 1,088
-— and on this data trading more is always worse: median over the fifteen from −48.6% to −57.5%. The
+removing it raises the score, so the strategy trades more — BTCUSDT gated, 456 trades against 622 —
+and on this data trading more is always worse: median over the fifteen from −39.2% to −46.8%. The
 dilution was acting as a hidden increase in the threshold. A hidden increase in the threshold is
 exactly what is not wanted: the threshold is chosen and measured, not inherited from whoever is
 silent. Which is what the next section does.
@@ -1349,3 +1349,91 @@ have to move, and neither is a parameter:
 
 The honest summary of both modes is now the same one: no configuration of this family beats holding
 the asset, and the gradient of every parameter points at not trading.
+
+
+## The gated mode re-entered on a signal that had never gone away (2026-09-15)
+
+Found by looking at the page. The chart showed dense clusters of overlapping green and red
+triangles in places where the score never crossed anything — trades that corresponded to no
+decision — while the score line itself was crossing the thresholds at sensible moments elsewhere.
+This is the gated mode, not the reversal one: the two threshold lines are `2·theta_base` apart and
+move in opposite directions, which only `cancello` does.
+
+### The sequence
+
+BTCUSDT at 15m, `theta_base = 0.25`, everything else at its default:
+
+```
+07-22 01:15  →  0   trailing stop     conv +0.312 vs threshold 0.164
+07-22 01:30  → +1   entry             conv +0.308 vs threshold 0.164
+07-22 05:15  →  0   trailing stop     conv +0.258 vs threshold 0.176
+07-22 05:30  → +1   entry             conv +0.256 vs threshold 0.179
+07-22 12:30  →  0   trailing stop     conv +0.271 vs threshold 0.192
+07-22 12:45  → +1   entry             conv +0.268 vs threshold 0.200
+```
+
+The conviction never leaves the 0.26–0.31 band and the threshold never leaves 0.16–0.20. **The
+opinion does not change once.** What changes is that the trailing stop keeps firing, and one bar
+later the entry condition is — still — true, so it buys back. Two commissions per round trip to
+return exactly where it was. 27% of all event gaps were a single bar.
+
+### Why the existing brakes did not catch it
+
+The hysteresis brakes the score oscillating around the threshold, and it brakes **only the
+score-driven exit**: you leave when conviction falls under `soglia - isteresi`. The stop is a risk
+rule and fires while conviction is still well above `soglia`, so no band is ever crossed and the
+entry condition is untouched by the exit. The only brake on re-entry was `not uscito_ora` — one bar
+wide — and its own comment gave the right reason ("a stop fired inside the bar leaves the score
+where it was, and without the brake it would buy back immediately paying two commissions to return
+exactly where we were") for a guard that expires after one bar while the reason does not.
+
+### The rule: entry is edge-triggered, and the edge is the band
+
+Every exit disarms entry. Entry re-arms only on a bar where interest has fallen away — and
+"fallen away" is measured against `soglia - isteresi`, the same band that governs the exit, not
+against `soglia`. Re-arming at `soglia` means re-arming *inside* the band, so a score flickering by
+a thousandth on the threshold reopens anyway.
+
+No new parameter: it is the difference between "the signal is still on" and "the signal has
+arrived". The trigger (`innesco`) is deliberately **not** part of the re-arm condition — a breakout
+is a timing condition, not an interest one, and a trigger that fails to fire must not re-arm
+anything.
+
+Fifteen assets at 15m from 2021, the three engines being the old one-bar brake, edge-on-threshold
+and edge-on-band:
+
+| θ = 0.35 | trades (median) | return (median) | drawdown (median) | `stop → entry` within 2 bars |
+|---|---:|---:|---:|---:|
+| one-bar brake | 757 | −57.5% | 66.0% | 4,631 |
+| edge on the threshold | 583 | −55.5% | 62.6% | 32 |
+| **edge on the band** | **484** | **−46.8%** | **54.9%** | **6** |
+
+| θ = 0.25 | trades | return | drawdown |
+|---|---:|---:|---:|
+| one-bar brake | 1,637 | −85.1% | 87.3% |
+| edge on the band | 682 | −65.4% | 69.3% |
+
+Better on every axis and at both thresholds, and still nowhere near profitable — which is the same
+answer this document has given for every other change.
+
+### The check that says it is a de-churn and not a new strategy
+
+The pinned events moved a lot: 170 → 88, 220 → 140, 494 → 308. The regeneration was accepted
+because of one measurement: **the new event set is a strict subset of the old one — 82, 80 and 186
+events removed, and zero events added.** No trade moved to a different bar or price; trades only
+disappeared, and the ones that disappeared are the re-entries on an unchanged opinion. The mix of
+exit reasons keeps its shape (entry, stop, hysteresis, patience all still present).
+
+That subset check is the thing to repeat before regenerating this golden for a change that claims
+to remove duplicated trades. Without it, "fewer trades" and "different trades" look identical in
+the diff.
+
+### A side effect worth recording: `pazienza` barely binds any more
+
+`pazienza` exists to cut the tail where the score decays slowly and a position stays open for hours
+past the first exit signal. With entries now firing on a fresh signal instead of a stale one,
+positions open further above the threshold and that tail has largely gone: on BTCUSDT at 15m from
+2024 the 90th percentile of the tail is 19.4 bars, i.e. **below** the default patience of 24, which
+closes 7 exits out of 556. The mechanism still works and is still monotone — on the synthetic
+scenario the p90 tail is 3.0 bars at patience 2 and 4, 7.0 at 8, 31.6 at 16, and 35.2 at 24 and
+above — it simply is no longer the default that bites. The test now measures it at 8, and says why.
