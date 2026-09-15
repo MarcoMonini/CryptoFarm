@@ -639,18 +639,40 @@ class Confluenza:
         return self.soglia if verso >= 0 else self.soglia_corta
 
     def spiega(self, quando) -> str:
-        """Perche' quella barra ha operato. Una riga, e **diversa per gli ingressi e le uscite**.
+        """Perche' quella barra ha operato. Una riga, e **diversa per ogni modalita'**.
 
-        Non e' una rifinitura: quattro uscite su cinque sono lo stop a trailing, e su quelle il
-        punteggio e i votanti non c'entrano niente. Mostrarli lo stesso -- com'era scritto la prima
-        volta -- fa leggere «venduto mentre cinque votanti dicevano di comprare», che e' vero e del
-        tutto fuorviante: quella posizione l'ha chiusa il prezzo, non il voto.
+        In `cancello` distingue ingressi e uscite, e non e' una rifinitura: quattro uscite su
+        cinque sono lo stop a trailing, e su quelle il punteggio e i votanti non c'entrano niente.
+        Mostrarli lo stesso -- com'era scritto la prima volta -- fa leggere «venduto mentre cinque
+        votanti dicevano di comprare», che e' vero e del tutto fuorviante.
+
+        In `inversione` **non esistono uscite**: ogni evento e' un ribaltamento, e la riga dice il
+        verso in cui si e' finiti. Riusare il ramo di `cancello` scriveva «exit — trailing stop
+        reversal» sopra un marcatore d'acquisto, che e' la stessa illeggibilita' al contrario.
         """
         quando = pd.Timestamp(quando)
         i = self.indice.get_indexer([quando], method="pad")[0]
         if i < 0:
             return ""
         motivo = self.motivi.get(quando)
+        if self.modalita == "inversione":
+            # Qui **non esistono uscite**: ogni evento e' un ribaltamento, e chiamarlo «exit» su un
+            # marcatore d'acquisto e' esattamente il modo di rendere illeggibile un grafico. La riga
+            # dice il verso in cui si e' finiti, poi cosa l'ha deciso.
+            verso = next((e[2] for e in self.eventi if e[0] == quando), 0)
+            if not verso:
+                return ""
+            testa = "long" if verso > 0 else "short"
+            if motivo == "trailing stop reversal":
+                livello = f" at {self.stop[i]:.2f}" if self.stop is not None and not np.isnan(self.stop[i]) else ""
+                return f"{testa} — reversed by the trailing stop{livello}"
+            parti = [
+                f"{nome} {self.pesi[nome] * voto[i]:+.2f}" for nome, voto in self.voti.items() if abs(voto[i]) > 1e-9
+            ]
+            limite = VERSO_DEL_VOTO * verso * self.soglia[i]
+            return f"{testa} — score {self.punteggio[i]:+.2f} crossed {limite:+.2f} · " + ", ".join(
+                parti or ["no active voter"]
+            )
         if motivo:
             coda = ""
             if motivo == "trailing stop" and self.stop is not None and not np.isnan(self.stop[i]):

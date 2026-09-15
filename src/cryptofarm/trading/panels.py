@@ -814,11 +814,41 @@ def _confluenza_lunga(df: pd.DataFrame, valori: dict) -> tuple[list, list]:
     risultato = confluenza_di(df, valori)
     if risultato is None:
         return [], []
-    compra, vende = _solo_lunghe(risultato.eventi)
+    if risultato.modalita == "inversione":
+        # **`_solo_lunghe` qui non funziona, e falliva in silenzio.** Tiene come vendite i soli
+        # eventi con obiettivo zero, e in questa modalita' gli eventi a zero non esistono per
+        # costruzione: ogni ribaltamento corto finiva scartato e sul grafico restavano solo
+        # triangoli d'acquisto, senza una sola vendita. Qui un ribaltamento corto **e'** la
+        # vendita della posizione lunga precedente, ed e' cosi' che va disegnato.
+        compra = [(q, pr) for q, pr, o in risultato.eventi if o > 0]
+        vende = [(q, pr) for q, pr, o in risultato.eventi if o <= 0]
+    else:
+        compra, vende = _solo_lunghe(risultato.eventi)
     return (
         [(quando, prezzo, risultato.spiega(quando)) for quando, prezzo in compra],
         [(quando, prezzo, risultato.spiega(quando)) for quando, prezzo in vende],
     )
+
+
+def eventi_di_posizione(strategia: str, df: pd.DataFrame, valori: dict) -> list | None:
+    """I cambi di posizione da eseguire con `pnl.simulate_positions`, o `None` se non servono.
+
+    La pagina e' costruita su due liste, acquisti e vendite, che `simulate_trading_with_commisions`
+    accoppia per indice. Quel formato sa dire «dentro» e «fuori» e **non sa rappresentare una
+    posizione corta**: su una strategia sempre a mercato conterebbe le gambe lunghe e tratterebbe
+    quelle corte come tempo passato in contanti, cioe' mostrerebbe un profitto che non e' quello
+    della strategia. I marcatori si possono disegnare lo stesso -- un ribaltamento corto e' la
+    vendita del lungo precedente -- ma il conto no.
+
+    Restituisce gli eventi grezzi `(quando, prezzo, obiettivo)` solo per la confluenza in modalita'
+    inversione; per tutto il resto `None`, e la pagina resta sul motore di sempre.
+    """
+    if strategia != CONFLUENZA:
+        return None
+    risultato = confluenza_di(df, valori)
+    if risultato is None or risultato.modalita != "inversione":
+        return None
+    return [e[:3] for e in risultato.eventi]
 
 
 VUOTA = "-"  # la voce che non seleziona nessuna strategia: si mostra tutto

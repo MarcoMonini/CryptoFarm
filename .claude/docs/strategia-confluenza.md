@@ -1171,6 +1171,30 @@ the position back on the bar right after a stop reversal. At threshold 0.35 it i
 at 0.15 it is 322 out of 1,591. No brake is wired in, deliberately — a brake would be one more
 parameter — and the number is there so the decision to add one is taken on evidence.
 
+### The page could not draw it, and the first version shipped broken
+
+Worth writing down because the engine was tested and the page was not, and the failure was visible
+at a glance while every test passed.
+
+The page is built on two lists, buys and sells, which `simulate_trading_with_commisions` pairs by
+index. `_solo_lunghe` maps them from position changes by keeping `obiettivo > 0` as buys and
+`obiettivo == 0` as sells. In `inversione` **there are no zero events by construction** — that is
+the whole point of the mode — so every short reversal was dropped and the chart showed nothing but
+green buy triangles, with not one sell. The hover made it worse: `spiega` labelled anything with a
+reason as `exit —`, so a reversal read "exit — trailing stop reversal" printed above a *buy* marker.
+
+Three fixes, and the third is the one that was not visible:
+
+- **markers**: a short reversal *is* the sale of the preceding long, so it draws as a sell;
+- **`spiega`**: in `inversione` there are no exits, only reversals, and the line names the side it
+  ended up on (`long — score -0.38 crossed -0.35 · …`, `short — reversed by the trailing stop at …`);
+- **the P&L**: two lists can say "in" and "out", never "short". On an always-in strategy
+  `simulate_trading_with_commisions` counts the long legs and treats every short leg as time spent
+  in cash — a number that looks authoritative and is not the strategy's. `panels.eventi_di_posizione`
+  hands the raw position changes to `pnl.simulate_positions`, which knows the side and also charges
+  the daily carry that an always-open position cannot be shown without. The markers can be drawn
+  either way; the accounting cannot.
+
 ### What is **not** measured
 
 Everything above is trade counts, durations and exposure on synthetic data: **no return, no Sharpe,

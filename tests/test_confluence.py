@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cryptofarm.trading import config as confluence_config
 from cryptofarm.trading import confluence, panels
 from cryptofarm.trading.indicators_extra import ExtraCache
 
@@ -1206,3 +1207,62 @@ def test_in_inversione_la_pagina_accende_il_verso_corto_da_se(candele):
     r = panels.confluenza_di(candele, {**valori, "CONF_MODALITA": "inversione"})
     versi = [e[2] for e in r.eventi]
     assert -1 in versi, "la pagina deve accendere il verso corto in inversione"
+
+
+# -------------------------------------------------------------------------------------------------
+# La pagina in modalita' inversione: due liste che non sanno dire «corto»
+# -------------------------------------------------------------------------------------------------
+
+
+def test_in_inversione_la_pagina_disegna_anche_le_vendite(candele_con_inversione):
+    """Il difetto che si vedeva a occhio: solo triangoli verdi, nemmeno una vendita.
+
+    `_solo_lunghe` tiene come vendite i soli eventi con obiettivo **zero**, e in inversione gli
+    eventi a zero non esistono per costruzione: ogni ribaltamento corto finiva scartato. Un
+    ribaltamento corto *e'* la vendita della posizione lunga precedente, ed e' cosi' che va
+    disegnato.
+    """
+    valori = {**panels.valori_predefiniti(), "INTERVALLO": "15m", "CONF_MODALITA": "inversione"}
+    compra, vende = panels.STRATEGIE[confluence_config.CONFLUENCE_STRATEGY].esegui(candele_con_inversione, None, valori)
+
+    assert compra and vende, "servono marcatori in tutti e due i versi"
+    assert abs(len(compra) - len(vende)) <= 1, "sempre a mercato: acquisti e vendite si alternano"
+
+    # E si alternano davvero nel tempo, non sono due grappoli separati.
+    ordinati = sorted([(q, "buy") for q, _, _ in compra] + [(q, "sell") for q, _, _ in vende])
+    versi = [v for _, v in ordinati]
+    assert all(a != b for a, b in zip(versi, versi[1:])), "due marcatori di fila nello stesso verso"
+
+
+def test_in_inversione_nessun_marcatore_si_chiama_uscita(candele_con_inversione):
+    """«exit — trailing stop reversal» sopra un triangolo d'acquisto: la riga diceva il contrario
+    di quel che il marcatore mostrava. In inversione non ci sono uscite, solo ribaltamenti."""
+    r = confluence.evaluate(candele_con_inversione, "15m", modalita="inversione", allow_short=True)
+    for quando, _, verso in r.eventi:
+        riga = r.spiega(quando)
+        assert not riga.startswith("exit"), f"{quando}: un ribaltamento chiamato uscita"
+        assert riga.startswith("long" if verso > 0 else "short"), f"{quando}: la riga non dice il verso"
+
+
+def test_il_conto_in_inversione_passa_dal_motore_che_conosce_il_verso(candele_con_inversione):
+    """Il difetto peggiore, perche' non si vedeva: il profitto era quello delle sole gambe lunghe.
+
+    Due liste sanno dire «dentro» e «fuori», non «corto»: su una strategia sempre a mercato
+    `simulate_trading_with_commisions` tratta ogni gamba corta come tempo passato in contanti. I
+    marcatori si possono disegnare lo stesso, il conto no.
+    """
+    from cryptofarm.trading.pnl import simulate_positions
+
+    valori = {**panels.valori_predefiniti(), "INTERVALLO": "15m", "CONF_MODALITA": "inversione"}
+    eventi = panels.eventi_di_posizione(confluence_config.CONFLUENCE_STRATEGY, candele_con_inversione, valori)
+    assert eventi is not None, "in inversione la pagina deve passare dagli eventi di posizione"
+    assert {e[2] for e in eventi} == {1, -1}, "gli eventi portano il verso"
+
+    operazioni = simulate_positions(eventi, wallet=100, fee_percent=0.1)
+    lati = {o["Side"] for o in operazioni}
+    assert lati == {"long", "short"}, "il conto deve contenere tutte e due le gambe"
+
+    # E fuori da quella modalita' la pagina resta sul motore di sempre.
+    a_cancello = {**valori, "CONF_MODALITA": "cancello"}
+    assert panels.eventi_di_posizione(confluence_config.CONFLUENCE_STRATEGY, candele_con_inversione, a_cancello) is None
+    assert panels.eventi_di_posizione("Ichimoku Trend", candele_con_inversione, valori) is None

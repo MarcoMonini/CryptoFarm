@@ -21,7 +21,7 @@ from cryptofarm.trading.market_data import (
     get_market_data,
     get_market_data_between_dates,
 )
-from cryptofarm.trading.pnl import simulate_trading_with_commisions
+from cryptofarm.trading.pnl import simulate_positions, simulate_trading_with_commisions
 from cryptofarm.trading.strategies import identify_trend_zones
 
 # Disattiva i FutureWarning
@@ -166,9 +166,18 @@ def trading_analysis(
             st.stop()
         buy_signals, sell_signals = voce.esegui(df, cache, valori)
 
-    operations = simulate_trading_with_commisions(
-        wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
-    )
+    # Una strategia sempre a mercato non e' rappresentabile con due liste: `buy_signals` e
+    # `sell_signals` sanno dire «dentro» e «fuori», non «corto». Quando la confluenza gira a
+    # inversione il conto passa da `simulate_positions`, che il verso lo conosce -- e che addebita
+    # anche il costo di mantenimento, il quale su una posizione sempre aperta non e' un dettaglio.
+    # I marcatori restano quelli di sopra: un ribaltamento corto **e'** la vendita del lungo.
+    eventi_posizione = panels.eventi_di_posizione(strategia, df, valori)
+    if eventi_posizione is not None:
+        operations = simulate_positions(eventi_posizione, wallet=wallet, fee_percent=fee_percent)
+    else:
+        operations = simulate_trading_with_commisions(
+            wallet=wallet, buy_signals=buy_signals, sell_signals=sell_signals, fee_percent=fee_percent
+        )
 
     # ======================================
     # Il grafico, costruito da `panels` invece che da un elenco fisso.
