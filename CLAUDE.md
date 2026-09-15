@@ -45,7 +45,11 @@ Project decisions and the state of the work live in **`.claude/docs/`**:
   threshold inherited from the gated mode), and then no threshold that trades makes money — at
   θ ≥ 0.60 it makes **zero trades** and ranks at the top of its own sweep. Not a sign defect:
   inverting every position is far worse, the payoff ratio is 1.82 and the hit rate 33.7% against
-  the 35.5% it needs.
+  the 35.5% it needs. A full coordinate scan of every live parameter followed (1,980 cells, fifteen
+  assets, in/out of sample) and **changed no default**: the in-sample rank does not predict the
+  out-of-sample one (Spearman **+0.056**), the combined in-sample winners are worse than the centre
+  even in sample, and the only thing that transfers is trading less (trade count vs out-of-sample
+  return, Spearman −0.413; vs in-sample return, −0.040);
 - `.claude/docs/strategie-nuove.md` — the sequel: the four corrections applied, the 2021-2026 cycle
   as a dataset, five new strategies and the engine that can also go short.
 - `.claude/docs/politica-rl.md` — **the reinforcement policy, wired in (2026-08-28).** The three

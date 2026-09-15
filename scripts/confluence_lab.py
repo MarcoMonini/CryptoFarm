@@ -57,6 +57,7 @@ from cryptofarm.trading import confluence, rotation, strategies_ls
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.pnl import annualised, drawdown, simulate_positions
 from cryptofarm.trading.portfolio import curva_capitale, simulate_shared_capital
+from cryptofarm.trading.voters import PAVIMENTO_DEL_VOTO
 
 SIMBOLO = "BTCUSDT"
 INTERVALLO = "15m"
@@ -110,6 +111,13 @@ CENTRO: dict = {
     # risolve `confluence.evaluate` da `STOP_PREDEFINITO` -- 3 ATR dove chiude, 0 dove ribalta.
     # Scriverlo qui avrebbe acceso nella modalita' a inversione lo stop che li' decide il 98%
     # delle operazioni, cioe' avrebbe misurato l'altra macchina.
+    #
+    # La forma del voto. Non hanno widget -- si girano per misurare l'ablazione, non a occhio sulla
+    # pagina -- ma sono **vivi**, e una scansione per coordinata che non li copre lascia due
+    # parametri scelti e mai messi alla prova. Il tetto in particolare morde forte: da 1.440 minuti
+    # a 180 gli eventi di BTCUSDT passano da 76 a 9.
+    "pavimento": PAVIMENTO_DEL_VOTO,
+    "tetto_emivita": float(confluence.TETTO_EMIVITA_MINUTI),
     "regime_ema": 50,
     "struttura_ema": 50,
     "barre_in_formazione": True,
@@ -126,7 +134,10 @@ SCANSIONE: dict[str, list] = {
     "k_famiglie": [1, 2, 3, 4, 5, 6],
     "innesco": [0, 2, 4, 8, 12, 24, 48],
     "atr_window": [5, 7, 10, 14, 20, 30, 50],
-    "atr_multiplier": [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0],
+    "atr_multiplier": [0.0, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0],
+    "pavimento": [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40],
+    # `None` e' «nessun tetto», che e' il comportamento vecchio e l'estremo dell'ablazione.
+    "tetto_emivita": [180.0, 360.0, 720.0, 1440.0, 2880.0, 5760.0, None],
     "regime_ema": [10, 20, 30, 50, 80, 120, 200],
     "struttura_ema": [10, 20, 30, 50, 80, 120, 200],
     "barre_in_formazione": [True, False],
@@ -203,7 +214,33 @@ def celle(nome: str, modalita: str = "cancello") -> list[dict]:
 # I parametri che la modalita' a inversione **non legge**: metterli in una griglia moltiplicherebbe
 # le celle per il numero dei loro valori senza cambiare una sola operazione, cioe' spenderebbe ore
 # per righe identiche e gonfierebbe la correzione di molteplicita' con prove che non sono prove.
-PARAMETRI_IGNORATI = ("theta_macro", "isteresi", "barre_minime", "pazienza", "k_famiglie", "innesco")
+#
+# L'elenco e' verificato a misura, non a lettura: `test_in_inversione_i_parametri_ignorati_sono_inerti`
+# gira ciascuno di questi ai due estremi del suo intervallo e pretende **gli stessi eventi**. Chi
+# collega uno di questi al motore a inversione lo vede fallire, che e' il solo modo per cui una
+# lista scritta a mano non diventa una bugia.
+#
+# Le quattro aggiunte del 2026-09-15 rispetto alla prima versione:
+# - `regime_ema` e `struttura_ema` alimentano solo `macro`, e in inversione lo sconto macro e'
+#   spento (soglia costante), quindi i due piani restano disegnati sul grafico e basta;
+# - `barre_in_formazione` decide *quale prezzo* entra in quei due piani, quindi cade con loro;
+# - `w_max` e' il tetto per votante, e con sette votanti a peso uguale (0,143) un tetto di 0,30
+#   non morde mai. E' inerte anche a cancello, ed e' li' per la versione tarata a pesi disuguali.
+#
+# `atr_window` **non** e' in lista, ed e' una distinzione che conta: e' inerte solo finche' lo stop
+# e' spento, cioe' al suo default in questa modalita'. Chi accende lo stop lo rende vivo.
+PARAMETRI_IGNORATI = (
+    "theta_macro",
+    "isteresi",
+    "barre_minime",
+    "pazienza",
+    "k_famiglie",
+    "innesco",
+    "regime_ema",
+    "struttura_ema",
+    "barre_in_formazione",
+    "w_max",
+)
 
 
 # ---------------------------------------------------------------------------------------------

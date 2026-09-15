@@ -1437,3 +1437,102 @@ positions open further above the threshold and that tail has largely gone: on BT
 closes 7 exits out of 556. The mechanism still works and is still monotone — on the synthetic
 scenario the p90 tail is 3.0 bars at patience 2 and 4, 7.0 at 8, 31.6 at 16, and 35.2 at 24 and
 above — it simply is no longer the default that bites. The test now measures it at 8, and says why.
+
+
+## Tuning of `inversione`: every parameter, and the answer is «none of them» (2026-09-15)
+
+A full coordinate scan of every parameter the reversal mode actually reads, on fifteen assets at
+15m from 2021, split in sample 2021-2023 and out of sample 2024-2026. 1,980 cells. Selection rule
+identical to `scripts/tune_defaults.py`: percentile rank within each symbol, median of those ranks
+across symbols, a value adopted only if it moves the median rank by at least 0.06 **and** the
+out-of-sample period picks the same value.
+
+### First: five parameters out of seventeen are inert here
+
+Measured, not read off the source — each run at both ends of its scan range, demanding identical
+events. `theta_macro`, `isteresi`, `barre_minime`, `pazienza`, `k_famiglie` and `innesco` were
+already known; the scan added four more:
+
+- `regime_ema` and `struttura_ema` feed only `macro`, and in `inversione` the macro discount is off,
+  so the two planes are drawn on the chart and nothing else;
+- `barre_in_formazione` decides *which price* enters those two planes, so it falls with them;
+- `w_max` is the per-voter cap, and with seven equal-weight voters (0.143) a cap of 0.30 never
+  binds — it is inert in `cancello` too, and exists for a tuned unequal-weight version.
+
+`atr_window` is deliberately **not** on that list: it is inert only while the stop is off, which is
+its default in this mode. Turning the stop on makes it live. `PARAMETRI_IGNORATI` is now pinned by
+a test that runs each entry at both extremes, so the list cannot quietly become a lie.
+
+Two live parameters were missing from the coordinate scan and are now in it: `pavimento` and
+`tetto_emivita`. They have no widget — they are ablation knobs — but they are live, and the cap
+bites hard: from 1,440 minutes to 180, BTCUSDT goes from 76 events to 9.
+
+### The result: 26 of 28 discriminate, 3 are stable, and 0 are worth adopting
+
+| | |
+|---|---|
+| parameters that move the median rank by ≥ 0.06 | 26 / 28 |
+| …of those, that pick the same value out of sample | **3** |
+| …of those, that are not already the default | 2 |
+| …of those, that improve the out-of-sample return | **0** |
+
+The three stable ones are `atr_multiplier = 0` (already the default since the stop fix, and by far
+the strongest result in the whole table: rank 1.000, range 0.800), `ichimoku.span 52 → 104` and
+`zone_struttura.slow 50 → 25`. Both of the latter make the out-of-sample median *worse* — −54.7%
+and −61.6% against −54.1% at the current value. They win on rank and lose on return, which fifteen
+heavily skewed symbols allow.
+
+### Why nothing is worth adopting, in one number
+
+**The in-sample rank does not predict the out-of-sample rank: Spearman +0.056** over all 1,980
+cells. There is nothing to tune towards. This is the same finding the rotation produced (−0.69
+between in-sample and out-of-sample return) in a milder form: not actively misleading, just empty.
+
+The combination check makes it concrete. Taking every coordinate winner and applying them together:
+
+| configuration | return IS | return OOS | trades OOS | drawdown OOS | beats passive OOS |
+|---|---:|---:|---:|---:|---:|
+| `theta_base = 0.45` alone | −99.2% | **+24.2%** | 17 | 55.5% | 9/15 |
+| the 2 stable winners | +100.4% | −16.5% | 93 | 68.0% | 7/15 |
+| **all in-sample winners together** | −51.7% | −31.5% | 333 | 73.9% | 6/15 |
+| passive holding | +184.2% | −33.8% | 1 | — | — |
+| `theta_base = 0.25` alone | −4.9% | −52.6% | 185 | 83.1% | 6/15 |
+| current defaults | −29.6% | −54.1% | 86 | 85.8% | 6/15 |
+
+Two things to read there. The combined winner set is worse than the centre **in sample as well**
+(−51.7% against −29.6%): each winner was chosen with everything else at the centre, and together
+they interact. And `theta_base = 0.45` is the *worst* configuration in sample and the *best* out of
+sample, which is the anti-correlation itself, in one row. Adopting 0.45 because it wins out of
+sample is the same mistake aimed at the other half of the data, and it is not adopted.
+
+### The one thing that does transfer: trading less
+
+| | Spearman vs out-of-sample return | vs in-sample return |
+|---|---:|---:|
+| in-sample rank | +0.056 | — |
+| **number of trades** | **−0.413** | −0.040 |
+
+Trade count predicts the out-of-sample return and does *not* predict the in-sample one — so it is
+not a fitted relationship, it is a cost. By decile of trade count, over all cells:
+
+| trades (median) | 16 | 68 | 77 | 80 | 82 | 86 | 90 | 93 | 108 | 2,000 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| return OOS | −15.8% | −48.6% | −42.7% | −51.1% | −50.4% | −62.3% | −57.3% | −62.5% | −57.0% | −95.4% |
+| drawdown OOS | 57.9% | 76.4% | 74.8% | 80.9% | 81.9% | 84.9% | 82.4% | 83.5% | 80.7% | 96.4% |
+
+Every parameter in this strategy is, out of sample, a proxy for how often it trades, and the
+gradient runs monotonically to the limit of not trading at all. That is not a tuning; it is the
+same verdict this document has recorded for the gated mode, reached from the other direction.
+
+### What changed in the defaults
+
+Nothing, and that is the result. The only parameter the scan confirms is `atr_multiplier = 0`,
+which the stop fix had already made the default and which this scan ranks first by a wide margin.
+Every other default stands because no alternative passes both checks — which is the rule
+`tune_defaults` applies, used here for the first time on the confluence.
+
+Reproduce the scan with:
+
+```bash
+.venv312/bin/python -m scripts.confluence_lab --grid coordinate --modalita inversione --interval 15m
+```

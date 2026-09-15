@@ -7,6 +7,7 @@ che ha i dati e' un banco che fa perdere il giro.
 
 import pytest
 
+from cryptofarm.trading import confluence
 from scripts import confluence_lab as lab
 
 
@@ -42,6 +43,35 @@ def test_il_centro_e_dentro_ogni_scansione():
     centro = lab.celle("coordinate")[0]
     for parametro, valori in lab.SCANSIONE.items():
         assert centro[parametro] in valori, f"{parametro}: il centro non e' fra i valori provati"
+
+
+def test_in_inversione_i_parametri_ignorati_sono_inerti():
+    """La lista si verifica a misura, non a lettura.
+
+    `PARAMETRI_IGNORATI` e' un'ottimizzazione della griglia, e un'ottimizzazione basata su una lista
+    scritta a mano e' una bugia che aspetta: basta collegare uno di quei parametri al motore a
+    inversione perche' la griglia smetta in silenzio di misurare qualcosa che conta. Qui ciascuno
+    gira ai **due estremi** del suo intervallo di scansione e si pretende che gli eventi siano
+    identici -- se non lo sono, quel parametro e' vivo e va tolto dalla lista.
+    """
+    candele = lab._finte(giorni=120)
+    stati = confluence.stati_dei_votanti(candele, "15m")
+
+    def eventi(**kwargs):
+        r = confluence.evaluate(candele, "15m", stati=stati, modalita="inversione", **kwargs)
+        return [e[:3] for e in r.eventi]
+
+    riferimento = eventi()
+    assert len(riferimento) > 5, "senza operazioni il confronto non proverebbe niente"
+    for parametro in lab.PARAMETRI_IGNORATI:
+        valori = lab.SCANSIONE[parametro]
+        assert eventi(**{parametro: valori[0]}) == riferimento, f"{parametro} e' vivo: toglilo dalla lista"
+        assert eventi(**{parametro: valori[-1]}) == riferimento, f"{parametro} e' vivo: toglilo dalla lista"
+
+    # E il controllo opposto, senza il quale il test passerebbe anche con la lista piena di tutto:
+    # i parametri che quella macchina legge davvero devono spostare gli eventi.
+    for parametro, estremi in (("theta_base", (0.15, 0.55)), ("emivita", (1.0, 24.0)), ("atr_multiplier", (0.0, 3.0))):
+        assert eventi(**{parametro: estremi[0]}) != eventi(**{parametro: estremi[1]}), f"{parametro} doveva essere vivo"
 
 
 def test_in_inversione_la_griglia_non_muove_quel_che_quella_macchina_non_legge():
