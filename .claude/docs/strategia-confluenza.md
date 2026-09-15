@@ -849,3 +849,75 @@ collegio nuovo non e' ne' meglio ne' peggio: e' diverso.
 - **le famiglie multiple per votante**. Oggi i sei sono uno per famiglia, quindi contare famiglie o
   votanti è lo stesso. La distinzione è scritta perché morderà appena entra un secondo votante di
   prezzo, ed è più facile scriverla ora che accorgersene dopo.
+
+## The two sign defects, found by re-reading the voters (2026-09-15)
+
+Both made the ensemble asymmetric between long and short **without anyone having decided it**, and
+neither raised anything: no exception, no warning, no failing test. They are written up here
+because the way they hid is more instructive than the fix.
+
+### 1. The `bande` family could not vote short
+
+`confluence._bande` called `strategies_ls.atr_band_bounce` without `allow_short`, and that function
+is the only one in `strategies_ls` whose default is `False` — every other one defaults to `True`.
+The default is right *for a strategy*: opened on its own on an asset with positive drift, the short
+leg pays for being on the wrong side of the drift four years out of five (§4.5 of
+`strategie-nuove.md`). It is wrong *for a voter*, which opens nothing and only states an opinion.
+
+Measured on 400 days of synthetic bars, raw voter states:
+
+| voter | +1 | 0 | −1 |
+|---|---:|---:|---:|
+| bande_conferma | 12.0% | 88.0% | **0.0%** |
+| bande_innesco | 37.6% | 62.4% | **0.0%** |
+
+Two voters out of eight — the whole `bande` family — structurally silent in one direction. The
+consequences were not caution: `concordi_corto` could never reach every family, and in the score an
+extension *above* the mean weighed nothing while one *below* it weighed fully. Mean reversion is
+also the one family the measurement supports on the short side (52.3% win rate, median contribution
+−3.6%, i.e. nearly costless), so the fix is to pass `allow_short=True` explicitly.
+
+### 2. The macro discount was applied to the long side in both directions
+
+```python
+soglia = theta_base - theta_macro * (regime + struttura) / 2   # no direction anywhere
+```
+
+The entry test for a short is `punteggio <= -soglia`. With regime and structure both at −1 — the
+macro picture that *agrees* with a short — the threshold rose to 0.50, while a long with macro at
++1 needed 0.20. Measured on the same candles: 0.201 against 0.499. The bar went up exactly where
+the design wanted it to come down, and the same threshold governed the hysteresis exit, so a
+favourable macro also made a short *leave* earlier.
+
+The fix is one `verso` in the formula, kept as two arrays because the page draws the long one:
+
+```python
+macro = (regime + struttura) / 2
+soglia       = theta_base - theta_macro * macro
+soglia_corta = theta_base + theta_macro * macro
+```
+
+### Why nothing caught them
+
+`allow_short` defaults to `False` everywhere the confluence is called, and the short side is
+measured at a loss, so no test ever opened a short. The two defects were therefore invisible
+*together*: with defect 1 in place the score could barely go negative, and with defect 2 in place
+the threshold a short had to clear was the highest one. On a series that spends half its window in
+a downtrend, `allow_short=True` produced **zero** short entries before the fix and 86 after it.
+
+### What it costs on the long-only default
+
+The `bande` short votes now enter the score, so they push it down and some marginal long entries no
+longer clear the threshold. Synthetic random walk, 400 days: 261 entries before, 245 after (−6%).
+Trend-up-then-down, 300 days: 73 before, 72 after. **The measured numbers elsewhere in this
+document predate the fix** and are not comparable cell by cell; the ranking of the voters by
+necessity is unchanged (`flusso` stays the most necessary, 0.621 → 0.620).
+
+### The guard
+
+`tests/test_confluence.py::test_ogni_votante_sa_dire_tutti_e_due_i_versi` asserts that every
+registered voter reaches both signs, with `modello` as the one declared exception (its signal is
+U-shaped, so the sign does not carry direction — `modello-swing.md` §5.1). It needs candles that
+actually offer both directions **at the volatility of the real ones**: with the noise scaled down
+ten times the series is so smooth that Ichimoku never crosses and 2.5-ATR bands are never touched,
+and those voters would read as "cannot vote short" when they simply never vote.

@@ -239,12 +239,32 @@ def _reversione(df, cache, p):
 
 
 def _bande(df, cache, p):
+    """Le bande ATR come votante, e **con il verso corto acceso, esplicitamente**.
+
+    `atr_band_bounce` e' l'unica di `strategies_ls` che ha `allow_short=False` per default, e
+    quel default e' giusto **per una strategia**: aperta da sola su un asset con deriva positiva,
+    la gamba corta paga quattro anni su cinque di essere dalla parte sbagliata della deriva.
+
+    Un votante non e' una strategia: non apre niente, dice un'opinione. Prendere il default
+    silenziosamente rendeva questa famiglia -- due votanti su otto, i due della famiglia
+    `bande` -- **strutturalmente incapace di votare corto**, e la conseguenza non era una
+    prudenza: era che `concordi_corto` non poteva mai arrivare a tutte le famiglie, e che sul
+    punteggio l'estensione *sopra* la media non pesava mentre quella *sotto* pesava. Un'asimmetria
+    fra i due versi che nessuno aveva deciso e che nessun test vedeva.
+
+    E' anche l'unica famiglia per cui la misura sostiene il verso corto: sul ritorno alla media il
+    corto ha il 52,3% di operazioni in utile e un contributo mediano di −3,6%, cioe' costa quasi
+    niente (`.claude/docs/strategie-nuove.md` §4.5). Vendere un'estensione sopra la media in un
+    mercato laterale e' simmetrico a comprarne una sotto, ed e' esattamente cio' che questo
+    votante deve poter dire.
+    """
     return strategies_ls.atr_band_bounce(
         df,
         cache,
         kama_window=int(p["kama_window"]),
         band_multiplier=float(p["band_multiplier"]),
         stop_multiplier=float(p["stop_multiplier"]),
+        allow_short=True,
     )
 
 
@@ -468,6 +488,7 @@ class Confluenza:
     pesi: dict[str, float]
     punteggio: np.ndarray
     soglia: np.ndarray
+    soglia_corta: np.ndarray
     regime: np.ndarray
     struttura: np.ndarray
     famiglie_concordi: np.ndarray
@@ -523,9 +544,14 @@ class Confluenza:
         """
         posizioni = self.indice.get_indexer([e[0] for e in self.eventi])
         return [
-            (*evento[:3], abs(self.punteggio[i]) - self.soglia[i] if evento[2] != 0 else 0.0)
+            (*evento[:3], abs(self.punteggio[i]) - self._soglia_del_verso(evento[2])[i] if evento[2] != 0 else 0.0)
             for evento, i in zip(self.eventi, posizioni)
         ]
+
+    def _soglia_del_verso(self, verso: int) -> np.ndarray:
+        """La soglia contro cui quel verso si misura. Non e' la stessa: il macro le muove
+        all'opposto, perche' un quadro che da' ragione al lungo la toglie al corto."""
+        return self.soglia if verso >= 0 else self.soglia_corta
 
     def spiega(self, quando) -> str:
         """Perche' quella barra ha operato. Una riga, e **diversa per gli ingressi e le uscite**.
@@ -724,7 +750,15 @@ def evaluate(
 
     regime = _forza_del_piano(candles, minuti_base, "regime", regime_ema, barre_in_formazione)
     struttura = _forza_del_piano(candles, minuti_base, "struttura", struttura_ema, barre_in_formazione)
-    soglia = theta_base - theta_macro * (regime + struttura) / 2
+    # I piani lunghi scontano la soglia **nel verso dell'operazione candidata**, e il verso in
+    # questa formula e' cio' che mancava: `theta_base - theta_macro * macro` da sola abbassa la
+    # soglia quando il macro sale, per tutti e due i versi. Sul lungo e' quel che si vuole; sul
+    # corto e' il contrario esatto del disegno -- con regime e struttura entrambi a -1 la soglia
+    # saliva a 0,50 proprio mentre il quadro macro dava ragione al corto, mentre il lungo con
+    # macro a +1 ne chiedeva 0,20. Misurato sulle stesse candele: 0,201 contro 0,499.
+    macro = (regime + struttura) / 2
+    soglia = theta_base - theta_macro * macro
+    soglia_corta = theta_base + theta_macro * macro
 
     concordi_lungo = _famiglie_concordi(voti, famiglie, +1)
     concordi_corto = _famiglie_concordi(voti, famiglie, -1)
@@ -734,6 +768,7 @@ def evaluate(
         candles,
         punteggio=punteggio,
         soglia=soglia,
+        soglia_corta=soglia_corta,
         regime=regime,
         concordi_lungo=concordi_lungo,
         concordi_corto=concordi_corto,
@@ -754,6 +789,7 @@ def evaluate(
         pesi=w,
         punteggio=punteggio,
         soglia=soglia,
+        soglia_corta=soglia_corta,
         regime=regime,
         struttura=struttura,
         famiglie_concordi=famiglie_concordi,
@@ -765,7 +801,7 @@ def evaluate(
         barre_chieste_dal_regime=regime_ema,
         ingressi=len(ingressi),
     )
-    risultato.necessarieta = _necessarieta(voti, famiglie, w, soglia, ingressi, k_famiglie)
+    risultato.necessarieta = _necessarieta(voti, famiglie, w, soglia, soglia_corta, ingressi, k_famiglie)
     return risultato
 
 
@@ -844,6 +880,7 @@ def _percorri(
     *,
     punteggio,
     soglia,
+    soglia_corta,
     regime,
     concordi_lungo,
     concordi_corto,
@@ -933,8 +970,12 @@ def _percorri(
 
         if posizione != 0:
             verso = 1 if posizione > 0 else -1
-            barre_sotto = barre_sotto + 1 if punteggio[i] * verso < soglia[i] else 0
-            per_isteresi = punteggio[i] * verso < soglia[i] - isteresi
+            # La soglia del verso in cui si e' dentro, non quella lunga per tutti e due: uscire
+            # da un corto misurandosi contro la soglia lunga vuol dire che il macro favorevole al
+            # corto *anticipa* l'uscita invece di ritardarla.
+            attiva = soglia[i] if verso > 0 else soglia_corta[i]
+            barre_sotto = barre_sotto + 1 if punteggio[i] * verso < attiva else 0
+            per_isteresi = punteggio[i] * verso < attiva - isteresi
             per_pazienza = barre_sotto >= pazienza
             maturo = (i - barra_ingresso) >= barre_minime
             cancello_contro = regime[i] * verso < 0
@@ -960,7 +1001,7 @@ def _percorri(
             corto = (
                 allow_short
                 and regime[i] < 0
-                and punteggio[i] <= -soglia[i]
+                and punteggio[i] <= -soglia_corta[i]
                 and concordi_corto[i] >= k_famiglie
                 and prezzo < basso[i]
             )
@@ -974,7 +1015,7 @@ def _percorri(
     return eventi, ingressi, livello_stop, motivi
 
 
-def _necessarieta(voti, famiglie, pesi, soglia, ingressi, k_famiglie) -> dict[str, float]:
+def _necessarieta(voti, famiglie, pesi, soglia, soglia_corta, ingressi, k_famiglie) -> dict[str, float]:
     """In che frazione degli ingressi ciascun votante era **indispensabile**.
 
     Indispensabile vuol dire: azzerandolo, quell'ingresso non sarebbe avvenuto -- perche' il
@@ -993,12 +1034,16 @@ def _necessarieta(voti, famiglie, pesi, soglia, ingressi, k_famiglie) -> dict[st
     ai_bordi = {nome: voto[barre] for nome, voto in voti.items()}
     verso = np.sign(sum(pesi[n] * ai_bordi[n] for n in ai_bordi))
     verso[verso == 0] = 1
+    # La soglia contro cui quell'ingresso si e' misurato davvero: quella lunga se e' un lungo,
+    # quella corta se e' un corto. Con una sola soglia la diagnosi sui corti chiedeva a ogni
+    # votante di superare una barriera che l'ingresso non aveva dovuto superare.
+    attiva = np.where(verso > 0, soglia[barre], soglia_corta[barre])
 
     conteggi = {}
     for nome in voti:
         restanti = {n: v for n, v in ai_bordi.items() if n != nome}
         punteggio = sum(pesi[n] * restanti[n] for n in restanti) if restanti else np.zeros(len(barre))
-        sotto_soglia = punteggio * verso < soglia[barre]
+        sotto_soglia = punteggio * verso < attiva
         ampiezza = _famiglie_concordi(restanti, famiglie, verso)
         conteggi[nome] = float(np.mean(sotto_soglia | (ampiezza < k_famiglie)))
     return conteggi

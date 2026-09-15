@@ -689,3 +689,106 @@ def test_senza_artefatto_il_votante_a_modello_tace_e_resta_fuori_dal_default(can
     assert "modello" not in nomi
     assert len(nomi) == len(confluence.REGISTRO) - 1
     assert confluence.selezione("modello")[0].nome == "modello", "il registro lo tiene comunque"
+
+
+# -------------------------------------------------------------------------------------------------
+# I due versi: ogni votante li sa dire tutti e due, e la soglia li tratta allo stesso modo
+# -------------------------------------------------------------------------------------------------
+
+
+def _candele_con_inversione(giorni: int = 300, seme: int = 0) -> pd.DataFrame:
+    """Candele che salgono per meta' finestra e scendono per l'altra meta'.
+
+    Il random walk di `_candele` ha deriva positiva e su una finestra qualunque puo' non offrire
+    mai a un votante lento l'occasione di dire «corto». Qui l'occasione c'e' per costruzione in
+    tutti e due i versi, che e' la condizione minima perche' «non vota mai corto» voglia dire
+    qualcosa invece di «su questi dati non gli e' capitato».
+
+    La **volatilita' resta quella di `_candele`** (`sigma = 0,4` per barra, non riscalata), e non
+    e' un dettaglio: con un rumore dieci volte piu' piccolo la serie e' cosi' liscia che ichimoku
+    non incrocia mai e le bande a 2,5 ATR non si toccano mai. Quei due votanti risultavano allora
+    «incapaci di votare corto» perche' non votavano affatto, e il test avrebbe accusato il codice
+    di un difetto del dato di prova.
+    """
+    n = 96 * giorni
+    idx = pd.date_range("2024-01-01", periods=n, freq="15min", name="Open time")
+    rng = np.random.default_rng(seme)
+    t = np.arange(n)
+    passo = 100 + np.where(t < n // 2, t * 0.02, (n // 2) * 0.02 - (t - n // 2) * 0.02)
+    passo = passo + np.cumsum(rng.normal(0, 0.4, n))
+    return pd.DataFrame(
+        {
+            "Open": passo,
+            "High": passo + abs(rng.normal(0, 0.5, n)),
+            "Low": passo - abs(rng.normal(0, 0.5, n)),
+            "Close": passo + rng.normal(0, 0.1, n),
+            "Volume": rng.random(n) * 10,
+        },
+        index=idx,
+    )
+
+
+@pytest.fixture(scope="module")
+def candele_con_inversione():
+    return _candele_con_inversione()
+
+
+def test_ogni_votante_sa_dire_tutti_e_due_i_versi(candele_con_inversione):
+    """Il difetto che questo test esiste per prendere: un votante che non puo' votare corto.
+
+    `_bande` chiamava `atr_band_bounce` senza `allow_short`, e quella funzione e' l'unica di
+    `strategies_ls` che ha `False` per default. La famiglia `bande` -- due votanti su otto --
+    era percio' **strutturalmente incapace** di dire «corto»: non per prudenza e non per misura,
+    per un default preso in silenzio. Non sollevava niente e nessun test lo vedeva.
+
+    Il modello e' l'unica eccezione, e dichiarata: la forma misurata del suo segnale e' a U, il
+    segno non dice il verso, quindi vota +1 o tace (`.claude/docs/modello-swing.md` §5.1).
+    """
+    stati = confluence.stati_dei_votanti(candele_con_inversione, "15m", votanti=confluence.selezione())
+    for nome, stato in stati.items():
+        if nome == "modello":
+            assert not (stato < 0).any(), "il votante a modello non vota mai corto, per disegno"
+            continue
+        assert (stato > 0).any(), f"{nome} non vota mai lungo su candele che salgono per meta' finestra"
+        assert (stato < 0).any(), f"{nome} non vota mai corto: controlla il default di `allow_short`"
+
+
+def test_il_macro_sconta_la_soglia_nel_verso_dell_operazione(candele_con_inversione):
+    """Il difetto: `theta_base - theta_macro * macro` abbassava la soglia per **tutti e due** i
+    versi quando il macro saliva.
+
+    Sul lungo e' il disegno. Sul corto era il suo contrario esatto: con regime e struttura a -1,
+    cioe' con il quadro macro che da' ragione al corto, la soglia saliva a 0,50 -- mentre il lungo
+    con macro a +1 ne chiedeva 0,20. La barra si alzava proprio dove doveva abbassarsi.
+    """
+    r = confluence.evaluate(candele_con_inversione, "15m", theta_base=0.35, theta_macro=0.15)
+    su = (r.regime > 0.5) & (r.struttura > 0.5)
+    giu = (r.regime < -0.5) & (r.struttura < -0.5)
+    assert su.any() and giu.any(), "le candele devono offrire tutti e due i quadri macro"
+
+    # Il macro favorevole sconta la soglia del **proprio** verso, e alza quella dell'altro.
+    assert r.soglia[su].mean() < 0.35 < r.soglia_corta[su].mean()
+    assert r.soglia_corta[giu].mean() < 0.35 < r.soglia[giu].mean()
+
+    # E lo sconto e' lo stesso numero: i due versi sono simmetrici rispetto a `theta_base`.
+    assert np.allclose(r.soglia + r.soglia_corta, 2 * 0.35)
+
+
+def test_con_macro_favorevole_il_corto_non_e_piu_difficile_del_lungo(candele_con_inversione):
+    """La lettura operativa del test precedente, sugli ingressi che avvengono davvero.
+
+    Con il difetto in casa gli ingressi corti erano piu' rari di quanto il disegno volesse, e la
+    causa non era il punteggio: era la soglia. Qui si chiede che, a quadro macro ugualmente
+    favorevole, la barra da superare sia la stessa nei due versi.
+    """
+    r = confluence.evaluate(candele_con_inversione, "15m", allow_short=True)
+    barre = {e[0]: e[2] for e in r.eventi if e[2] != 0}
+    posizioni = r.indice.get_indexer(list(barre))
+    versi = list(barre.values())
+    assert -1 in versi, "senza ingressi corti questo test non misura niente"
+
+    for i, verso in zip(posizioni, versi):
+        attiva = r.soglia[i] if verso > 0 else r.soglia_corta[i]
+        assert abs(r.punteggio[i]) >= attiva - 1e-12, "un ingresso deve superare la soglia del proprio verso"
+        # E la soglia superata e' quella scontata dal macro, non quella dell'altro verso.
+        assert attiva == pytest.approx((0.35 - 0.15 * (r.regime[i] + r.struttura[i]) / 2 * verso))
