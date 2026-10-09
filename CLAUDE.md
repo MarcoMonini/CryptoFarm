@@ -119,7 +119,9 @@ src/cryptofarm/
     ├── tuned_defaults.py generated: measured starting values, per interval
     ├── config.py         starting values for the page's widgets
     ├── simulator.py      the Streamlit page: two views, `trading_analysis` + `rotation_page`
-    └── live_bot.py       headless bot that places real orders
+    ├── live_bot.py       headless bot that places real orders
+    ├── decomposer.py     second Streamlit page, from TradingVision: descriptive statistics of one pair's candles
+    └── candle_features.py  TradingVision's 29 candidate columns, read only by the decomposer
 scripts/analysis.py       command-line measurements producing the numbers in strategy.md
 ```
 
@@ -187,11 +189,14 @@ streamlit run src/cryptofarm/trading/simulator.py
 # Candle store from an alternative source, where data.binance.vision is unreachable
 .venv312/bin/python -m scripts.import_candles --source /path/to/clone
 
+# Decomposer: one pair's candles, before any model (from TradingVision; see reports/zones_study.html)
+streamlit run src/cryptofarm/trading/decomposer.py
+
 # Live bot — places real orders, requires the environment variables (see .env.example)
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Tests: `.venv312/bin/python -m pytest` (35 files: 1,024 passed, 3 skipped). Lint/format:
+Tests: `.venv312/bin/python -m pytest` (36 files: 1,062 passed, 3 skipped). Lint/format:
 `ruff check src scripts tests` and `black src scripts tests` (config in `pyproject.toml`).
 
 ## The simulator
