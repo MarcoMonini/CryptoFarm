@@ -51,8 +51,8 @@ FAMILIES = {
     "2": "Huge bars → rise over the next day",
     "3": "Close at an extreme → the next candle reverts",
     "4": "Slow bounce, solid but small",
-    "m": "Momentum: does not hold",
     "5": "Price far above its average → keeps rising, under the fee",
+    "m": "Momentum: does not hold",
 }
 # (family, timeframe, column, window, band, N): band b spans the quantiles QS[b-1] to QS[b] of discovery.
 ZONES = (
@@ -100,6 +100,9 @@ PROJECT_ZONES = (
     ("5", "5m", "distance_from_ema_atr", 48, 9, 192),
     ("5", "5m", "obv_slope", 96, 8, 192),
 )
+# Both studies in one list, as the page offers them: by family in `FAMILIES`' order, 15m before 5m, and within that
+# the report's zones before this project's. Which study a zone comes from is a matter of provenance, not of reading.
+ALL_ZONES = tuple(sorted(ZONES + PROJECT_ZONES, key=lambda zone: (list(FAMILIES).index(zone[0]), zone[1] != "15m")))
 
 
 def label(zone: tuple) -> str:
@@ -187,6 +190,7 @@ def _selfcheck() -> None:
         _, timeframe, column, window, band, n = zone
         assert column in candle_features.COLUMNS and (window == 0) == (column in FIXED), zone
         assert 0 <= band <= len(QS) and n in HORIZONS and timeframe in ("5m", "15m"), zone
+    assert len(set(ALL_ZONES)) == len(ZONES) + len(PROJECT_ZONES) and ALL_ZONES[0][0] == "1" and ALL_ZONES[-1][0] == "m"
     for zone in PROJECT_ZONES:
         family, timeframe, column, window, band, n = zone
         assert column in project_features.COLUMNS and window > 0 and family in FAMILIES, zone

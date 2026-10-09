@@ -105,9 +105,9 @@ whole history: a map of where to look, not a result.
 
 **The zones of the study** (`zones`): the twenty zones of `reports/zones_study.html` — four families that
 held from 2017-2020 to 2021-2025, and the momentum that did not — each at its own timeframe, window, band
-and N, re-read on this store; and, on a switch, the twenty that `scripts/zones_scan.py` found holding among
-this project's own indicators (`zones.PROJECT_ZONES`). One zone at a time, picked from a list: a grid of small
-heatmaps, BTC and ETH down, discovery, confirm and recent across, every band of the column's 2017-2020
+and N, re-read on this store; and the twenty that `scripts/zones_scan.py` found holding among this project's
+own indicators (`zones.PROJECT_ZONES`), in the same list, by family (`zones.ALL_ZONES`). One zone at a time: a
+grid of small heatmaps, BTC and ETH down, discovery, confirm and recent across, every band of the column's 2017-2020
 quantiles against every N of the study, in standard errors of the excess, with the zone's cell outlined; under
 it the zone's cell in numbers and one trade an episode against the 0.20% fee. The bands' edges are
 discovery's on every period, so the recent column is the one where the 2017-2020 tails fire rarely.
@@ -766,19 +766,15 @@ def main() -> None:
     )
 
     st.subheader("The zones of the study")
-    studies = {
-        "TradingVision's 29 columns (reports/zones_study.html)": zones.ZONES,
-        "This project's 13 (scripts/zones_scan.py)": zones.PROJECT_ZONES,
-    }
-    listed = studies[st.radio("Columns searched", list(studies), horizontal=True)]
     picked = st.selectbox(
         "Zone",
-        range(len(listed)),
-        format_func=lambda i: zones.label(listed[i]),
-        help="family · timeframe · column (window) · band in 2017-2020 quantiles · N; "
-        + "; ".join(f"{k} {v}" for k, v in zones.FAMILIES.items()),
+        range(len(zones.ALL_ZONES)),
+        format_func=lambda i: zones.label(zones.ALL_ZONES[i]),
+        help="family · timeframe · column (window) · band in 2017-2020 quantiles · N, from both studies: "
+        "TradingVision's 29 columns (`reports/zones_study.html`) and this project's 13 "
+        "(`reports/zones_study_project.html`); " + "; ".join(f"{k} {v}" for k, v in zones.FAMILIES.items()),
     )
-    zone = listed[picked]
+    zone = zones.ALL_ZONES[picked]
     have = [s for s in zones.SYMBOLS if s in held]
     if not have:
         st.info(f"Neither {' nor '.join(zones.SYMBOLS)} is in the store.")

@@ -120,9 +120,9 @@ tree analysis does not see.
 through `klines.load_klines(..., clip=False)` and downloads nothing. Sections: the candles and the
 same candles from zero, the histogram, the autocorrelation, weekday × hour, and three heatmaps of the
 mean change N candles after the close — banded by body in σ, by RSI, and by any column of
-`candle_features` or of `project_features` in deciles. Last, *The zones of the study*: pick one of `zones.ZONES` (the report's) or of
-`zones.PROJECT_ZONES` (this project's indicators, `scripts/zones_scan.py`) and get a
-2 × 3 grid of small heatmaps (BTC and ETH × discovery, confirm, recent), every 2017-2020 quantile
+`candle_features` or of `project_features` in deciles. Last, *The zones of the study*: pick one of
+`zones.ALL_ZONES` — the report's twenty and the twenty `scripts/zones_scan.py` found among this project's
+indicators, in one list by family — and get a 2 × 3 grid of small heatmaps (BTC and ETH × discovery, confirm, recent), every 2017-2020 quantile
 band against every N, the zone's cell outlined, with its numbers and its trades against the fee
 underneath. On this store they match the report's table to the third digit. Its numbers were measured in TradingVision; the study they led to is
 [`reports/zones_study.html`](../../../reports/zones_study.html). Both `_selfcheck`s run in
