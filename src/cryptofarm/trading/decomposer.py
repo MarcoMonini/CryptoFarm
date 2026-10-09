@@ -493,7 +493,8 @@ def ahead_figure(table: pd.DataFrame, stat: str, step: pd.Timedelta) -> go.Figur
 def zone_tables(symbol: str, timeframe: str, mtime: float, zone: tuple) -> tuple[pd.DataFrame, pd.DataFrame]:
     """`zones.cells` for every band and N of `zone`'s column on one pair, with each band's edges in the column's
     units (`lo`, `hi`), and `zones.trades` at the zone's band and N by period, in the direction its discovery
-    excess on this pair points; `mtime` as in `candles`."""
+    excess on this pair points, entered `zones.DELAY` candles late (`mean`, `se`, `win`) and at the next open
+    (`now`); `mtime` as in `candles`."""
     _, _, column, window, band, n = zone
     df = candles(symbol, timeframe, mtime)
     x = indicator(symbol, timeframe, mtime, window or EXTREMA_WINDOW, column)
@@ -507,7 +508,9 @@ def zone_tables(symbol: str, timeframe: str, mtime: float, zone: tuple) -> tuple
     sign = float(np.sign(found.iloc[0])) if len(found) and np.isfinite(found.iloc[0]) else 1.0
     rows = []
     for p, name in enumerate(zones.PERIODS):
-        g = zones.trades((code == band) & (period == p), df.open, df.close, n, sign)
+        hit = (code == band) & (period == p)
+        g = zones.trades(hit, df.open, df.close, n, sign)
+        now = zones.trades(hit, df.open, df.close, n, sign, delay=0)
         rows.append(
             {
                 "period": name,
@@ -515,6 +518,7 @@ def zone_tables(symbol: str, timeframe: str, mtime: float, zone: tuple) -> tuple
                 "mean": g.mean() if len(g) else np.nan,
                 "se": g.std() / np.sqrt(len(g)) if len(g) > 1 else np.nan,
                 "win": (g > 0).mean() if len(g) else np.nan,
+                "now": now.mean() if len(now) else np.nan,
             }
         )
     return table, pd.DataFrame(rows)
@@ -580,7 +584,8 @@ def zones_figure(tables: dict[str, pd.DataFrame], zone: tuple) -> go.Figure:
 
 
 def zone_summary(tables: dict[str, tuple[pd.DataFrame, pd.DataFrame]], zone: tuple) -> pd.DataFrame:
-    """The zone's own cell and its trades, one row per pair and period, as the report's table reads them."""
+    """The zone's own cell and its trades, one row per pair and period, as the report's table reads them: gross, won
+    and net a candle late, the default, and beside them the gross at the next open, to see what the candle costs."""
     band, n = zone[4], zone[5]
     rows = []
     for symbol, (table, trades) in tables.items():
@@ -594,9 +599,10 @@ def zone_summary(tables: dict[str, tuple[pd.DataFrame, pd.DataFrame]], zone: tup
                     "excess a candle": f"{cell.excess:+.4f}% ({cell.t:+.1f} se)" if cell is not None else "—",
                     "candles": int(cell["count"]) if cell is not None else 0,
                     "trades": t.trades,
-                    "gross a trade": gross,
+                    "gross, a candle late": gross,
                     "won": f"{t.win:.0%}" if t.trades else "—",
                     "net of 0.20%": f"{t.mean - zones.ROUND_TRIP:+.3f}%" if t.trades else "—",
+                    "gross at the next open": f"{t.now:+.3f}%" if t.trades else "—",
                 }
             )
     return pd.DataFrame(rows).set_index("pair · period")
@@ -788,8 +794,9 @@ def main() -> None:
         "recent; each cell the excess of the mean change N candles after the close over every candle's of the same "
         "period, in standard errors over blocks of N candles. Outlined, the zone: chosen beyond 4 se on both pairs on "
         "discovery, and held at 2 on confirm unless its family says it does not. Under it one trade an episode: read "
-        "at the close of the first candle in the band, opened at the next candle's open, held N, gross, then less "
-        "the 0.20% round trip."
+        "at the close of the first candle in the band, opened a candle late — at the open of the second candle "
+        "after it — held N, gross, then less the 0.20% round trip; the last column enters at the next open "
+        "instead, without the candle of delay."
     )
 
 

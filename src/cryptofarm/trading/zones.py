@@ -15,13 +15,14 @@ future. A candle whose future crosses into the next period counts in neither.
 
 An excess per candle is not a trade: the candles of one crash all sit in the bottom band and share their
 future. `trades` takes one trade an episode: the indicator is read at the close of the first candle in the band,
-the trade opens at the next candle's open — the first price anyone could act on — and closes N candles later,
-nothing new until it does; gross, against `ROUND_TRIP`, the 0.20% the report prices against. TradingVision
-entered at the signal candle's own close. On confirm and recent the two differ by 0.006% a trade at most; on
-discovery by up to 0.3% (ETH 15m), because in Binance's first months the next candle's first print could sit far
-from the close — 48.5% on ETH on 2017-08-22 — on books too thin to fill at it. The choice of zones is not touched:
-`cells` reads close to close. Entering a whole candle late, at the next close, costs 0.1 to 0.2% a trade on
-family 1 at 15m on confirm: the bounce starts in the first candle.
+`DELAY` candles go by, the trade opens at the next candle's open and is held N candles, nothing new until it
+closes; gross, against `ROUND_TRIP`, the 0.20% the report prices against. `DELAY` is 1 by default, a whole candle
+to see the signal and act on it, the conservative reading; at 0 the trade opens at the next candle's open, the
+first price anyone could act on, and costs 0.1 to 0.2% a trade less on family 1 at 15m on confirm: the bounce
+starts in the first candle. TradingVision entered at the signal candle's own close. Against the next open, on
+confirm and recent, that differs by 0.006% a trade at most; on discovery by up to 0.3% (ETH 15m), because in
+Binance's first months the next candle's first print could sit far from the close — 48.5% on ETH on 2017-08-22 —
+on books too thin to fill at it. The choice of zones is not touched: `cells` reads close to close.
 
 **`PROJECT_ZONES`** are the twenty that `scripts/zones_scan.py` found holding when the same search ran over this
 project's own indicators (`project_features`), sorted into the same families plus one: momentum by where the
@@ -41,6 +42,7 @@ HORIZONS = (1, 3, 6, 12, 24, 48, 96, 192)  # N, in candles
 PERIODS = ("discovery", "confirm", "recent")
 CONFIRM = (pd.Timestamp("2021-01"), pd.Timestamp("2025-06"))  # the store is tz-naive UTC, as these
 ROUND_TRIP = 0.20  # percent: 0.10% a side at OKX, the report's fee
+DELAY = 1  # candles between the signal's close and the entry's open: one to see it and act, the default
 SYMBOLS = ("BTC", "ETH")  # the report's: a zone passed on both, with one sign
 # The columns that read no window: a zone on one of them carries window 0, and any window computes it.
 FIXED = (
@@ -177,17 +179,18 @@ def cells(code: np.ndarray, close: pd.Series, period: np.ndarray, step: pd.Timed
     return out.assign(t=out.excess / out.se)
 
 
-def trades(hit: np.ndarray, open_: pd.Series, close: pd.Series, n: int, sign: float) -> np.ndarray:
+def trades(hit: np.ndarray, open_: pd.Series, close: pd.Series, n: int, sign: float, delay: int = DELAY) -> np.ndarray:
     """The change in percent of one trade an episode. The signal is the first candle of `hit` (a boolean mask), known
-    at its close; the trade opens at the next candle's open, is held `n` candles in the direction `sign` and closes
-    at the close of the n-th, and no new entry comes until it is closed. A signal whose exit runs past the store's
-    end opens none."""
+    at its close; `delay` candles later the trade opens, at the open of the candle after them (0: the next candle's
+    open), is held `n` candles in the direction `sign` and closes at the close of the n-th, and no new entry comes
+    until it is closed. A signal whose exit runs past the store's end opens none."""
     o, c = open_.to_numpy(), close.to_numpy()
     out, free = [], -1
     for i in np.flatnonzero(hit):
-        if i > free and i + n < len(c):
-            out.append(sign * (c[i + n] / o[i + 1] - 1) * 100)
-            free = i + n
+        entry, exit_ = i + 1 + delay, i + delay + n
+        if i > free and exit_ < len(c):
+            out.append(sign * (c[exit_] / o[entry] - 1) * 100)
+            free = exit_
     return np.array(out)
 
 
@@ -244,8 +247,16 @@ def _selfcheck() -> None:
     # before it, the trade pays that 1% back on top of the n candles' rise.
     hit = np.zeros(len(up), bool)
     hit[[10, 11, 12, 20, len(up) - 2]] = True
-    g = trades(hit, up.shift().fillna(up.iloc[0]), up, 5, 1.0)
+    g = trades(hit, up.shift().fillna(up.iloc[0]), up, 5, 1.0, delay=0)
     assert len(g) == 2 and np.allclose(g, (1.01**5 - 1) * 100)
-    assert np.allclose(trades(hit, up.shift().fillna(up.iloc[0]), up, 5, -1.0), -g)
-    g = trades(hit, up.shift().fillna(up.iloc[0]) * 0.99, up, 5, 1.0)
+    assert np.allclose(trades(hit, up.shift().fillna(up.iloc[0]), up, 5, -1.0, delay=0), -g)
+    g = trades(hit, up.shift().fillna(up.iloc[0]) * 0.99, up, 5, 1.0, delay=0)
     assert np.allclose(g, (1.01**5 / 0.99 - 1) * 100)
+    # A candle late by default: the entry and the exit move one candle on, the episode is held as long. On a close
+    # that rises then falls the delay is what decides the sign: the signal at 3 buys the top at delay 1.
+    bump = pd.Series([100.0, 100, 100, 100, 110, 99, 99, 99, 99, 99])
+    one = np.zeros(len(bump), bool)
+    one[3] = True
+    assert np.allclose(trades(one, bump.shift().bfill(), bump, 1, 1.0, delay=0), 10.0)
+    assert np.allclose(trades(one, bump.shift().bfill(), bump, 1, 1.0), (99 / 110 - 1) * 100)
+    assert len(trades(one, bump.shift().bfill(), bump, 6, 1.0)) == 0, "the exit at 10 is past the end"

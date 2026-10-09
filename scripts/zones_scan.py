@@ -6,7 +6,8 @@ every column at every window of `WINDOWS`, on BTC and ETH, 5m and 15m; bands at 
 `zones.QS`; N in `zones.HORIZONS`; a zone passes discovery (to 2020-12) beyond `T_PICK` standard errors on both
 pairs with one sign, the best (window, N) per (timeframe, column, band) kept; it holds when confirm
 (2021-01 to 2025-06) gives the same sign on both at `T_HOLD`. Every zone that holds is then priced one trade
-an episode, gross, against `zones.ROUND_TRIP`.
+an episode, gross, against `zones.ROUND_TRIP`, entered `zones.DELAY` candles late (a candle, the default) and,
+beside it, at the next open (`now`).
 
 One thing differs from the first run and has to be said: confirm has been read once already, for the first 29
 columns, and the reading is known — a price far under its average bounces. A new column that measures the same
@@ -77,9 +78,9 @@ def pick(table: pd.DataFrame, symbols: list[str]) -> pd.DataFrame:
 
 
 def detail(z: pd.DataFrame, symbols: list[str]) -> pd.DataFrame:
-    """For every zone that holds: one trade an episode per period and pair, gross, in the zone's direction, and the
-    column it is closest to among `candle_features` at the same window (Spearman, on the first pair's candles), so a
-    re-expression of the first study's zones reads as one."""
+    """For every zone that holds: one trade an episode per period and pair, gross, in the zone's direction, a candle
+    late and at the next open (`now`), and the column it is closest to among `candle_features` at the same window
+    (Spearman, on the first pair's candles), so a re-expression of the first study's zones reads as one."""
     frames, rows = {}, []
     for (tf, column, w, band, n), r in z[z.holds].iterrows():
         sign = np.sign(r[f"discovery {symbols[0]} t"])
@@ -98,12 +99,15 @@ def detail(z: pd.DataFrame, symbols: list[str]) -> pd.DataFrame:
                 rho = theirs.iloc[::7].corrwith(x.iloc[::7], method="spearman")  # every 7th bar: fast, same answer
                 row["closest"], row["rho"] = rho.abs().idxmax(), rho[rho.abs().idxmax()]
             for p, name in enumerate(zones.PERIODS):
-                g = zones.trades((code == band) & (period == p), df.open, df.close, n, sign)
+                hit = (code == band) & (period == p)
+                g = zones.trades(hit, df.open, df.close, n, sign)
+                now = zones.trades(hit, df.open, df.close, n, sign, delay=0)
                 row |= {
                     f"{name} trades": len(g),
                     f"{name} mean": g.mean() if len(g) else np.nan,
                     f"{name} se": g.std() / np.sqrt(len(g)) if len(g) > 1 else np.nan,
                     f"{name} win": (g > 0).mean() if len(g) else np.nan,
+                    f"{name} now": now.mean() if len(now) else np.nan,
                 }
             rows.append(row)
     return pd.DataFrame(rows)
