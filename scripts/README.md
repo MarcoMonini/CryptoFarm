@@ -27,7 +27,7 @@ minimum net against a module that breaks with nobody noticing for months.
 | `meta_gate.py` | 360 | meta-labeling on top of a real primary strategy | `ricerca-quant-ml.md` |
 | `multiplicity.py` | 203 | multiplicity correction for grids already measured: DSR and PBO | `ricerca-quant-ml.md` |
 | `ai_voter.py` | 287 | the model voter trained **on the confluence's own trades** | `strategia-confluenza.md` |
-| `zones_scan.py` | 134 | the zones study of `reports/zones_study.html` over this project's own indicators | `reports/zones_project*.csv` |
+| `zones_scan.py` | 134 | the zones study of `reports/zones_study.html` over this project's own indicators | `reports/zones_study_project.html` |
 
 ## The tools
 

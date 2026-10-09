@@ -28,6 +28,7 @@ reinvested, 0.1% commission per leg except where stated.
 | `lab_fuori_campione_*.csv` | chosen on 2021-2023, returned on 2024-2026, for both families |
 | `lab_leva_costi_*.csv` | the best ones at 1×, 2× and 3× leverage and at three levels of commission and funding |
 | `zones_project.csv`, `zones_project_trades.csv` | `scripts/zones_scan.py`: the same study over the 13 indicators of `trading/project_features.py`, BTC and ETH 5m/15m, store to 2026-08-19. Every zone past discovery with its t on every period, and one trade an episode for the 20 that hold, with the first study's column each is closest to |
+| `zones_study_project.html` | the reading of `zones_project*.csv`, in the style of the first report: twenty zones hold, each one a first-study zone in a new unit (Spearman 0.75 to 0.998); family 1 again the only one above the fee, on 15m; new, momentum by price location holds, under the fee. Open it in a browser |
 | `zones_study.html` | **not from this repository's measurements**: TradingVision's indicator-zones study (PR #22, 2026-10-09), on BTC and ETH 5m/15m, zones chosen on 2017–2020 and read on 2021–2025. Of 115 zones 43 hold; only a price far below its VWAP/EMA/KAMA/PSAR clears the 0.20% round trip. Open it in a browser |
 
 The `lab_*` views are on BTC/USD 2021-2026 (and ETH/USD 2017-2019 as a control), 0.05% commission per
