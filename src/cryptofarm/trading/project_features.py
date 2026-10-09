@@ -2,15 +2,18 @@
 
 `candle_features` is TradingVision's set, 29 columns. CryptoFarm's strategies and models read more
 (`indicators.add_technical_indicator`, `indicators_extra.ExtraCache`, `ml/features.py`, `ml/bar_features.py`):
-the stochastic, StochRSI, MFI, the OBV's slope, the Bollinger, Keltner and Donchian channels and the squeeze
-between the first two, the ATR bands around KAMA, Ichimoku, the EMA crossovers. These are those, in the same
+the stochastic's %K − %D, StochRSI, MFI, the OBV's slope, the Bollinger and Donchian channels and the squeeze between
+Bollinger and Keltner, the ATR bands around KAMA, Ichimoku, the EMA crossovers. These are those, in the same
 contract as `candle_features.features`: one row per bar, causal, scale free so BTC and ETH compare, every
 window derived from one `n` so the study can scan it, finite or NaN and never an infinity.
 
 Left out because `candle_features` already has them under another name: RSI, TSI, ADX, ATR in % of the
 close, the distance from PSAR (at `ta`'s 0.2 cap, the project's 0.4 aside), the volume against its median,
-the bar's range. Left out because the study cannot read them: the futures positioning (no history before
-2020-09, so no discovery period) and the cross-sectional rank (a property of the universe, not of a pair).
+the bar's range. Two more were written and measured as exact duplicates, and left out for it: the stochastic's
+%K is `close_position_in_window` rescaled (Spearman 1.000 on BTC 15m), and the Keltner position, with the
+channel at EMA ± 2 ATR, is `distance_from_ema_atr` divided by 4 plus a half. Left out because the study cannot read
+them: the futures positioning (no history before 2020-09, so no discovery period) and the cross-sectional rank
+(a property of the universe, not of a pair).
 
 Secondary parameters are the project's own defaults, fixed: Bollinger at 2 deviations, Keltner at 2 ATR,
 StochRSI and the stochastic smoothed over 3, Ichimoku's tenkan at a third of the kijun (9/26) and its span B
@@ -27,7 +30,6 @@ from ta.volatility import AverageTrueRange, BollingerBands, KeltnerChannel
 from ta.volume import MFIIndicator, OnBalanceVolumeIndicator
 
 LABELS = {
-    "stochastic_k": "Stochastic %K",
     "stochastic_k_minus_d": "Stochastic %K − %D",
     "stoch_rsi": "StochRSI",
     "money_flow_index": "Money Flow Index",
@@ -38,7 +40,6 @@ LABELS = {
     "donchian_position": "Donchian Position",
     "bollinger_position": "Bollinger %B",
     "bollinger_width": "Bollinger Width",
-    "keltner_position": "Keltner Position",
     "squeeze_ratio": "Squeeze, Bollinger / Keltner",
     "distance_from_cloud_pct": "Distance from Ichimoku Cloud",
     "tenkan_kijun_spread_pct": "Tenkan − Kijun",
@@ -72,7 +73,6 @@ def features(df: pd.DataFrame, n: int) -> pd.DataFrame:
     tenkan = (h.rolling(tenkan_n).max() + low.rolling(tenkan_n).min()) / 2
     kijun = (h.rolling(n).max() + low.rolling(n).min()) / 2
     f = {
-        "stochastic_k": stoch.stoch() / 50 - 1,
         "stochastic_k_minus_d": (stoch.stoch() - stoch.stoch_signal()) / 100,
         "stoch_rsi": StochRSIIndicator(c, window=n, smooth1=3, smooth2=3).stochrsi_k(),
         "money_flow_index": MFIIndicator(h, low, c, v, window=n).money_flow_index() / 50 - 1,
@@ -83,7 +83,6 @@ def features(df: pd.DataFrame, n: int) -> pd.DataFrame:
         "donchian_position": (c - donchian_low) / (donchian_high - donchian_low),
         "bollinger_position": (c - bb_low) / (bb_up - bb_low),
         "bollinger_width": (bb_up - bb_low) / bb_mid,
-        "keltner_position": (c - kc_low) / (kc_up - kc_low),
         "squeeze_ratio": (bb_up - bb_low) / (kc_up - kc_low),
         "distance_from_cloud_pct": np.log(c / cloud_mid),
         "tenkan_kijun_spread_pct": np.log(tenkan / kijun),
@@ -111,8 +110,7 @@ def _selfcheck() -> None:
     assert list(out.columns) == COLUMNS and out.index.equals(df.index)
     tail = out.iloc[4 * n :]
     assert np.isfinite(tail.to_numpy()).all(), tail.columns[~np.isfinite(tail.to_numpy()).all(axis=0)].tolist()
-    for column in ("stochastic_k", "money_flow_index"):
-        assert tail[column].between(-1, 1).all(), column
+    assert tail.money_flow_index.between(-1, 1).all()
     assert tail.stoch_rsi.between(0, 1).all() and tail.stochastic_k_minus_d.between(-1, 1).all()
     assert tail.bollinger_width.gt(0).all() and tail.squeeze_ratio.gt(0).all()
     # The Donchian channel is the bars before: a close at a new high reads above 1, which `close_position_in_window`
