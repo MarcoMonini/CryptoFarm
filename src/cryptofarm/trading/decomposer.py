@@ -102,6 +102,14 @@ decile −0.11 to −0.23% (−2.4 to −4.0). The exception is the PSAR, whose 
 furthest under it — keeps rising, +0.16% and +0.25% at 48 (3.8, 5.0). 58 deciles at 96 N each on the
 whole history: a map of where to look, not a result.
 
+**The zones of the study** (`zones`): the twenty zones of `reports/zones_study.html` — four families that
+held from 2017-2020 to 2021-2025, and the momentum that did not — each at its own timeframe, window, band
+and N, re-read on this store. One zone at a time, picked from a list: a grid of small heatmaps, BTC and ETH
+down, discovery, confirm and recent across, every band of the column's 2017-2020 quantiles against every N
+of the study, in standard errors of the excess, with the zone's cell outlined; under it the zone's cell in
+numbers and one trade an episode against the 0.20% fee. The bands' edges are discovery's on every period,
+so the recent column is the one where the 2017-2020 tails fire rarely.
+
     streamlit run src/cryptofarm/trading/decomposer.py
 
 Brought over from TradingVision (PRs #21 and #22) with `candle_features` as its one dependency; the
@@ -121,6 +129,7 @@ from ta.momentum import RSIIndicator
 from cryptofarm import paths
 from cryptofarm.data import klines
 from cryptofarm.trading import candle_features as features
+from cryptofarm.trading import zones
 from cryptofarm.trading.candle_features import EXTREMA_WINDOW
 
 TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")
@@ -468,6 +477,119 @@ def ahead_figure(table: pd.DataFrame, stat: str, step: pd.Timedelta) -> go.Figur
     return fig
 
 
+@st.cache_data(show_spinner="Reading the zone…", max_entries=16)
+def zone_tables(symbol: str, timeframe: str, mtime: float, zone: tuple) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """`zones.cells` for every band and N of `zone`'s column on one pair, with each band's edges in the column's
+    units (`lo`, `hi`), and `zones.trades` at the zone's band and N by period, in the direction its discovery
+    excess on this pair points; `mtime` as in `candles`."""
+    _, _, column, window, band, n = zone
+    df = candles(symbol, timeframe, mtime)
+    x = indicators(symbol, timeframe, mtime, window or EXTREMA_WINDOW)[column]
+    period = zones.period_of(df.index)
+    edges = zones.band_edges(x, period)
+    code = zones.bands(x, edges)
+    table = zones.cells(code, df.close, period, pd.Timedelta(timeframe.replace("m", "min")))
+    names = np.r_[-np.inf, edges, np.inf]
+    table["lo"], table["hi"] = names[table.band], names[table.band + 1]
+    found = table[(table.period == "discovery") & (table.band == band) & (table.n == n)].t
+    sign = float(np.sign(found.iloc[0])) if len(found) and np.isfinite(found.iloc[0]) else 1.0
+    rows = []
+    for p, name in enumerate(zones.PERIODS):
+        g = zones.trades((code == band) & (period == p), df.close, n, sign)
+        rows.append(
+            {
+                "period": name,
+                "trades": len(g),
+                "mean": g.mean() if len(g) else np.nan,
+                "se": g.std() / np.sqrt(len(g)) if len(g) > 1 else np.nan,
+                "win": (g > 0).mean() if len(g) else np.nan,
+            }
+        )
+    return table, pd.DataFrame(rows)
+
+
+def zones_figure(tables: dict[str, pd.DataFrame], zone: tuple) -> go.Figure:
+    """One small heatmap per pair and period, pairs down and periods across: `zones.cells`' t by band (the
+    column's discovery quantiles, the highest on top) and N, on one scale fixed at ±4, the zone's cell outlined."""
+    band, n = zone[4], zone[5]
+    bands, horizons = range(len(zones.QS) + 1), list(zones.HORIZONS)
+    fig = make_subplots(
+        rows=len(tables),
+        cols=len(zones.PERIODS),
+        shared_xaxes=True,
+        shared_yaxes=True,
+        horizontal_spacing=0.02,
+        vertical_spacing=0.08,
+        column_titles=list(zones.PERIODS),
+        row_titles=list(tables),
+    )
+    for row, (symbol, table) in enumerate(tables.items(), start=1):
+        for col, p in enumerate(zones.PERIODS, start=1):
+            at = table[table.period == p]
+            grid = {
+                c: at.pivot(index="band", columns="n", values=c).reindex(index=bands, columns=horizons)
+                for c in ("t", "excess", "se", "count", "lo", "hi")
+            }
+            fig.add_trace(
+                go.Heatmap(
+                    x=[str(h) for h in horizons],
+                    y=[zones.quantiles(b) for b in bands],
+                    z=grid["t"].to_numpy(),
+                    customdata=np.dstack([grid[c].to_numpy() for c in ("excess", "se", "count", "lo", "hi")]),
+                    colorscale="RdBu",
+                    zmid=0,
+                    zmin=-4,
+                    zmax=4,
+                    showscale=row == col == 1,
+                    colorbar=dict(title="se", len=0.6, x=1.06),
+                    hovertemplate=f"{symbol} · {p}<br>band %{{y}}: %{{customdata[3]:.4g}} to %{{customdata[4]:.4g}}"
+                    "<br>N %{x}: excess %{customdata[0]:+.4f}% ± %{customdata[1]:.4f}, %{z:+.2f} se"
+                    "<br>%{customdata[2]:,} candles<extra></extra>",
+                ),
+                row=row,
+                col=col,
+            )
+            x, y = horizons.index(n), band
+            fig.add_shape(
+                type="rect",
+                x0=x - 0.5,
+                x1=x + 0.5,
+                y0=y - 0.5,
+                y1=y + 0.5,
+                line=dict(color="#f5c518", width=2.5),
+                row=row,
+                col=col,
+            )
+    # The N are labels, not a scale: 1 to 192 on a linear axis would squeeze the short ones into a sliver.
+    fig.update_xaxes(type="category")
+    fig.update_xaxes(title_text="N, candles after the close", row=len(tables))
+    fig.update_layout(height=230 * len(tables) + 60, margin=dict(l=0, r=0, t=30, b=0))
+    return fig
+
+
+def zone_summary(tables: dict[str, tuple[pd.DataFrame, pd.DataFrame]], zone: tuple) -> pd.DataFrame:
+    """The zone's own cell and its trades, one row per pair and period, as the report's table reads them."""
+    band, n = zone[4], zone[5]
+    rows = []
+    for symbol, (table, trades) in tables.items():
+        for p, t in zip(zones.PERIODS, trades.itertuples()):
+            c = table[(table.period == p) & (table.band == band) & (table.n == n)]
+            cell = c.iloc[0] if len(c) else None
+            gross = f"{t.mean:+.3f}% ± {t.se:.3f}" if t.trades > 1 else "—"
+            rows.append(
+                {
+                    "pair · period": f"{symbol} · {p}",
+                    "excess a candle": f"{cell.excess:+.4f}% ({cell.t:+.1f} se)" if cell is not None else "—",
+                    "candles": int(cell["count"]) if cell is not None else 0,
+                    "trades": t.trades,
+                    "gross a trade": gross,
+                    "won": f"{t.win:.0%}" if t.trades else "—",
+                    "net of 0.20%": f"{t.mean - zones.ROUND_TRIP:+.3f}%" if t.trades else "—",
+                }
+            )
+    return pd.DataFrame(rows).set_index("pair · period")
+
+
 def main() -> None:
     st.set_page_config(page_title="Decomposer", layout="wide", initial_sidebar_state="collapsed")
     st.title("Decomposer")
@@ -626,6 +748,31 @@ def main() -> None:
         "candles in each band, named by its edges in the indicator's own units. An indicator with ties at an edge "
         "has fewer bands. A decile is wide and dilutes a tail: RSI's top decile reads weaker than its 80 to 90 band "
         "above."
+    )
+
+    st.subheader("The zones of the study")
+    picked = st.selectbox(
+        "Zone",
+        range(len(zones.ZONES)),
+        format_func=lambda i: zones.label(zones.ZONES[i]),
+        help="family · timeframe · column (window) · band in 2017-2020 quantiles · N, as `reports/zones_study.html` "
+        "lists them; " + "; ".join(f"{k} {v}" for k, v in zones.FAMILIES.items()),
+    )
+    zone = zones.ZONES[picked]
+    have = [s for s in zones.SYMBOLS if s in held]
+    if not have:
+        st.info(f"Neither {' nor '.join(zones.SYMBOLS)} is in the store.")
+        return
+    read = {s: zone_tables(s, zone[1], (where / f"{s}USDT-5m.parquet").stat().st_mtime, zone) for s in have}
+    st.plotly_chart(zones_figure({s: r[0] for s, r in read.items()}, zone), use_container_width=True, key="zones")
+    st.dataframe(zone_summary(read, zone), use_container_width=True)
+    st.caption(
+        f"{zone[1]} candles of {' and '.join(have)}, whatever the timeframe picked at the top. Each band is the "
+        "column's quantiles on discovery (to 2020-12), the same edges applied to confirm (2021-01 to 2025-06) and "
+        "recent; each cell the excess of the mean change N candles after the close over every candle's of the same "
+        "period, in standard errors over blocks of N candles. Outlined, the zone. The report chose it beyond 4 se "
+        "on both pairs on discovery and called it held at 2 on confirm. Under it one trade an episode: the first "
+        "candle in the band, held N, gross, then less the 0.20% round trip."
     )
 
 

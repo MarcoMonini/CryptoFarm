@@ -121,7 +121,8 @@ src/cryptofarm/
     ├── simulator.py      the Streamlit page: two views, `trading_analysis` + `rotation_page`
     ├── live_bot.py       headless bot that places real orders
     ├── decomposer.py     second Streamlit page, from TradingVision: descriptive statistics of one pair's candles
-    └── candle_features.py  TradingVision's 29 candidate columns, read only by the decomposer
+    ├── candle_features.py  TradingVision's 29 candidate columns, read only by the decomposer
+    └── zones.py          the report's twenty zones and how one is read: the decomposer's last section
 scripts/analysis.py       command-line measurements producing the numbers in strategy.md
 ```
 
@@ -196,7 +197,7 @@ streamlit run src/cryptofarm/trading/decomposer.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Tests: `.venv312/bin/python -m pytest` (36 files: 1,062 passed, 3 skipped). Lint/format:
+Tests: `.venv312/bin/python -m pytest` (36 files: 1,063 passed, 3 skipped). Lint/format:
 `ruff check src scripts tests` and `black src scripts tests` (config in `pyproject.toml`).
 
 ## The simulator
