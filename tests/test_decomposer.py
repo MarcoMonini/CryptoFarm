@@ -7,12 +7,13 @@ import numpy as np
 import pandas as pd
 
 from cryptofarm import paths
-from cryptofarm.trading import decomposer, zones
+from cryptofarm.trading import decomposer, project_features, zones
 
 
 def test_selfchecks():
     decomposer._selfcheck()
     zones._selfcheck()
+    project_features._selfcheck()
     runpy.run_module("cryptofarm.trading.candle_features", run_name="__main__")
 
 
