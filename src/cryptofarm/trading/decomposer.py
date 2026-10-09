@@ -87,7 +87,8 @@ day: ETH 0 to 10 at −2.2% at 48, −4.9. The bands past 10 and 90 hold about a
 handful of episodes. The momentum above 70 is the one size worth a fee, 0.20% a round trip at OKX,
 and it is measured on the whole history with nothing held out: a lead.
 
-**The future after an indicator**: the same again for any of the 29 columns of `features`, with
+**The future after an indicator**: the same again for any of the 29 columns of `features`, or the 13 of
+`project_features` — this project's own indicators, listed after them — with
 their window as an input (`EXTREMA_WINDOW` by default), banded in deciles (`quantile_bands`) because
 no two share a scale; a decile dilutes a tail, so RSI's top decile reads weaker here than its 80 to
 90 band above. The extreme deciles on BTC and ETH 15m, N 10 / 48 / 96, fall in three families. A
@@ -104,11 +105,12 @@ whole history: a map of where to look, not a result.
 
 **The zones of the study** (`zones`): the twenty zones of `reports/zones_study.html` — four families that
 held from 2017-2020 to 2021-2025, and the momentum that did not — each at its own timeframe, window, band
-and N, re-read on this store. One zone at a time, picked from a list: a grid of small heatmaps, BTC and ETH
-down, discovery, confirm and recent across, every band of the column's 2017-2020 quantiles against every N
-of the study, in standard errors of the excess, with the zone's cell outlined; under it the zone's cell in
-numbers and one trade an episode against the 0.20% fee. The bands' edges are discovery's on every period,
-so the recent column is the one where the 2017-2020 tails fire rarely.
+and N, re-read on this store; and, on a switch, the twenty that `scripts/zones_scan.py` found holding among
+this project's own indicators (`zones.PROJECT_ZONES`). One zone at a time, picked from a list: a grid of small
+heatmaps, BTC and ETH down, discovery, confirm and recent across, every band of the column's 2017-2020
+quantiles against every N of the study, in standard errors of the excess, with the zone's cell outlined; under
+it the zone's cell in numbers and one trade an episode against the 0.20% fee. The bands' edges are
+discovery's on every period, so the recent column is the one where the 2017-2020 tails fire rarely.
 
     streamlit run src/cryptofarm/trading/decomposer.py
 
@@ -129,7 +131,7 @@ from ta.momentum import RSIIndicator
 from cryptofarm import paths
 from cryptofarm.data import klines
 from cryptofarm.trading import candle_features as features
-from cryptofarm.trading import zones
+from cryptofarm.trading import project_features, zones
 from cryptofarm.trading.candle_features import EXTREMA_WINDOW
 
 TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")
@@ -148,6 +150,9 @@ DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")  # pandas' dayofweek, M
 SIDES = {"all": "All candles", "up": "Up candles", "down": "Down candles"}
 # What the lower candle chart can take off each candle, named as the statistics at the top of the page
 # are, so a choice points at the numbers it subtracts without repeating them.
+# The indicator menu: TradingVision's 29 columns, then this project's 13 (`project_features`).
+COLUMNS = features.COLUMNS + project_features.COLUMNS
+LABELS = features.LABELS | project_features.LABELS
 OFFSETS = {
     "none": "Nothing",
     "std": "Std dev of all candles",
@@ -419,9 +424,16 @@ def quantile_bands(x: pd.Series, q: int = QUANTILES) -> pd.Series:
 
 
 @st.cache_data(show_spinner="Computing the indicators…")
-def indicators(symbol: str, timeframe: str, mtime: float, window: int) -> pd.DataFrame:
-    """`features`' columns on one pair's candles, with `window` as their N; `mtime` as in `candles`."""
-    return features.features(candles(symbol, timeframe, mtime), window)
+def indicators(symbol: str, timeframe: str, mtime: float, window: int, project: bool = False) -> pd.DataFrame:
+    """`features`' columns on one pair's candles, or `project_features`' with `project`, with `window` as their N;
+    `mtime` as in `candles`. Two frames and not one, so a column of either costs only its own module."""
+    module = project_features if project else features
+    return module.features(candles(symbol, timeframe, mtime), window)
+
+
+def indicator(symbol: str, timeframe: str, mtime: float, window: int, column: str) -> pd.Series:
+    """One column of `COLUMNS`, from whichever module holds it."""
+    return indicators(symbol, timeframe, mtime, window, column in project_features.LABELS)[column]
 
 
 def ahead(band: pd.Series, close: pd.Series, horizons: int, step: pd.Timedelta) -> pd.DataFrame:
@@ -484,7 +496,7 @@ def zone_tables(symbol: str, timeframe: str, mtime: float, zone: tuple) -> tuple
     excess on this pair points; `mtime` as in `candles`."""
     _, _, column, window, band, n = zone
     df = candles(symbol, timeframe, mtime)
-    x = indicators(symbol, timeframe, mtime, window or EXTREMA_WINDOW)[column]
+    x = indicator(symbol, timeframe, mtime, window or EXTREMA_WINDOW, column)
     period = zones.period_of(df.index)
     edges = zones.band_edges(x, period)
     code = zones.bands(x, edges)
@@ -732,12 +744,15 @@ def main() -> None:
     st.subheader("The future after an indicator")
     left, right = st.columns(2)
     column = left.selectbox(
-        "Indicator", features.COLUMNS, format_func=features.LABELS.get, help="the candidate columns of `features`"
+        "Indicator",
+        COLUMNS,
+        format_func=LABELS.get,
+        help="TradingVision's 29 columns of `features`, then this project's 13 of `project_features`",
     )
     n = right.number_input(
         "Indicator window, candles", 2, 500, EXTREMA_WINDOW, help="`features`' N: every window of every column"
     )
-    table = ahead(quantile_bands(indicators(symbol, timeframe, mtime, n)[column]), df.close, horizons, step)
+    table = ahead(quantile_bands(indicator(symbol, timeframe, mtime, n, column)), df.close, horizons, step)
     left, right = st.columns(2)
     left.markdown("**Mean change from the close to N candles later**")
     left.plotly_chart(ahead_figure(table, "mean", step), use_container_width=True, key="indicator-mean")
@@ -751,14 +766,19 @@ def main() -> None:
     )
 
     st.subheader("The zones of the study")
+    studies = {
+        "TradingVision's 29 columns (reports/zones_study.html)": zones.ZONES,
+        "This project's 13 (scripts/zones_scan.py)": zones.PROJECT_ZONES,
+    }
+    listed = studies[st.radio("Columns searched", list(studies), horizontal=True)]
     picked = st.selectbox(
         "Zone",
-        range(len(zones.ZONES)),
-        format_func=lambda i: zones.label(zones.ZONES[i]),
-        help="family · timeframe · column (window) · band in 2017-2020 quantiles · N, as `reports/zones_study.html` "
-        "lists them; " + "; ".join(f"{k} {v}" for k, v in zones.FAMILIES.items()),
+        range(len(listed)),
+        format_func=lambda i: zones.label(listed[i]),
+        help="family · timeframe · column (window) · band in 2017-2020 quantiles · N; "
+        + "; ".join(f"{k} {v}" for k, v in zones.FAMILIES.items()),
     )
-    zone = zones.ZONES[picked]
+    zone = listed[picked]
     have = [s for s in zones.SYMBOLS if s in held]
     if not have:
         st.info(f"Neither {' nor '.join(zones.SYMBOLS)} is in the store.")
@@ -770,9 +790,9 @@ def main() -> None:
         f"{zone[1]} candles of {' and '.join(have)}, whatever the timeframe picked at the top. Each band is the "
         "column's quantiles on discovery (to 2020-12), the same edges applied to confirm (2021-01 to 2025-06) and "
         "recent; each cell the excess of the mean change N candles after the close over every candle's of the same "
-        "period, in standard errors over blocks of N candles. Outlined, the zone. The report chose it beyond 4 se "
-        "on both pairs on discovery and called it held at 2 on confirm. Under it one trade an episode: the first "
-        "candle in the band, held N, gross, then less the 0.20% round trip."
+        "period, in standard errors over blocks of N candles. Outlined, the zone: chosen beyond 4 se on both pairs on "
+        "discovery, and held at 2 on confirm unless its family says it does not. Under it one trade an episode: the "
+        "first candle in the band, held N, gross, then less the 0.20% round trip."
     )
 
 

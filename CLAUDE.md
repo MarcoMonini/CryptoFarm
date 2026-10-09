@@ -122,7 +122,8 @@ src/cryptofarm/
     ├── live_bot.py       headless bot that places real orders
     ├── decomposer.py     second Streamlit page, from TradingVision: descriptive statistics of one pair's candles
     ├── candle_features.py  TradingVision's 29 candidate columns, read only by the decomposer
-    └── zones.py          the report's twenty zones and how one is read: the decomposer's last section
+    ├── zones.py          the zones of both studies and how one is read: the decomposer's last section
+    └── project_features.py  this project's indicators as 13 columns for the zones study (scripts/zones_scan.py)
 scripts/analysis.py       command-line measurements producing the numbers in strategy.md
 ```
 

@@ -16,6 +16,11 @@ future. A candle whose future crosses into the next period counts in neither.
 An excess per candle is not a trade: the candles of one crash all sit in the bottom band and share their
 future. `trades` takes one trade an episode, the first candle in the band held N candles, nothing new until
 it closes; gross, against `ROUND_TRIP`, the 0.20% the report prices against.
+
+**`PROJECT_ZONES`** are the twenty that `scripts/zones_scan.py` found holding when the same search ran over this
+project's own indicators (`project_features`), sorted into the same families plus one: momentum by where the
+price sits, which holds where RSI/TSI momentum did not, and under the fee. Every one of them is 0.75 to 0.998
+Spearman with a column of the first study (`reports/zones_project_trades.csv`): re-expressions, not new findings.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from cryptofarm.trading import candle_features
+from cryptofarm.trading import candle_features, project_features
 
 QS = (0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99)  # the band edges, quantiles of the discovery period
 HORIZONS = (1, 3, 6, 12, 24, 48, 96, 192)  # N, in candles
@@ -44,9 +49,10 @@ FIXED = (
 FAMILIES = {
     "1": "Price far below its average → bounce",
     "2": "Huge bars → rise over the next day",
-    "3": "Close at the low → the next candle",
+    "3": "Close at an extreme → the next candle reverts",
     "4": "Slow bounce, solid but small",
     "m": "Momentum: does not hold",
+    "5": "Price far above its average → keeps rising, under the fee",
 }
 # (family, timeframe, column, window, band, N): band b spans the quantiles QS[b-1] to QS[b] of discovery.
 ZONES = (
@@ -71,12 +77,37 @@ ZONES = (
     ("m", "5m", "rsi_centered", 48, 8, 192),
     ("m", "5m", "tsi_momentum", 96, 8, 192),
 )
+# The same, for `project_features`' columns: what `scripts/zones_scan.py` found holding on 2021-2025.
+PROJECT_ZONES = (
+    ("1", "15m", "ema_spread_pct", 12, 0, 6),
+    ("1", "15m", "distance_from_cloud_pct", 6, 0, 6),
+    ("1", "15m", "tenkan_kijun_spread_pct", 6, 0, 24),
+    ("1", "5m", "ema_spread_pct", 6, 0, 24),
+    ("1", "5m", "distance_from_cloud_pct", 6, 0, 24),
+    ("1", "5m", "tenkan_kijun_spread_pct", 6, 0, 96),
+    ("2", "15m", "bollinger_width", 6, 9, 96),
+    ("2", "5m", "bollinger_width", 6, 9, 96),
+    ("3", "5m", "stoch_rsi", 6, 9, 1),
+    ("3", "5m", "stoch_rsi", 6, 2, 1),
+    ("3", "5m", "distance_from_ema_atr", 6, 0, 1),
+    ("3", "15m", "donchian_position", 6, 9, 3),
+    ("4", "15m", "donchian_position", 96, 0, 6),
+    ("4", "15m", "donchian_position", 24, 1, 6),
+    ("4", "15m", "bollinger_position", 24, 1, 6),
+    ("4", "5m", "donchian_position", 96, 0, 24),
+    ("4", "5m", "distance_from_ema_atr", 24, 1, 24),
+    ("5", "15m", "bollinger_position", 96, 9, 48),
+    ("5", "5m", "distance_from_ema_atr", 48, 9, 192),
+    ("5", "5m", "obv_slope", 96, 8, 192),
+)
 
 
 def label(zone: tuple) -> str:
     """One line per zone, as the report's tables name it."""
     family, timeframe, column, window, band, n = zone
-    name = candle_features.LABELS[column].removesuffix(" (%)").removesuffix(" (N)") + (f" ({window})" if window else "")
+    name = (candle_features.LABELS | project_features.LABELS)[column].removesuffix(" (%)").removesuffix(" (N)") + (
+        f" ({window})" if window else ""
+    )
     return f"{family} · {timeframe} · {name} · {quantiles(band)} · N {n}"
 
 
@@ -155,6 +186,10 @@ def _selfcheck() -> None:
     for zone in ZONES:
         _, timeframe, column, window, band, n = zone
         assert column in candle_features.COLUMNS and (window == 0) == (column in FIXED), zone
+        assert 0 <= band <= len(QS) and n in HORIZONS and timeframe in ("5m", "15m"), zone
+    for zone in PROJECT_ZONES:
+        family, timeframe, column, window, band, n = zone
+        assert column in project_features.COLUMNS and window > 0 and family in FAMILIES, zone
         assert 0 <= band <= len(QS) and n in HORIZONS and timeframe in ("5m", "15m"), zone
     assert label(ZONES[0]) == "1 · 15m · Distance from VWAP (12) · 0%–1% · N 6"
 

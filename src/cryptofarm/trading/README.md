@@ -34,9 +34,10 @@ config, panels, tuned_defaults → simulator
 | `tuned_defaults.py` | 61 | **generated** by `scripts/tune_defaults.py`: measured starting values, per interval |
 | `simulator.py` | 768 | the Streamlit page, two views |
 | `live_bot.py` | 472 | the headless bot that places real orders |
-| `decomposer.py` | 869 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
+| `decomposer.py` | 889 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
 | `candle_features.py` | 313 | TradingVision's 29 candidate columns, copied unchanged: the decomposer's indicator section reads them |
-| `zones.py` | 201 | the twenty zones of `reports/zones_study.html` and the measurement that reads one, ported from TradingVision |
+| `zones.py` | 236 | the twenty zones of `reports/zones_study.html`, the twenty of `scripts/zones_scan.py`, and the measurement that reads one |
+| `project_features.py` | 127 | this project's own indicators (stochastic, StochRSI, MFI, OBV, Bollinger, Donchian, squeeze, ATR bands, Ichimoku, EMA crossovers) as 13 columns in `candle_features`' contract |
 
 ## The functions
 
@@ -119,7 +120,8 @@ tree analysis does not see.
 through `klines.load_klines(..., clip=False)` and downloads nothing. Sections: the candles and the
 same candles from zero, the histogram, the autocorrelation, weekday × hour, and three heatmaps of the
 mean change N candles after the close — banded by body in σ, by RSI, and by any column of
-`candle_features` in deciles. Last, *The zones of the study*: pick one of `zones.ZONES` and get a
+`candle_features` or of `project_features` in deciles. Last, *The zones of the study*: pick one of `zones.ZONES` (the report's) or of
+`zones.PROJECT_ZONES` (this project's indicators, `scripts/zones_scan.py`) and get a
 2 × 3 grid of small heatmaps (BTC and ETH × discovery, confirm, recent), every 2017-2020 quantile
 band against every N, the zone's cell outlined, with its numbers and its trades against the fee
 underneath. On this store they match the report's table to the third digit. Its numbers were measured in TradingVision; the study they led to is
