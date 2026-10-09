@@ -98,7 +98,7 @@ def detail(z: pd.DataFrame, symbols: list[str]) -> pd.DataFrame:
                 rho = theirs.iloc[::7].corrwith(x.iloc[::7], method="spearman")  # every 7th bar: fast, same answer
                 row["closest"], row["rho"] = rho.abs().idxmax(), rho[rho.abs().idxmax()]
             for p, name in enumerate(zones.PERIODS):
-                g = zones.trades((code == band) & (period == p), df.close, n, sign)
+                g = zones.trades((code == band) & (period == p), df.open, df.close, n, sign)
                 row |= {
                     f"{name} trades": len(g),
                     f"{name} mean": g.mean() if len(g) else np.nan,

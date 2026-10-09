@@ -14,8 +14,14 @@ non-overlapping blocks of N candles on the clock, since neighbouring candles sha
 future. A candle whose future crosses into the next period counts in neither.
 
 An excess per candle is not a trade: the candles of one crash all sit in the bottom band and share their
-future. `trades` takes one trade an episode, the first candle in the band held N candles, nothing new until
-it closes; gross, against `ROUND_TRIP`, the 0.20% the report prices against.
+future. `trades` takes one trade an episode: the indicator is read at the close of the first candle in the band,
+the trade opens at the next candle's open — the first price anyone could act on — and closes N candles later,
+nothing new until it does; gross, against `ROUND_TRIP`, the 0.20% the report prices against. TradingVision
+entered at the signal candle's own close. On confirm and recent the two differ by 0.006% a trade at most; on
+discovery by up to 0.3% (ETH 15m), because in Binance's first months the next candle's first print could sit far
+from the close — 48.5% on ETH on 2017-08-22 — on books too thin to fill at it. The choice of zones is not touched:
+`cells` reads close to close. Entering a whole candle late, at the next close, costs 0.1 to 0.2% a trade on
+family 1 at 15m on confirm: the bounce starts in the first candle.
 
 **`PROJECT_ZONES`** are the twenty that `scripts/zones_scan.py` found holding when the same search ran over this
 project's own indicators (`project_features`), sorted into the same families plus one: momentum by where the
@@ -171,15 +177,16 @@ def cells(code: np.ndarray, close: pd.Series, period: np.ndarray, step: pd.Timed
     return out.assign(t=out.excess / out.se)
 
 
-def trades(hit: np.ndarray, close: pd.Series, n: int, sign: float) -> np.ndarray:
-    """The change in percent of one trade an episode: entered at the close of the first candle of `hit` (a boolean
-    mask), held `n` candles in the direction `sign`, and no new entry until it is closed. A candle whose future
-    runs past the store's end opens none."""
-    c = close.to_numpy()
+def trades(hit: np.ndarray, open_: pd.Series, close: pd.Series, n: int, sign: float) -> np.ndarray:
+    """The change in percent of one trade an episode. The signal is the first candle of `hit` (a boolean mask), known
+    at its close; the trade opens at the next candle's open, is held `n` candles in the direction `sign` and closes
+    at the close of the n-th, and no new entry comes until it is closed. A signal whose exit runs past the store's
+    end opens none."""
+    o, c = open_.to_numpy(), close.to_numpy()
     out, free = [], -1
     for i in np.flatnonzero(hit):
         if i > free and i + n < len(c):
-            out.append(sign * (c[i + n] / c[i] - 1) * 100)
+            out.append(sign * (c[i + n] / o[i + 1] - 1) * 100)
             free = i + n
     return np.array(out)
 
@@ -233,8 +240,12 @@ def _selfcheck() -> None:
     naive = noise.pct_change().shift(-1)[period_of(noise.index) == 0].std() * 100 / np.sqrt(r["count"])
     assert abs(r.se / naive - 1) < 0.05
     # Trades: one an episode, the next only after the last is closed, none past the end; a short gains on a fall.
+    # Each opens at the next candle's open, never at the signal's own close: with every open 1% under the close
+    # before it, the trade pays that 1% back on top of the n candles' rise.
     hit = np.zeros(len(up), bool)
     hit[[10, 11, 12, 20, len(up) - 2]] = True
-    g = trades(hit, up, 5, 1.0)
+    g = trades(hit, up.shift().fillna(up.iloc[0]), up, 5, 1.0)
     assert len(g) == 2 and np.allclose(g, (1.01**5 - 1) * 100)
-    assert np.allclose(trades(hit, up, 5, -1.0), -g)
+    assert np.allclose(trades(hit, up.shift().fillna(up.iloc[0]), up, 5, -1.0), -g)
+    g = trades(hit, up.shift().fillna(up.iloc[0]) * 0.99, up, 5, 1.0)
+    assert np.allclose(g, (1.01**5 / 0.99 - 1) * 100)

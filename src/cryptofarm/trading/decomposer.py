@@ -507,7 +507,7 @@ def zone_tables(symbol: str, timeframe: str, mtime: float, zone: tuple) -> tuple
     sign = float(np.sign(found.iloc[0])) if len(found) and np.isfinite(found.iloc[0]) else 1.0
     rows = []
     for p, name in enumerate(zones.PERIODS):
-        g = zones.trades((code == band) & (period == p), df.close, n, sign)
+        g = zones.trades((code == band) & (period == p), df.open, df.close, n, sign)
         rows.append(
             {
                 "period": name,
@@ -787,8 +787,9 @@ def main() -> None:
         "column's quantiles on discovery (to 2020-12), the same edges applied to confirm (2021-01 to 2025-06) and "
         "recent; each cell the excess of the mean change N candles after the close over every candle's of the same "
         "period, in standard errors over blocks of N candles. Outlined, the zone: chosen beyond 4 se on both pairs on "
-        "discovery, and held at 2 on confirm unless its family says it does not. Under it one trade an episode: the "
-        "first candle in the band, held N, gross, then less the 0.20% round trip."
+        "discovery, and held at 2 on confirm unless its family says it does not. Under it one trade an episode: read "
+        "at the close of the first candle in the band, opened at the next candle's open, held N, gross, then less "
+        "the 0.20% round trip."
     )
 
 
