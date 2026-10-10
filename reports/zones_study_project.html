@@ -134,7 +134,7 @@ pre { margin: 0; background: var(--surface); border: 1px solid var(--rule); bord
   <code>.venv312/bin/python -m scripts.zones_scan</code> · tables in <code>reports/zones_project*.csv</code> · every zone
   is drawn in the decomposer, <code>src/cryptofarm/trading/decomposer.py</code></p>
   <nav class="toc" aria-label="Sections">
-    <a href="#outcome">Outcome</a><a href="#method">Method</a><a href="#table">Table</a><a href="#fee">Against the fee</a><a href="#columns">By column</a><a href="#caveats">Caveats</a><a href="#next">Next steps</a>
+    <a href="#outcome">Outcome</a><a href="#method">Method</a><a href="#table">Table</a><a href="#top">Top 10</a><a href="#fee">Against the fee</a><a href="#columns">By column</a><a href="#caveats">Caveats</a><a href="#next">Next steps</a>
   </nav>
 </header>
 
@@ -190,6 +190,24 @@ pre { margin: 0; background: var(--surface); border: 1px solid var(--rule); bord
   "Recent" from 2025-06, trades in brackets. Against the fee, read on confirm: <span class="chip good"><i>●</i> above</span>
   mean minus 0.20% beyond one standard error on both pairs; <span class="chip warn"><i>●</i> borderline</span> mean above
   0.20% on both but within one error; <span class="chip bad"><i>●</i> under</span> mean under 0.20% on at least one.</p>
+</section>
+
+<section id="top">
+  <div class="sechead"><span class="step">Top 10</span><h2>The ten zones that return most per trade, both studies together</h2></div>
+  <p>Every zone of both studies — the report's twenty, this one's twenty and the distance from KAMA (12) at H 96 that
+  the fold study ranked first — priced the same way: one trade an episode, opened at the open of the second candle
+  after the signal, held H candles, gross. Period 2021-01-01 → 2025-06-01 (confirm), BTC and ETH pooled, weighted by
+  their trades. All long.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>#</th><th>Signal</th><th>TF</th><th>Hold H</th><th>Mean win rate</th><th>Gross a trade</th><th>Net in se</th><th>Trades</th></tr></thead>
+    <tbody><tr><td>1</td><td class="name">Bollinger Width (6) in its top 1%<small>this project</small></td><td>15m</td><td>96 <span class="k">(24 h)</span></td><td>62.1%</td><td>+1.67% <span class="se">± 0.55</span></td><td>2.7</td><td>169</td></tr><tr><td>2</td><td class="name">Distance from Window High (6) in its bottom 1%<small>first study</small></td><td>15m</td><td>24 <span class="k">(6 h)</span></td><td>60.9%</td><td>+0.99% <span class="se">± 0.25</span></td><td>3.2</td><td>274</td></tr><tr><td>3</td><td class="name">Bar Range in its top 1%<small>first study</small></td><td>15m</td><td>96 <span class="k">(24 h)</span></td><td>56.9%</td><td>+0.81% <span class="se">± 0.32</span></td><td>1.9</td><td>297</td></tr><tr><td>4</td><td class="name">Upper Wick in its top 1%<small>first study</small></td><td>15m</td><td>96 <span class="k">(24 h)</span></td><td>54.1%</td><td>+0.68% <span class="se">± 0.33</span></td><td>1.5</td><td>316</td></tr><tr><td>5</td><td class="name">Distance from KAMA (6) in its bottom 1%<small>first study</small></td><td>15m</td><td>24 <span class="k">(6 h)</span></td><td>57.8%</td><td>+0.64% <span class="se">± 0.17</span></td><td>2.6</td><td>453</td></tr><tr><td>6</td><td class="name">Distance from KAMA (12) in its bottom 1%<small>fold study</small></td><td>15m</td><td>96 <span class="k">(24 h)</span></td><td>59.3%</td><td>+0.57% <span class="se">± 0.40</span></td><td>0.9</td><td>243</td></tr><tr><td>7</td><td class="name">Bollinger Width (6) in its top 1%<small>this project</small></td><td>5m</td><td>96 <span class="k">(8 h)</span></td><td>54.4%</td><td>+0.46% <span class="se">± 0.18</span></td><td>1.4</td><td>513</td></tr><tr><td>8</td><td class="name">Cumulative Log Return (6) in its bottom 1%<small>first study</small></td><td>15m</td><td>6 <span class="k">(1.5 h)</span></td><td>57.2%</td><td>+0.45% <span class="se">± 0.13</span></td><td>2.0</td><td>421</td></tr><tr><td>9</td><td class="name">EMA Slope (12) in its bottom 1%<small>first study</small></td><td>15m</td><td>6 <span class="k">(1.5 h)</span></td><td>57.3%</td><td>+0.42% <span class="se">± 0.15</span></td><td>1.5</td><td>349</td></tr><tr><td>10</td><td class="name">Distance from VWAP (12) in its bottom 1%<small>first study</small></td><td>15m</td><td>6 <span class="k">(1.5 h)</span></td><td>60.6%</td><td>+0.42% <span class="se">± 0.11</span></td><td>2.0</td><td>513</td></tr></tbody>
+  </table></div>
+  <p class="caption">"Net in se" is the gross less the 0.20% round trip, over its standard error: past 2 the zone
+  clears the fee beyond chance, under 1 it does not. The error pools BTC and ETH as if independent; their crashes fall
+  on the same days, so it is optimistic. The widest gross (Bollinger width, bar range, upper wick) are the noisiest:
+  few, very volatile episodes. The distance from the 6-candle high and from KAMA (6), both held a day's quarter, are
+  the two that clear the fee by the widest margin. The win rate sits at 54–62% for all ten: what separates them is
+  how much a win pays, not how often it comes.</p>
 </section>
 
 <section id="fee">
