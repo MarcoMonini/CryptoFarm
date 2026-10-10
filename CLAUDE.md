@@ -199,7 +199,7 @@ streamlit run src/cryptofarm/trading/decomposer.py
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Tests: `.venv312/bin/python -m pytest` (38 files: 1,180 passed, 3 skipped). Lint/format:
+Tests: `.venv312/bin/python -m pytest` (39 files: 1,182 passed, 3 skipped). Lint/format:
 `ruff check src scripts tests` and `black src scripts tests` (config in `pyproject.toml`).
 
 ## The simulator

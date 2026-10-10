@@ -1,6 +1,6 @@
 # `scripts/` — the measurements
 
-Twenty command-line modules. None is imported by the package: `src/cryptofarm/` does not know they
+Twenty-one command-line modules. None is imported by the package: `src/cryptofarm/` does not know they
 exist. They go the other way — they read the store, run strategies and models, and **produce the
 numbers that appear in the documents in `.claude/docs/`**. They are launched as modules
 (`.venv312/bin/python -m scripts.entry_lab`), never as files.
@@ -29,6 +29,7 @@ minimum net against a module that breaks with nobody noticing for months.
 | `ai_voter.py` | 287 | the model voter trained **on the confluence's own trades** | `strategia-confluenza.md` |
 | `zones_scan.py` | 134 | the zones study of `reports/zones_study.html` over this project's own indicators | `reports/zones_study_project.html` |
 | `winrate_folds.py` | 222 | the win rate of every zone cell in each of 8 yearly folds, a candle late, with 2025-06 on held out | `reports/winrate_folds.csv` |
+| `oi_zones.py` | 304 | the zones study on the perpetual's open interest, with price columns as a control: nothing holds | `reports/oi_zones*.csv` |
 
 ## The tools
 
