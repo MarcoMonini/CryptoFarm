@@ -18,7 +18,7 @@ config, panels, tuned_defaults → simulator
 
 | file | lines | what it is for |
 |---|---|---|
-| `config.py` | 255 | the widgets' starting values and the menu lists. No logic |
+| `config.py` | 288 | the widgets' starting values and the menu lists. No logic |
 | `market_data.py` | 304 | point downloads from Binance for the page (the public REST, not the dumps) |
 | `indicators.py` | 212 | the classic indicators, plus the numpy ATR/EMA core |
 | `indicators_extra.py` | 186 | ADX, Donchian, Bollinger/Keltner, StochRSI, OBV/MFI, Ichimoku, behind a cache |
@@ -30,14 +30,15 @@ config, panels, tuned_defaults → simulator
 | `confluence.py` | 1004 | the confluence strategy: six voters on four planes, dynamic threshold |
 | `portfolio.py` | 308 | one capital across several assets: it opens on the first that speaks |
 | `rotation.py` | 215 | cross-sectional rotation: it chooses *which* asset, not *when* |
-| `panels.py` | 1068 | the registry: which strategy uses which indicators, which parameters, how they are drawn |
+| `panels.py` | 1379 | the registry: which strategy uses which indicators, which parameters, how they are drawn |
 | `tuned_defaults.py` | 61 | **generated** by `scripts/tune_defaults.py`: measured starting values, per interval |
-| `simulator.py` | 768 | the Streamlit page, two views |
+| `simulator.py` | 889 | the Streamlit page, two views |
 | `live_bot.py` | 472 | the headless bot that places real orders |
 | `decomposer.py` | 889 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
 | `candle_features.py` | 313 | TradingVision's 29 candidate columns, copied unchanged: the decomposer's indicator section reads them |
 | `zones.py` | 236 | the twenty zones of `reports/zones_study.html`, the twenty of `scripts/zones_scan.py`, and the measurement that reads one |
 | `project_features.py` | 127 | this project's own indicators (stochastic, StochRSI, MFI, OBV, Bollinger, Donchian, squeeze, ATR bands, Ichimoku, EMA crossovers) as 13 columns in `candle_features`' contract |
+| `zone_signals.py` | 177 | the report's Top 10 zones as signals: tail edges from the pair's 2017-2020 store history, which candles fire. The simulator's «Zone Signals» marks them |
 
 ## The functions
 

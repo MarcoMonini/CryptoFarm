@@ -14,7 +14,7 @@ from cryptofarm.ml.trainer import (
     load_signal_model,
 )
 from cryptofarm.paths import MODELS_DIR
-from cryptofarm.trading import config, confluence, panels, rotation
+from cryptofarm.trading import config, confluence, panels, rotation, zone_signals
 from cryptofarm.trading.indicators import add_technical_indicator
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.market_data import (
@@ -186,7 +186,7 @@ def trading_analysis(
     # "Trend Zones" vedeva tre RSI, uno stocastico e un TSI che quella strategia non tocca, e
     # doveva sapere a memoria quali linee contassero. Ora la figura ha un riquadro per ogni
     # oscillatore che la strategia usa davvero, e sulle candele solo i suoi overlay.
-    indicatori = panels.indicatori_di(strategia)
+    indicatori = panels.indicatori_di(strategia, valori)
     if valori.get("MOSTRA_ETICHETTA"):
         # L'etichetta non appartiene a nessuna strategia -- guarda avanti, quindi non e' operabile
         # -- e si aggiunge a qualunque vista: serve a vedere su queste candele quale numero il
@@ -629,6 +629,31 @@ if __name__ == "__main__":
                 "and leaves on the stop, the hysteresis band or the gate. This is the one measured "
                 "over fifteen assets and seven years."
             )
+    elif strategia == config.ZONE_STRATEGY:
+        # Le zone valgono ciascuna a un intervallo: il selettore offre solo quelle misurate qui, e il
+        # registro mostra gli indicatori delle sole zone scelte.
+        valori["INTERVALLO"] = interval
+        valide = zone_signals.validi(interval)
+        if not valide:
+            st.sidebar.warning(
+                f"No zone was measured at {interval}: the ten were measured at 15m, and the Bollinger width "
+                "also at 5m. Nothing is marked here."
+            )
+        valori["ZONE_SIGNALS"] = st.sidebar.multiselect(
+            "Zones",
+            options=valide,
+            default=valide,
+            format_func=lambda chiave: zone_signals.SEGNALI[chiave].nome,
+            key=f"zone_{interval}",
+        )
+        base = zone_signals.base_di(symbol)
+        prima = zone_signals.SEGNALI[valide[0]] if valide else None
+        w = zone_signals.finestra(prima, panels.valori_predefiniti()) if prima else 0
+        if prima and zone_signals.soglia(base, valide[0], w, float(config.ZONE_TAIL.value)) is None:
+            st.sidebar.warning(
+                f"{base} has no 2017-2020 candles in the local store, so the zones have "
+                "no edge and nothing is marked. Run `python -m cryptofarm.data.klines --update`."
+            )
     elif voce is None:
         st.sidebar.caption("No strategy selected: every available indicator is shown.")
 
@@ -658,7 +683,7 @@ if __name__ == "__main__":
     # che l'intervallo ha gia' avuto, e `AppTest` non lo vede perche' ricostruisce lo stato a ogni
     # esecuzione: il test asserisce sulla **chiave**, non sul valore.
     suffisso = f"_{modalita_scelta}" if modalita_scelta else ""
-    for titolo, nomi in panels.gruppi_di(strategia):
+    for titolo, nomi in panels.gruppi_di(strategia, valori):
         with st.sidebar.expander(titolo, expanded=True):
             colonne = st.columns(2)
             for posizione, nome in enumerate(nomi):
@@ -819,12 +844,36 @@ if __name__ == "__main__":
             market_data=st.session_state["df"],
         )
         with text_placeholder.container():
-            st.subheader("Trades")
-            if trades_df.empty:
+            if strategia == config.ZONE_STRATEGY:
+                # Nessuna operazione: si contano le candele marcate, zona per zona, sulle candele caricate.
+                marcate = {
+                    traccia.name: int(np.isfinite(np.asarray(traccia.y, dtype=float)).sum())
+                    for traccia in fig.data
+                    if traccia.legendgroup == "zona_segnali"
+                }
+                st.subheader("Marked candles")
+                if marcate and not any(marcate.values()):
+                    st.info(
+                        "No candle here is in a zone. The tails are the 1% of 2017-2020, when a 15m candle moved "
+                        "twice as much as now: on BTC they fire a few times a quarter. Load more hours of history."
+                    )
+                if marcate:
+                    st.dataframe(
+                        pd.DataFrame({"Zone": list(marcate), "Candles": list(marcate.values())}),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                st.caption(
+                    "Each zone was measured long: enter at the open of the second candle after the mark, hold the "
+                    "candles shown in reports/zones_study_project.html. No trade is simulated here."
+                )
+            elif trades_df.empty:
+                st.subheader("Trades")
                 st.info("No trades with these parameters.")
                 if strategia == config.CONFLUENCE_STRATEGY and st.session_state["df"] is not None:
                     st.caption("Why: " + panels.diagnosi_confluenza(st.session_state["df"], valori, interval))
             else:
+                st.subheader("Trades")
                 profitto = trades_df["Profit"].sum()
                 in_utile = len(trades_df[trades_df["Profit"] > 0])
                 col1, col2, col3 = st.columns(3)

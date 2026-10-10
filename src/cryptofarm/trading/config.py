@@ -48,6 +48,10 @@ AI_STRATEGY = "AI Model"
 # nome sta in una costante perche' lo usano il menu, il registro e la pagina, che la avvisa.
 CONFLUENCE_STRATEGY = "Confluence"
 
+# I segnali delle zone (`zone_signals`): marca le candele, non opera. Il nome serve al menu, al registro e alla
+# pagina, che per questa voce mostra il selettore delle zone al posto delle operazioni.
+ZONE_STRATEGY = "Zone Signals"
+
 # Il menu e' stato potato sulle misure di `.claude/docs/ricerca-quant-ml.md` §2: scelta della
 # configurazione sul 2021-2023, resa sul 2024-2026, su BTC/ETH/SOL/XRP/BNB a 1d e 4h. Restano le
 # voci che fuori campione hanno mediana positiva o almeno due celle su dieci sopra il possesso
@@ -67,6 +71,7 @@ STRATEGIES = [
     "Squeeze Breakout",
     "Donchian Breakout",
     CONFLUENCE_STRATEGY,
+    ZONE_STRATEGY,
 ]
 
 # Indicatori
