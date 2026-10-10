@@ -572,7 +572,7 @@ startup is conditioned on the same check. Whoever touches that point should keep
 `load_signal_model()` used to be unconditional and brought down the whole page, not just that
 strategy.
 
-The four `@st.cache_data` in `trading/` have `ttl`/`max_entries` for an operational reason: the
+Every `@st.cache_data` in `trading/` has `ttl`/`max_entries` for an operational reason: the
 parameters come from the widgets, so cardinality is decided by whoever moves the sliders, and
 without a cap a 512 MB instance ends in OOM while in use. Do not remove them.
 

@@ -26,19 +26,19 @@ config, panels, tuned_defaults → simulator
 | `strategies_ls.py` | 537 | from candles to **position changes** `(when, price, +1\|0\|-1)` — long, flat, short |
 | `pnl.py` | 277 | from signals to trades: commissions, leverage, carry cost |
 | `mtf.py` | 87 | the alignment between intervals: it reads the **closed** long bar, never the current one |
-| `voters.py` | 155 | from position changes to a vote per bar, with memory and decay |
-| `confluence.py` | 1004 | the confluence strategy: six voters on four planes, dynamic threshold |
+| `voters.py` | 217 | from position changes to a vote per bar, with memory and decay |
+| `confluence.py` | 1444 | the confluence strategy: six voters on four planes, dynamic threshold |
 | `portfolio.py` | 308 | one capital across several assets: it opens on the first that speaks |
 | `rotation.py` | 215 | cross-sectional rotation: it chooses *which* asset, not *when* |
-| `panels.py` | 1379 | the registry: which strategy uses which indicators, which parameters, how they are drawn |
+| `panels.py` | 1388 | the registry: which strategy uses which indicators, which parameters, how they are drawn |
 | `tuned_defaults.py` | 61 | **generated** by `scripts/tune_defaults.py`: measured starting values, per interval |
-| `simulator.py` | 889 | the Streamlit page, two views |
+| `simulator.py` | 922 | the Streamlit page, two views |
 | `live_bot.py` | 472 | the headless bot that places real orders |
-| `decomposer.py` | 889 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
+| `decomposer.py` | 893 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
 | `candle_features.py` | 313 | TradingVision's 29 candidate columns, copied unchanged: the decomposer's indicator section reads them |
-| `zones.py` | 236 | the twenty zones of `reports/zones_study.html`, the twenty of `scripts/zones_scan.py`, and the measurement that reads one |
+| `zones.py` | 262 | the twenty zones of `reports/zones_study.html`, the twenty of `scripts/zones_scan.py`, and the measurement that reads one |
 | `project_features.py` | 127 | this project's own indicators (stochastic, StochRSI, MFI, OBV, Bollinger, Donchian, squeeze, ATR bands, Ichimoku, EMA crossovers) as 13 columns in `candle_features`' contract |
-| `zone_signals.py` | 177 | the report's Top 10 zones as signals: tail edges from the pair's 2017-2020 store history, which candles fire. The simulator's «Zone Signals» marks them |
+| `zone_signals.py` | 202 | the report's Top 10 zones as signals: tail edges from the pair's 2017-2020 store history, which candles fire. The simulator's «Zone Signals» marks them |
 
 ## The functions
 

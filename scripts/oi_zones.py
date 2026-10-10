@@ -51,7 +51,7 @@ from cryptofarm.data import klines
 from cryptofarm.data.positioning import load_positioning
 from cryptofarm.paths import PROJECT_ROOT
 from cryptofarm.trading import zones
-from scripts.zones_scan import T_HOLD, T_PICK, load
+from scripts.zones_scan import load, pick
 
 WINDOWS = (6, 12, 24, 48, 96, 288)  # the indicators' grid, plus 288: the open interest moves slowly
 PERIODS = (pd.Timestamp("2021-12-01"), pd.Timestamp("2024-01-01"), pd.Timestamp("2025-06-01"))
@@ -117,29 +117,6 @@ def scan(symbol: str, timeframe: str) -> pd.DataFrame:
             out.append(t.assign(column=column, window=w))
         print(f"  {symbol} {timeframe} window {w}", flush=True)
     return pd.concat(out).assign(symbol=symbol, timeframe=timeframe)
-
-
-def pick(table: pd.DataFrame, symbols: list[str]) -> pd.DataFrame:
-    """`zones_scan.pick`'s criterion: beyond `T_PICK` on discovery on every pair with one sign, the best per
-    (timeframe, column, band), held at `T_HOLD` on confirm."""
-    key = ["timeframe", "column", "window", "band", "n"]
-    wide = table.pivot_table(index=key, columns=["period", "symbol"], values=["excess", "t"])
-    t = wide["t"]["discovery"][symbols]
-    sign = np.sign(t).nunique(axis=1).eq(1) & np.sign(t).ne(0).all(axis=1)
-    weakest = t.abs().min(axis=1).where(sign)
-    passed = weakest[weakest >= T_PICK].rename("pick").reset_index()
-    best = passed.loc[passed.groupby(["timeframe", "column", "band"]).pick.idxmax()]
-    out = wide.loc[best.set_index(key).index]
-    flat = pd.DataFrame(index=out.index)
-    flat.insert(0, "quantiles", [zones.quantiles(b) for b in flat.index.get_level_values("band")])
-    for p in zones.PERIODS:
-        for s in symbols:
-            flat[f"{p} {s} %"] = out[("excess", p, s)] if ("excess", p, s) in out else np.nan
-            flat[f"{p} {s} t"] = out[("t", p, s)] if ("t", p, s) in out else np.nan
-    d = np.sign(flat[f"discovery {symbols[0]} t"])
-    flat["dir"] = np.where(d > 0, "long", "short")
-    flat["holds"] = (flat[[f"confirm {s} t" for s in symbols]].mul(d, axis=0) >= T_HOLD).all(axis=1)
-    return flat.join(best.set_index(key).pick).sort_values("pick", ascending=False)
 
 
 def detail(z: pd.DataFrame, symbols: list[str], others: list[str]) -> pd.DataFrame:

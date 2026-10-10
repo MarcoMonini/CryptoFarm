@@ -110,10 +110,28 @@ def _modulo(colonna: str):
     return project_features if colonna in project_features.LABELS else candle_features
 
 
+# Un ridisegno chiede la stessa colonna piu' volte -- all'indicatore della zona, al suo bordo, ai marcatori -- e
+# `candle_features.features` ne calcola ventinove ogni volta: su 120 giorni a 15m erano sedici chiamate e nove secondi
+# a ridisegno. Le finestre distinte sono due o tre. La chiave e' derivata dal contenuto delle candele, come in
+# `panels.confluenza_di`, quindi due frame uguali danno la stessa risposta e uno diverso non la trova.
+# ponytail: otto celle senza lock; due sessioni insieme al piu' ricalcolano, serve una `lru_cache` vera se si affiancano
+# piu' coppie nella stessa pagina.
+_CALCOLATE: dict[tuple, pd.DataFrame] = {}
+OHLCV = ["Open", "High", "Low", "Close", "Volume"]
+
+
+def _colonne(df: pd.DataFrame, modulo, w: int) -> pd.DataFrame:
+    chiave = (modulo.__name__, w, int(pd.util.hash_pandas_object(df[OHLCV], index=True).sum()))
+    if chiave not in _CALCOLATE:
+        if len(_CALCOLATE) >= 8:
+            _CALCOLATE.pop(next(iter(_CALCOLATE)), None)
+        _CALCOLATE[chiave] = modulo.features(df[OHLCV].rename(columns=str.lower), w)
+    return _CALCOLATE[chiave]
+
+
 def valore(df: pd.DataFrame, segnale: Segnale, w: int) -> pd.Series:
     """The zone's indicator on the page's candles (capitalised OHLCV), at window `w`."""
-    frame = df[["Open", "High", "Low", "Close", "Volume"]].rename(columns=str.lower)
-    return _modulo(segnale.colonna).features(frame, w)[segnale.colonna]
+    return _colonne(df, _modulo(segnale.colonna), w)[segnale.colonna]
 
 
 @lru_cache(maxsize=4)
@@ -170,6 +188,13 @@ def _selfcheck() -> None:
     back = linea(df, valore(df, SEGNALI["kama_fast"], 6))
     assert np.allclose(back.iloc[20:], kama.iloc[20:])
     assert soglia("NOSUCHPAIR", "vwap", 12, 1.0) is None
+    # Asked again on the same candles the columns are not recomputed; on other candles they are.
+    _CALCOLATE.clear()
+    valore(df, SEGNALI["kama_fast"], 6)
+    valore(df, SEGNALI["kama_slow"], 6)
+    assert len(_CALCOLATE) == 1, "kama_fast at 6 already computed candle_features at 6"
+    valore(df.assign(Close=df.Close * 1.01), SEGNALI["kama_fast"], 6)
+    assert len(_CALCOLATE) == 2, "other candles are computed again"
 
 
 if __name__ == "__main__":

@@ -174,7 +174,7 @@ def pairs(where: Path) -> list[str]:
     return [s for s in order if s in held] + sorted(held - set(order))
 
 
-@st.cache_data(show_spinner="Reading the store…")
+@st.cache_data(show_spinner="Reading the store…", max_entries=8)
 def candles(symbol: str, timeframe: str, mtime: float) -> pd.DataFrame:
     """One pair's OHLC and volume at `timeframe`. `mtime` is the file's and is unused in the body: it is in the
     cache key so that updating the store re-reads it. Not `_mtime` — Streamlit leaves a parameter
@@ -406,7 +406,7 @@ def bands(pct: pd.Series, sigma: float) -> pd.Series:
     return pd.cut(pct / sigma, [-np.inf, *edges, np.inf], right=False, labels=labels)
 
 
-@st.cache_data(show_spinner="Following every candle N candles ahead…")
+@st.cache_data(show_spinner="Following every candle N candles ahead…", max_entries=16)
 def rsi_bands(close: pd.Series, window: int) -> pd.Series:
     """Each candle's band of `RSI_STEP` points of Wilder's RSI over `window` candles, read at its close, `ta`'s as in
     `features`; NaN until the window fills. Closed on the left, the last band closed on both sides: an RSI of 100,
@@ -423,7 +423,7 @@ def quantile_bands(x: pd.Series, q: int = QUANTILES) -> pd.Series:
     return band.cat.rename_categories([f"{i.left:.4g} to {i.right:.4g}" for i in band.cat.categories])
 
 
-@st.cache_data(show_spinner="Computing the indicators…")
+@st.cache_data(show_spinner="Computing the indicators…", max_entries=16)
 def indicators(symbol: str, timeframe: str, mtime: float, window: int, project: bool = False) -> pd.DataFrame:
     """`features`' columns on one pair's candles, or `project_features`' with `project`, with `window` as their N;
     `mtime` as in `candles`. Two frames and not one, so a column of either costs only its own module."""

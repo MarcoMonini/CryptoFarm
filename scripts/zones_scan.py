@@ -73,6 +73,7 @@ def pick(table: pd.DataFrame, symbols: list[str]) -> pd.DataFrame:
             flat[f"{p} {s} t"] = out[("t", p, s)] if ("t", p, s) in out else np.nan
     flat.insert(0, "quantiles", [zones.quantiles(b) for b in flat.index.get_level_values("band")])
     d = np.sign(flat[f"discovery {symbols[0]} t"])
+    flat["dir"] = np.where(d > 0, "long", "short")
     flat["holds"] = (flat[[f"confirm {s} t" for s in symbols]].mul(d, axis=0) >= T_HOLD).all(axis=1)
     return flat.join(best.set_index(key).pick).sort_values("pick", ascending=False)
 
