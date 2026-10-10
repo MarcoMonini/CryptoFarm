@@ -125,6 +125,17 @@ KC_MULTIPLIER = Param(1.5, 0.5, 5.0, 0.1)
 OBV_WINDOW = Param(20, 2, 200, 1)
 SQUEEZE_ATR_MULT = Param(2.5, 0.5, 10.0, 0.1)
 
+# Zone signals (`zone_signals`): the windows and the tail of the Top 10 in `reports/zones_study_project.html`, as
+# measured. Changing them asks a question the studies did not price.
+ZONE_TAIL = Param(1.0, 0.1, 10.0, 0.1)  # percent of the 2017-2020 history in the tail
+ZONE_BB_WINDOW = Param(6, 2, 200, 1)
+ZONE_HIGH_WINDOW = Param(6, 2, 200, 1)
+ZONE_KAMA_FAST = Param(6, 2, 200, 1)
+ZONE_KAMA_SLOW = Param(12, 2, 200, 1)
+ZONE_RETURN_WINDOW = Param(6, 2, 200, 1)
+ZONE_SLOPE_WINDOW = Param(12, 2, 200, 1)
+ZONE_VWAP_WINDOW = Param(12, 2, 200, 1)
+
 STOCHRSI_WINDOW = Param(14, 2, 100, 1)
 STOCHRSI_SMOOTH = Param(3, 1, 20, 1)
 STOCH_OVERSOLD = Param(0.2, 0.0, 1.0, 0.05)
