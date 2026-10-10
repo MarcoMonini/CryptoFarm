@@ -113,6 +113,10 @@ class Indicatore:
     # dizionario vuoto da chiunque, e smetterebbe di intercettare il nome di colonna sbagliato che
     # e' la ragione per cui esiste.
     condizionale: bool = False
+    # Cosa dice al passaggio del mouse: "value" il nome e il numero (il default di Plotly), "none" nulla --
+    # per le linee che il grafico mostra gia' e che nel riquadro unificato lo allungherebbero, e per i
+    # marcatori delle zone, che la riga della candela elenca da se'.
+    hover: str = "value"
 
 
 @dataclass(frozen=True)
@@ -746,6 +750,7 @@ def _sovrapposto(etichetta: str, chiave: str, parametro: str, nome: str, colore:
         etichetta=etichetta,
         parametri=(parametro,),
         pannello=None,
+        hover="none",
         serie=_serie_zona(chiave, linea=f"{chiave}_linea", bordo=f"{chiave}_bordo"),
         tracce=(
             Traccia(f"{chiave}_linea", nome, colore, larghezza=1.6),
@@ -759,6 +764,7 @@ def _riquadro(etichetta: str, chiavi: tuple[str, ...], parametri: tuple[str, ...
         etichetta=etichetta,
         parametri=parametri,
         pannello=pannello,
+        hover="none",
         serie=_serie_zona(*chiavi, linea=f"{chiavi[0]}_valore", bordo=f"{chiavi[0]}_bordo"),
         tracce=(
             Traccia(f"{chiavi[0]}_valore", pannello, ACQUA, larghezza=1.6),
@@ -779,6 +785,7 @@ INDICATORI.update(
             etichetta="EMA (slope)",
             parametri=("ZONE_SLOPE_WINDOW",),
             pannello=None,
+            hover="none",
             serie=_serie_ema_zona,
             tracce=(Traccia("zona_ema", "EMA (slope)", ARANCIO_CHIARO, larghezza=1.4),),
         ),
@@ -786,6 +793,7 @@ INDICATORI.update(
             etichetta="Bollinger bands (zone)",
             parametri=("ZONE_BB_WINDOW",),
             pannello=None,
+            hover="none",
             serie=_serie_bollinger_zona,
             tracce=(
                 Traccia("zona_bb_alta", "Bollinger (zone) upper", BLU_CHIARO, larghezza=1.2),
@@ -808,6 +816,7 @@ INDICATORI.update(
             pannello=None,
             serie=_serie_segnali,
             condizionale=True,
+            hover="none",
             tracce=tuple(
                 Traccia(
                     f"zona_{chiave}",

@@ -73,6 +73,10 @@ def test_with_an_edge_each_zone_marks_under_the_low_with_its_own_symbol(candele,
     vwap = next(t for t in segni if t.name == zone_signals.SEGNALI["vwap"].nome)
     y = pd.Series(np.asarray(vwap.y, dtype=float), index=candele.index)
     assert y.notna().any() and (y.dropna() < candele.Low[y.notna()]).all()
+    # The candle's hover line names the zones that fire on that candle and no other.
+    riga = next(tr for tr in figura.data if (getattr(tr, "hovertemplate", None) or "").startswith("O "))
+    testi = pd.Series(list(riga.text), index=candele.index)
+    assert all(("#10" in testi[t]) == y.notna()[t] for t in candele.index)
     # The edge is drawn too, a price line for a distance and a level in the panel for the others.
     assert {"VWAP · edge", "Bar range · edge"} <= {t.name for t in figura.data}
 
@@ -84,4 +88,4 @@ def test_at_5m_only_the_bollinger_width_and_elsewhere_nothing(candele, monkeypat
         zone_signals.SEGNALI["bb_width_5m"].nome
     ]
     figura, _ = disegna(candele, "1h")
-    assert [t.name for t in figura.data] == ["TESTUSDC"], "at 1h only the candles"
+    assert {t.name for t in figura.data} == {"TESTUSDC"}, "at 1h only the candles (and their compact hover)"

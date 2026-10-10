@@ -211,6 +211,10 @@ def trading_analysis(
         subplot_titles=("", *pannelli),
     )
 
+    # Con le zone il riquadro unificato elencava diciotto linee a sei decimali e copriva il grafico: la
+    # candela diventa una riga sola, a cinque cifre significative, e le linee tacciono.
+    compatto = strategia == config.ZONE_STRATEGY
+
     if show:
         fig.add_trace(
             go.Candlestick(
@@ -225,6 +229,7 @@ def trading_analysis(
                 increasing_fillcolor=panels.RIALZO,
                 decreasing_fillcolor=panels.RIBASSO,
                 line=dict(width=1),
+                hoverinfo="skip" if compatto else None,
             ),
             row=1,
             col=1,
@@ -248,10 +253,37 @@ def trading_analysis(
                         legendgroup=chiave,
                         line=dict(color=traccia.colore, width=traccia.larghezza, dash=traccia.tratteggio),
                         marker=dict(size=traccia.dimensione, color=traccia.colore, symbol=traccia.simbolo),
+                        hoverinfo="skip" if indicatore.hover == "none" else None,
                     ),
                     row=riga,
                     col=1,
                 )
+
+        if compatto:
+            # Una riga per candela, a cinque cifre significative, e le zone che scattano **su quella**
+            # candela: nel riquadro unificato un marcatore a qualche candela di distanza si sarebbe
+            # elencato lo stesso, e avrebbe detto che scattava qui.
+            zone = [""] * len(df)
+            for traccia in fig.data:
+                if traccia.legendgroup == "zona_segnali":
+                    for i in np.flatnonzero(np.isfinite(np.asarray(traccia.y, dtype=float))):
+                        zone[i] += " " + traccia.name.split(" ")[0]
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index,
+                    y=df["Close"],
+                    mode="lines",
+                    line=dict(width=0),
+                    showlegend=False,
+                    name=asset,
+                    customdata=df[["Open", "High", "Low"]].to_numpy(),
+                    text=[f"<br>Zones{z}" if z else "" for z in zone],
+                    hovertemplate="O %{customdata[0]:,.5~r} · H %{customdata[1]:,.5~r} · "
+                    "L %{customdata[2]:,.5~r} · C %{y:,.5~r}%{text}<extra></extra>",
+                ),
+                row=1,
+                col=1,
+            )
 
         if "estremi" in indicatori:
             for punti, etichetta, simbolo in (
@@ -328,6 +360,7 @@ def trading_analysis(
             margin=dict(l=8, r=8, t=28, b=8),
             legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0, font=dict(size=11)),
             hovermode="x unified",
+            hoverlabel=dict(font_size=11) if compatto else None,
         )
         # Griglia e assi in secondo piano: le linee dei dati devono essere la cosa piu' evidente.
         fig.update_xaxes(showgrid=False, showspikes=True, spikemode="across", spikethickness=1)
