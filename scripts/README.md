@@ -1,6 +1,6 @@
 # `scripts/` — the measurements
 
-Nineteen command-line modules. None is imported by the package: `src/cryptofarm/` does not know they
+Twenty command-line modules. None is imported by the package: `src/cryptofarm/` does not know they
 exist. They go the other way — they read the store, run strategies and models, and **produce the
 numbers that appear in the documents in `.claude/docs/`**. They are launched as modules
 (`.venv312/bin/python -m scripts.entry_lab`), never as files.
@@ -28,6 +28,7 @@ minimum net against a module that breaks with nobody noticing for months.
 | `multiplicity.py` | 203 | multiplicity correction for grids already measured: DSR and PBO | `ricerca-quant-ml.md` |
 | `ai_voter.py` | 287 | the model voter trained **on the confluence's own trades** | `strategia-confluenza.md` |
 | `zones_scan.py` | 134 | the zones study of `reports/zones_study.html` over this project's own indicators | `reports/zones_study_project.html` |
+| `winrate_folds.py` | 222 | the win rate of every zone cell in each of 8 yearly folds, a candle late, with 2025-06 on held out | `reports/winrate_folds.csv` |
 
 ## The tools
 
