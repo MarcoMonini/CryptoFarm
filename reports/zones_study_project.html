@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project indicator zones</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column of a lab notebook, as the project's other reports; tables and charts scroll inside it. */
+:root {
+  --bg: #f5f7f9; --surface: #ffffff; --fg: #141820; --fg2: #475161; --muted: #7a8393;
+  --rule: #e1e5eb; --axis: #c3c8d0; --accent: #1f5fae; --accent-wash: #e8f0fb;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --pos: #006300; --neg: #b42828;
+  --good: #0ca30c; --warn: #c98500; --bad: #d03b3b;
+  --chip-good: #e6f4e6; --chip-warn: #fbf1dc; --chip-bad: #fbe7e7; --chip-neutral: #eceef2;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1216; --surface: #171b21; --fg: #eef1f5; --fg2: #b9c0cb; --muted: #8a93a1;
+    --rule: #2a3038; --axis: #3a414b; --accent: #6ea8f0; --accent-wash: #1a2636;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --pos: #4cc04c; --neg: #f07272;
+    --good: #0ca30c; --warn: #e0a42a; --bad: #e66767;
+    --chip-good: #16301a; --chip-warn: #33290f; --chip-bad: #3a1a1a; --chip-neutral: #232830;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1216; --surface: #171b21; --fg: #eef1f5; --fg2: #b9c0cb; --muted: #8a93a1;
+  --rule: #2a3038; --axis: #3a414b; --accent: #6ea8f0; --accent-wash: #1a2636;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --pos: #4cc04c; --neg: #f07272;
+  --good: #0ca30c; --warn: #e0a42a; --bad: #e66767;
+  --chip-good: #16301a; --chip-warn: #33290f; --chip-bad: #3a1a1a; --chip-neutral: #232830;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 16px; line-height: 1.6; margin: 0; }
+.page { max-width: 1000px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 80px; display: grid; gap: 56px; }
+header { display: grid; gap: 14px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+h1 { font-size: clamp(28px, 4.4vw, 40px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; letter-spacing: -.01em; }
+h2 { font-size: 24px; line-height: 1.25; margin: 0; font-weight: 600; text-wrap: balance; }
+h3 { font-size: 17px; margin: 0; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.lede { font-size: 18px; color: var(--fg2); max-width: 66ch; }
+.meta { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+section { display: grid; gap: 18px; min-width: 0; }
+.sechead { display: grid; gap: 4px; border-top: 1px solid var(--rule); padding-top: 22px; }
+.step { font-family: var(--mono); font-size: 12px; color: var(--accent); letter-spacing: .04em; }
+ul.points { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 72ch; }
+ul.points li::marker { color: var(--muted); }
+nav.toc { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+nav.toc a { color: var(--accent); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+code { font-family: var(--mono); font-size: 13.5px; }
+p code, li code, td code, dd code { background: var(--accent-wash); padding: 1px 5px; border-radius: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; display: grid; gap: 4px; align-content: start; }
+.tile .label { font-size: 13px; color: var(--fg2); }
+.tile .value { font-size: 34px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile .note { font-size: 13px; color: var(--muted); }
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 8px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+th { font-weight: 600; color: var(--fg2); font-size: 12.5px; background: var(--surface); vertical-align: bottom; }
+td { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13.5px; }
+th:first-child, td:first-child { text-align: left; font-family: var(--sans); font-size: 14px; }
+td.name { text-align: left; font-family: var(--sans); font-size: 14px; }
+td.name small { display: block; color: var(--muted); font-size: 12.5px; }
+tr:last-child td { border-bottom: 0; }
+tr.fam td { background: var(--accent-wash); font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--fg); text-align: left; }
+td .se { color: var(--muted); }
+td .k { color: var(--muted); font-size: 12px; }
+.caption { font-size: 13px; color: var(--muted); max-width: 84ch; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--sans); font-size: 12.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; color: var(--fg); }
+.chip i { font-style: normal; font-weight: 700; }
+.chip.good { background: var(--chip-good); } .chip.good i { color: var(--good); }
+.chip.warn { background: var(--chip-warn); } .chip.warn i { color: var(--warn); }
+.chip.bad { background: var(--chip-bad); } .chip.bad i { color: var(--bad); }
+.chip.neutral { background: var(--chip-neutral); } .chip.neutral i { color: var(--muted); }
+.spec { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 20px; display: grid; gap: 10px; }
+.spec dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; }
+.spec dt { color: var(--fg2); font-size: 14px; }
+.spec dd { margin: 0; min-width: 0; }
+@media (max-width: 560px) { .spec dl { grid-template-columns: 1fr; gap: 2px; } .spec dd { margin-bottom: 8px; } }
+.timeline-wrap { overflow-x: auto; }
+.timeline { display: grid; grid-template-columns: 3.4fr 4.4fr 1.3fr; gap: 3px; min-width: 520px; }
+.timeline .seg { padding: 8px 10px; border-radius: 6px; font-size: 13px; font-weight: 600; line-height: 1.35; }
+.timeline .seg span { display: block; font-weight: 400; color: var(--fg2); font-size: 12px; }
+.timeline .disc { background: var(--accent-wash); }
+.timeline .conf { background: var(--chip-good); }
+.timeline .rec { background: var(--chip-warn); }
+.chart { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 14px 8px; display: grid; gap: 8px; position: relative; min-width: 0; }
+.chart h3 { font-size: 15px; }
+.chart .sub { font-size: 13px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--fg2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend b { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.legend b.dot { width: 9px; height: 9px; border-radius: 50%; }
+.plot { overflow-x: auto; }
+.plot svg { display: block; width: 100%; min-width: 520px; height: auto; }
+.plot svg text { font-family: var(--sans); font-size: 12px; fill: var(--muted); }
+.plot svg text.lab { fill: var(--fg2); font-size: 12.5px; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); color: var(--fg); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.12); display: grid; gap: 2px; min-width: 150px; z-index: 2; }
+.tip[hidden] { display: none; }
+.tip .t { color: var(--muted); font-size: 12px; }
+.tip .r { display: flex; justify-content: space-between; gap: 12px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.tip .r span:first-child { font-family: var(--sans); display: inline-flex; align-items: center; gap: 6px; }
+.tip .r b { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.two > * { min-width: 0; }
+.fams { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.fam-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; display: grid; gap: 8px; align-content: start; }
+.fam-card p { font-size: 14.5px; color: var(--fg2); }
+pre { margin: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.55; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+</style>
+</head>
+<body>
+<main class="page">
+<header>
+  <div class="eyebrow">CryptoFarm · study · <code>scripts/zones_scan.py</code></div>
+  <h1>Indicator zones, this project's indicators</h1>
+  <p class="lede">The study of <code>zones_study.html</code> run again, rules unchanged, over the thirteen indicators this
+  project trades on that TradingVision's set did not hold: stochastic, StochRSI, MFI, OBV, Bollinger, Donchian, the
+  squeeze, the ATR bands, Ichimoku, the EMA crossovers. BTC and ETH, 5m and 15m, zones chosen on 2017–2020 and read on
+  2021–2025 and after.</p>
+  <p class="meta">Measured on 2026-10-09 on the CryptoFarm store up to 2026-08-19 ·
+  <code>.venv312/bin/python -m scripts.zones_scan</code> · tables in <code>reports/zones_project*.csv</code> · every zone
+  is drawn in the decomposer, <code>src/cryptofarm/trading/decomposer.py</code></p>
+  <nav class="toc" aria-label="Sections">
+    <a href="#outcome">Outcome</a><a href="#method">Method</a><a href="#table">Table</a><a href="#top">Top 10</a><a href="#fee">Against the fee</a><a href="#columns">By column</a><a href="#caveats">Caveats</a><a href="#next">Next steps</a>
+  </nav>
+</header>
+
+<section id="outcome">
+  <div class="sechead"><span class="step">Outcome</span><h2>Twenty zones hold, and every one is an old finding in a new unit</h2></div>
+  <div class="tiles">
+    <div class="tile"><span class="label">Cells measured</span><span class="value">20,613</span><span class="note">column × window × band × N × timeframe × asset</span></div>
+    <div class="tile"><span class="label">Pass discovery</span><span class="value">70</span><span class="note">beyond 4 standard errors on BTC and ETH</span></div>
+    <div class="tile"><span class="label">Hold on confirm</span><span class="value">20</span><span class="note">2 standard errors, same sign on both</span></div>
+    <div class="tile"><span class="label">New phenomena</span><span class="value">1</span><span class="note">momentum by price location, under the fee</span></div>
+  </div>
+  <p>Each zone that holds sits at Spearman 0.75 to 0.998 with a column of the first study at the same window: the
+  EMA spread is the EMA slope, the Donchian position is the close's place in the window, the cloud distance follows
+  the RSI. The same four families come back. Entered a candle after the signal, the default here, none of this
+  project's family 1 zones clears the fee beyond its error any more: they sit at +0.27 to +0.48% a trade on 15m,
+  above 0.20% but within one standard error. Entered at the next open they were +0.48 to +0.80%. The bounce starts
+  in the first candle, and the candle it takes to act is most of the edge. What is new is a fifth family: a price
+  far <em>above</em> its average keeps rising, at 2.3 to 4.4 standard errors on confirm, where the first study's RSI
+  and TSI momentum did not hold. It is worth 0.17 to 0.26% a trade, at or under the fee.</p>
+  <div class="fams">
+    <div class="fam-card"><span class="chip warn"><i>1</i> borderline a candle late</span><h3>Price far below its average</h3><p>The bottom 1% of the fast–slow EMA spread, of the distance from the Ichimoku cloud, of tenkan − kijun. On 15m +0.27 to +0.48% a trade a candle late, +0.48 to +0.80% at the next open; the first study's VWAP zone +0.34 to +0.53% a candle late. On 5m under the fee.</p></div>
+    <div class="fam-card"><span class="chip warn"><i>2</i> noisy</span><h3>Wide Bollinger bands</h3><p>The top 1% of the band's width, a day later: +1.3 to +1.9% a trade on 15m with errors of 0.7 to 0.8 on under a hundred trades, the only zone here above the fee. The first study's huge bars again.</p></div>
+    <div class="fam-card"><span class="chip bad"><i>3–4</i> under the fee</span><h3>Channel and band extremes</h3><p>The close at the bottom of its Donchian channel or its Bollinger band, a StochRSI at 100: solid on thousands of trades, worth a few hundredths of a percent.</p></div>
+    <div class="fam-card"><span class="chip warn"><i>5</i> holds, under the fee</span><h3>Price far above its average</h3><p>Bollinger %B (96) in its top 1%, the distance from the EMA in ATR (48) in its top 1%, the OBV slope in its top 5%: still rising 12 to 16 hours later. New here.</p></div>
+  </div>
+</section>
+
+<section id="method">
+  <div class="sechead"><span class="step">Method</span><h2>The same search, and one thing it cannot undo</h2></div>
+  <div class="timeline-wrap"><div class="timeline">
+    <div class="seg disc">Discovery<span>2017-08 → 2020-12 · zones and edges are chosen here</span></div>
+    <div class="seg conf">Confirm<span>2021-01 → 2025-06 · already read once, for the first study</span></div>
+    <div class="seg rec">Recent<span>2025-06 → 2026-08</span></div>
+  </div></div>
+  <div class="spec"><dl>
+    <dt>Indicators</dt><dd>The 13 columns of <code>trading/project_features.py</code>, at the project's secondary parameters (Bollinger 2σ, Keltner 2 ATR, smoothing 3, Ichimoku 9/26/52 scaled to the window, fast EMA a quarter of the slow). Two written columns were exact duplicates of the first study's and were dropped before the run: the stochastic's %K (the close's place in the window) and the Keltner position (the distance from the EMA in ATR, rescaled).</dd>
+    <dt>Left out</dt><dd>What the first study already covered (RSI, TSI, ADX, ATR, PSAR, volume against its median, the bar's range); the futures positioning, which has no discovery period; the cross-sectional rank, which is not a property of one pair.</dd>
+    <dt>Rules</dt><dd>Unchanged: windows 6–96, bands at the discovery quantiles 1/5/10/25/50/75/90/95/99%, N 1–192, beyond 4 standard errors on BTC and ETH with one sign to pass, the best window and N per band kept, 2 on confirm to hold, one trade an episode against a 0.20% round trip. The indicator is read at the close of the signal candle; one candle goes by, to see it and act, and the trade opens at the next open and is held N candles. Beside it, entering at the next open with no candle of delay. The first study entered at the signal's own close: against the next open that differs by 0.006% a trade at most on confirm and recent, and by up to 0.3% on discovery, from Binance's thin first months, when the next candle's first print could sit far from the close (48.5% on ETH on 2017-08-22). The choice of zones reads close to close and is not touched by either.</dd>
+    <dt>The catch</dt><dd>Confirm was read for the first study, and its answer is known. A new column that measures the same thing as a zone that held will hold too. That is why the table carries each zone's closest first-study column and its Spearman: a zone at ρ 0.98 is the old zone, not a second confirmation.</dd>
+  </dl></div>
+</section>
+
+<section id="table">
+  <div class="sechead"><span class="step">Table</span><h2>The twenty zones that hold, per trade</h2></div>
+  <p>Gross mean per trade on confirm in percent, entered a candle late, ± standard error; below, the number of trades,
+  the share in profit and the mean entered at the next open instead.
+  Each zone in the direction its discovery excess points: the StochRSI at 100 trades the next candle down.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>TF · indicator (window)</th><th>Zone</th><th>N</th><th>Closest first-study column</th><th>Confirm BTC</th><th>Confirm ETH</th><th>Recent BTC</th><th>Recent ETH</th><th>Against the fee</th></tr></thead>
+    <tbody><tr class="fam"><td colspan="9">1 · Price far below its average → bounce</td></tr><tr><td class="name">EMA Spread, fast − slow (12)<small>15m</small></td><td>0%–1%</td><td>6</td><td class="name">EMA Slope (12)<small>ρ +0.98</small></td><td>+0.36 <span class="se">± 0.21</span><br><span class="k">156 · 56% · next open +0.64</span></td><td>+0.41 <span class="se">± 0.22</span><br><span class="k">200 · 61% · next open +0.74</span></td><td>+1.39 <span class="k">(10)</span></td><td>+0.61 <span class="k">(19)</span></td><td><span class="chip warn"><i>●</i> borderline</span></td></tr><tr><td class="name">Distance from Ichimoku Cloud (6)<small>15m</small></td><td>0%–1%</td><td>6</td><td class="name">RSI (centered) (6)<small>ρ +0.88</small></td><td>+0.27 <span class="se">± 0.20</span><br><span class="k">167 · 56% · next open +0.68</span></td><td>+0.48 <span class="se">± 0.20</span><br><span class="k">223 · 61% · next open +0.80</span></td><td>+1.01 <span class="k">(12)</span></td><td>+0.08 <span class="k">(25)</span></td><td><span class="chip warn"><i>●</i> borderline</span></td></tr><tr><td class="name">Tenkan − Kijun (6)<small>15m</small></td><td>0%–1%</td><td>24</td><td class="name">EMA Slope (6)<small>ρ +0.81</small></td><td>+0.48 <span class="se">± 0.24</span><br><span class="k">191 · 56% · next open +0.48</span></td><td>+0.34 <span class="se">± 0.23</span><br><span class="k">249 · 55% · next open +0.54</span></td><td>+0.07 <span class="k">(14)</span></td><td>+0.24 <span class="k">(37)</span></td><td><span class="chip warn"><i>●</i> borderline</span></td></tr><tr><td class="name">EMA Spread, fast − slow (6)<small>5m</small></td><td>0%–1%</td><td>24</td><td class="name">EMA Slope (6)<small>ρ +0.97</small></td><td>+0.11 <span class="se">± 0.09</span><br><span class="k">507 · 55% · next open +0.20</span></td><td>+0.10 <span class="se">± 0.10</span><br><span class="k">665 · 55% · next open +0.15</span></td><td>+0.16 <span class="k">(35)</span></td><td>+0.08 <span class="k">(82)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">Distance from Ichimoku Cloud (6)<small>5m</small></td><td>0%–1%</td><td>24</td><td class="name">RSI (centered) (6)<small>ρ +0.87</small></td><td>+0.18 <span class="se">± 0.11</span><br><span class="k">366 · 55% · next open +0.23</span></td><td>+0.20 <span class="se">± 0.12</span><br><span class="k">487 · 57% · next open +0.25</span></td><td>+0.75 <span class="k">(27)</span></td><td>+0.10 <span class="k">(64)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">Tenkan − Kijun (6)<small>5m</small></td><td>0%–1%</td><td>96</td><td class="name">EMA Slope (6)<small>ρ +0.81</small></td><td>+0.22 <span class="se">± 0.14</span><br><span class="k">401 · 56% · next open +0.17</span></td><td>+0.40 <span class="se">± 0.18</span><br><span class="k">510 · 56% · next open +0.43</span></td><td>+0.28 <span class="k">(30)</span></td><td>-0.06 <span class="k">(73)</span></td><td><span class="chip warn"><i>●</i> borderline</span></td></tr><tr class="fam"><td colspan="9">2 · Huge bars → rise over the next day</td></tr><tr><td class="name">Bollinger Width (6)<small>15m</small></td><td>99%–100%</td><td>96</td><td class="name">Window Range (6)<small>ρ +0.92</small></td><td>+1.34 <span class="se">± 0.68</span><br><span class="k">72 · 60% · next open +1.35</span></td><td>+1.92 <span class="se">± 0.82</span><br><span class="k">97 · 64% · next open +1.96</span></td><td>+0.04 <span class="k">(4)</span></td><td>+0.15 <span class="k">(16)</span></td><td><span class="chip good"><i>●</i> above</span></td></tr><tr><td class="name">Bollinger Width (6)<small>5m</small></td><td>99%–100%</td><td>96</td><td class="name">Window Range (6)<small>ρ +0.92</small></td><td>+0.28 <span class="se">± 0.23</span><br><span class="k">216 · 51% · next open +0.39</span></td><td>+0.58 <span class="se">± 0.27</span><br><span class="k">297 · 57% · next open +0.63</span></td><td>+1.10 <span class="k">(10)</span></td><td>+0.02 <span class="k">(40)</span></td><td><span class="chip warn"><i>●</i> borderline</span></td></tr><tr class="fam"><td colspan="9">3 · Close at an extreme → the next candle reverts</td></tr><tr><td class="name">StochRSI (6)<small>5m</small></td><td>99%–100%</td><td>1</td><td class="name">Close Position in Window (6)<small>ρ +0.75</small></td><td>+0.003 <span class="se">± 0.002</span><br><span class="k">14,818 · 53% · next open +0.007</span></td><td>+0.004 <span class="se">± 0.002</span><br><span class="k">15,146 · 53% · next open +0.002</span></td><td>-0.00 <span class="k">(4232)</span></td><td>+0.00 <span class="k">(4074)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">StochRSI (6)<small>5m</small></td><td>5%–10%</td><td>1</td><td class="name">Close Position in Window (6)<small>ρ +0.75</small></td><td>+0.002 <span class="se">± 0.002</span><br><span class="k">15,965 · 52% · next open +0.005</span></td><td>+0.003 <span class="se">± 0.002</span><br><span class="k">25,250 · 53% · next open +0.006</span></td><td>+0.00 <span class="k">(4496)</span></td><td>+0.00 <span class="k">(6924)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">Distance from EMA (ATR) (6)<small>5m</small></td><td>0%–1%</td><td>1</td><td class="name">TSI Momentum (6)<small>ρ +0.95</small></td><td>+0.009 <span class="se">± 0.005</span><br><span class="k">4,904 · 53% · next open +0.018</span></td><td>+0.000 <span class="se">± 0.007</span><br><span class="k">4,111 · 54% · next open +0.028</span></td><td>+0.01 <span class="k">(2030)</span></td><td>+0.01 <span class="k">(1202)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">Donchian Position (6)<small>15m</small></td><td>99%–100%</td><td>3</td><td class="name">Close Position in Window (6)<small>ρ +0.95</small></td><td>+0.007 <span class="se">± 0.018</span><br><span class="k">1,491 · 48% · next open +0.060</span></td><td>+0.028 <span class="se">± 0.022</span><br><span class="k">1,404 · 48% · next open +0.039</span></td><td>+0.01 <span class="k">(439)</span></td><td>+0.03 <span class="k">(397)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr class="fam"><td colspan="9">4 · Slow bounce, solid but small</td></tr><tr><td class="name">Donchian Position (96)<small>15m</small></td><td>0%–1%</td><td>6</td><td class="name">Close Position in Window (96)<small>ρ +1.00</small></td><td>+0.08 <span class="se">± 0.04</span><br><span class="k">1,142 · 58% · next open +0.12</span></td><td>+0.15 <span class="se">± 0.04</span><br><span class="k">1,028 · 63% · next open +0.08</span></td><td>+0.03 <span class="k">(365)</span></td><td>+0.02 <span class="k">(271)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">Donchian Position (24)<small>15m</small></td><td>1%–5%</td><td>6</td><td class="name">Close Position in Window (24)<small>ρ +0.99</small></td><td>+0.03 <span class="se">± 0.02</span><br><span class="k">3,645 · 56% · next open +0.05</span></td><td>+0.02 <span class="se">± 0.02</span><br><span class="k">3,235 · 56% · next open +0.04</span></td><td>+0.00 <span class="k">(1175)</span></td><td>-0.02 <span class="k">(933)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">Bollinger %B (24)<small>15m</small></td><td>1%–5%</td><td>6</td><td class="name">Close Position in Window (24)<small>ρ +0.93</small></td><td>+0.04 <span class="se">± 0.02</span><br><span class="k">3,019 · 57% · next open +0.06</span></td><td>+0.03 <span class="se">± 0.02</span><br><span class="k">3,022 · 57% · next open +0.04</span></td><td>+0.01 <span class="k">(827)</span></td><td>-0.03 <span class="k">(784)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">Donchian Position (96)<small>5m</small></td><td>0%–1%</td><td>24</td><td class="name">Close Position in Window (96)<small>ρ +1.00</small></td><td>+0.07 <span class="se">± 0.02</span><br><span class="k">2,627 · 58% · next open +0.08</span></td><td>+0.04 <span class="se">± 0.03</span><br><span class="k">2,441 · 56% · next open +0.05</span></td><td>+0.03 <span class="k">(833)</span></td><td>+0.02 <span class="k">(690)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">Distance from EMA (ATR) (24)<small>5m</small></td><td>1%–5%</td><td>24</td><td class="name">Distance from EMA (24)<small>ρ +0.95</small></td><td>+0.03 <span class="se">± 0.01</span><br><span class="k">5,247 · 56% · next open +0.04</span></td><td>+0.02 <span class="se">± 0.02</span><br><span class="k">4,902 · 56% · next open +0.02</span></td><td>+0.01 <span class="k">(1700)</span></td><td>-0.03 <span class="k">(1378)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr class="fam"><td colspan="9">5 · Price far above its average → keeps rising, under the fee</td></tr><tr><td class="name">Bollinger %B (96)<small>15m</small></td><td>99%–100%</td><td>48</td><td class="name">Close Position in Window (96)<small>ρ +0.93</small></td><td>+0.26 <span class="se">± 0.12</span><br><span class="k">384 · 49% · next open +0.29</span></td><td>+0.20 <span class="se">± 0.13</span><br><span class="k">363 · 48% · next open +0.24</span></td><td>+0.09 <span class="k">(95)</span></td><td>+0.02 <span class="k">(118)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr><tr><td class="name">Distance from EMA (ATR) (48)<small>5m</small></td><td>99%–100%</td><td>192</td><td class="name">Distance from EMA (48)<small>ρ +0.96</small></td><td>+0.20 <span class="se">± 0.10</span><br><span class="k">712 · 51% · next open +0.20</span></td><td>+0.20 <span class="se">± 0.13</span><br><span class="k">666 · 51% · next open +0.21</span></td><td>-0.15 <span class="k">(228)</span></td><td>+0.08 <span class="k">(187)</span></td><td><span class="chip warn"><i>●</i> borderline</span></td></tr><tr><td class="name">OBV Slope (96)<small>5m</small></td><td>95%–99%</td><td>192</td><td class="name">Cumulative Log Return (96)<small>ρ +0.75</small></td><td>+0.17 <span class="se">± 0.10</span><br><span class="k">773 · 50% · next open +0.16</span></td><td>+0.25 <span class="se">± 0.13</span><br><span class="k">686 · 50% · next open +0.27</span></td><td>-0.02 <span class="k">(241)</span></td><td>+0.10 <span class="k">(222)</span></td><td><span class="chip bad"><i>●</i> under</span></td></tr></tbody>
+  </table></div>
+  <p class="caption">ρ is the Spearman correlation with the first study's column at the same window on BTC's candles.
+  "Recent" from 2025-06, trades in brackets. Against the fee, read on confirm: <span class="chip good"><i>●</i> above</span>
+  mean minus 0.20% beyond one standard error on both pairs; <span class="chip warn"><i>●</i> borderline</span> mean above
+  0.20% on both but within one error; <span class="chip bad"><i>●</i> under</span> mean under 0.20% on at least one.</p>
+</section>
+
+<section id="top">
+  <div class="sechead"><span class="step">Top 10</span><h2>The ten zones that return most per trade, both studies together</h2></div>
+  <p>Every zone of both studies — the report's twenty, this one's twenty and the distance from KAMA (12) at H 96 that
+  the fold study ranked first — priced the same way: one trade an episode, opened at the open of the second candle
+  after the signal, held H candles, gross. Period 2021-01-01 → 2025-06-01 (confirm), BTC and ETH pooled, weighted by
+  their trades. All long.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>#</th><th>Signal</th><th>TF</th><th>Hold H</th><th>Mean win rate</th><th>Gross a trade</th><th>Net in se</th><th>Trades</th></tr></thead>
+    <tbody><tr><td>1</td><td class="name">Bollinger Width (6) in its top 1%<small>this project</small></td><td>15m</td><td>96 <span class="k">(24 h)</span></td><td>62.1%</td><td>+1.67% <span class="se">± 0.55</span></td><td>2.7</td><td>169</td></tr><tr><td>2</td><td class="name">Distance from Window High (6) in its bottom 1%<small>first study</small></td><td>15m</td><td>24 <span class="k">(6 h)</span></td><td>60.9%</td><td>+0.99% <span class="se">± 0.25</span></td><td>3.2</td><td>274</td></tr><tr><td>3</td><td class="name">Bar Range in its top 1%<small>first study</small></td><td>15m</td><td>96 <span class="k">(24 h)</span></td><td>56.9%</td><td>+0.81% <span class="se">± 0.32</span></td><td>1.9</td><td>297</td></tr><tr><td>4</td><td class="name">Upper Wick in its top 1%<small>first study</small></td><td>15m</td><td>96 <span class="k">(24 h)</span></td><td>54.1%</td><td>+0.68% <span class="se">± 0.33</span></td><td>1.5</td><td>316</td></tr><tr><td>5</td><td class="name">Distance from KAMA (6) in its bottom 1%<small>first study</small></td><td>15m</td><td>24 <span class="k">(6 h)</span></td><td>57.8%</td><td>+0.64% <span class="se">± 0.17</span></td><td>2.6</td><td>453</td></tr><tr><td>6</td><td class="name">Distance from KAMA (12) in its bottom 1%<small>fold study</small></td><td>15m</td><td>96 <span class="k">(24 h)</span></td><td>59.3%</td><td>+0.57% <span class="se">± 0.40</span></td><td>0.9</td><td>243</td></tr><tr><td>7</td><td class="name">Bollinger Width (6) in its top 1%<small>this project</small></td><td>5m</td><td>96 <span class="k">(8 h)</span></td><td>54.4%</td><td>+0.46% <span class="se">± 0.18</span></td><td>1.4</td><td>513</td></tr><tr><td>8</td><td class="name">Cumulative Log Return (6) in its bottom 1%<small>first study</small></td><td>15m</td><td>6 <span class="k">(1.5 h)</span></td><td>57.2%</td><td>+0.45% <span class="se">± 0.13</span></td><td>2.0</td><td>421</td></tr><tr><td>9</td><td class="name">EMA Slope (12) in its bottom 1%<small>first study</small></td><td>15m</td><td>6 <span class="k">(1.5 h)</span></td><td>57.3%</td><td>+0.42% <span class="se">± 0.15</span></td><td>1.5</td><td>349</td></tr><tr><td>10</td><td class="name">Distance from VWAP (12) in its bottom 1%<small>first study</small></td><td>15m</td><td>6 <span class="k">(1.5 h)</span></td><td>60.6%</td><td>+0.42% <span class="se">± 0.11</span></td><td>2.0</td><td>513</td></tr></tbody>
+  </table></div>
+  <p class="caption">"Net in se" is the gross less the 0.20% round trip, over its standard error: past 2 the zone
+  clears the fee beyond chance, under 1 it does not. The error pools BTC and ETH as if independent; their crashes fall
+  on the same days, so it is optimistic. The widest gross (Bollinger width, bar range, upper wick) are the noisiest:
+  few, very volatile episodes. The distance from the 6-candle high and from KAMA (6), both held a day's quarter, are
+  the two that clear the fee by the widest margin. The win rate sits at 54–62% for all ten: what separates them is
+  how much a win pays, not how often it comes.</p>
+</section>
+
+<section id="fee">
+  <div class="sechead"><span class="step">Against the fee</span><h2>Families 1, 2 and 5, trade by trade</h2></div>
+  <div class="chart">
+    <h3>Gross mean per trade on confirm, 2021–2025, a candle late</h3>
+    <div class="legend"><span><b class="dot" style="background:var(--s1)"></b>BTC</span><span><b class="dot" style="background:var(--s2)"></b>ETH</span><span><b style="background:var(--muted)"></b>fee 0.20%</span></div>
+    <div class="plot"><svg viewBox="0 0 720 438" role="img" aria-label="Gross mean per trade on confirm, zones of families 1, 2 and 5"><line x1="270.0" x2="270.0" y1="24" y2="398" stroke="var(--rule)"/><text x="270.0" y="416" text-anchor="middle">-0.5</text><line x1="330.9" x2="330.9" y1="24" y2="398" stroke="var(--axis)"/><text x="330.9" y="416" text-anchor="middle">0</text><line x1="391.7" x2="391.7" y1="24" y2="398" stroke="var(--rule)"/><text x="391.7" y="416" text-anchor="middle">0.5</text><line x1="452.6" x2="452.6" y1="24" y2="398" stroke="var(--rule)"/><text x="452.6" y="416" text-anchor="middle">1</text><line x1="513.4" x2="513.4" y1="24" y2="398" stroke="var(--rule)"/><text x="513.4" y="416" text-anchor="middle">1.5</text><line x1="574.3" x2="574.3" y1="24" y2="398" stroke="var(--rule)"/><text x="574.3" y="416" text-anchor="middle">2</text><line x1="635.1" x2="635.1" y1="24" y2="398" stroke="var(--rule)"/><text x="635.1" y="416" text-anchor="middle">2.5</text><line x1="696.0" x2="696.0" y1="24" y2="398" stroke="var(--rule)"/><text x="696.0" y="416" text-anchor="middle">3</text><text x="483.0" y="432" text-anchor="middle">% per trade, gross</text><line x1="355.2" x2="355.2" y1="14" y2="398" stroke="var(--muted)" stroke-dasharray="5 4" stroke-width="1.5"/><text x="359.2" y="12">0.20%</text><text x="258" y="45.0" text-anchor="end" class="lab">15m · EMA Spread, fast − slow (12) · N 6</text><line x1="348.5" x2="400.1" y1="35.0" y2="35.0" stroke="var(--s1)" stroke-width="2"/><circle cx="374.3" cy="35.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>15m · EMA Spread, fast − slow (12) · N 6 · BTC: +0.357% ± 0.212, 156 trades</title></circle><line x1="353.7" x2="407.4" y1="47.0" y2="47.0" stroke="var(--s2)" stroke-width="2"/><circle cx="380.5" cy="47.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>15m · EMA Spread, fast − slow (12) · N 6 · ETH: +0.408% ± 0.220, 200 trades</title></circle><text x="258" y="79.0" text-anchor="end" class="lab">15m · Distance from Ichimoku Cloud (6) · N 6</text><line x1="339.6" x2="388.3" y1="69.0" y2="69.0" stroke="var(--s1)" stroke-width="2"/><circle cx="364.0" cy="69.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>15m · Distance from Ichimoku Cloud (6) · N 6 · BTC: +0.272% ± 0.200, 167 trades</title></circle><line x1="364.4" x2="413.1" y1="81.0" y2="81.0" stroke="var(--s2)" stroke-width="2"/><circle cx="388.7" cy="81.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>15m · Distance from Ichimoku Cloud (6) · N 6 · ETH: +0.475% ± 0.200, 223 trades</title></circle><text x="258" y="113.0" text-anchor="end" class="lab">15m · Tenkan − Kijun (6) · N 24</text><line x1="359.9" x2="417.9" y1="103.0" y2="103.0" stroke="var(--s1)" stroke-width="2"/><circle cx="388.9" cy="103.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>15m · Tenkan − Kijun (6) · N 24 · BTC: +0.477% ± 0.238, 191 trades</title></circle><line x1="344.3" x2="401.4" y1="115.0" y2="115.0" stroke="var(--s2)" stroke-width="2"/><circle cx="372.8" cy="115.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>15m · Tenkan − Kijun (6) · N 24 · ETH: +0.345% ± 0.234, 249 trades</title></circle><text x="258" y="147.0" text-anchor="end" class="lab">5m · EMA Spread, fast − slow (6) · N 24</text><line x1="333.3" x2="354.8" y1="137.0" y2="137.0" stroke="var(--s1)" stroke-width="2"/><circle cx="344.1" cy="137.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>5m · EMA Spread, fast − slow (6) · N 24 · BTC: +0.109% ± 0.088, 507 trades</title></circle><line x1="329.9" x2="355.5" y1="149.0" y2="149.0" stroke="var(--s2)" stroke-width="2"/><circle cx="342.7" cy="149.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>5m · EMA Spread, fast − slow (6) · N 24 · ETH: +0.097% ± 0.105, 665 trades</title></circle><text x="258" y="181.0" text-anchor="end" class="lab">5m · Distance from Ichimoku Cloud (6) · N 24</text><line x1="339.8" x2="366.5" y1="171.0" y2="171.0" stroke="var(--s1)" stroke-width="2"/><circle cx="353.2" cy="171.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>5m · Distance from Ichimoku Cloud (6) · N 24 · BTC: +0.183% ± 0.110, 366 trades</title></circle><line x1="340.7" x2="370.8" y1="183.0" y2="183.0" stroke="var(--s2)" stroke-width="2"/><circle cx="355.7" cy="183.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>5m · Distance from Ichimoku Cloud (6) · N 24 · ETH: +0.204% ± 0.124, 487 trades</title></circle><text x="258" y="215.0" text-anchor="end" class="lab">5m · Tenkan − Kijun (6) · N 96</text><line x1="341.0" x2="374.8" y1="205.0" y2="205.0" stroke="var(--s1)" stroke-width="2"/><circle cx="357.9" cy="205.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>5m · Tenkan − Kijun (6) · N 96 · BTC: +0.222% ± 0.139, 401 trades</title></circle><line x1="358.6" x2="401.5" y1="217.0" y2="217.0" stroke="var(--s2)" stroke-width="2"/><circle cx="380.1" cy="217.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>5m · Tenkan − Kijun (6) · N 96 · ETH: +0.404% ± 0.176, 510 trades</title></circle><text x="258" y="249.0" text-anchor="end" class="lab">15m · Bollinger Width (6) · N 96</text><line x1="411.2" x2="576.6" y1="239.0" y2="239.0" stroke="var(--s1)" stroke-width="2"/><circle cx="493.9" cy="239.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>15m · Bollinger Width (6) · N 96 · BTC: +1.340% ± 0.679, 72 trades</title></circle><line x1="465.0" x2="664.9" y1="251.0" y2="251.0" stroke="var(--s2)" stroke-width="2"/><circle cx="564.9" cy="251.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>15m · Bollinger Width (6) · N 96 · ETH: +1.923% ± 0.821, 97 trades</title></circle><text x="258" y="283.0" text-anchor="end" class="lab">5m · Bollinger Width (6) · N 96</text><line x1="337.9" x2="393.1" y1="273.0" y2="273.0" stroke="var(--s1)" stroke-width="2"/><circle cx="365.5" cy="273.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>5m · Bollinger Width (6) · N 96 · BTC: +0.285% ± 0.227, 216 trades</title></circle><line x1="369.2" x2="434.0" y1="285.0" y2="285.0" stroke="var(--s2)" stroke-width="2"/><circle cx="401.6" cy="285.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>5m · Bollinger Width (6) · N 96 · ETH: +0.581% ± 0.267, 297 trades</title></circle><text x="258" y="317.0" text-anchor="end" class="lab">15m · Bollinger %B (96) · N 48</text><line x1="347.3" x2="377.5" y1="307.0" y2="307.0" stroke="var(--s1)" stroke-width="2"/><circle cx="362.4" cy="307.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>15m · Bollinger %B (96) · N 48 · BTC: +0.259% ± 0.124, 384 trades</title></circle><line x1="338.7" x2="371.3" y1="319.0" y2="319.0" stroke="var(--s2)" stroke-width="2"/><circle cx="355.0" cy="319.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>15m · Bollinger %B (96) · N 48 · ETH: +0.198% ± 0.134, 363 trades</title></circle><text x="258" y="351.0" text-anchor="end" class="lab">5m · Distance from EMA (ATR) (48) · N 192</text><line x1="343.8" x2="367.2" y1="341.0" y2="341.0" stroke="var(--s1)" stroke-width="2"/><circle cx="355.5" cy="341.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>5m · Distance from EMA (ATR) (48) · N 192 · BTC: +0.203% ± 0.096, 712 trades</title></circle><line x1="339.7" x2="371.4" y1="353.0" y2="353.0" stroke="var(--s2)" stroke-width="2"/><circle cx="355.6" cy="353.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>5m · Distance from EMA (ATR) (48) · N 192 · ETH: +0.203% ± 0.130, 666 trades</title></circle><text x="258" y="385.0" text-anchor="end" class="lab">5m · OBV Slope (96) · N 192</text><line x1="340.0" x2="363.3" y1="375.0" y2="375.0" stroke="var(--s1)" stroke-width="2"/><circle cx="351.7" cy="375.0" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"><title>5m · OBV Slope (96) · N 192 · BTC: +0.171% ± 0.096, 773 trades</title></circle><line x1="345.3" x2="377.3" y1="387.0" y2="387.0" stroke="var(--s2)" stroke-width="2"/><circle cx="361.3" cy="387.0" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="1.5"><title>5m · OBV Slope (96) · N 192 · ETH: +0.250% ± 0.132, 686 trades</title></circle></svg></div>
+  </div>
+  <p class="caption">A candle late, family 1 on 15m sits just right of the dashed line with whiskers that cross it: the
+  first study's VWAP and EMA zones at N 6 do the same, and only its zones at N 24 (the distance from the window's high
+  and from KAMA) and its cumulative return stay clear. Family 5 is real and at or under the fee: momentum by location is
+  worth a filter, not a trade.</p>
+</section>
+
+<section id="columns">
+  <div class="sechead"><span class="step">By column</span><h2>What each indicator gave</h2></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Indicator</th><th>Zones past discovery</th><th>Zones that hold</th></tr></thead>
+    <tbody><tr><td class="name">Stochastic %K − %D</td><td>7</td><td>0</td></tr><tr><td class="name">StochRSI</td><td>12</td><td>2</td></tr><tr><td class="name">Money Flow Index</td><td>3</td><td>0</td></tr><tr><td class="name">OBV Slope</td><td>1</td><td>1</td></tr><tr><td class="name">Distance from EMA (ATR)</td><td>8</td><td>3</td></tr><tr><td class="name">EMA Spread, fast − slow</td><td>2</td><td>2</td></tr><tr><td class="name">Distance from KAMA (ATR bands)</td><td>8</td><td>0</td></tr><tr><td class="name">Donchian Position</td><td>12</td><td>4</td></tr><tr><td class="name">Bollinger %B</td><td>11</td><td>2</td></tr><tr><td class="name">Bollinger Width</td><td>2</td><td>2</td></tr><tr><td class="name">Squeeze, Bollinger / Keltner</td><td>0</td><td>0</td></tr><tr><td class="name">Distance from Ichimoku Cloud</td><td>2</td><td>2</td></tr><tr><td class="name">Tenkan − Kijun</td><td>2</td><td>2</td></tr></tbody>
+  </table></div>
+  <p class="caption">Never holding: Stochastic %K − %D, Money Flow Index, Distance from KAMA (ATR bands), Squeeze, Bollinger / Keltner. The MFI and the stochastic's
+  %K − %D passed discovery and fell on confirm; the squeeze never passed.</p>
+</section>
+
+<section id="caveats">
+  <div class="sechead"><span class="step">Caveats</span><h2>What these numbers do not say</h2></div>
+  <ul class="points">
+    <li>Confirm is no longer clean: it had been read once, and the columns here correlate with the ones that held there.</li>
+    <li>BTC and ETH are not two independent confirmations: their crashes fall on the same days.</li>
+    <li>The trades buy a candle after a dislocated one, when spread and slippage are still wide. 0.10% a side is the minimum.</li>
+    <li>Which candles of a crash are taken moves family 1 a lot: letting the next trade start on the previous one's exit candle instead of after it takes the 15m EMA spread from +0.36 to +0.50% on BTC, on 21 signals. The rule here is the first study's.</li>
+    <li>This store ends on 2026-08-19, seven weeks before TradingVision's: the recent period is shorter here.</li>
+  </ul>
+</section>
+
+<section id="next">
+  <div class="sechead"><span class="step">Next steps</span><h2>From the zone to the rule</h2></div>
+  <ul class="points">
+    <li>Family 1 is the same finding in seven units, and its edge lives in the first candle. A rule worth writing has to act inside it — a limit order resting under the price, filled during the dislocated candle — and be priced on the recent period only.</li>
+    <li>Family 5 as a filter on family 1: does a bounce inside an up-run pay more than one inside a down-run?</li>
+    <li>Bands in units of the period's volatility, so the 2017–2020 tails fire again after 2025.</li>
+  </ul>
+  <pre>.venv312/bin/python -m scripts.zones_scan                              # everything, ~10 minutes
+.venv312/bin/python -m scripts.zones_scan --timeframes 15m             # 15m only, ~2 minutes
+streamlit run src/cryptofarm/trading/decomposer.py                    # the zones, one at a time</pre>
+</section>
+</main>
+</body>
+</html>

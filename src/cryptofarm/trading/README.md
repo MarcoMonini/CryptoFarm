@@ -18,7 +18,7 @@ config, panels, tuned_defaults → simulator
 
 | file | lines | what it is for |
 |---|---|---|
-| `config.py` | 255 | the widgets' starting values and the menu lists. No logic |
+| `config.py` | 288 | the widgets' starting values and the menu lists. No logic |
 | `market_data.py` | 304 | point downloads from Binance for the page (the public REST, not the dumps) |
 | `indicators.py` | 212 | the classic indicators, plus the numpy ATR/EMA core |
 | `indicators_extra.py` | 186 | ADX, Donchian, Bollinger/Keltner, StochRSI, OBV/MFI, Ichimoku, behind a cache |
@@ -26,14 +26,19 @@ config, panels, tuned_defaults → simulator
 | `strategies_ls.py` | 537 | from candles to **position changes** `(when, price, +1\|0\|-1)` — long, flat, short |
 | `pnl.py` | 277 | from signals to trades: commissions, leverage, carry cost |
 | `mtf.py` | 87 | the alignment between intervals: it reads the **closed** long bar, never the current one |
-| `voters.py` | 155 | from position changes to a vote per bar, with memory and decay |
-| `confluence.py` | 1004 | the confluence strategy: six voters on four planes, dynamic threshold |
+| `voters.py` | 217 | from position changes to a vote per bar, with memory and decay |
+| `confluence.py` | 1444 | the confluence strategy: six voters on four planes, dynamic threshold |
 | `portfolio.py` | 308 | one capital across several assets: it opens on the first that speaks |
 | `rotation.py` | 215 | cross-sectional rotation: it chooses *which* asset, not *when* |
-| `panels.py` | 1068 | the registry: which strategy uses which indicators, which parameters, how they are drawn |
+| `panels.py` | 1388 | the registry: which strategy uses which indicators, which parameters, how they are drawn |
 | `tuned_defaults.py` | 61 | **generated** by `scripts/tune_defaults.py`: measured starting values, per interval |
-| `simulator.py` | 768 | the Streamlit page, two views |
+| `simulator.py` | 922 | the Streamlit page, two views |
 | `live_bot.py` | 472 | the headless bot that places real orders |
+| `decomposer.py` | 893 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
+| `candle_features.py` | 313 | TradingVision's 29 candidate columns, copied unchanged: the decomposer's indicator section reads them |
+| `zones.py` | 262 | the twenty zones of `reports/zones_study.html`, the twenty of `scripts/zones_scan.py`, and the measurement that reads one |
+| `project_features.py` | 127 | this project's own indicators (stochastic, StochRSI, MFI, OBV, Bollinger, Donchian, squeeze, ATR bands, Ichimoku, EMA crossovers) as 13 columns in `candle_features`' contract |
+| `zone_signals.py` | 202 | the report's Top 10 zones as signals: tail edges from the pair's 2017-2020 store history, which candles fire. The simulator's «Zone Signals» marks them |
 
 ## The functions
 
@@ -111,6 +116,18 @@ tree analysis does not see.
 **`simulator.py`** — `available_strategies`, `trading_analysis` (*Single asset* view),
 `rotation_page` and `rotation_analysis` (*Cross-asset rotation* view), `modello_di_sessione`,
 `modelli_dingresso`, `universo_di_sessione`.
+
+**`decomposer.py`** — `streamlit run src/cryptofarm/trading/decomposer.py`. Reads the local store
+through `klines.load_klines(..., clip=False)` and downloads nothing. Sections: the candles and the
+same candles from zero, the histogram, the autocorrelation, weekday × hour, and three heatmaps of the
+mean change N candles after the close — banded by body in σ, by RSI, and by any column of
+`candle_features` or of `project_features` in deciles. Last, *The zones of the study*: pick one of
+`zones.ALL_ZONES` — the report's twenty and the twenty `scripts/zones_scan.py` found among this project's
+indicators, in one list by family — and get a 2 × 3 grid of small heatmaps (BTC and ETH × discovery, confirm, recent), every 2017-2020 quantile
+band against every N, the zone's cell outlined, with its numbers and its trades against the fee
+underneath. On this store they match the report's table to the third digit. Its numbers were measured in TradingVision; the study they led to is
+[`reports/zones_study.html`](../../../reports/zones_study.html). Both `_selfcheck`s run in
+`tests/test_decomposer.py`. It is independent of `simulator.py` and of `ml/features.py`.
 
 **`live_bot.py`** — `fetch_initial_candles`, `run_socket_with_reconnect`, `add_technical_indicator`,
 `get_asset_balance`, `adjust_quantity`, `place_order`, `proceed_buy`, `proceed_sell`,

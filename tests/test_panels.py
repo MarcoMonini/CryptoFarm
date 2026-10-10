@@ -327,7 +327,8 @@ def test_il_numero_di_riquadri_segue_gli_oscillatori_usati(strategia: str, frame
         show=True,
         market_data=frame_laterale[["Open", "High", "Low", "Close", "Volume"]],
     )
-    attesi = 1 + len(panels.pannelli_di(strategia))
+    # Con gli stessi valori della pagina: la voce delle zone a 1h non ne ha nessuna valida, e non mostra riquadri.
+    attesi = 1 + len(panels.pannelli_di(strategia, {**panels.valori_predefiniti(), "INTERVALLO": "1h"}))
     assi = {traccia.yaxis or "y" for traccia in figura.data}
     assert len(assi) == attesi, f"{strategia}: {len(assi)} riquadri invece di {attesi}"
 

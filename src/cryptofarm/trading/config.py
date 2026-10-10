@@ -48,6 +48,10 @@ AI_STRATEGY = "AI Model"
 # nome sta in una costante perche' lo usano il menu, il registro e la pagina, che la avvisa.
 CONFLUENCE_STRATEGY = "Confluence"
 
+# I segnali delle zone (`zone_signals`): marca le candele, non opera. Il nome serve al menu, al registro e alla
+# pagina, che per questa voce mostra il selettore delle zone al posto delle operazioni.
+ZONE_STRATEGY = "Zone Signals"
+
 # Il menu e' stato potato sulle misure di `.claude/docs/ricerca-quant-ml.md` §2: scelta della
 # configurazione sul 2021-2023, resa sul 2024-2026, su BTC/ETH/SOL/XRP/BNB a 1d e 4h. Restano le
 # voci che fuori campione hanno mediana positiva o almeno due celle su dieci sopra il possesso
@@ -67,6 +71,7 @@ STRATEGIES = [
     "Squeeze Breakout",
     "Donchian Breakout",
     CONFLUENCE_STRATEGY,
+    ZONE_STRATEGY,
 ]
 
 # Indicatori
@@ -124,6 +129,17 @@ KC_WINDOW = Param(20, 5, 200, 1)
 KC_MULTIPLIER = Param(1.5, 0.5, 5.0, 0.1)
 OBV_WINDOW = Param(20, 2, 200, 1)
 SQUEEZE_ATR_MULT = Param(2.5, 0.5, 10.0, 0.1)
+
+# Zone signals (`zone_signals`): the windows and the tail of the Top 10 in `reports/zones_study_project.html`, as
+# measured. Changing them asks a question the studies did not price.
+ZONE_TAIL = Param(1.0, 0.1, 10.0, 0.1)  # percent of the 2017-2020 history in the tail
+ZONE_BB_WINDOW = Param(6, 2, 200, 1)
+ZONE_HIGH_WINDOW = Param(6, 2, 200, 1)
+ZONE_KAMA_FAST = Param(6, 2, 200, 1)
+ZONE_KAMA_SLOW = Param(12, 2, 200, 1)
+ZONE_RETURN_WINDOW = Param(6, 2, 200, 1)
+ZONE_SLOPE_WINDOW = Param(12, 2, 200, 1)
+ZONE_VWAP_WINDOW = Param(12, 2, 200, 1)
 
 STOCHRSI_WINDOW = Param(14, 2, 100, 1)
 STOCHRSI_SMOOTH = Param(3, 1, 20, 1)

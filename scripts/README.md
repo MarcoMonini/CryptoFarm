@@ -1,6 +1,6 @@
 # `scripts/` — the measurements
 
-Eighteen command-line modules. None is imported by the package: `src/cryptofarm/` does not know they
+Twenty-one command-line modules. None is imported by the package: `src/cryptofarm/` does not know they
 exist. They go the other way — they read the store, run strategies and models, and **produce the
 numbers that appear in the documents in `.claude/docs/`**. They are launched as modules
 (`.venv312/bin/python -m scripts.entry_lab`), never as files.
@@ -18,7 +18,7 @@ minimum net against a module that breaks with nobody noticing for months.
 | `strategy_focus.py` | 150 | the three checks made **after** choosing a configuration | `backtest-strategie.md` |
 | `strategy_lab.py` | 359 | bench for the two-sided strategies: grids, intervals, costs, assets | `strategie-nuove.md` |
 | `lab_report.py` | 471 | what holds, what is noise, what the short adds | `strategie-nuove.md` |
-| `confluence_lab.py` | 557 | the confluence over a wide grid and over a basket | `strategia-confluenza.md` |
+| `confluence_lab.py` | 619 | the confluence over a wide grid and over a basket | `strategia-confluenza.md` |
 | `confluence_audit.py` | 450 | the same configurations over many assets, in and out of sample | `strategia-confluenza.md` |
 | `swing_lab.py` | 178 | deciles, P&L and random control of the swing model | `modello-swing.md` |
 | `entry_lab.py` | 143 | what the slow model's gate is worth, and what trading more costs | `modello-ingresso.md` |
@@ -27,6 +27,9 @@ minimum net against a module that breaks with nobody noticing for months.
 | `meta_gate.py` | 360 | meta-labeling on top of a real primary strategy | `ricerca-quant-ml.md` |
 | `multiplicity.py` | 203 | multiplicity correction for grids already measured: DSR and PBO | `ricerca-quant-ml.md` |
 | `ai_voter.py` | 287 | the model voter trained **on the confluence's own trades** | `strategia-confluenza.md` |
+| `zones_scan.py` | 139 | the zones study of `reports/zones_study.html` over this project's own indicators | `reports/zones_study_project.html` |
+| `winrate_folds.py` | 222 | the win rate of every zone cell in each of 8 yearly folds, a candle late, with 2025-06 on held out | `reports/winrate_folds.csv` |
+| `oi_zones.py` | 281 | the zones study on the perpetual's open interest, with price columns as a control: nothing holds | `reports/oi_zones*.csv` |
 
 ## The tools
 

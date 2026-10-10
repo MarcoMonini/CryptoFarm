@@ -48,7 +48,7 @@ import numpy as np
 import pandas as pd
 
 from cryptofarm.data.klines import interval_to_minutes
-from cryptofarm.trading import confluence, strategies, strategies_ls
+from cryptofarm.trading import config, confluence, strategies, strategies_ls, zone_signals
 from cryptofarm.trading.indicators_extra import ExtraCache
 
 # Le tre tinte categoriche, validate insieme sulla superficie scura di Streamlit.
@@ -113,6 +113,10 @@ class Indicatore:
     # dizionario vuoto da chiunque, e smetterebbe di intercettare il nome di colonna sbagliato che
     # e' la ragione per cui esiste.
     condizionale: bool = False
+    # Cosa dice al passaggio del mouse: "value" il nome e il numero (il default di Plotly), "none" nulla --
+    # per le linee che il grafico mostra gia' e che nel riquadro unificato lo allungherebbero, e per i
+    # marcatori delle zone, che la riga della candela elenca da se'.
+    hover: str = "value"
 
 
 @dataclass(frozen=True)
@@ -658,6 +662,192 @@ INDICATORI: dict[str, Indicatore] = {
 }
 
 
+# -------------------------------------------------------------------------------------------------
+# I segnali delle zone (`zone_signals`): la Top 10 del report, senza operazioni
+# -------------------------------------------------------------------------------------------------
+# Ogni zona porta il suo indicatore: sopra le candele se e' una distanza da una linea di prezzo
+# (massimo della finestra, KAMA, VWAP), ricavata dall'indicatore stesso, con il bordo della coda
+# come seconda linea tratteggiata; in un riquadro altrimenti, con il bordo come orizzontale. I
+# bordi vengono dallo store locale (2017-2020 della coppia): senza, le tracce del bordo e i
+# marcatori mancano, e per questo sono condizionali. La finestra e' quella del parametro.
+
+
+def _chiave_zona(valori: dict, *chiavi: str) -> str:
+    """Di due zone sulla stessa colonna (la larghezza di Bollinger a 15m e a 5m) quella valida qui."""
+    intervallo = str(valori.get("INTERVALLO", ""))
+    return next((c for c in chiavi if zone_signals.SEGNALI[c].timeframe == intervallo), chiavi[0])
+
+
+def _serie_zona(*chiavi: str, linea: str, bordo: str):
+    def serie(df: pd.DataFrame, cache: ExtraCache, valori: dict) -> dict[str, pd.Series]:
+        chiave = _chiave_zona(valori, *chiavi)
+        segnale = zone_signals.SEGNALI[chiave]
+        w = zone_signals.finestra(segnale, valori)
+        x = zone_signals.valore(df, segnale, w)
+        soglia = zone_signals.soglia(
+            zone_signals.base_di(str(valori.get("SIMBOLO", ""))), chiave, w, float(valori["ZONE_TAIL"])
+        )
+        if segnale.prezzo:
+            prezzo = zone_signals.linea(df, x)
+            out = {linea: prezzo}
+            if soglia is not None:
+                out[bordo] = prezzo * np.exp(soglia)
+            return out
+        out = {linea: x}
+        if soglia is not None:
+            out[bordo] = pd.Series(soglia, index=df.index)
+        return out
+
+    return serie
+
+
+def _serie_ema_zona(df: pd.DataFrame, cache: ExtraCache, valori: dict) -> dict[str, pd.Series]:
+    """La media di cui `ema_slope` misura la pendenza, come la calcola `candle_features`."""
+    w = int(valori["ZONE_SLOPE_WINDOW"])
+    return {"zona_ema": df["Close"].ewm(span=w, adjust=False).mean()}
+
+
+def _serie_bollinger_zona(df: pd.DataFrame, cache: ExtraCache, valori: dict) -> dict[str, pd.Series]:
+    alta, bassa, media = cache.bollinger(int(valori["ZONE_BB_WINDOW"]), 2.0)
+    return _serie(df.index, zona_bb_alta=alta, zona_bb_bassa=bassa, zona_bb_media=media)
+
+
+def _serie_segnali(df: pd.DataFrame, cache: ExtraCache, valori: dict) -> dict[str, pd.Series]:
+    """Un marcatore sotto il minimo di ogni candela che scatta, sfalsato per zona perche' due zone sulla
+    stessa candela restino entrambe visibili."""
+    base = zone_signals.base_di(str(valori.get("SIMBOLO", "")))
+    out: dict[str, pd.Series] = {}
+    for chiave in zone_signals.scelti(valori):
+        segnale = zone_signals.SEGNALI[chiave]
+        w = zone_signals.finestra(segnale, valori)
+        soglia = zone_signals.soglia(base, chiave, w, float(valori["ZONE_TAIL"]))
+        if soglia is None:
+            continue
+        scatta = zone_signals.scatta(zone_signals.valore(df, segnale, w), segnale, soglia)
+        passo = 1 + list(zone_signals.SEGNALI).index(chiave)
+        out[f"zona_{chiave}"] = (df["Low"] * (1 - 0.002 * passo)).where(scatta)
+    return out
+
+
+# Simbolo e tinta di ogni zona: il simbolo la distingue, la tinta resta nelle due famiglie ammesse sopra
+# le candele, al massimo due zone per tinta.
+STILE_ZONE: dict[str, tuple[str, str]] = {
+    "bb_width": (BLU, "diamond"),
+    "window_high": (ARANCIO, "triangle-up"),
+    "bar_range": (BLU_CHIARO, "square"),
+    "upper_wick": (ARANCIO_CHIARO, "star"),
+    "kama_fast": (BLU_SCURO, "circle"),
+    "kama_slow": (ARANCIO_SCURO, "hexagon"),
+    "bb_width_5m": (BLU, "diamond"),
+    "window_return": (BLU_CHIARO, "pentagon"),
+    "ema_slope": (ARANCIO_CHIARO, "cross"),
+    "vwap": (BLU_SCURO, "x"),
+}
+
+
+def _sovrapposto(etichetta: str, chiave: str, parametro: str, nome: str, colore: str) -> Indicatore:
+    return Indicatore(
+        etichetta=etichetta,
+        parametri=(parametro,),
+        pannello=None,
+        hover="none",
+        serie=_serie_zona(chiave, linea=f"{chiave}_linea", bordo=f"{chiave}_bordo"),
+        tracce=(
+            Traccia(f"{chiave}_linea", nome, colore, larghezza=1.6),
+            Traccia(f"{chiave}_bordo", f"{nome} · edge", colore, tratteggio="dash", larghezza=1.1, condizionale=True),
+        ),
+    )
+
+
+def _riquadro(etichetta: str, chiavi: tuple[str, ...], parametri: tuple[str, ...], pannello: str) -> Indicatore:
+    return Indicatore(
+        etichetta=etichetta,
+        parametri=parametri,
+        pannello=pannello,
+        hover="none",
+        serie=_serie_zona(*chiavi, linea=f"{chiavi[0]}_valore", bordo=f"{chiavi[0]}_bordo"),
+        tracce=(
+            Traccia(f"{chiavi[0]}_valore", pannello, ACQUA, larghezza=1.6),
+            Traccia(
+                f"{chiavi[0]}_bordo", f"{pannello} · edge", ARANCIO, tratteggio="dash", larghezza=1.2, condizionale=True
+            ),
+        ),
+    )
+
+
+INDICATORI.update(
+    {
+        "zona_massimo": _sovrapposto("Window high", "window_high", "ZONE_HIGH_WINDOW", "Window high", ARANCIO),
+        "zona_kama_veloce": _sovrapposto("Fast KAMA", "kama_fast", "ZONE_KAMA_FAST", "Fast KAMA", BLU),
+        "zona_kama_lenta": _sovrapposto("Slow KAMA", "kama_slow", "ZONE_KAMA_SLOW", "Slow KAMA", BLU_SCURO),
+        "zona_vwap": _sovrapposto("VWAP", "vwap", "ZONE_VWAP_WINDOW", "VWAP", ARANCIO_SCURO),
+        "zona_ema": Indicatore(
+            etichetta="EMA (slope)",
+            parametri=("ZONE_SLOPE_WINDOW",),
+            pannello=None,
+            hover="none",
+            serie=_serie_ema_zona,
+            tracce=(Traccia("zona_ema", "EMA (slope)", ARANCIO_CHIARO, larghezza=1.4),),
+        ),
+        "zona_bollinger": Indicatore(
+            etichetta="Bollinger bands (zone)",
+            parametri=("ZONE_BB_WINDOW",),
+            pannello=None,
+            hover="none",
+            serie=_serie_bollinger_zona,
+            tracce=(
+                Traccia("zona_bb_alta", "Bollinger (zone) upper", BLU_CHIARO, larghezza=1.2),
+                Traccia("zona_bb_media", "Bollinger (zone) mid", BLU_CHIARO, tratteggio="dot", larghezza=1.0),
+                Traccia("zona_bb_bassa", "Bollinger (zone) lower", BLU_CHIARO, larghezza=1.2),
+            ),
+        ),
+        "zona_ritorno": _riquadro(
+            "Return over the window", ("window_return",), ("ZONE_RETURN_WINDOW",), "Return over the window"
+        ),
+        "zona_pendenza": _riquadro("EMA slope", ("ema_slope",), ("ZONE_SLOPE_WINDOW",), "EMA slope"),
+        "zona_range": _riquadro("Bar range", ("bar_range",), (), "Bar range"),
+        "zona_wick": _riquadro("Upper wick", ("upper_wick",), (), "Upper wick"),
+        "zona_ampiezza": _riquadro(
+            "Bollinger width", ("bb_width", "bb_width_5m"), ("ZONE_BB_WINDOW",), "Bollinger width"
+        ),
+        "zona_segnali": Indicatore(
+            etichetta="Zone signals",
+            parametri=(),
+            pannello=None,
+            serie=_serie_segnali,
+            condizionale=True,
+            hover="none",
+            tracce=tuple(
+                Traccia(
+                    f"zona_{chiave}",
+                    segnale.nome,
+                    STILE_ZONE[chiave][0],
+                    modo="markers",
+                    simbolo=STILE_ZONE[chiave][1],
+                    dimensione=10.0,
+                    condizionale=True,
+                )
+                for chiave, segnale in zone_signals.SEGNALI.items()
+            ),
+        ),
+    }
+)
+
+# Quali indicatori porta ogni zona: spegnendone una nel selettore spariscono anche questi.
+INDICATORI_ZONA: dict[str, tuple[str, ...]] = {
+    "bb_width": ("zona_bollinger", "zona_ampiezza"),
+    "window_high": ("zona_massimo",),
+    "bar_range": ("zona_range",),
+    "upper_wick": ("zona_wick",),
+    "kama_fast": ("zona_kama_veloce",),
+    "kama_slow": ("zona_kama_lenta",),
+    "bb_width_5m": ("zona_bollinger", "zona_ampiezza"),
+    "window_return": ("zona_ritorno",),
+    "ema_slope": ("zona_ema", "zona_pendenza"),
+    "vwap": ("zona_vwap",),
+}
+
+
 def _solo_lunghe(eventi: list) -> tuple[list, list]:
     """Da cambi di posizione alle due liste che la pagina sa gia' trattare.
 
@@ -803,6 +993,30 @@ STRATEGIE: dict[str, Strategia] = {
             "measured values and are not adjustable."
         ),
     ),
+    config.ZONE_STRATEGY: Strategia(
+        indicatori=(
+            "zona_massimo",
+            "zona_kama_veloce",
+            "zona_kama_lenta",
+            "zona_vwap",
+            "zona_ema",
+            "zona_bollinger",
+            "zona_ritorno",
+            "zona_pendenza",
+            "zona_range",
+            "zona_wick",
+            "zona_ampiezza",
+            "zona_segnali",
+        ),
+        parametri=("ZONE_TAIL",),
+        esegui=lambda df, cache, v: ([], []),
+        note=(
+            "Marks the candles in the ten zones of the Top 10 in reports/zones_study_project.html, "
+            "one symbol each, and trades nothing. A zone fires when its indicator, at the close, is "
+            "in the tail of its 2017-2020 history on this pair, read from the local candle store. "
+            "Measured long, a candle after the mark, at 15m (the Bollinger width also at 5m)."
+        ),
+    ),
 }
 
 
@@ -862,7 +1076,14 @@ CONFLUENZA = "Confluence"
 # `bande_atr` con finestra e moltiplicatore diversi. Mostrarli tutti metteva in legenda due
 # "EMA fast" e due "Upper band", cioe' due etichette identiche su linee diverse -- che e'
 # peggio di un'informazione mancante, perche' sembra un errore di lettura di chi guarda.
-PANORAMICA_ESCLUSI = ("medie_trend", "bande_kama", "etichetta_swing", "previsione_ingresso")
+PANORAMICA_ESCLUSI = (
+    "medie_trend",
+    "bande_kama",
+    "etichetta_swing",
+    "previsione_ingresso",
+    # Le zone hanno senso solo con la loro voce: nella panoramica sarebbero dodici serie in piu'.
+    *(chiave for chiave in INDICATORI if chiave.startswith("zona_")),
+)
 
 
 # Quale misura copre quale intervallo. E' una **decisione**, scritta come dato invece che calcolata:
@@ -971,21 +1192,30 @@ def valori_predefiniti(strategia: str = "", intervallo: str = "", modalita: str 
     return valori
 
 
-def indicatori_di(strategia: str) -> tuple[str, ...]:
-    """Gli indicatori da mostrare. Senza strategia selezionata si mostra tutto, come richiesto."""
+def indicatori_di(strategia: str, valori: dict | None = None) -> tuple[str, ...]:
+    """Gli indicatori da mostrare. Senza strategia selezionata si mostra tutto, come richiesto.
+
+    Con `valori`, la voce delle zone mostra solo gli indicatori delle zone scelte e valide a
+    quell'intervallo: senza zone, nessuno. Senza `valori` resta l'elenco completo, che e' quello
+    che serve al registro e ai test.
+    """
     if strategia not in STRATEGIE:
         return tuple(chiave for chiave in INDICATORI if chiave not in PANORAMICA_ESCLUSI)
+    if strategia == config.ZONE_STRATEGY and valori is not None:
+        voluti = {c for z in zone_signals.scelti(valori) for c in INDICATORI_ZONA[z]}
+        voluti |= {"zona_segnali"} if voluti else set()
+        return tuple(c for c in STRATEGIE[strategia].indicatori if c in voluti)
     return STRATEGIE[strategia].indicatori
 
 
-def parametri_di(strategia: str) -> list[str]:
+def parametri_di(strategia: str, valori: dict | None = None) -> list[str]:
     """I parametri della barra laterale, senza ripetizioni e in ordine stabile.
 
     Sono l'unione di quelli degli indicatori usati e di quelli propri della strategia: le finestre
     arrivano dagli indicatori, le soglie dalla strategia.
     """
     voluti: list[str] = []
-    for chiave in indicatori_di(strategia):
+    for chiave in indicatori_di(strategia, valori):
         voluti.extend(INDICATORI[chiave].parametri)
     if strategia in STRATEGIE:
         voluti.extend(STRATEGIE[strategia].parametri)
@@ -995,9 +1225,9 @@ def parametri_di(strategia: str) -> list[str]:
     return list(dict.fromkeys(voluti))
 
 
-def pannelli_di(strategia: str) -> list[str]:
+def pannelli_di(strategia: str, valori: dict | None = None) -> list[str]:
     """I titoli dei riquadri sotto le candele, nell'ordine in cui vanno impilati."""
-    return pannelli_degli(indicatori_di(strategia))
+    return pannelli_degli(indicatori_di(strategia, valori))
 
 
 def pannelli_degli(chiavi) -> list[str]:
@@ -1106,6 +1336,14 @@ ETICHETTE: dict[str, str] = {
     "REVERSION_BAND_MULT": "Band width (ATR)",
     "REVERSION_STOP_MULT": "Stop distance (ATR)",
     "REVERSION_REGIME_EMA": "Regime EMA (0 = off)",
+    "ZONE_TAIL": "Tail, % of 2017-2020",
+    "ZONE_BB_WINDOW": "Bollinger window",
+    "ZONE_HIGH_WINDOW": "Window high, candles",
+    "ZONE_KAMA_FAST": "Fast KAMA window",
+    "ZONE_KAMA_SLOW": "Slow KAMA window",
+    "ZONE_RETURN_WINDOW": "Return window",
+    "ZONE_SLOPE_WINDOW": "EMA slope window",
+    "ZONE_VWAP_WINDOW": "VWAP window",
 }
 
 
@@ -1121,7 +1359,7 @@ NUOVE_SENZA_MANTENIMENTO = (
 )
 
 
-def gruppi_di(strategia: str) -> list[tuple[str, list[str]]]:
+def gruppi_di(strategia: str, valori: dict | None = None) -> list[tuple[str, list[str]]]:
     """I riquadri della barra laterale: un titolo e i parametri che ci vanno dentro.
 
     Un parametro compare **una volta sola**, nel primo gruppo che lo rivendica: `EMA_SHORT` serve
@@ -1130,7 +1368,7 @@ def gruppi_di(strategia: str) -> list[tuple[str, list[str]]]:
     """
     gruppi: list[tuple[str, list[str]]] = []
     gia_visti: set[str] = set()
-    for chiave in indicatori_di(strategia):
+    for chiave in indicatori_di(strategia, valori):
         indicatore = INDICATORI[chiave]
         dentro = [nome for nome in indicatore.parametri if nome not in gia_visti]
         gia_visti.update(dentro)
@@ -1144,7 +1382,7 @@ def gruppi_di(strategia: str) -> list[tuple[str, list[str]]]:
             gia_visti.update(dentro)
             if dentro:
                 gruppi.append((f"Voter · {votante.nome}", dentro))
-    propri = [nome for nome in parametri_di(strategia) if nome not in gia_visti]
+    propri = [nome for nome in parametri_di(strategia, valori) if nome not in gia_visti]
     if propri:
         gruppi.append((SOGLIE, propri))
     return gruppi
