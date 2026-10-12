@@ -68,18 +68,6 @@ candle is several times apart. The ±2/√n band holds for independent candles o
 the true band is wider, the reason the project takes its errors on non-overlapping blocks
 (TradingVision's `metrics.blocked`).
 
-**Time of day and week** (`clock`): the mean and the standard deviation of the change by weekday and
-UTC hour of the open, two heatmaps side by side, 1,905 candles a cell on BTC 15m. The standard
-deviation is the cycle behind the autocorrelation's daily bumps: its median over the week is 0.48% at
-14:00 UTC, the US open, and Saturday and Sunday sit at 0.32-0.33% against 0.39-0.41% on weekdays
-(ETH 15m the same shape). A cell's standard deviation is one heavy-tailed sample, though: the
-largest, Friday 02:00 at 0.73%, and ETH's Tuesday 04:00 at 2.59%, against a typical 0.5%, are a
-handful of crashes rather than an hour. The mean is almost all noise: 12 of 168 cells lie beyond two
-standard errors of zero, against 8 by chance, and the standard error is understated because sizes
-cluster. The one that stands out is Saturday 00:00 UTC, positive at 3.6 standard errors on BTC 15m,
-3.8 on BTC 1h and 4.4 on ETH 15m: past a Bonferroni cut of about 3.4 for 168 cells, measured on the
-whole history with nothing held out, so a lead and not a finding.
-
 **The future of a candle** (`ahead`): the candles grouped by their change in standard deviations of
 all candles, bands of 0.5σ from −3σ to +3σ and one open band past each end (`SIGMA_STEP`,
 `SIGMA_REACH`; a flat candle falls in 0 to +0.5σ), and for each band and each N from 1 to N max the
@@ -220,7 +208,6 @@ REFERENCES = {
     "pivots": {"up": "every low that starts a leg up, any size", "down": "every high that starts a leg down, any size"},
 }
 EXCESS_MARK = 3.0  # the standard errors past which a share is marked above or below its reference
-DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")  # pandas' dayofweek, Monday 0
 SIDES = {"all": "All candles", "up": "Up candles", "down": "Down candles"}
 # What the lower candle chart can take off each candle, named as the statistics at the top of the page
 # are, so a choice points at the numbers it subtracts without repeating them.
@@ -540,36 +527,6 @@ def acf(x: np.ndarray, lags: int) -> np.ndarray:
     f = np.fft.rfft(x, 1 << (2 * len(x) - 1).bit_length())  # padded past 2n: no lag wraps onto another
     cov = np.fft.irfft(f * np.conj(f))[: lags + 1]
     return cov[1:] / cov[0]
-
-
-def clock(pct: pd.Series) -> pd.DataFrame:
-    """Mean, standard deviation and count of the change by weekday and UTC hour of the candle's open."""
-    return pct.groupby([pct.index.dayofweek, pct.index.hour]).agg(["mean", "std", "count"])
-
-
-def clock_figure(table: pd.DataFrame, stat: str) -> go.Figure:
-    """`clock`'s `stat` as a heatmap, weekdays down and UTC hours across. The mean is drawn on a scale
-    centred on zero, and its hover carries the standard error, std / √n, it has to be read against."""
-    grid, n = table[stat].unstack(), table["count"].unstack()
-    se = (table["std"] / np.sqrt(table["count"])).unstack()
-    mean = stat == "mean"
-    fig = go.Figure(
-        go.Heatmap(
-            x=[f"{h:02d}" for h in grid.columns],
-            y=[DAYS[d] for d in grid.index],
-            z=grid.to_numpy(),
-            customdata=np.dstack([n.to_numpy(), se.to_numpy()]),
-            colorscale="RdBu" if mean else "Viridis",
-            zmid=0 if mean else None,
-            colorbar=dict(ticksuffix="%"),
-            hovertemplate="%{y} %{x}:00 UTC<br>"
-            + ("mean %{z:.3f}% ± %{customdata[1]:.3f}" if mean else "std %{z:.3f}%")
-            + "<br>%{customdata[0]:,} candles<extra></extra>",
-        )
-    )
-    fig.update_yaxes(autorange="reversed")  # Monday on top, as a calendar reads
-    fig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0), xaxis_title="hour of the open, UTC")
-    return fig
 
 
 def acf_figure(pct: pd.Series, step: pd.Timedelta) -> go.Figure:
@@ -1248,7 +1205,6 @@ def main() -> None:
         f"99.9th percentile, whichever is further from zero. {beyond:,} candles ({beyond / len(pct):.2%}) lie "
         "beyond it and are not drawn. The buttons subtract from each candle what they subtract in the chart above."
     )
-
     right.subheader("Memory")
     step = pd.Timedelta(timeframe.replace("m", "min"))
     right.plotly_chart(acf_figure(pct, step), use_container_width=True, key="acf")
@@ -1259,21 +1215,6 @@ def main() -> None:
         "autocorrelation just outside it is no evidence. Near zero for the change, positive and slow to decay for "
         "the size: the sign of the next candle is not in this one, its size is. A bump every day of lags is the "
         "volatility's daily cycle."
-    )
-
-    st.subheader("Time of day and week")
-    table = clock(pct)
-    left, right = st.columns(2)
-    left.markdown("**Mean of the change**")
-    left.plotly_chart(clock_figure(table, "mean"), use_container_width=True, key="clock-mean")
-    right.markdown("**Standard deviation of the change**")
-    right.plotly_chart(clock_figure(table, "std"), use_container_width=True, key="clock-std")
-    se = float((table["std"] / np.sqrt(table["count"])).median())
-    st.caption(
-        f"Every candle loaded, by the weekday and the UTC hour it opened in: {int(table['count'].median()):,} "
-        f"candles a cell. A cell's mean has a standard error of about {se:.4f}%, std / √n, and more than that "
-        "because sizes cluster: a mean within two of it of zero is no evidence, and among 168 cells a few lie "
-        "beyond by chance. The standard deviation is the cycle the autocorrelation's bumps come from."
     )
 
     st.subheader("The future of a candle")
@@ -1488,11 +1429,6 @@ def _selfcheck() -> None:
     counts, edges, beyond = histogram(pd.Series(np.zeros(10)))
     assert counts.sum() == 10 and beyond == 0
 
-    # Clock: one cell per weekday and hour; 2024-01-01 is a Monday, so Monday 14:00 holds 14 twice.
-    hours = pd.date_range("2024-01-01", periods=24 * 14, freq="h", tz="UTC")
-    table = clock(pd.Series(hours.hour.astype(float), index=hours))
-    assert len(table) == 7 * 24 and (table["count"] == 2).all() and (table["std"] == 0).all()
-    assert table.loc[(0, 14), "mean"] == 14 and clock_figure(table, "mean").data[0].z.shape == (7, 24)
     # Autocorrelation: equal to the sum it stands for, near zero on independent draws and φ^k on an AR(1).
     x = rng.normal(size=5_000)
     d = x - x.mean()
