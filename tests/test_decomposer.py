@@ -59,3 +59,26 @@ def test_hover_formats_are_short_and_render():
     assert specs, "the scan found no format at all"
     bad = [s for s in specs if s.startswith("+") or re.search(r"\.(?:[4-9]|\d{2,})[fge]", s)]
     assert not bad, bad
+
+
+def test_page_runs_with_every_turn_choice(tmp_path, monkeypatch):
+    """The whole page on a small made-up store, once per choice of turns on the candles. The functions have their
+    self-checks; this is the level that sees `main` itself — a local named like a module function, as `top` was for
+    a moment, breaks a section further down the page, and only running it shows it."""
+    from streamlit.testing.v1 import AppTest
+
+    when = pd.date_range("2020-11-01", "2021-02-15", freq="5min", name="Open time")
+    rng = np.random.default_rng(0)
+    for symbol in ("BTC", "ETH"):
+        close = 100 * np.exp(np.cumsum(rng.normal(0, 0.002, len(when))))
+        df = pd.DataFrame(
+            {"Open": close, "High": close * 1.001, "Low": close * 0.999, "Close": close, "Volume": 1.0}, index=when
+        )
+        df.to_parquet(tmp_path / f"{symbol}USDT-5m.parquet")
+    monkeypatch.setattr(paths, "MARKET_DATA_DIR", tmp_path)
+
+    at = AppTest.from_file(decomposer.__file__, default_timeout=120).run()
+    for method in decomposer.TURN_METHODS:
+        next(r for r in at.radio if r.label == "Turns on the candles").set_value(method).run()
+        assert not at.exception, (method, [e.value for e in at.exception])
+        assert [s.value for s in at.subheader][-1] == "The zones of the study", method
