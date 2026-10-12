@@ -805,7 +805,7 @@ def legs_of(close: pd.Series, piv: pd.Series) -> pd.DataFrame:
 def decile_codes(symbol: str, timeframe: str, mtime: float, window: int) -> pd.DataFrame:
     """Every column of `COLUMNS` at `window` in `QUANTILES` quantiles over every candle, as codes from 0 (the lowest)
     up; fewer on a column with ties at an edge, NaN where the column is; `mtime` as in `candles`. In float16, which
-    holds 0 to 9 and NaN exactly at a quarter of float64: 42 columns of BTC 5m are 87 MB, and two entries are kept,
+    holds 0 to 9 and NaN exactly at a quarter of float64: the 27 columns of BTC 5m are 59 MB, and two entries are kept,
     the pair and window on screen and the one before."""
     x = pd.concat([indicators(symbol, timeframe, mtime, window, p) for p in (False, True)], axis=1)[list(COLUMNS)]
     return x.apply(lambda s: pd.qcut(s, QUANTILES, labels=False, duplicates="drop")).astype("float16")

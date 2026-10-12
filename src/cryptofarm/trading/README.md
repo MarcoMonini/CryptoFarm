@@ -34,7 +34,7 @@ config, panels, tuned_defaults → simulator
 | `tuned_defaults.py` | 61 | **generated** by `scripts/tune_defaults.py`: measured starting values, per interval |
 | `simulator.py` | 922 | the Streamlit page, two views |
 | `live_bot.py` | 472 | the headless bot that places real orders |
-| `decomposer.py` | 1,279 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
+| `decomposer.py` | 1,321 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
 | `candle_features.py` | 313 | TradingVision's 29 candidate columns, copied unchanged: the decomposer's indicator section reads them |
 | `zones.py` | 262 | the twenty zones of `reports/zones_study.html`, the twenty of `scripts/zones_scan.py`, and the measurement that reads one |
 | `project_features.py` | 127 | this project's own indicators (stochastic, StochRSI, MFI, OBV, Bollinger, Donchian, squeeze, ATR bands, Ichimoku, EMA crossovers) as 13 columns in `candle_features`' contract |
