@@ -103,6 +103,19 @@ decile −0.11 to −0.23% (−2.4 to −4.0). The exception is the PSAR, whose 
 furthest under it — keeps rising, +0.16% and +0.25% at 48 (3.8, 5.0). 58 deciles at 96 N each on the
 whole history: a map of where to look, not a result.
 
+**What is left of the leg** (`pivots`, `legs_of`, `to_pivot`): TradingVision's pivots, the ones its `legsweep` swept — a
+close strictly beyond the `window` closes on both sides, two of a kind in a row merged into the more extreme — at
+windows 6, 12, 24 and 48 candles of the timeframe picked (`LEG_WINDOWS`). One histogram per window, two by two, in bins
+of 0.01% opening on 0 to 5% (`LEG_BIN`, `LEG_VIEW`; a zoom out shows the rest), counting one of two things on buttons
+(`LEG_COUNTS`). **Pivots**, the default: every leg once, its change from pivot to pivot, a down leg's sign flipped — the
+measure the next section slices on. **Candles**: every candle, its change from its close to the close of the next pivot,
+folded the same way, so a leg of 40 candles counts 40 times, from its whole size down to nearly nothing. It is
+hindsight, the most a reader who knew the pivots could take. On BTC 15m to 2026-08-19 the median leg is 0.92%, 1.43%,
+2.21% and 3.48% at the four windows (ETH 1.26 to 4.73%), and 2.8%, 0.7%, 0.2% and 0.1% of legs are under the 0.20% round
+trip. The median candle has 0.60%, 0.89%, 1.35% and 2.14% left at the four windows (ETH 0.83 to 2.93%), and 17.3%,
+10.3%, 5.6% and 2.8% of the candles have less than the 0.20% round trip; under 0.5% are negative, candles beyond the
+pivot their leg ends on.
+
 **The zones of the study** (`zones`): the twenty zones of `reports/zones_study.html` — four families that
 held from 2017-2020 to 2021-2025, and the momentum that did not — each at its own timeframe, window, band
 and N, re-read on this store; and the twenty that `scripts/zones_scan.py` found holding among this project's
@@ -146,6 +159,9 @@ SIGMA_STEP, SIGMA_REACH = 0.5, 3.0  # the future's bands: their width and the la
 RSI_WINDOW, RSI_STEP = 14, 10  # Wilder's window, the default of `ta` and of every charting tool; the bands' width
 QUANTILES = 10  # an indicator's bands: deciles, as many candles in each, since no two indicators share a scale
 HORIZON, HORIZON_MAX = 96, 500  # the future's default N max (a day of 15m) and the slider's end: 1.6s per 96 on BTC 15m
+LEG_WINDOWS = (6, 12, 24, 48)  # the pivot windows of the legs' histograms, candles on each side; 24 is TradingVision's
+LEG_BIN, LEG_VIEW = 0.01, 5.0  # the legs' bin width and the end of the axis they open on, in %
+LEG_COUNTS = {"pivots": "Pivots: every leg once", "candles": "Candles: what each had left"}  # the histograms' buttons
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")  # pandas' dayofweek, Monday 0
 SIDES = {"all": "All candles", "up": "Up candles", "down": "Down candles"}
 # What the lower candle chart can take off each candle, named as the statistics at the top of the page
@@ -608,6 +624,140 @@ def zone_summary(tables: dict[str, tuple[pd.DataFrame, pd.DataFrame]], zone: tup
     return pd.DataFrame(rows).set_index("pair · period")
 
 
+def pivots(close: pd.Series, window: int) -> pd.Series:
+    """TradingVision's `data.pivots.find_pivots` without the amplitude, the pivots `legsweep` swept: +1 on a pivot
+    high, −1 on a pivot low, indexed by the pivot's candle. A close strictly above (below) the `window` closes on
+    either side of it is a pivot high (low); two of a kind in a row are one leg, and the more extreme of the run is
+    kept, so highs and lows alternate. Centred, so hindsight: a pivot is known `window` candles after it."""
+
+    def side(s: pd.Series, how: str) -> pd.Series:  # the extreme of the `window` closes before each, itself left out
+        return s.rolling(window).agg(how).shift()
+
+    back = close.iloc[::-1]
+    high = (close > side(close, "max")) & (close > side(back, "max").iloc[::-1])
+    low = (close < side(close, "min")) & (close < side(back, "min").iloc[::-1])
+    kind = pd.Series(np.select([high, low], [1, -1], 0), index=close.index)
+    piv = kind[kind != 0]
+    if piv.empty:
+        return piv
+    run = (piv != piv.shift()).cumsum()
+    return piv.loc[(close.loc[piv.index] * piv).groupby(run).idxmax()]  # the highest high, the lowest low
+
+
+def to_pivot(close: pd.Series, piv: pd.Series) -> pd.Series:
+    """Each candle's change in percent from its close to the close of the first pivot after it (`pivots`), folded:
+    as a long when that pivot is a high, as a short when it is a low, so on either side it is what the leg had
+    left to give. A pivot's own candle runs to the next pivot; the candles past the last one have none and are out."""
+    at = close.index.get_indexer(piv.index)
+    if not len(at):
+        return pd.Series(dtype=float)
+    i = np.arange(at[-1])
+    k = np.searchsorted(at, i, side="right")
+    c = close.to_numpy()
+    return pd.Series((c[at[k]] / c[i] - 1) * 100 * piv.to_numpy()[k], index=close.index[i])
+
+
+@st.cache_data(show_spinner="Finding the pivots…", max_entries=8)
+def leg_returns(symbol: str, timeframe: str, mtime: float) -> dict[int, dict[str, pd.Series]]:
+    """At each of `LEG_WINDOWS`, the two counts of `LEG_COUNTS`: every leg once, its change from pivot to pivot with a
+    down leg's sign flipped (`legs_of`), and every candle, what was left to its next pivot (`to_pivot`). The pivots
+    alternate, so a flipped down leg is its size. `mtime` as in `candles`."""
+    close = candles(symbol, timeframe, mtime).close
+    out = {}
+    for w in LEG_WINDOWS:
+        p = pivots(close, w)
+        out[w] = {"pivots": legs_of(close, p).change.abs() if len(p) else pd.Series(dtype=float)}
+        out[w]["candles"] = to_pivot(close, p)
+    return out
+
+
+def legs_figure(
+    legs: dict[int, dict[str, pd.Series]], width: float = LEG_BIN, view: float = LEG_VIEW, tail: float = TAIL
+) -> go.Figure:
+    """One histogram per window of `leg_returns`, two by two, each on its own axes, in bins `width` wide with an edge
+    on zero, one count of `LEG_COUNTS` at a time on buttons above them: the pivots first. The bins run from zero, or
+    below it if some candles sit beyond the pivot their leg ends on, to the `1 - tail` quantile or `view`, whichever
+    is further; the axis opens on 0 to `view`, and a zoom out or a double click shows the rest. The titles say what
+    that opening view leaves out on either side, and change with the button."""
+    unit = {"pivots": "legs", "candles": "candles"}
+    titles = {
+        how: [
+            (
+                f"<b>{w} candles</b>: {len(r):,} {unit[how]}, median {r.median():.2f}%, mean {r.mean():.2f}%"
+                f"<br>{(r > view).mean():.1%} beyond {view:g}%, {(r < 0).mean():.2%} below 0%"
+                if len(r)
+                else f"{w} candles: no pivot"
+            )
+            for w, r in ((w, c[how]) for w, c in legs.items())
+        ]
+        for how in LEG_COUNTS
+    }
+    fig = make_subplots(rows=2, cols=2, subplot_titles=titles["pivots"], vertical_spacing=0.14, horizontal_spacing=0.06)
+    drawn = []  # the count of each trace, in the order they are added: what a button shows
+    for how in LEG_COUNTS:
+        for j, r in enumerate(c[how] for c in legs.values()):
+            if not len(r):
+                continue
+            lo, hi = min(0.0, r.quantile(tail)), max(view, r.quantile(1 - tail))
+            edges = np.arange(np.floor(lo / width), np.ceil(hi / width) + 1) * width
+            counts, _ = np.histogram(r, edges)
+            fig.add_trace(
+                go.Bar(
+                    x=(edges[:-1] + edges[1:]) / 2,
+                    y=counts,
+                    width=np.diff(edges),
+                    marker=dict(color="#3498db", line=dict(width=0)),
+                    customdata=np.c_[edges[:-1], edges[1:]],
+                    hovertemplate="%{customdata[0]:+.2f}% to %{customdata[1]:+.2f}%<br>%{y:,} "
+                    + unit[how]
+                    + "<extra></extra>",
+                    visible=how == "pivots",
+                ),
+                row=j // 2 + 1,
+                col=j % 2 + 1,
+            )
+            drawn.append(how)
+    fig.update_layout(
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                active=0,
+                buttons=[
+                    dict(
+                        label=label,
+                        method="update",
+                        args=[
+                            {"visible": [d == how for d in drawn]},
+                            {f"annotations[{i}].text": t for i, t in enumerate(titles[how])}
+                            | {"yaxis.title.text": unit[how], "yaxis3.title.text": unit[how]},
+                        ],
+                    )
+                    for how, label in LEG_COUNTS.items()
+                ],
+                x=0,
+                xanchor="left",
+                y=1.0,
+                yanchor="bottom",
+                pad=dict(b=36),
+            )
+        ]
+    )
+    fig.update_xaxes(ticksuffix="%", range=[0, view])
+    fig.update_yaxes(title_text="legs", col=1)
+    fig.update_layout(height=820, margin=dict(l=0, r=0, t=100, b=0), bargap=0, showlegend=False)
+    fig.update_annotations(font_size=13)
+    return fig
+
+
+def legs_of(close: pd.Series, piv: pd.Series) -> pd.DataFrame:
+    """One row per leg between two `pivots`: where it starts and ends (positions in `close`), and its change from
+    the first pivot's close to the second's in percent, signed: positive from a low, negative from a high."""
+    at = close.index.get_indexer(piv.index)
+    c = close.to_numpy()
+    return pd.DataFrame({"start": at[:-1], "end": at[1:], "change": (c[at[1:]] / c[at[:-1]] - 1) * 100})
+
+
 def main() -> None:
     st.set_page_config(page_title="Decomposer", layout="wide", initial_sidebar_state="collapsed")
     st.title("Decomposer")
@@ -771,6 +921,18 @@ def main() -> None:
         "above."
     )
 
+    st.subheader("What is left of the leg")
+    st.plotly_chart(legs_figure(leg_returns(symbol, timeframe, mtime)), use_container_width=True, key="legs")
+    st.caption(
+        f"TradingVision's pivots at the windows {', '.join(map(str, LEG_WINDOWS))} in {timeframe} candles (a close "
+        "beyond the window's on both sides, the more extreme of two of a kind in a row), over every candle loaded. "
+        "Two counts on the buttons. Pivots: every leg once, its change from one pivot to the next, the size of the "
+        "slice below. Candles: every candle, its change from its close to the next pivot's — what the leg had left — "
+        "so a long leg counts once a candle, and the mass near zero is the candles just before a pivot. Both long "
+        "toward a high and short toward a low with the sign flipped, in one histogram. Hindsight, a pivot is known a "
+        "window after it: the most a perfect reader could take, before the 0.20% round trip."
+    )
+
     st.subheader("The zones of the study")
     picked = st.selectbox(
         "Zone",
@@ -887,6 +1049,36 @@ def _selfcheck() -> None:
     assert q.isna().iloc[0] and (q.value_counts() == 10).all() and len(q.cat.categories) == QUANTILES
     q = quantile_bands(pd.Series([0.0] * 50 + list(range(1, 51))))
     assert q.iloc[:50].nunique() == 1 and len(q.cat.categories) < QUANTILES
+
+    # Pivots, on TradingVision's triangle wave: peaks at 110 every 20 candles, troughs at 100 halfway between.
+    wave = pd.Series(np.abs(np.arange(200) % 20 - 10.0) + 100.0)
+    p = pivots(wave, 5)
+    assert p.diff().dropna().abs().eq(2).all() and p.index.to_series().diff().dropna().eq(10).all()
+    assert pivots(wave.iloc[:3], 5).empty and to_pivot(wave.iloc[:3], pivots(wave.iloc[:3], 5)).empty
+    # To the pivot: a trough runs +10% to the peak, a peak 1/11 short to the trough, the candle before a peak 1/109.
+    r = to_pivot(wave, p)
+    assert len(r) == p.index[-1] and (r >= 0).all()
+    assert np.allclose(r.loc[p.index[:-1]], np.where(p.iloc[:-1] < 0, 10.0, 100 / 11))
+    assert np.isclose(r.loc[p.index[p > 0][1] - 1], 100 / 109)
+    sizes = legs_of(wave, p).change.abs()
+    empty = pd.Series(dtype=float)
+    fig = legs_figure(
+        {w: {"pivots": sizes, "candles": r} for w in LEG_WINDOWS[:3]} | {48: {"pivots": empty, "candles": empty}}
+    )
+    assert len(fig.data) == 6 and "no pivot" in fig.layout.annotations[3].text
+    # The pivots open the figure, each leg once; the button swaps the traces and the titles with them.
+    assert [t.visible for t in fig.data] == [True] * 3 + [False] * 3 and fig.data[0].y.sum() == len(sizes)
+    pivots_button, candles_button = fig.layout.updatemenus[0].buttons
+    assert candles_button.args[0]["visible"] == [False] * 3 + [True] * 3 and fig.data[3].y.sum() == len(r)
+    assert "legs" in fig.layout.annotations[0].text and "candles," in candles_button.args[1]["annotations[0].text"]
+    # Bins of LEG_BIN with an edge on zero, out to the larger of the view and the data; the axis opens on 0 to LEG_VIEW.
+    bar = fig.data[3]
+    assert np.allclose(bar.width, LEG_BIN) and np.isclose(bar.customdata[:, 0], 0).any()
+    assert bar.customdata[-1, 1] >= LEG_VIEW and tuple(fig.layout.xaxis.range) == (0, LEG_VIEW)
+
+    # Legs: on the wave every leg runs a trough to a peak, +10%, or a peak to a trough, −1/11.
+    legs = legs_of(wave, p)
+    assert np.allclose(legs.change, np.where(p.iloc[:-1] < 0, 10.0, -100 / 11)) and (legs.end - legs.start == 10).all()
 
 
 if __name__ == "__main__":
