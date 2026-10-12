@@ -68,6 +68,12 @@ candle is several times apart. The ±2/√n band holds for independent candles o
 the true band is wider, the reason the project takes its errors on non-overlapping blocks
 (TradingVision's `metrics.blocked`).
 
+**The legs of the swing hierarchy** (`level_legs`), under the histogram: for every level of `swing_levels`
+over the whole history, from level 0 (every turn) up, how many legs it has, their mean size in percent with a fall
+counted by its absolute value, and their mean length in candles, a leg running from one pivot of the level to the
+next. The pivots are the hindsight ones, each known some candles after it happened; the simulator's swing structure
+strategy trades level 4.
+
 **The future of a candle** (`ahead`): the candles grouped by their change in standard deviations of
 all candles, bands of 0.5σ from −3σ to +3σ and one open band past each end (`SIGMA_STEP`,
 `SIGMA_REACH`; a flat candle falls in 0 to +0.5σ), and for each band and each N from 1 to N max the
@@ -527,6 +533,24 @@ def acf(x: np.ndarray, lags: int) -> np.ndarray:
     f = np.fft.rfft(x, 1 << (2 * len(x) - 1).bit_length())  # padded past 2n: no lag wraps onto another
     cov = np.fft.irfft(f * np.conj(f))[: lags + 1]
     return cov[1:] / cov[0]
+
+
+def level_legs(close: pd.Series) -> pd.DataFrame:
+    """The legs of every level of the swing hierarchy (`swing_levels`), from each pivot of level k, a turn whose
+    level is at least k, to the next: their count, mean size in percent with a fall counted as its absolute value,
+    and mean length in candles. One row a level, from 0, every turn, up to the last with two pivots."""
+    at, _, level = swing_structure.hierarchy(close.to_numpy())
+    c, rows = close.to_numpy(), {}
+    for k in range(int(level.max()) + 1 if len(level) else 0):
+        p = at[level >= k]
+        if len(p) < 2:
+            break
+        rows[k] = {
+            "legs": len(p) - 1,
+            "mean size, %": float(np.abs(c[p[1:]] / c[p[:-1]] - 1).mean() * 100),
+            "mean length, candles": float(np.diff(p).mean()),
+        }
+    return pd.DataFrame.from_dict(rows, orient="index").rename_axis("level")
 
 
 def acf_figure(pct: pd.Series, step: pd.Timedelta) -> go.Figure:
@@ -1205,6 +1229,17 @@ def main() -> None:
         f"99.9th percentile, whichever is further from zero. {beyond:,} candles ({beyond / len(pct):.2%}) lie "
         "beyond it and are not drawn. The buttons subtract from each candle what they subtract in the chart above."
     )
+    left.markdown("**Legs of the swing hierarchy**")
+    legs = level_legs(df.close).round({"mean size, %": 3, "mean length, candles": 1})
+    left.dataframe(legs, use_container_width=True, height=35 * (len(legs) + 1) + 3)  # every level, no scrollbar
+    left.caption(
+        "Every candle loaded. Level 0 is every turn of the close; each level up keeps the highs higher and the lows "
+        "lower than their neighbours on the level below. A leg runs from one pivot of a level to the next, up or "
+        "down, and its size is the change between their closes taken as positive. These are the pivots in "
+        "hindsight: each is known some candles after it happened. The simulator's swing structure strategy trades "
+        "level 4."
+    )
+
     right.subheader("Memory")
     step = pd.Timedelta(timeframe.replace("m", "min"))
     right.plotly_chart(acf_figure(pct, step), use_container_width=True, key="acf")
@@ -1429,6 +1464,11 @@ def _selfcheck() -> None:
     counts, edges, beyond = histogram(pd.Series(np.zeros(10)))
     assert counts.sum() == 10 and beyond == 0
 
+    # Legs by level: on 10, 11, 10, 12, 10, 13, 10 every turn is a level-0 pivot, four legs of one candle each;
+    # only 13 climbs, so level 1 has no leg and there is one row.
+    legs = level_legs(pd.Series([10.0, 11.0, 10.0, 12.0, 10.0, 13.0, 10.0]))
+    assert legs.index.tolist() == [0] and legs.loc[0, "legs"] == 4 and legs.loc[0, "mean length, candles"] == 1
+    assert np.isclose(legs.loc[0, "mean size, %"], np.mean([1 / 11, 2 / 10, 2 / 12, 3 / 10]) * 100)
     # Autocorrelation: equal to the sum it stands for, near zero on independent draws and φ^k on an AR(1).
     x = rng.normal(size=5_000)
     d = x - x.mean()
