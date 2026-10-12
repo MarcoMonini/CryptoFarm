@@ -1014,12 +1014,14 @@ STRATEGIE: dict[str, Strategia] = {
         indicatori=("pivot_struttura",),
         esegui=lambda df, cache, v: _marcatori(_struttura(df, v)),
         note=(
-            "Wyckoff's last point of support on the close's swing hierarchy, which has no window: long at "
-            "the first higher low after a change of character, short at the first lower high, each read from "
-            "the bar it was confirmed on. Stop at a close beyond that pivot, out after the level's median leg. "
-            "Over fifteen pairs at 15m on level 4: +129 bp a trade on 2018-2022 and +75 on 2023-2026 before "
-            "fees, about two standard errors each, chosen out of 192 variants: a candidate, not a result. "
-            "About four trades a year per pair, and the level above has to be built first: load a year."
+            "Wyckoff's last point of support on the close's swing hierarchy, which has no window: long once "
+            "the first higher low after a change of character is confirmed, short once the first lower high "
+            "is. The confirmation is slow — on 15m level 4 a median 245 bars after the low itself, longer "
+            "than the leg — so the entry is well past the low and the stop on it a median 5-6% away. Out "
+            "at a close beyond that pivot or after the level's median leg. Over fifteen pairs at 15m on "
+            "level 4: +1.27% a trade on 2018-2022 and +0.63% on 2023-2026 before fees, about two standard "
+            "errors, chosen out of 192 variants: a candidate, not a result. About four trades a year per "
+            "pair, and the level above has to be built first: load a year."
         ),
     ),
     config.ZONE_STRATEGY: Strategia(

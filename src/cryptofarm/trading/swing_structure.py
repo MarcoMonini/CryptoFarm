@@ -28,6 +28,13 @@ method's rule against trading against the larger structure. An opposite signal r
 is ignored. An entry whose close is already past its pivot is skipped: the confirmation is late, and
 by then the support can be broken, which made one entry in seven a trade stopped on the next bar.
 
+**The entry is not at the low.** At level 4 on 15m a pivot is confirmed a median 245 bars after it
+happened, longer than the level's median leg, so the trade opens well after the higher low it is named
+for, and the stop on that low sits a median 5-6% from the entry (6.4% on 2018-2022, 4.8% on 2023-2026,
+fifteen pairs). A faster confirmation of the same pivots (an adaptive zigzag at a fraction of the level's
+median leg) was measured and did worse: at a quarter of the leg it enters ten bars after the pivot,
+trades 23 times a year per pair and makes nothing gross.
+
 The stop is read on the close and filled at the close, unlike `strategies_ls`, whose stops fill inside
 the bar at their level: it is how the rule was measured.
 
@@ -38,17 +45,18 @@ exits, four contexts) the rank in discovery says nothing about the rank in confi
 -0.06), and only five cells were above 1.5 standard errors in both periods, all of them this rule with
 its stop. The spring and the upthrust lose once the break restarts, the backup to the creek loses at
 every small level, and the length of a range does not predict the move after it. `main` prices
-`posizioni` itself, one position at a time, at 0.1% a side; its run of 2026-10-12, gross a trade with
-one standard error over blocks of `HORIZON` bars, 2018-2022 / 2023-2026:
+`posizioni` itself, one position at a time, at 0.1% a side; its run of 2026-10-12, after a bar of
+confirmations is read whole, gross a trade with one standard error over blocks of `HORIZON` bars,
+2018-2022 / 2023-2026:
 
-    15m, level 4, choch and aligned    +129.1 ± 60.0 bp (201 trades, 10/15 pairs up) / +74.5 ± 43.1 (214, 8/15)
-    15m, level 4, choch only            +52.5 ± 30.1 / +24.4 ± 21.4
-    15m, level 4, aligned only          +37.0 ± 32.8 /  +9.1 ± 25.1
-    1h,  level 4, choch and aligned    +244.9 ± 203.5 / -231.2 ± 201.1
+    15m, level 4, choch and aligned    +126.6 ± 56.3 bp (254 trades, 10/15 pairs up) / +62.5 ± 40.0 (249, 8/15)
+    15m, level 4, choch only            +65.5 ± 30.4 / +19.0 ± 18.9
+    15m, level 4, aligned only          +47.2 ± 35.2 /  +6.5 ± 25.1
+    1h,  level 4, choch and aligned    +281.9 ± 200.0 / -52.7 ± 173.1
 
-The first line is the page's default: 3.7 trades a year per pair, +109 / +55 bp net of the round trip,
-about two standard errors in each period and chosen out of 192 cells: a candidate to watch, not a
-result. At 1h no variant of level 4 kept on 2023-2026 what it made on 2018-2022.
+The first line is the page's default: 4.5 trades a year per pair, +107 / +43 bp net of the round trip,
+2.2 and 1.6 standard errors and chosen out of 192 cells: a candidate to watch, not a result. At 1h no
+variant of level 4 kept on 2023-2026 what it made on 2018-2022.
 
     python -m cryptofarm.trading.swing_structure     # the table, over the local store
 """
