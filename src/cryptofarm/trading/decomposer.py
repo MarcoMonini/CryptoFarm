@@ -77,34 +77,24 @@ reads as the tails' periods, not their sign — large candles crowd into the vol
 1,344 cells measured on the whole history with nothing held out, adjacent N being one test and not
 many, make it a lead.
 
-**The future after an RSI**: the same two heatmaps with the candles banded by Wilder's RSI at their
-close (`rsi_bands`, 14 candles as `features` reads it, 10 points a band), and the same N. On BTC 15m
-the RSI does not read as the textbook does: above 70 is not overbought but the start of a run. From
-80 to 90 (2,041 candles) the excess over every candle's is +0.12% at N 10, +0.56% at 48 and +0.51%
-at 96, at 2.7, 5.5 and 3.8 standard errors; ETH 15m +0.60% at 48, 5.1. Below 30 there is a short
-bounce, 20 to 30 at +0.07% and 3.8 five candles later on BTC, that turns into continuation by half a
-day: ETH 0 to 10 at −2.2% at 48, −4.9. The bands past 10 and 90 hold about a hundred candles each, a
-handful of episodes. The momentum above 70 is the one size worth a fee, 0.20% a round trip at OKX,
-and it is measured on the whole history with nothing held out: a lead.
-
 **The future after an indicator**: the same again for any of the 27 columns (`COLUMNS`) of `features` and
-`project_features` — this project's own indicators, listed after them — that held in at least one study, with
-their window as an input (`EXTREMA_WINDOW` by default), banded in deciles (`quantile_bands`) because
-no two share a scale; a decile dilutes a tail, so RSI's top decile reads weaker here than its 80 to
-90 band above. The extreme deciles on BTC and ETH 15m, N 10 / 48 / 96, fall in three families. A
-price far below its own average bounces within a few hours: the bottom decile of the distance from
-VWAP, KAMA, EMA or PSAR, of the log return, of the close's place in the window, +0.06 to +0.11% at N
-10 at 4 to 6.6 standard errors — below the 0.20% fee, the candle bodies' reversal again. Large bars
-come before rises at every N: the top decile of the bar's range is +0.32% at 96 on BTC (5.5) and
-+0.58% on ETH (8.3), the upper wick +0.33% and +0.50% (6.0, 7.4), the volatility windows the same
-on ETH; the volatile periods are the bull runs, as for both tails of the bodies. And momentum over
-half a day: the RSI and the TSI's top decile +0.19 to +0.24% at 48 (4.4 to 5.3), their bottom
-decile −0.11 to −0.23% (−2.4 to −4.0). The exception is the PSAR, whose bottom decile — a price
-furthest under it — keeps rising, +0.16% and +0.25% at 48 (3.8, 5.0). 58 deciles at 96 N each on the
-whole history: a map of where to look, not a result. The menu held all 42 columns when these were measured. The
-momentum did not hold out of sample in the zones study, and RSI and TSI left it with thirteen columns no study found
-anything in (`DROPPED`): the log return, the lower wick, the candle body, the window range, the volatility expansion,
-four of volume, the money flow, the ADX, the squeeze and the stochastic.
+`project_features` — this project's own indicators, listed after them — that held in at least one study, with their
+window as an input (`EXTREMA_WINDOW` by default), banded in deciles (`quantile_bands`) because no two share a scale; a
+decile dilutes a tail. The extreme deciles on BTC and ETH 15m, N 10 / 48 / 96, fall in three families. A price far below
+its own average bounces within a few hours: the bottom decile of the distance from VWAP, KAMA, EMA or PSAR, of the log
+return, of the close's place in the window, +0.06 to +0.11% at N 10 at 4 to 6.6 standard errors — below the 0.20% fee,
+the candle bodies' reversal again. Large bars come before rises at every N: the top decile of the bar's range is +0.32%
+at 96 on BTC (5.5) and +0.58% on ETH (8.3), the upper wick +0.33% and +0.50% (6.0, 7.4), the volatility windows the same
+on ETH; the volatile periods are the bull runs, as for both tails of the bodies. And momentum over half a day: the RSI
+and the TSI's top decile +0.19 to +0.24% at 48 (4.4 to 5.3), their bottom decile −0.11 to −0.23% (−2.4 to −4.0). The
+exception is the PSAR, whose bottom decile — a price furthest under it — keeps rising, +0.16% and +0.25% at 48 (3.8,
+5.0). 58 deciles at 96 N each on the whole history: a map of where to look, not a result. The menu held all 42 columns
+when these were measured. The momentum did not hold out of sample in the zones study, and RSI and TSI left it with
+thirteen columns no study found anything in (`DROPPED`): the log return, the lower wick, the candle body, the window
+range, the volatility expansion, four of volume, the money flow, the ADX, the squeeze and the stochastic. A section
+banded the candles by RSI in 10-point bands, and read the 80 to 90 band as momentum worth a fee, +0.56% at 48 candles on
+BTC 15m at 5.5 standard errors on the whole history; the zones study found the momentum did not hold out of sample, and
+the section left with RSI.
 
 **What is left of the leg** (`pivots`, `legs_of`, `to_pivot`): TradingVision's pivots, the ones its `legsweep` swept — a
 close strictly beyond the `window` closes on both sides, two of a kind in a row merged into the more extreme — at
@@ -156,7 +146,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
-from ta.momentum import RSIIndicator
 
 from cryptofarm import paths
 from cryptofarm.data import klines
@@ -173,7 +162,6 @@ ACF_LAGS = (
     10_000  # the autocorrelation's last lag, in candles: 35 days of 5m, 104 of 15m; a quarter of the data at most
 )
 SIGMA_STEP, SIGMA_REACH = 0.5, 3.0  # the future's bands: their width and the last closed edge, in σ of all candles
-RSI_WINDOW, RSI_STEP = 14, 10  # Wilder's window, the default of `ta` and of every charting tool; the bands' width
 QUANTILES = 10  # an indicator's bands: deciles, as many candles in each, since no two indicators share a scale
 HORIZON, HORIZON_MAX = 96, 500  # the future's default N max (a day of 15m) and the slider's end: 1.6s per 96 on BTC 15m
 LEG_WINDOWS = (6, 12, 24, 48)  # the pivot windows of the legs' histograms, candles on each side; 24 is TradingVision's
@@ -469,16 +457,6 @@ def bands(pct: pd.Series, sigma: float) -> pd.Series:
     return pd.cut(pct / sigma, [-np.inf, *edges, np.inf], right=False, labels=labels)
 
 
-@st.cache_data(show_spinner="Following every candle N candles ahead…", max_entries=16)
-def rsi_bands(close: pd.Series, window: int) -> pd.Series:
-    """Each candle's band of `RSI_STEP` points of Wilder's RSI over `window` candles, read at its close, `ta`'s as in
-    `features`; NaN until the window fills. Closed on the left, the last band closed on both sides: an RSI of 100,
-    a window with no down candle, falls in it."""
-    edges = np.arange(0, 100, RSI_STEP)
-    labels = [f"{a} to {a + RSI_STEP}" for a in edges]
-    return pd.cut(RSIIndicator(close, window=window).rsi(), [*edges, np.inf], right=False, labels=labels)
-
-
 def quantile_bands(x: pd.Series, q: int = QUANTILES) -> pd.Series:
     """Each candle's `q`-quantile of `x`, named by its edges; NaN where `x` is. An indicator with ties at an edge,
     the age of a window's extreme or a close at the bar's high, has fewer bands: a value is never split."""
@@ -500,11 +478,11 @@ def indicator(symbol: str, timeframe: str, mtime: float, window: int, column: st
 
 
 def ahead(band: pd.Series, close: pd.Series, horizons: int, step: pd.Timedelta) -> pd.DataFrame:
-    """By band (`bands` or `rsi_bands`; a candle in none counts nowhere) and N from 1 to `horizons`: the mean, over the
-    band's candles, of the change in percent from the close to the close N candles later, how many candles have
-    one, the mean over every candle (`all`), and the standard error of the band's mean over non-overlapping
-    blocks of N candles of `step` on the clock (`se`) with the excess over `all` in it (`t`). A candle whose
-    future runs past the store's last bar has none and counts nowhere."""
+    """By band (`bands`, `quantile_bands`; a candle in none counts nowhere) and N from 1 to `horizons`: the mean, over
+    the band's candles, of the change in percent from the close to the close N candles later, how many candles have one,
+    the mean over every candle (`all`), and the standard error of the band's mean over non-overlapping blocks of N
+    candles of `step` on the clock (`se`) with the excess over `all` in it (`t`). A candle whose future runs past the
+    store's last bar has none and counts nowhere."""
     rows = []
     for n in range(1, horizons + 1):
         future = (close.shift(-n) / close - 1) * 100
@@ -1012,21 +990,6 @@ def main() -> None:
         "chance, and a run of N in a row past it is one result, not many."
     )
 
-    st.subheader("The future after an RSI")
-    window = st.number_input("RSI window, candles", 2, 500, RSI_WINDOW, help="Wilder's RSI, as `features` reads it")
-    table = ahead(rsi_bands(df.close, window), df.close, horizons, step)
-    left, right = st.columns(2)
-    left.markdown("**Mean change from the close to N candles later**")
-    left.plotly_chart(ahead_figure(table, "mean", step), use_container_width=True, key="rsi-mean")
-    right.markdown("**Its excess over every candle's, in standard errors**")
-    right.plotly_chart(ahead_figure(table, "t", step), use_container_width=True, key="rsi-t")
-    count = table["count"].xs(1, level="n")
-    st.caption(
-        f"The same as above with the candles banded by their RSI at the close, {RSI_STEP} points a band, and the "
-        f"same N max: from {count.min():,} candles in the thinnest band to {count.max():,} in the fullest. Overbought "
-        "and oversold, 70 and 30, are band edges."
-    )
-
     st.subheader("The future after an indicator")
     left, right = st.columns(2)
     column = left.selectbox(
@@ -1048,8 +1011,7 @@ def main() -> None:
     st.caption(
         f"The same again with the candles banded by the indicator at their close, in {QUANTILES} quantiles: as many "
         "candles in each band, named by its edges in the indicator's own units. An indicator with ties at an edge "
-        "has fewer bands. A decile is wide and dilutes a tail: RSI's top decile reads weaker than its 80 to 90 band "
-        "above."
+        "has fewer bands. A decile is wide and dilutes a tail."
     )
 
     st.subheader("What is left of the leg")
@@ -1247,11 +1209,6 @@ def _selfcheck() -> None:
         assert np.allclose(at["mean"], (1.1**n - 1) * 100) and at["count"].sum() == 40 - n
         assert np.isclose(at["all"].iloc[0], (1.1**n - 1) * 100)
     assert ahead_figure(table, "t", pd.Timedelta("15min")).data[0].z.shape[1] == 3
-    # RSI bands: NaN until the window fills, 100 on a close that only rose, 0 on one that only fell.
-    r = rsi_bands(close, 14)
-    assert r.iloc[:13].isna().all() and (r.iloc[13:] == "90 to 100").all()
-    assert (rsi_bands(close[::-1].set_axis(when), 14).iloc[13:] == "0 to 10").all()
-    assert len(r.cat.categories) == 100 // RSI_STEP
     # The menu: 27 columns, none dropped, every column of a zone that holds still in it (the momentum's need not be).
     assert len(COLUMNS) == 27 and not set(DROPPED) & set(COLUMNS)
     assert set(DROPPED) <= set(features.COLUMNS + project_features.COLUMNS), "a dropped name that is no column"
