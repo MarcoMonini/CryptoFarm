@@ -785,12 +785,14 @@ def legs_of(close: pd.Series, piv: pd.Series) -> pd.DataFrame:
     return pd.DataFrame({"start": at[:-1], "end": at[1:], "change": (c[at[1:]] / c[at[:-1]] - 1) * 100})
 
 
-@st.cache_data(show_spinner="Banding the indicators…", max_entries=8)
+@st.cache_data(show_spinner="Banding the indicators…", max_entries=2)
 def decile_codes(symbol: str, timeframe: str, mtime: float, window: int) -> pd.DataFrame:
     """Every column of `COLUMNS` at `window` in `QUANTILES` quantiles over every candle, as codes from 0 (the lowest)
-    up; fewer on a column with ties at an edge, NaN where the column is; `mtime` as in `candles`."""
+    up; fewer on a column with ties at an edge, NaN where the column is; `mtime` as in `candles`. In float16, which
+    holds 0 to 9 and NaN exactly at a quarter of float64: 42 columns of BTC 5m are 87 MB, and two entries are kept,
+    the pair and window on screen and the one before."""
     x = pd.concat([indicators(symbol, timeframe, mtime, window, p) for p in (False, True)], axis=1)[list(COLUMNS)]
-    return x.apply(lambda s: pd.qcut(s, QUANTILES, labels=False, duplicates="drop")).astype("float32")
+    return x.apply(lambda s: pd.qcut(s, QUANTILES, labels=False, duplicates="drop")).astype("float16")
 
 
 def excess(group: np.ndarray, base: np.ndarray, q: int = QUANTILES) -> dict[str, np.ndarray]:
@@ -1261,6 +1263,9 @@ def _selfcheck() -> None:
     assert np.isclose(e["z"][0, 0], 0.25 / np.sqrt(0.25 * 0.75 / 4)) and np.isclose(
         e["z"][0, 3], -0.25 / np.sqrt(0.25 * 0.75 / 4)
     )
+    # Codes in float16, as `decile_codes` keeps them: 0 to 9 and NaN read exactly as in float64.
+    f16 = np.array([[0.0], [9.0], [np.nan], [9.0]], dtype=np.float16)
+    assert np.array_equal(excess(f16, f16)["share"], excess(f16.astype(float), f16.astype(float))["share"])
     # One base column against many group columns, as the candle-by-candle chart reads it.
     assert excess(np.zeros((5, 3)), np.array([[0.0], [1.0]]), q=2)["base"].shape == (3, 2)
     # The scale: the largest |z| of the charts given, never under 4, NaN cells ignored.
