@@ -840,9 +840,14 @@ def excess_figure(
             f"slice: {round(share[i, j] * n[i, j] / 100):,} of its {n[i, j]:,} pivots are here, {share[i, j]:.1f}%<br>"
             f"{reference}: {base[i, j]:.1f}% are here<br>"
             + (
-                f"difference {share[i, j] - base[i, j]:+.1f} points, {z[i, j]:+.1f} standard errors"
-                if np.isfinite(z[i, j])
-                else "no standard error: the reference has none here"
+                "no pivot in the slice"
+                if n[i, j] == 0
+                else (
+                    f"difference {share[i, j] - base[i, j]:+.1f} points, {z[i, j]:+.1f} standard errors"
+                    if np.isfinite(z[i, j])
+                    # A share of the reference at 0 or at 1 has no spread to measure the slice's against.
+                    else f"no standard error: {'none' if base[i, j] == 0 else 'all'} of the reference is here"
+                )
             )
             for j in range(share.shape[1])
         ]
@@ -1274,7 +1279,16 @@ def _selfcheck() -> None:
         text=True,
     ).data[0]
     assert list(t.text[0]) == ["50▲", "25"] and "+3.5 standard errors" in t.hovertext[0][0]
-    assert "no standard error" in t.hovertext[0][1]
+    assert "none of the reference is here" in t.hovertext[0][1]
+    # The reference all in one band, and an empty slice: neither has a standard error to show.
+    t = excess_figure(excess(np.array([[0.0], [1.0]]), np.zeros((3, 1)), q=2), ["a", "b"], ["x"], "", "every low").data[
+        0
+    ]
+    assert "all of the reference is here" in t.hovertext[0][0] and "none of the reference" in t.hovertext[0][1]
+    t = excess_figure(excess(np.full((2, 1), np.nan), np.array([[0.0], [1.0]]), q=2), ["a", "b"], ["x"], "", "x").data[
+        0
+    ]
+    assert all("no pivot in the slice" in h for h in t.hovertext[0])
 
 
 if __name__ == "__main__":
