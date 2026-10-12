@@ -116,6 +116,20 @@ trip. The median candle has 0.60%, 0.89%, 1.35% and 2.14% left at the four windo
 10.3%, 5.6% and 2.8% of the candles have less than the 0.20% round trip; under 0.5% are negative, candles beyond the
 pivot their leg ends on.
 
+**Pivots of a size** (`legs_of`, `excess`): the legs between two pivots whose change falls in a slice, 1% to 1.2% by
+default (`LEG_SLICE`), up legs (from a low) and down legs (from a high) apart, and where every indicator of the menus
+stands on the pivot they start on, in deciles over every candle: one heatmap of 42 indicators by decile per side,
+coloured by the share of the slice's pivots in each from 0, none, and marked ▲ ▼ where it is beyond 3 standard errors of
+the reference's share — every candle, or every pivot that starts a leg of the same side whatever its size; and for one
+indicator, decile against the 96 candles before the pivot. On BTC 15m at window 24 (237 up, 261 down; ETH 143 up),
+against every candle the indicators say what a pivot is — a low sits in the bottom decile of the Donchian position at
++37 se. Against every same-kind pivot what is left is the size: the 1% legs start from shallower extremes, fewer in the
+bottom decile of the distance from PSAR, EMA, VWAP and KAMA (−6.6 to −7.2 se) and of the large bars (−6.4), on ETH the
+same at up to −10.2. A leg of 1% is a small one, and small legs are the quiet periods'; that is the one thing the slice
+has in common that every pivot has not. A mean correlation of their paths, along the leg and over the candles before it,
+was measured and dropped: the slice was no more alike than any leg of its side (0.620 along the up legs against 0.670
+for all of them).
+
 **The zones of the study** (`zones`): the twenty zones of `reports/zones_study.html` — four families that
 held from 2017-2020 to 2021-2025, and the momentum that did not — each at its own timeframe, window, band
 and N, re-read on this store; and the twenty that `scripts/zones_scan.py` found holding among this project's
@@ -162,6 +176,16 @@ HORIZON, HORIZON_MAX = 96, 500  # the future's default N max (a day of 15m) and 
 LEG_WINDOWS = (6, 12, 24, 48)  # the pivot windows of the legs' histograms, candles on each side; 24 is TradingVision's
 LEG_BIN, LEG_VIEW = 0.01, 5.0  # the legs' bin width and the end of the axis they open on, in %
 LEG_COUNTS = {"pivots": "Pivots: every leg once", "candles": "Candles: what each had left"}  # the histograms' buttons
+LEG_SLICE = (1.0, 1.2)  # the default slice of the pivots' study: legs whose size, in %, falls in it
+LEG_LOOKBACK = 96  # the candles before the pivot the indicator-by-candle chart reaches back to
+SIDES_OF_LEG = {"up": "Up legs, from a low", "down": "Down legs, from a high"}
+BASES = {"candles": "every candle", "pivots": "every pivot of the same kind, any size"}
+# What the slice is compared with, per side, as the hover names it.
+REFERENCES = {
+    "candles": {"up": "every candle", "down": "every candle"},
+    "pivots": {"up": "every low that starts a leg up, any size", "down": "every high that starts a leg down, any size"},
+}
+EXCESS_MARK = 3.0  # the standard errors past which a share is marked above or below its reference
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")  # pandas' dayofweek, Monday 0
 SIDES = {"all": "All candles", "up": "Up candles", "down": "Down candles"}
 # What the lower candle chart can take off each candle, named as the statistics at the top of the page
@@ -758,6 +782,89 @@ def legs_of(close: pd.Series, piv: pd.Series) -> pd.DataFrame:
     return pd.DataFrame({"start": at[:-1], "end": at[1:], "change": (c[at[1:]] / c[at[:-1]] - 1) * 100})
 
 
+@st.cache_data(show_spinner="Banding the indicators…", max_entries=8)
+def decile_codes(symbol: str, timeframe: str, mtime: float, window: int) -> pd.DataFrame:
+    """Every column of `COLUMNS` at `window` in `QUANTILES` quantiles over every candle, as codes from 0 (the lowest)
+    up; fewer on a column with ties at an edge, NaN where the column is; `mtime` as in `candles`."""
+    x = pd.concat([indicators(symbol, timeframe, mtime, window, p) for p in (False, True)], axis=1)[list(COLUMNS)]
+    return x.apply(lambda s: pd.qcut(s, QUANTILES, labels=False, duplicates="drop")).astype("float32")
+
+
+def excess(group: np.ndarray, base: np.ndarray, q: int = QUANTILES) -> dict[str, np.ndarray]:
+    """Per column of `group` and `base` (rows of band codes, NaN where none) and per band 0 to `q - 1`: the share of
+    the group's rows in the band, the base's, how many group rows have a code, and the excess in standard errors of
+    a share drawn from the base, √(b(1 − b)/n). A band nobody falls in has no standard error and stays NaN."""
+    n = (~np.isnan(group)).sum(0)
+    share = np.stack([(group == k).sum(0) for k in range(q)], -1) / np.maximum(n, 1)[:, None]
+    b = np.stack([(base == k).sum(0) for k in range(q)], -1) / np.maximum((~np.isnan(base)).sum(0), 1)[:, None]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = (share - b) / np.sqrt(b * (1 - b) / n[:, None])
+    full = np.broadcast_to
+    return {
+        "share": share,
+        "base": full(b, share.shape),
+        "z": np.where(b > 0, z, np.nan),
+        "n": full(n[:, None], share.shape),
+    }
+
+
+def top(*cells: dict[str, np.ndarray]) -> float:
+    """The colour scale's end for `excess_figure`, shared by the charts it is given: their largest share, in %."""
+    return max(float(np.max(c["share"], initial=0)) for c in cells) * 100 or 100.0
+
+
+def excess_figure(
+    cells: dict[str, np.ndarray],
+    x: list,
+    y: list,
+    xtitle: str,
+    reference: str,
+    zmax: float = 100.0,
+    text: bool = False,
+    xnames: list[str] | None = None,
+) -> go.Figure:
+    """`excess`' share of the pivots in each band as a heatmap from 0, none, to `zmax` %. With `text` the share is
+    written in every cell, marked ▲ or ▼ when it is more than `EXCESS_MARK` standard errors above or below the share
+    of `reference` (`excess`' base, named as the hover names it) in the same band. A band nobody falls in is 0, the
+    ones an indicator does not have (ties at an edge) too. The hover is written here, in words, with `xnames` naming
+    the columns where `x` alone would not say what they are. `cells` rows are `y`."""
+    share, base, z, n = cells["share"] * 100, cells["base"] * 100, cells["z"], cells["n"]
+    mark = np.select([z > EXCESS_MARK, z < -EXCESS_MARK], ["▲", "▼"], "")
+    names = xnames or [str(v) for v in x]
+    hover = [
+        [
+            f"<b>{y[i]}, {names[j]}</b><br>"
+            f"slice: {round(share[i, j] * n[i, j] / 100):,} of its {n[i, j]:,} pivots are here, {share[i, j]:.1f}%<br>"
+            f"{reference}: {base[i, j]:.1f}% are here<br>"
+            + (
+                f"difference {share[i, j] - base[i, j]:+.1f} points, {z[i, j]:+.1f} standard errors"
+                if np.isfinite(z[i, j])
+                else "no standard error: the reference has none here"
+            )
+            for j in range(share.shape[1])
+        ]
+        for i in range(share.shape[0])
+    ]
+    fig = go.Figure(
+        go.Heatmap(
+            x=x,
+            y=y,
+            z=share,
+            colorscale="Blues",
+            zmin=0,
+            zmax=zmax,
+            colorbar=dict(ticksuffix="%"),
+            text=np.char.add(np.vectorize("{:.0f}".format)(share), mark) if text else None,
+            texttemplate="%{text}" if text else None,
+            textfont=dict(size=10),
+            hovertext=hover,
+            hoverinfo="text",
+        )
+    )
+    fig.update_layout(height=max(360, 18 * len(y)), margin=dict(l=0, r=0, t=10, b=0), xaxis_title=xtitle)
+    return fig
+
+
 def main() -> None:
     st.set_page_config(page_title="Decomposer", layout="wide", initial_sidebar_state="collapsed")
     st.title("Decomposer")
@@ -933,6 +1040,83 @@ def main() -> None:
         "window after it: the most a perfect reader could take, before the 0.20% round trip."
     )
 
+    st.subheader("Pivots of a size")
+    cols = st.columns(4)
+    w = cols[0].selectbox("Pivot window, candles", LEG_WINDOWS, index=LEG_WINDOWS.index(EXTREMA_WINDOW))
+    lo = cols[1].number_input("Leg from, %", 0.0, 100.0, LEG_SLICE[0], 0.1, help="in size: up and down legs alike")
+    hi = cols[2].number_input("Leg to, %", 0.0, 100.0, LEG_SLICE[1], 0.1, help="excluded")
+    base = cols[3].radio(
+        "Compare the slice with",
+        list(BASES),
+        format_func=BASES.get,
+        horizontal=True,
+        help="what ▲ and ▼ measure the slice's share against: every candle loaded, or every pivot that starts a leg "
+        "of the same side whatever its size, so that what is left is what this size has of its own",
+    )
+    legs = legs_of(df.close, pivots(df.close, w))
+    codes = decile_codes(symbol, timeframe, mtime, w)
+    v = codes.to_numpy()
+    deciles = [f"D{k + 1}" for k in range(QUANTILES)]
+    same = {s: legs[np.sign(legs.change) == (1 if s == "up" else -1)] for s in SIDES_OF_LEG}
+    cut = {s: g[g.change.abs().between(lo, hi, inclusive="left")].start.to_numpy() for s, g in same.items()}
+    st.markdown("**Where the indicators stand on the pivot**")
+    cells = {s: excess(v[cut[s]], v if base == "candles" else v[same[s].start.to_numpy()]) for s in SIDES_OF_LEG}
+    zmax = top(*cells.values())
+    for column, (s, title) in zip(st.columns(2), SIDES_OF_LEG.items()):
+        fig = excess_figure(
+            cells[s], deciles, [LABELS[c] for c in COLUMNS], "decile over every candle", REFERENCES[base][s], zmax, True
+        )
+        column.markdown(f"{title}: {len(cut[s]):,} pivots")
+        column.plotly_chart(fig.update_yaxes(autorange="reversed"), use_container_width=True, key=f"pivot-{s}")
+    st.caption(
+        f"Every indicator of the menus at window {w}, read at the close of the pivot the leg starts on and banded in "
+        "deciles over every candle loaded, D1 the lowest. The number in a cell is the % of the slice's pivots in that "
+        "decile, and its colour: white is none, a row adds up to 100, and the scale ends at the largest share of the "
+        f"two charts, {zmax:.0f}%. ▲ and ▼ mark a share more than {EXCESS_MARK:g} standard errors above or below the "
+        f"share of {BASES[base]} in that decile, √(b(1 − b)/n); the hover has both, in numbers. A 0 can also be a "
+        "decile the indicator does not have (ties at an edge). Compared with every candle a low sits low on any "
+        "oscillator by construction; compared with every pivot of the same kind what is left "
+        "is what this size has of its own. Hindsight: the pivot is known a window after it. Among "
+        f"{2 * len(COLUMNS) * QUANTILES} cells a few are marked by chance."
+    )
+
+    column = st.selectbox("Indicator, candle by candle before the pivot", COLUMNS, format_func=LABELS.get)
+    x = v[:, COLUMNS.index(column)]
+    lags = np.arange(LEG_LOOKBACK + 1)
+
+    def back(
+        at: np.ndarray,
+    ) -> np.ndarray:  # the column at each of `at` and the candles before it, NaN before the store
+        i = at[:, None] - lags
+        return np.where(i >= 0, x[np.maximum(i, 0)], np.nan)
+
+    cells = {
+        s: {
+            k: a.T
+            for k, a in excess(back(cut[s]), x[:, None] if base == "candles" else back(g.start.to_numpy())).items()
+        }
+        for s, g in same.items()
+    }
+    zmax = top(*cells.values())
+    for col, (s, title) in zip(st.columns(2), SIDES_OF_LEG.items()):
+        col.markdown(title)
+        col.plotly_chart(
+            excess_figure(
+                cells[s],
+                -lags,
+                deciles,
+                "candles from the pivot",
+                REFERENCES[base][s],
+                zmax,
+                xnames=["the pivot"] + [f"{k} candles before the pivot" for k in lags[1:]],
+            ),
+            use_container_width=True,
+        )
+    st.caption(
+        "The same for one indicator, decile against the candles before the pivot: at 0 the column of the chart above, "
+        f"to the left how the condition builds. The scale ends at {zmax:.0f}%, the largest share of the two charts."
+    )
+
     st.subheader("The zones of the study")
     picked = st.selectbox(
         "Zone",
@@ -1079,6 +1263,31 @@ def _selfcheck() -> None:
     # Legs: on the wave every leg runs a trough to a peak, +10%, or a peak to a trough, −1/11.
     legs = legs_of(wave, p)
     assert np.allclose(legs.change, np.where(p.iloc[:-1] < 0, 10.0, -100 / 11)) and (legs.end - legs.start == 10).all()
+    # Excess: 2 of 4 in band 0 against a base with a quarter there is +0.25 over √(0.25·0.75/4) = 1.155 se.
+    e = excess(np.array([[0.0], [0.0], [1.0], [np.nan], [2.0]]), np.array([[0.0], [1.0], [2.0], [3.0]]), q=4)
+    assert np.allclose(e["share"][0], [0.5, 0.25, 0.25, 0.0]) and e["n"][0, 0] == 4
+    assert np.isclose(e["z"][0, 0], 0.25 / np.sqrt(0.25 * 0.75 / 4)) and np.isclose(
+        e["z"][0, 3], -0.25 / np.sqrt(0.25 * 0.75 / 4)
+    )
+    # One base column against many group columns, as the candle-by-candle chart reads it.
+    assert excess(np.zeros((5, 3)), np.array([[0.0], [1.0]]), q=2)["base"].shape == (3, 2)
+    # The scale: the largest |z| of the charts given, never under 4, NaN cells ignored.
+    assert np.isclose(top(e), 50.0) and top({"share": np.zeros((1, 2))}) == 100.0
+    # The figure: the share coloured from 0 with no gap, marked against the reference, the hover in words.
+    t = excess_figure(e, ["a", "b", "c", "d"], ["x"], "", "every candle", text=True).data[0]
+    assert list(t.text[0]) == ["50▲" if e["z"][0, 0] > EXCESS_MARK else "50", "25", "25", "0"] and t.zmin == 0
+    assert np.isclose(t.z[0][0], 50) and not np.isnan(np.asarray(t.z, float)).any()
+    assert "2 of its 4 pivots are here, 50.0%" in t.hovertext[0][0] and "every candle: 25.0%" in t.hovertext[0][0]
+    t = excess_figure(
+        {k: v[:, :2] for k, v in e.items()} | {"z": np.array([[3.5, np.nan]]), "base": np.array([[0.1, 0.0]])},
+        ["a", "b"],
+        ["x"],
+        "",
+        "every low",
+        text=True,
+    ).data[0]
+    assert list(t.text[0]) == ["50▲", "25"] and "+3.5 standard errors" in t.hovertext[0][0]
+    assert "no standard error" in t.hovertext[0][1]
 
 
 if __name__ == "__main__":
