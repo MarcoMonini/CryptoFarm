@@ -22,8 +22,8 @@ price: about 60% of the next leg is gone by the confirmation either way.
 **The rule (`posizioni`).** Wyckoff's last point of support: at level k, the bar a higher low is
 confirmed in an up structure (the last two highs and the last two lows rising) goes long; the trade
 closes at the first close under that low, or after `HORIZON[k]` bars. A lower high in a down structure
-goes short. `choch` keeps only the first such low after a change of character, the structure before
-the higher high being down; `aligned` keeps only the ones where level k+1 points the same way, the
+goes short. `choch` keeps only the first such low after a change of character, the last structure that
+was not neutral having been down; `aligned` keeps only the ones where level k+1 points the same way, the
 method's rule against trading against the larger structure. An opposite signal reverses; a repeated one
 is ignored. An entry whose close is already past its pivot is skipped: the confirmation is late, and
 by then the support can be broken, which made one entry in seven a trade stopped on the next bar.
@@ -55,6 +55,7 @@ result. At 1h no variant of level 4 kept on 2023-2026 what it made on 2018-2022.
 
 from __future__ import annotations
 
+import bisect
 import sys
 
 import numpy as np
@@ -143,25 +144,33 @@ def structure(piv: pd.DataFrame, n: int) -> np.ndarray:
 
 
 def lps(piv: pd.DataFrame) -> pd.DataFrame:
-    """Every last point of support (+1) and of supply (-1): the bar a higher low is confirmed in an up
-    structure, or a lower high in a down one. `stop` is that pivot's price; `choch` says the structure
-    before the extreme that made it was the opposite one."""
+    """Every last point of support (+1) and of supply (-1): a bar on which a higher low is confirmed and is
+    the latest low of an up structure, or a lower high the latest high of a down one. `stop` is that pivot's
+    price; `choch` says the last structure that was not neutral before this bar was the opposite one."""
     return pd.DataFrame(_walk(piv)[1], columns=["bar", "side", "stop", "choch"])
 
 
 def _walk(piv: pd.DataFrame) -> tuple[list, list]:
+    """The structure and the events, a confirmation bar at a time.
+
+    Every pivot confirmed on a bar is added before anything is decided on it. 43% of the pivots of a level
+    share their confirmation bar with another one (a gap-filled pivot is decided with the pivot that closes
+    its gap), and reading them one at a time decided on a state that was already stale at that bar: on BTC
+    15m level 4, 116 events of 546 existed only that way and 91 were missed.
+    """
     changes, events, highs, lows = [], [], [], []
-    for r in piv.itertuples():
-        mine = lows if r.kind < 0 else highs
-        mine.append((r.bar, r.price))
-        mine.sort()  # a gap-filled pivot can arrive after a later one
+    last = 0  # the last structure that was not neutral, before the bar being read
+    for t, bar in piv.groupby("confirmed", sort=True):
+        for r in bar.itertuples():
+            bisect.insort(lows if r.kind < 0 else highs, (r.bar, r.price))  # a pivot can predate a known one
         if len(lows) < 2 or len(highs) < 2:
             continue
         s = _trend(highs[-2:], lows[-2:])
-        changes.append((r.confirmed, s))
-        if r.bar == mine[-1][0] and s == -r.kind:
-            before = _trend(highs[-3:-1], lows[-3:-1]) if len(highs) > 2 and len(lows) > 2 else 0
-            events.append((r.confirmed, s, r.price, before == -s))
+        changes.append((t, s))
+        latest = (lows if s > 0 else highs)[-1] if s else None
+        if latest is not None and latest[0] in set(bar.bar):
+            events.append((t, s, latest[1], last == -s))
+        last = s or last
     return changes, events
 
 

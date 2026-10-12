@@ -94,3 +94,26 @@ def test_the_chart_series_sit_on_the_pivots():
     assert set(series) == {"struttura_massimi", "struttura_minimi"}
     assert series["struttura_massimi"].notna().sum() == (piv.kind == 1).sum()
     assert series["struttura_minimi"].notna().sum() == (piv.kind == -1).sum()
+
+
+def test_a_bar_is_read_whole():
+    """A higher low and a higher high confirmed on the same bar: read one at a time, the low was judged
+    against the old highs, the structure looked neutral and the last point of support was lost."""
+    piv = pd.DataFrame(
+        {
+            "bar": range(7),
+            "kind": [1, -1, 1, -1, 1, -1, 1],
+            "price": [10, 5, 9, 4, 8, 6, 12],
+            "confirmed": [1, 2, 3, 4, 5, 7, 7],
+        }
+    )
+    ev = ss.lps(piv)
+    assert ev.bar.tolist() == [5, 7] and ev.side.tolist() == [-1, 1]
+    assert ev.stop.tolist() == [8, 6] and ev.choch.tolist() == [False, True]
+
+
+def test_the_order_inside_a_confirmation_bar_does_not_matter():
+    piv = ss.climb(walk(3000, 3))[2]
+    shuffled = piv.sample(frac=1.0, random_state=1).sort_values("confirmed", kind="stable", ignore_index=True)
+    assert ss.lps(piv).equals(ss.lps(shuffled))
+    assert (ss.structure(piv, 3000) == ss.structure(shuffled, 3000)).all()
