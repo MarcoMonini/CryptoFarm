@@ -124,7 +124,8 @@ src/cryptofarm/
     ├── candle_features.py  TradingVision's 29 candidate columns, read only by the decomposer
     ├── zones.py          the zones of both studies and how one is read: the decomposer's last section
     ├── project_features.py  this project's indicators as 13 columns for the zones study (scripts/zones_scan.py)
-    └── zone_signals.py   the Top 10 zones as signals; the simulator's «Zone Signals» marks them, no trades
+    ├── zone_signals.py   the Top 10 zones as signals; the simulator's «Zone Signals» marks them, no trades
+    └── swing_structure.py  the close's swing hierarchy read live, and Wyckoff's LPS on it: «Swing Structure» in the menu
 scripts/analysis.py       command-line measurements producing the numbers in strategy.md
 ```
 
@@ -195,11 +196,14 @@ streamlit run src/cryptofarm/trading/simulator.py
 # Decomposer: one pair's candles, before any model (from TradingVision; see reports/zones_study.html)
 streamlit run src/cryptofarm/trading/decomposer.py
 
+# Swing structure: Wyckoff's last point of support on the swing hierarchy, priced over the store (simulator menu)
+.venv312/bin/python -m cryptofarm.trading.swing_structure
+
 # Live bot — places real orders, requires the environment variables (see .env.example)
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Tests: `.venv312/bin/python -m pytest` (39 files: 1,182 passed, 3 skipped). Lint/format:
+Tests: `.venv312/bin/python -m pytest` (40 files: 1,207 passed, 3 skipped). Lint/format:
 `ruff check src scripts tests` and `black src scripts tests` (config in `pyproject.toml`).
 
 ## The simulator
