@@ -38,15 +38,16 @@ one figure on one time axis, so a zoom on either moves both. The period is read 
 last 30 days, is there to keep the drawing light: the numbers and the histogram read the whole history. Under it, a
 third chart in the same figure, so a zoom on any of the three moves all of them: on the same bodies after the same
 subtraction, switched by the same buttons, what the green candles and the red ones did (`side_means`): over the last N
-of each, their mean body and green − |red|, dashed, above zero when a rise is larger than a fall; among the last N, each
-candle's move in price, the green ones added up and the red ones, in % of the window's first open, and the net move,
-dashed, their sum, which with nothing subtracted is the price's move over the N candles. Means among the last N, as this
-first did, left the counts out: the worst day of BTC 15m, −49.2% on 2020-03-13 with 60 red candles to 36, read −0.68%;
-compounding each side, as it did next, made rise and fall not add up to the net (+61% and −48% net −16%); in price they
-do, +27.46% and −76.32% net −48.86%. Over N candles, 96 by default (`SIDE_WINDOW`), either the last N of each colour
-wherever they fall or each colour's among the last N (`SIDE_MODES`), set above the figure since a widget cannot sit
-between its rows, and computed on every candle loaded so the period's first candles have their N behind them. Drawn over
-the bars they could not be read, and in a chart of their own they lost the zoom: a third row keeps both.
+of each, their mean body and green − |red|, the thick line, above zero when a rise is larger than a fall; among the last
+N, each candle's move in price, the green ones added up and the red ones, in % of the window's first open, and the net
+move, the thick line and the one that matters, their sum, which with nothing subtracted is the price's move over the N
+candles. Means among the last N, as this first did, left the counts out: the worst day of BTC 15m, −49.2% on 2020-03-13
+with 60 red candles to 36, read −0.68%; compounding each side, as it did next, made rise and fall not add up to the net
+(+61% and −48% net −16%); in price they do, +27.46% and −76.32% net −48.86%. Over N candles, 96 by default
+(`SIDE_WINDOW`), either the last N of each colour wherever they fall or each colour's among the last N (`SIDE_MODES`),
+set above the figure since a widget cannot sit between its rows, and computed on every candle loaded so the period's
+first candles have their N behind them. Drawn over the bars they could not be read, and in a chart of their own they
+lost the zoom: a third row keeps both.
 
 Over the upper candles, a choice marks the turns of the close found with no window, Nothing by default (`TURN_METHODS`):
 by persistence, how much the close moved away from a turn on both sides before it was undone (`persistence`, 1% by
@@ -203,9 +204,9 @@ SIDE_NAMES = {  # the three lines' names, per mode: what `side_means` puts in it
     "last": {"green": "mean of the green", "red": "mean of the red", "net": "green − |red|"},
     "among": {"green": "rise of the green", "red": "fall of the red", "net": "net move"},
 }
-# Blue and orange, the dataviz skill's first two slots, both themes passing `validate_palette.js --pairs all`; the
-# difference is derived, so it is the text's ink, dashed, rather than a third hue: violet and magenta both failed
-# the floor against blue or orange on one theme.
+# Blue and orange, the dataviz skill's first two slots, both themes passing `validate_palette.js --pairs all`, for the
+# two sides; the net, the line that matters, is the text's ink, solid and twice as wide, rather than a third hue:
+# violet and magenta both failed the floor against blue or orange on one theme.
 SIDE_COLOURS = {"light": ("#2a78d6", "#eb6834", "#0b0b0b"), "dark": ("#3987e5", "#d95926", "#ffffff")}
 LEG_BIN, LEG_VIEW = 0.01, 5.0  # the legs' bin width and the end of the axis they open on, in %
 LEG_COUNTS = {"pivots": "Pivots: every leg once", "candles": "Candles: what each had left"}  # the histograms' buttons
@@ -433,14 +434,14 @@ def candles_figure(
             col=1,
         )
     for how in OFFSETS if sides_by else ():
-        for column, colour, dash in zip(side_names, SIDE_COLOURS[theme], ("solid", "solid", "dash")):
+        for column, colour, width in zip(side_names, SIDE_COLOURS[theme], (1.5, 1.5, 3)):  # the net is the signal
             fig.add_trace(
                 go.Scatter(
                     x=sides_by[how].index,
                     y=sides_by[how][column],
                     name=side_names[column],
                     mode="lines",
-                    line=dict(color=colour, width=2, dash=dash),
+                    line=dict(color=colour, width=width),
                     hovertemplate=side_names[column] + " %{y:.3f}%<extra></extra>",
                     visible=how == "none",
                     legend="legend2",
@@ -1242,17 +1243,17 @@ def main() -> None:
     )
     st.markdown("**Under the candles, the same candles each from its own open**")
     st.caption(
-        "The body alone, as the % change from the candle's own open: every candle starts at zero and its body is "
-        "its change. The buttons above it subtract a statistic from "
-        "each candle's body: the open stays at zero, a 1% candle less 0.2% closes at 0.8%. Up / down: an up candle "
-        "loses the up candles' statistic, a down candle the down candles'. A candle smaller than it crosses zero and "
-        "keeps its colour. The statistics are the ones at the top, over every candle loaded. At the bottom, on the "
-        "same bodies after the same subtraction, what the green candles and the red ones did. The last N of each: "
-        "their mean body, and green − |red|, dashed, above zero when a rise is larger than a fall. Among the last N: "
-        "each candle's move in price, the green ones added up and the red ones, in % of the window's first open, and "
-        "the net move, dashed: rise + fall = net, and with nothing subtracted the net is the price's own move over "
-        "the N candles. A side can pass 100% where the price doubled inside the window. The three charts share one "
-        "time axis: a zoom on any of them moves the others."
+        "The body alone, as the % change from the candle's own open: every candle starts at zero and its body is its "
+        "change. The buttons above it subtract a statistic from each candle's body: the open stays at zero, a 1% "
+        "candle less 0.2% closes at 0.8%. Up / down: an up candle loses the up candles' statistic, a down candle the "
+        "down candles'. A candle smaller than it crosses zero and keeps its colour. The statistics are the ones at "
+        "the top, over every candle loaded. At the bottom, on the same bodies after the same subtraction, what the "
+        "green candles and the red ones did. The last N of each: their mean body, and green − |red|, the thick line, "
+        "above zero when a rise is larger than a fall. Among the last N: each candle's move in price, the green ones "
+        "added up and the red ones, in % of the window's first open, and the net move, the thick line: rise + fall = "
+        "net, and with nothing subtracted the net is the price's own move over the N candles. A side can pass 100% "
+        "where the price doubled inside the window. The three charts share one time axis: a zoom on any of them moves"
+        " the others."
     )
     full = {how: offset(pct, stats, how) for how in OFFSETS}
     minus = {how: full[how].loc[window.index] for how in OFFSETS}
@@ -1663,7 +1664,8 @@ def _selfcheck() -> None:
     assert fig.layout.xaxis.matches == fig.layout.xaxis2.matches == "x3", "one time axis: a zoom moves all three"
     side_traces = fig.data[-3 * len(OFFSETS) :]
     assert all(t.yaxis == "y3" and t.legend == "legend2" for t in side_traces)
-    assert [t.line.color for t in side_traces[:3]] == list(SIDE_COLOURS["dark"]) and side_traces[2].line.dash == "dash"
+    assert [t.line.color for t in side_traces[:3]] == list(SIDE_COLOURS["dark"]) and side_traces[2].line.dash is None
+    assert side_traces[2].line.width > side_traces[0].line.width == side_traces[1].line.width, "the net line stands out"
     for b, how in zip(fig.layout.updatemenus[0].buttons, OFFSETS):
         assert b.args[0]["visible"][-3 * len(OFFSETS) :] == [h == how for h in OFFSETS for _ in range(3)], how
     assert "yaxis3" not in candles_figure(bars, "v", none).layout.to_plotly_json(), "no side means, no third chart"
