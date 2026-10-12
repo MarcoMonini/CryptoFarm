@@ -90,11 +90,12 @@ and the TSI's top decile +0.19 to +0.24% at 48 (4.4 to 5.3), their bottom decile
 exception is the PSAR, whose bottom decile — a price furthest under it — keeps rising, +0.16% and +0.25% at 48 (3.8,
 5.0). 58 deciles at 96 N each on the whole history: a map of where to look, not a result. The menu held all 42 columns
 when these were measured. The momentum did not hold out of sample in the zones study, and RSI and TSI left it with
-thirteen columns no study found anything in (`DROPPED`): the log return, the lower wick, the candle body, the window
-range, the volatility expansion, four of volume, the money flow, the ADX, the squeeze and the stochastic. A section
-banded the candles by RSI in 10-point bands, and read the 80 to 90 band as momentum worth a fee, +0.56% at 48 candles on
-BTC 15m at 5.5 standard errors on the whole history; the zones study found the momentum did not hold out of sample, and
-the section left with RSI.
+thirteen more that held in no study (`DROPPED`): the log return, the lower wick, the volatility expansion, four of
+volume, the money flow, the ADX and the squeeze, which nothing found anything in, and the stochastic, the candle body
+and the window range, which the pivot study met only in marginal combinations. A section banded the candles by RSI in
+10-point bands, and read the 80 to 90 band as momentum worth a fee, +0.56% at 48 candles on BTC 15m at 5.5 standard
+errors on the whole history; the zones study found the momentum did not hold out of sample, and the section left with
+RSI.
 
 **What is left of the leg** (`pivots`, `legs_of`, `to_pivot`): TradingVision's pivots, the ones its `legsweep` swept — a
 close strictly beyond the `window` closes on both sides, two of a kind in a row merged into the more extreme — at
@@ -181,9 +182,10 @@ DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")  # pandas' dayofweek, M
 SIDES = {"all": "All candles", "up": "Up candles", "down": "Down candles"}
 # What the lower candle chart can take off each candle, named as the statistics at the top of the page
 # are, so a choice points at the numbers it subtracts without repeating them.
-# The columns of TradingVision's 29 and this project's 13 that no study found anything in: no zone of `zones` that holds
-# (families 1 to 5; RSI and TSI only in the momentum one, which does not) and no filter the pivot study chose. Their
-# columns are still computed, by `features` and `project_features`, and the zones that read them still read them.
+# The columns of TradingVision's 29 and this project's 13 that held in no study: no zone of `zones` that holds (families
+# 1 to 5; RSI and TSI only in the momentum one, which does not), and in the pivot study no filter, or only a marginal
+# one -- the stochastic and the candle body in one combination each at window 48, the window range a candidate never
+# chosen. Their columns are still computed, by `features` and `project_features`, and the zones that read them still do.
 DROPPED = (
     "rsi_centered",
     "tsi_momentum",
