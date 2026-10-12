@@ -8,7 +8,7 @@ from the level below, so every level alternates. No window and no threshold: the
 the market itself made, each one's legs about 3.2 times the length of the one below. Measured on the
 fifteen `klines.DEFAULT_SYMBOLS` from 2017, the median leg is 5 / 18 / 58 / 185 bars at levels 1-4 on
 15m and 5 / 18 / 57 / 175 on 1h, so `HORIZON` is one table for both. It is the same hierarchy as
-`decomposer.swing_levels`, dated live.
+`decomposer.swing_levels`, which reads it from here, dated live.
 
 **Live, by construction.** A turn reaches level k+1 once the next turn of its kind at level k is
 decided at level k, so `climb` dates every level of every turn from the bar it became final on, and

@@ -171,7 +171,7 @@ from plotly.subplots import make_subplots
 from cryptofarm import paths
 from cryptofarm.data import klines
 from cryptofarm.trading import candle_features as features
-from cryptofarm.trading import project_features, zones
+from cryptofarm.trading import project_features, swing_structure, zones
 from cryptofarm.trading.candle_features import EXTREMA_WINDOW
 
 TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")
@@ -857,12 +857,8 @@ def to_pivot(close: pd.Series, piv: pd.Series) -> pd.Series:
 
 def turns(close: pd.Series) -> tuple[np.ndarray, np.ndarray]:
     """Every candle where the close changes direction, with no window and no threshold: positions in `close` and
-    kind, +1 a high, −1 a low, alternating. A run of equal closes is one point, its first candle; the first and the
-    last candle are not turns."""
-    step = np.sign(np.diff(close.to_numpy()))
-    moved = np.flatnonzero(step)
-    flip = np.flatnonzero(step[moved][1:] != step[moved][:-1])
-    return moved[flip] + 1, step[moved][flip].astype(int)
+    kind, +1 a high, −1 a low, alternating. `swing_structure.turns`, which the simulator's strategy trades on."""
+    return swing_structure.turns(close.to_numpy())[:2]
 
 
 def persistence(close: pd.Series) -> pd.DataFrame:
@@ -897,30 +893,10 @@ def persistence(close: pd.Series) -> pd.DataFrame:
 
 
 def swing_levels(close: pd.Series) -> pd.DataFrame:
-    """The swing hierarchy of the close, with no parameter: level 0 is every turn (`turns`); a high goes up a level
-    when it is higher than the highs on either side of it in the level below, a low when it is lower than the lows,
-    as Dow's higher highs and lower lows applied to themselves. Two highs left in a row get the lowest low between
-    them from the level below, so every level alternates. Columns `kind` and `level`, the highest level a turn
-    reaches, indexed by the turn's candle: the turns of level k are those with `level` at least k."""
-    at, kind = turns(close)
-    v = close.to_numpy()[at] * kind  # larger is more extreme, for a high and for a low alike
-    level = np.zeros(len(at), int)
-    idx = np.arange(len(at))
-    while len(idx) > 2:
-        x = v[idx]
-        side = np.r_[-np.inf, -np.inf, x, -np.inf, -np.inf]
-        keep = np.flatnonzero((x > side[:-4]) & (x > side[4:]))  # the same kind sits two places away
-        out = [keep[0]] if len(keep) else []
-        for a, b in zip(keep[:-1], keep[1:]):
-            if kind[idx[a]] == kind[idx[b]]:  # two of a kind: the most extreme of the other kind between them
-                between = np.arange(a + 1, b)
-                between = between[kind[idx[between]] != kind[idx[a]]]
-                out.append(between[np.argmax(x[between])])
-            out.append(b)
-        if len(out) == len(idx):
-            break
-        idx = idx[out]
-        level[idx] += 1
+    """The swing hierarchy of the close, with no parameter (`swing_structure.hierarchy`: Dow's higher highs and
+    lower lows applied to themselves). Columns `kind` and `level`, the highest level a turn reaches, indexed by the
+    turn's candle: the turns of level k are those with `level` at least k."""
+    at, kind, level = swing_structure.hierarchy(close.to_numpy())
     return pd.DataFrame({"kind": kind, "level": level}, index=close.index[at])
 
 
