@@ -87,8 +87,8 @@ day: ETH 0 to 10 at −2.2% at 48, −4.9. The bands past 10 and 90 hold about a
 handful of episodes. The momentum above 70 is the one size worth a fee, 0.20% a round trip at OKX,
 and it is measured on the whole history with nothing held out: a lead.
 
-**The future after an indicator**: the same again for any of the 29 columns of `features`, or the 13 of
-`project_features` — this project's own indicators, listed after them — with
+**The future after an indicator**: the same again for any of the 27 columns (`COLUMNS`) of `features` and
+`project_features` — this project's own indicators, listed after them — that held in at least one study, with
 their window as an input (`EXTREMA_WINDOW` by default), banded in deciles (`quantile_bands`) because
 no two share a scale; a decile dilutes a tail, so RSI's top decile reads weaker here than its 80 to
 90 band above. The extreme deciles on BTC and ETH 15m, N 10 / 48 / 96, fall in three families. A
@@ -101,7 +101,10 @@ on ETH; the volatile periods are the bull runs, as for both tails of the bodies.
 half a day: the RSI and the TSI's top decile +0.19 to +0.24% at 48 (4.4 to 5.3), their bottom
 decile −0.11 to −0.23% (−2.4 to −4.0). The exception is the PSAR, whose bottom decile — a price
 furthest under it — keeps rising, +0.16% and +0.25% at 48 (3.8, 5.0). 58 deciles at 96 N each on the
-whole history: a map of where to look, not a result.
+whole history: a map of where to look, not a result. The menu held all 42 columns when these were measured. The
+momentum did not hold out of sample in the zones study, and RSI and TSI left it with thirteen columns no study found
+anything in (`DROPPED`): the log return, the lower wick, the candle body, the window range, the volatility expansion,
+four of volume, the money flow, the ADX, the squeeze and the stochastic.
 
 **What is left of the leg** (`pivots`, `legs_of`, `to_pivot`): TradingVision's pivots, the ones its `legsweep` swept — a
 close strictly beyond the `window` closes on both sides, two of a kind in a row merged into the more extreme — at
@@ -118,7 +121,7 @@ pivot their leg ends on.
 
 **Pivots of a size** (`legs_of`, `excess`): the legs between two pivots whose change falls in a slice, 1% to 1.2% by
 default (`LEG_SLICE`), up legs (from a low) and down legs (from a high) apart, and where every indicator of the menus
-stands on the pivot they start on, in deciles over every candle: one heatmap of 42 indicators by decile per side,
+stands on the pivot they start on, in deciles over every candle: one heatmap of the indicators by decile per side,
 coloured by the share of the slice's pivots in each from 0, none, and marked ▲ ▼ where it is beyond 3 standard errors of
 the reference's share — every candle, or every pivot that starts a leg of the same side whatever its size; and for one
 indicator, decile against the 96 candles before the pivot. On BTC 15m at window 24 (237 up, 261 down; ETH 143 up),
@@ -190,8 +193,28 @@ DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")  # pandas' dayofweek, M
 SIDES = {"all": "All candles", "up": "Up candles", "down": "Down candles"}
 # What the lower candle chart can take off each candle, named as the statistics at the top of the page
 # are, so a choice points at the numbers it subtracts without repeating them.
-# The indicator menu: TradingVision's 29 columns, then this project's 13 (`project_features`).
-COLUMNS = features.COLUMNS + project_features.COLUMNS
+# The columns of TradingVision's 29 and this project's 13 that no study found anything in: no zone of `zones` that holds
+# (families 1 to 5; RSI and TSI only in the momentum one, which does not) and no filter the pivot study chose. Their
+# columns are still computed, by `features` and `project_features`, and the zones that read them still read them.
+DROPPED = (
+    "rsi_centered",
+    "tsi_momentum",
+    "money_flow_index",
+    "adx_trend_strength",
+    "squeeze_ratio",
+    "log_return",
+    "volatility_expansion",
+    "lower_wick_pct",
+    "log_volume_vs_median",
+    "log_dollar_volume",
+    "volume_trend",
+    "on_balance_volume_zscore",
+    "stochastic_k_minus_d",
+    "candle_body_pct",
+    "window_range_pct",
+)
+# The indicator menu and the pivot study's rows: TradingVision's columns, then this project's, less `DROPPED`.
+COLUMNS = [c for c in features.COLUMNS + project_features.COLUMNS if c not in DROPPED]
 LABELS = features.LABELS | project_features.LABELS
 OFFSETS = {
     "none": "Nothing",
@@ -1010,7 +1033,8 @@ def main() -> None:
         "Indicator",
         COLUMNS,
         format_func=LABELS.get,
-        help="TradingVision's 29 columns of `features`, then this project's 13 of `project_features`",
+        help="the 27 columns of `features` and `project_features` that held in at least one study: TradingVision's, "
+        "then this project's",
     )
     n = right.number_input(
         "Indicator window, candles", 2, 500, EXTREMA_WINDOW, help="`features`' N: every window of every column"
@@ -1228,6 +1252,10 @@ def _selfcheck() -> None:
     assert r.iloc[:13].isna().all() and (r.iloc[13:] == "90 to 100").all()
     assert (rsi_bands(close[::-1].set_axis(when), 14).iloc[13:] == "0 to 10").all()
     assert len(r.cat.categories) == 100 // RSI_STEP
+    # The menu: 27 columns, none dropped, every column of a zone that holds still in it (the momentum's need not be).
+    assert len(COLUMNS) == 27 and not set(DROPPED) & set(COLUMNS)
+    assert set(DROPPED) <= set(features.COLUMNS + project_features.COLUMNS), "a dropped name that is no column"
+    assert {z[2] for z in zones.ALL_ZONES if z[0] != "m"} <= set(COLUMNS)
     # Quantile bands: as many in each, NaN kept, and ties never split across an edge.
     q = quantile_bands(pd.Series([np.nan, *range(100)]))
     assert q.isna().iloc[0] and (q.value_counts() == 10).all() and len(q.cat.categories) == QUANTILES

@@ -34,7 +34,7 @@ config, panels, tuned_defaults → simulator
 | `tuned_defaults.py` | 61 | **generated** by `scripts/tune_defaults.py`: measured starting values, per interval |
 | `simulator.py` | 922 | the Streamlit page, two views |
 | `live_bot.py` | 472 | the headless bot that places real orders |
-| `decomposer.py` | 1,294 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
+| `decomposer.py` | 1,322 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
 | `candle_features.py` | 313 | TradingVision's 29 candidate columns, copied unchanged: the decomposer's indicator section reads them |
 | `zones.py` | 262 | the twenty zones of `reports/zones_study.html`, the twenty of `scripts/zones_scan.py`, and the measurement that reads one |
 | `project_features.py` | 127 | this project's own indicators (stochastic, StochRSI, MFI, OBV, Bollinger, Donchian, squeeze, ATR bands, Ichimoku, EMA crossovers) as 13 columns in `candle_features`' contract |
@@ -120,8 +120,9 @@ tree analysis does not see.
 **`decomposer.py`** — `streamlit run src/cryptofarm/trading/decomposer.py`. Reads the local store
 through `klines.load_klines(..., clip=False)` and downloads nothing. Sections: the candles and the
 same candles from zero, the histogram, the autocorrelation, weekday × hour, and three heatmaps of the
-mean change N candles after the close — banded by body in σ, by RSI, and by any column of
-`candle_features` or of `project_features` in deciles. *What is left of the leg*: TradingVision's pivots
+mean change N candles after the close — banded by body in σ, by RSI, and in deciles by any of the 27
+columns of `candle_features` and `project_features` that held in at least one study (`COLUMNS`; the fifteen
+that did not, RSI and TSI among them, are `DROPPED`). *What is left of the leg*: TradingVision's pivots
 (`pivots`, its `data.pivots.find_pivots`) at windows 6, 12, 24 and 48, and one histogram per window of the legs
 between them (`legs_of`) or of what each candle had left to its next pivot (`to_pivot`), long and short folded
 together, on two buttons. *Pivots of a size*: the legs whose change falls in a slice, 1% to 1.2% by
