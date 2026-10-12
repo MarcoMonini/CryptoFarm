@@ -46,3 +46,16 @@ def test_zones_figure_outlines_the_zone():
     assert fig.data[0].z.shape == (len(zones.QS) + 1, len(zones.HORIZONS)) and np.isnan(fig.data[0].z[0]).all()
     box = fig.layout.shapes[0]
     assert (box.x0 + box.x1) / 2 == zones.HORIZONS.index(zone[5]) and (box.y0 + box.y1) / 2 == zone[4]
+
+
+def test_hover_formats_are_short_and_render():
+    """Every number format Plotly gets from the page: no `+` flag, which this Plotly leaves unapplied and prints the
+    raw float instead (`0.5114346962411359%`), and three decimals at most."""
+    import inspect
+    import re
+
+    source = inspect.getsource(decomposer)
+    specs = re.findall(r"%\{\{?[\w\[\]]+:([^}]+)\}", source) + re.findall(r"hoverformat=\"([^\"]*)\"", source)
+    assert specs, "the scan found no format at all"
+    bad = [s for s in specs if s.startswith("+") or re.search(r"\.(?:[4-9]|\d{2,})[fge]", s)]
+    assert not bad, bad

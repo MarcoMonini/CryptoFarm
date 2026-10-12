@@ -306,7 +306,7 @@ def candles_figure(df: pd.DataFrame, uirevision: str, minus: dict[str, pd.Series
                     high=frame.high,
                     low=frame.low,
                     close=frame.close,
-                    yhoverformat="+.3f",
+                    yhoverformat=".3f",
                     increasing=side,
                     decreasing=side,
                     visible=how == "none",  # the chart opens on the candles as they are, whatever the order above
@@ -363,7 +363,7 @@ def histogram_figure(pct: pd.Series, stats: pd.DataFrame, edges: np.ndarray) -> 
                 width=np.diff(edges),
                 marker=dict(color="#3498db", line=dict(width=0)),
                 customdata=np.c_[edges[:-1], edges[1:]],
-                hovertemplate="%{customdata[0]:+.3f}% to %{customdata[1]:+.3f}%<br>%{y:,} candles<extra></extra>",
+                hovertemplate="%{customdata[0]:.3f}% to %{customdata[1]:.3f}%<br>%{y:,} candles<extra></extra>",
                 visible=how == "none",
             )
         )
@@ -408,7 +408,7 @@ def clock_figure(table: pd.DataFrame, stat: str) -> go.Figure:
             zmid=0 if mean else None,
             colorbar=dict(ticksuffix="%"),
             hovertemplate="%{y} %{x}:00 UTC<br>"
-            + ("mean %{z:+.4f}% ± %{customdata[1]:.4f}" if mean else "std %{z:.4f}%")
+            + ("mean %{z:.3f}% ± %{customdata[1]:.3f}" if mean else "std %{z:.3f}%")
             + "<br>%{customdata[0]:,} candles<extra></extra>",
         )
     )
@@ -433,7 +433,7 @@ def acf_figure(pct: pd.Series, step: pd.Timedelta) -> go.Figure:
                 line=dict(color=colour, width=1),
                 customdata=days,
                 hovertemplate=f"{name}<br>lag %{{x:,}} candles, %{{customdata:.2f}} days<br>"
-                "autocorrelation %{y:+.4f}<extra></extra>",
+                "autocorrelation %{y:.3f}<extra></extra>",
             )
         )
     band = 2 / math.sqrt(len(pct))
@@ -460,10 +460,22 @@ def bands(pct: pd.Series, sigma: float) -> pd.Series:
 
 
 def quantile_bands(x: pd.Series, q: int = QUANTILES) -> pd.Series:
-    """Each candle's `q`-quantile of `x`, named by its edges; NaN where `x` is. An indicator with ties at an edge,
-    the age of a window's extreme or a close at the bar's high, has fewer bands: a value is never split."""
+    """Each candle's `q`-quantile of `x`, named by its edges (`edge_names`); NaN where `x` is. An indicator with ties
+    at an edge, the age of a window's extreme or a close at the bar's high, has fewer bands: a value is never split."""
     band = pd.qcut(x, q, duplicates="drop")
-    return band.cat.rename_categories([f"{i.left:.4g} to {i.right:.4g}" for i in band.cat.categories])
+    names = edge_names([band.cat.categories[0].left, *(i.right for i in band.cat.categories)])
+    return band.cat.rename_categories([f"{a} to {b}" for a, b in zip(names[:-1], names[1:])])
+
+
+def edge_names(edges: list[float]) -> list[str]:
+    """Band edges, sorted, as the hovers print them: three decimals, or, where three would make two of them read
+    alike — an indicator on a tiny scale, an EMA slope of 1e-05 — three significant digits (1.06e-05). The open
+    ends print as -inf and inf."""
+    for fmt in (".3f", ".2e"):
+        names = [f"{e:{fmt}}" for e in edges]
+        if len(set(names)) == len(names):
+            break
+    return names
 
 
 @st.cache_data(show_spinner="Computing the indicators…", max_entries=16)
@@ -523,8 +535,8 @@ def ahead_figure(table: pd.DataFrame, stat: str, step: pd.Timedelta) -> go.Figur
             zmax=4 if t else None,
             colorbar=dict(ticksuffix="" if t else "%"),
             hovertemplate="%{y}, N %{x} candles (%{customdata[5]:.2f}h)<br>"
-            "mean %{customdata[0]:+.4f}% ± %{customdata[1]:.4f}<br>"
-            "every candle %{customdata[2]:+.4f}%, excess %{customdata[3]:+.2f} se<br>"
+            "mean %{customdata[0]:.3f}% ± %{customdata[1]:.3f}<br>"
+            "every candle %{customdata[2]:.3f}%, excess %{customdata[3]:.2f} se<br>"
             "%{customdata[4]:,} candles<extra></extra>",
         )
     )
@@ -583,26 +595,30 @@ def zones_figure(tables: dict[str, pd.DataFrame], zone: tuple) -> go.Figure:
         row_titles=list(tables),
     )
     for row, (symbol, table) in enumerate(tables.items(), start=1):
+        lo = table.groupby("band").lo.first().reindex(bands)
+        names = edge_names([*lo, table.hi.max()])
+        text = np.repeat([[f"{a} to {b}"] for a, b in zip(names[:-1], names[1:])], len(horizons), axis=1)
         for col, p in enumerate(zones.PERIODS, start=1):
             at = table[table.period == p]
             grid = {
                 c: at.pivot(index="band", columns="n", values=c).reindex(index=bands, columns=horizons)
-                for c in ("t", "excess", "se", "count", "lo", "hi")
+                for c in ("t", "excess", "se", "count")
             }
             fig.add_trace(
                 go.Heatmap(
                     x=[str(h) for h in horizons],
                     y=[zones.quantiles(b) for b in bands],
                     z=grid["t"].to_numpy(),
-                    customdata=np.dstack([grid[c].to_numpy() for c in ("excess", "se", "count", "lo", "hi")]),
+                    customdata=np.dstack([grid[c].to_numpy() for c in ("excess", "se", "count")]),
+                    text=text,
                     colorscale="RdBu",
                     zmid=0,
                     zmin=-4,
                     zmax=4,
                     showscale=row == col == 1,
                     colorbar=dict(title="se", len=0.6, x=1.06),
-                    hovertemplate=f"{symbol} · {p}<br>band %{{y}}: %{{customdata[3]:.4g}} to %{{customdata[4]:.4g}}"
-                    "<br>N %{x}: excess %{customdata[0]:+.4f}% ± %{customdata[1]:.4f}, %{z:+.2f} se"
+                    hovertemplate=f"{symbol} · {p}<br>band %{{y}}: %{{text}}"
+                    "<br>N %{x}: excess %{customdata[0]:.3f}% ± %{customdata[1]:.3f}, %{z:.2f} se"
                     "<br>%{customdata[2]:,} candles<extra></extra>",
                 ),
                 row=row,
@@ -735,7 +751,7 @@ def legs_figure(
                     width=np.diff(edges),
                     marker=dict(color="#3498db", line=dict(width=0)),
                     customdata=np.c_[edges[:-1], edges[1:]],
-                    hovertemplate="%{customdata[0]:+.2f}% to %{customdata[1]:+.2f}%<br>%{y:,} "
+                    hovertemplate="%{customdata[0]:.2f}% to %{customdata[1]:.2f}%<br>%{y:,} "
                     + unit[how]
                     + "<extra></extra>",
                     visible=how == "pivots",
@@ -1225,6 +1241,11 @@ def _selfcheck() -> None:
     # Quantile bands: as many in each, NaN kept, and ties never split across an edge.
     q = quantile_bands(pd.Series([np.nan, *range(100)]))
     assert q.isna().iloc[0] and (q.value_counts() == 10).all() and len(q.cat.categories) == QUANTILES
+    # Edge names: three decimals where they tell the edges apart, three significant digits where they do not.
+    assert edge_names([-np.inf, -0.0221, 0.5, np.inf]) == ["-inf", "-0.022", "0.500", "inf"]
+    assert edge_names([1.06e-05, 4.8e-04, 3.16e-03]) == ["1.06e-05", "4.80e-04", "3.16e-03"]
+    q = quantile_bands(pd.Series(np.linspace(0, 1e-4, 100)))
+    assert q.cat.categories.is_unique and len(q.cat.categories) == QUANTILES and "e-0" in q.cat.categories[1]
     q = quantile_bands(pd.Series([0.0] * 50 + list(range(1, 51))))
     assert q.iloc[:50].nunique() == 1 and len(q.cat.categories) < QUANTILES
 
