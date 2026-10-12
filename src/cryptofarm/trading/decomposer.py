@@ -42,9 +42,11 @@ the drawing light: the numbers and the histogram read the whole history.
 Over the upper candles, a choice marks the turns of the close found with no window, Nothing by default (`TURN_METHODS`):
 by persistence, how much the close moved away from a turn on both sides before it was undone (`persistence`, 1% by
 default), or by level in the swing hierarchy, the highs higher and the lows lower than their neighbours applied level
-over level (`swing_levels`, level 3 by default). Both rank every turn of the whole history once (`ranked_turns`); the
-choice only reads where to cut. On BTC 15m each level keeps about a third of the one below, and level 3 has legs of
-2.68% over 49 candles at the median, about the W = 24 pivots.
+over level (`swing_levels`, level 3 by default), one line a level from the one asked up to four more, in one blue that
+darkens with the level on a light page and lightens on a dark one (`LEVEL_RAMP`), so the highest level always stands out
+most. Both rank every turn of the whole history once (`ranked_turns`); the choice only reads where to cut. On BTC 15m
+each level keeps about a third of the one below, and level 3 has legs of 2.68% over 49 candles at the median, about the
+W = 24 pivots.
 
 Beside the histogram, in the same row, one section over every candle loaded, numbers measured on BTC
 15m to 2026-10-06 (319,870 candles): **Memory** (`acf`): the autocorrelation of the change and of its
@@ -177,6 +179,14 @@ LEG_WINDOWS = (6, 12, 24, 48)  # the pivot windows of the legs' histograms, cand
 # The turns the first candle chart can mark (`ranked_turns`), and where each method's scale opens.
 TURN_METHODS = {"none": "Nothing", "persistence": "Persistence", "levels": "Swing hierarchy"}
 PERSISTENCE_MIN, SWING_LEVEL = 1.0, 3  # %; level 3 is about the W = 24 pivots on 15m
+TURN_COLOUR = "#ff9f1c"  # the persistence's one line
+# The swing levels' lines, lowest level first: one blue, light to dark on a light surface and dark to light on a dark
+# one, so the highest level always stands out most. Five steps of the dataviz skill's blue ramp, each set passing its
+# ordinal check against its surface (`validate_palette.js --ordinal`); six failed on light, the last two too close.
+LEVEL_RAMP = {
+    "light": ("#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#0d366b"),
+    "dark": ("#184f95", "#2a78d6", "#5598e7", "#86b6ef", "#cde2fb"),
+}
 LEG_BIN, LEG_VIEW = 0.01, 5.0  # the legs' bin width and the end of the axis they open on, in %
 LEG_COUNTS = {"pivots": "Pivots: every leg once", "candles": "Candles: what each had left"}  # the histograms' buttons
 LEG_SLICE = (1.0, 1.2)  # the default slice of the pivots' study: legs whose size, in %, falls in it
@@ -295,17 +305,25 @@ def histogram(pct: pd.Series, bins: int = BINS, tail: float = TAIL) -> tuple[np.
 
 
 def candles_figure(
-    df: pd.DataFrame, uirevision: str, minus: dict[str, pd.Series], marked: pd.DataFrame | None = None
+    df: pd.DataFrame,
+    uirevision: str,
+    minus: dict[str, pd.Series],
+    layers: list[tuple[str, pd.DataFrame, str, float]] = (),
 ) -> go.Figure:
     """The candles of `df` over the same candles each from zero (`from_zero`), less what each choice of
     `OFFSETS` takes off (`minus`, its `offset`). One figure on one time axis, so a zoom or a pan on either chart
     moves both: two Streamlit charts cannot share a zoom, the page never hears of one. The choice is a row of
     buttons inside the figure, right above the lower chart it moves, because a Streamlit widget cannot sit
-    between the rows of one figure; every choice is drawn and the buttons show one, in the browser. `marked`, turns
-    of `ranked_turns` with a `text` for the hover, is drawn over the upper candles as a line through their closes,
-    a triangle down on a high and up on a low; the buttons leave it alone."""
+    between the rows of one figure; every choice is drawn and the buttons show one, in the browser. Each of `layers`
+    — a name, turns of `ranked_turns` with a `text` for the hover, a colour and a width — is drawn over the upper
+    candles as a line through their closes, a triangle down on a high and up on a low, in order, so the last is on
+    top; the buttons leave them alone, and two or more get a legend."""
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08)
-    fig.add_trace(go.Candlestick(x=df.index, open=df.open, high=df.high, low=df.low, close=df.close), row=1, col=1)
+    fig.add_trace(
+        go.Candlestick(x=df.index, open=df.open, high=df.high, low=df.low, close=df.close, showlegend=False),
+        row=1,
+        col=1,
+    )
     zero, up = from_zero(df), df.close > df.open
     for how in OFFSETS:
         cut = less(zero, minus[how])
@@ -325,33 +343,36 @@ def candles_figure(
                     increasing=side,
                     decreasing=side,
                     visible=how == "none",  # the chart opens on the candles as they are, whatever the order above
+                    showlegend=False,
                 ),
                 row=2,
                 col=1,
             )
-    drawn = marked is not None and len(marked) > 0
-    if drawn:
+    drawn = [(name, points, colour, width) for name, points, colour, width in layers if len(points)]
+    for name, points, colour, width in drawn:
         fig.add_trace(
             go.Scatter(
-                x=marked.index,
-                y=df.close.reindex(marked.index),
+                x=points.index,
+                y=df.close.reindex(points.index),
+                name=name,
                 mode="lines+markers",
-                line=dict(color="#ff9f1c", width=1.5),
-                marker=dict(symbol=np.where(marked.kind > 0, "triangle-down", "triangle-up"), size=9),
-                hovertext=marked.text,
+                line=dict(color=colour, width=width),
+                marker=dict(symbol=np.where(points.kind > 0, "triangle-down", "triangle-up"), size=6 + 2 * width),
+                hovertext=points.text,
                 hoverinfo="text",
             ),
             row=1,
             col=1,
         )
-    shown = [[True] + [h == how for h in OFFSETS for _ in "ud"] + [True] * drawn for how in OFFSETS]
+    shown = [[True] + [h == how for h in OFFSETS for _ in "ud"] + [True] * len(drawn) for how in OFFSETS]
     choices(fig, shown, fig.layout.yaxis2.domain[1])
     fig.update_xaxes(rangeslider_visible=False)
     fig.update_yaxes(ticksuffix="%", zeroline=True, zerolinecolor="#888", row=2, col=1)
     fig.update_layout(
         height=880,
         margin=dict(l=0, r=0, t=10, b=0),
-        showlegend=False,
+        showlegend=len(drawn) > 1,
+        legend=dict(orientation="h", x=0, xanchor="left", y=1, yanchor="top", bgcolor="rgba(0,0,0,0)"),
         # Keeps zoom and pan across reruns until the pair, the timeframe or the period changes.
         uirevision=uirevision,
     )
@@ -1058,7 +1079,7 @@ def main() -> None:
         help="the highs and lows of the close found with no window: by how much each counts (persistence) or by how "
         "high it climbs in the swing hierarchy",
     )
-    marked = None
+    layers = []
     if method != "none":
         ranked = ranked_turns(symbol, timeframe, mtime)
         if method == "persistence":
@@ -1092,7 +1113,21 @@ def main() -> None:
                 for k, s, c in zip(chosen.kind, scale, moved)
             ]
         )
-        marked = chosen.loc[str(start) : str(end)]
+        shown = chosen.loc[str(start) : str(end)]
+        if method == "persistence":
+            layers = [(f"persistence ≥ {least:g}%", shown, TURN_COLOUR, 1.5)]
+        elif len(shown):
+            # One line a level, from the least asked up to as many as the ramp holds; each runs through every turn of
+            # its level and above, so the top one is the highest level's line.
+            theme = st.context.theme.type or st.get_option("theme.base") or "light"
+            highest = min(int(shown.level.max()), least + len(LEVEL_RAMP["light"]) - 1)
+            levels = list(range(least, highest + 1))
+            ramp = LEVEL_RAMP[theme if theme in LEVEL_RAMP else "light"]
+            steps = [len(ramp) - 1] if len(levels) == 1 else np.round(np.linspace(0, len(ramp) - 1, len(levels)))
+            layers = [
+                (f"level {k}", shown[shown.level >= k], ramp[int(i)], 1 + 0.6 * j)
+                for j, (k, i) in enumerate(zip(levels, steps))
+            ]
     st.markdown("**Under the candles, the same candles each from its own open**")
     st.caption(
         "The body alone, as the % change from the candle's own open: every candle starts at zero and its body is "
@@ -1102,7 +1137,7 @@ def main() -> None:
         "keeps its colour. The statistics are the ones at the top, over every candle loaded."
     )
     minus = {how: offset(pct, stats, how).loc[window.index] for how in OFFSETS}
-    st.plotly_chart(candles_figure(window, view, minus, marked), use_container_width=True, key="candles")
+    st.plotly_chart(candles_figure(window, view, minus, layers), use_container_width=True, key="candles")
 
     left, right = st.columns(2)
     left.subheader("Distribution of the candles' change")
@@ -1456,13 +1491,24 @@ def _selfcheck() -> None:
     bars.index = when
     marked = pers.set_axis(when[turns(close)[0]]).assign(text="t")
     none = {how: pd.Series(0.0, index=when) for how in OFFSETS}
-    fig = candles_figure(bars, "v", none, marked)
+    fig = candles_figure(bars, "v", none, [("one", marked, TURN_COLOUR, 1.5)])
     assert len(fig.data) == 2 + 2 * len(OFFSETS) and fig.data[-1].type == "scatter" and fig.data[-1].yaxis == "y"
+    assert not fig.layout.showlegend, "one line needs no legend"
     assert all(
         len(b.args[0]["visible"]) == len(fig.data) and b.args[0]["visible"][-1]
         for b in fig.layout.updatemenus[0].buttons
     )
     assert len(candles_figure(bars, "v", none).data) == 1 + 2 * len(OFFSETS), "Nothing draws no turns"
+    # Levels: one line each, in the given order and colours, the legend on, an empty layer drawn as nothing.
+    two = [
+        ("level 0", marked, LEVEL_RAMP["light"][0], 1.0),
+        ("level 1", marked.iloc[::4], LEVEL_RAMP["light"][-1], 1.6),
+    ]
+    fig = candles_figure(bars, "v", none, two + [("level 2", marked.iloc[:0], "#000", 2.2)])
+    assert [t.name for t in fig.data[-2:]] == ["level 0", "level 1"] and fig.layout.showlegend
+    assert fig.data[-1].line.color == LEVEL_RAMP["light"][-1] and fig.data[-1].line.width > fig.data[-2].line.width
+    assert all(len(b.args[0]["visible"]) == len(fig.data) for b in fig.layout.updatemenus[0].buttons)
+    assert all(len(r) == 5 for r in LEVEL_RAMP.values())
     # Legs: on the wave every leg runs a trough to a peak, +10%, or a peak to a trough, −1/11.
     legs = legs_of(wave, p)
     assert np.allclose(legs.change, np.where(p.iloc[:-1] < 0, 10.0, -100 / 11)) and (legs.end - legs.start == 10).all()
