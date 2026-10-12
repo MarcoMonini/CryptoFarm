@@ -38,14 +38,15 @@ one figure on one time axis, so a zoom on either moves both. The period is read 
 last 30 days, is there to keep the drawing light: the numbers and the histogram read the whole history. Under it, a
 third chart in the same figure, so a zoom on any of the three moves all of them: on the same bodies after the same
 subtraction, switched by the same buttons, what the green candles and the red ones did (`side_means`): over the last N
-of each, their mean body and green − |red|, dashed, above zero when a rise is larger than a fall; among the last N, the
-rise the green ones made together and the fall the red ones made, compounded, and the net move, dashed, which with
-nothing subtracted is the price's move over the N candles. Means among the last N, as this first did, left the counts
-out: the worst day of BTC 15m, −49.2% on 2020-03-13 with 60 red candles to 36, read −0.68%; the net move reads −49.0%.
-Over N candles, 96 by default (`SIDE_WINDOW`), either the last N of each colour wherever they fall or each colour's
-among the last N (`SIDE_MODES`), set above the figure since a widget cannot sit between its rows, and computed on every
-candle loaded so the period's first candles have their N behind them. Drawn over the bars they could not be read, and in
-a chart of their own they lost the zoom: a third row keeps both.
+of each, their mean body and green − |red|, dashed, above zero when a rise is larger than a fall; among the last N, each
+candle's move in price, the green ones added up and the red ones, in % of the window's first open, and the net move,
+dashed, their sum, which with nothing subtracted is the price's move over the N candles. Means among the last N, as this
+first did, left the counts out: the worst day of BTC 15m, −49.2% on 2020-03-13 with 60 red candles to 36, read −0.68%;
+compounding each side, as it did next, made rise and fall not add up to the net (+61% and −48% net −16%); in price they
+do, +27.46% and −76.32% net −48.86%. Over N candles, 96 by default (`SIDE_WINDOW`), either the last N of each colour
+wherever they fall or each colour's among the last N (`SIDE_MODES`), set above the figure since a widget cannot sit
+between its rows, and computed on every candle loaded so the period's first candles have their N behind them. Drawn over
+the bars they could not be read, and in a chart of their own they lost the zoom: a third row keeps both.
 
 Over the upper candles, a choice marks the turns of the close found with no window, Nothing by default (`TURN_METHODS`):
 by persistence, how much the close moved away from a turn on both sides before it was undone (`persistence`, 1% by
@@ -314,7 +315,7 @@ def less(zero: pd.DataFrame, minus: pd.Series) -> pd.DataFrame:
     return zero.assign(close=close, high=close.clip(lower=0), low=close.clip(upper=0))
 
 
-def side_means(body: pd.Series, side: pd.Series, n: int, how: str) -> pd.DataFrame:
+def side_means(body: pd.Series, side: pd.Series, n: int, how: str, opens: pd.Series | None = None) -> pd.DataFrame:
     """At every candle, what the green candles and the red ones did, by `how` of `SIDE_MODES`. `side` is the candle's
     side as it was, +1 green, −1 red, 0 flat in neither; `body` is in percent and may have had an `offset` taken off.
     Columns `green`, `red` (below zero on red bodies as they are) and `net`, and what they hold depends on `how`:
@@ -322,27 +323,26 @@ def side_means(body: pd.Series, side: pd.Series, n: int, how: str) -> pd.DataFra
     - `last`: the mean body of the last `n` green candles and of the last `n` red ones, wherever they fall, and their
       sum, green − |red|: above zero when a rise is larger than a fall. The two sides span different stretches of
       time, so there is no move of the price to add up.
-    - `among`: over the last `n` candles, the rise the green ones made together and the fall the red ones made,
-      compounded (the bodies' log returns summed, back to percent), and `net`, the two compounded together: the
-      move of the price over those candles, since a candle opens where the one before closed. A crash with sixty
-      red to thirty-six green reads as the crash; means of each side would not, they leave the counts out.
+    - `among`: over the last `n` candles, each candle's move in price (its body of its open, `opens`), the green ones'
+      added up and the red ones', in percent of the window's first open, and `net`, the two together: the move of the
+      price from that open to the last close, since a candle opens where the one before closed. In price and not
+      compounded, so the three add up — green + red = net — which compounded percentages do not: +61% then −48% is
+      −16%. A side can pass 100% where the price doubled inside the window: −108% for the red of BTC's best day.
 
-    NaN until a full `n` is behind."""
+    Means among the last `n`, as the first version took, leave the counts out: BTC 15m's worst 96 candles, −49.2% to
+    2020-03-13 with 60 red to 36 green, read −0.68%; `net` reads −48.9%. NaN until a full `n` is behind."""
     if how == "last":
         out = {
             name: body.where(side == sign).dropna().rolling(n).mean().reindex(body.index).ffill()
             for name, sign in (("green", 1), ("red", -1))
         }
         return pd.DataFrame(out).assign(net=lambda t: t.green + t.red)
-    log = np.log1p(body / 100)
-    total = {name: log.where(side == sign, 0.0).rolling(n).sum() for name, sign in (("green", 1), ("red", -1))}
-    return pd.DataFrame(
-        {
-            "green": np.expm1(total["green"]) * 100,
-            "red": np.expm1(total["red"]) * 100,
-            "net": np.expm1(total["green"] + total["red"]) * 100,
-        }
-    )
+    moved, first = body / 100 * opens, opens.shift(n - 1)
+    out = {
+        name: moved.where(side == sign, 0.0).rolling(n).sum() / first * 100
+        for name, sign in (("green", 1), ("red", -1))
+    }
+    return pd.DataFrame(out).assign(net=lambda t: t.green + t.red)
 
 
 def page_theme() -> str:
@@ -1249,15 +1249,16 @@ def main() -> None:
         "keeps its colour. The statistics are the ones at the top, over every candle loaded. At the bottom, on the "
         "same bodies after the same subtraction, what the green candles and the red ones did. The last N of each: "
         "their mean body, and green − |red|, dashed, above zero when a rise is larger than a fall. Among the last N: "
-        "the rise the green ones made together, the fall the red ones made, compounded, and the net move, dashed — "
-        "with nothing subtracted, the price's own move over the N candles. The three charts share one time axis: a "
-        "zoom on any of them moves the others."
+        "each candle's move in price, the green ones added up and the red ones, in % of the window's first open, and "
+        "the net move, dashed: rise + fall = net, and with nothing subtracted the net is the price's own move over "
+        "the N candles. A side can pass 100% where the price doubled inside the window. The three charts share one "
+        "time axis: a zoom on any of them moves the others."
     )
     full = {how: offset(pct, stats, how) for how in OFFSETS}
     minus = {how: full[how].loc[window.index] for how in OFFSETS}
     # On every candle loaded, so the period's first candles have their whole N behind them.
     side = np.sign(pct)
-    sides_by = {how: side_means(pct - full[how], side, n, how_sides).loc[window.index] for how in OFFSETS}
+    sides_by = {how: side_means(pct - full[how], side, n, how_sides, df.open).loc[window.index] for how in OFFSETS}
     figure = candles_figure(window, view, minus, layers, sides_by, page_theme(), SIDE_NAMES[how_sides])
     st.plotly_chart(figure, use_container_width=True, key="candles")
 
@@ -1636,16 +1637,24 @@ def _selfcheck() -> None:
     m = side_means(body, np.sign(body), 2, "last")
     assert np.allclose(m.iloc[-1], [4.0, -3.0, 1.0]) and m.green.iloc[:2].isna().all()
     assert np.isclose(m.green.iloc[4], 2.0), "between greens the last two hold"
-    # Among the last 3 candles: at the end 0, −4, +5 — one green, one red; a window with no red leaves red NaN.
-    m = side_means(body, np.sign(body), 3, "among")
-    assert np.allclose(m.iloc[-1], [5.0, -4.0, 0.8]) and m.iloc[:2].isna().all().all(), "1.05 × 0.96 − 1 = +0.8%"
-    assert side_means(pd.Series([1.0, 2.0, 3.0]), pd.Series([1, 1, 1]), 2, "among").red.iloc[-1] == 0, "no red, no fall"
-    # Among: the net line is the close's move over the window, to the cent, when each candle opens at the last close;
-    # on a crash with more red than green it falls as far as the price, which means of each side do not.
+
+    # Among the last 3 candles, each opening at the close before: 0, −4, +5. In % of the window's first open the red
+    # fell 4.0, the green rose 5% of a price 4% lower, 4.8, and the net is their sum, 0.8 = 0.96 × 1.05 − 1.
+    def opened(b: pd.Series) -> pd.Series:  # each candle's open, the close before it, from 100
+        return pd.Series(100 * np.cumprod(1 + b / 100)).shift(fill_value=100.0)
+
+    m = side_means(body, np.sign(body), 3, "among", opened(body))
+    assert np.allclose(m.iloc[-1], [4.8, -4.0, 0.8]) and m.iloc[:2].isna().all().all()
+    ups = pd.Series([1.0, 2.0, 3.0])
+    assert side_means(ups, np.sign(ups), 2, "among", opened(ups)).red.iloc[-1] == 0, "no red, no fall"
+    # Among, on a crash with more red than green: rise + fall = net at every candle, and the net is the price's move
+    # from the window's first open to its last close; the means of the other mode stay near zero on it.
     crash = pd.Series(np.tile([1.0, -2.0, -2.0], 40))  # 40 green, 80 red: enough of each for a mean over 30
-    path = 100 * np.cumprod(1 + crash / 100)
-    m = side_means(crash, np.sign(crash), 30, "among")
-    assert np.allclose(m.net.iloc[29:], (path[29:] / np.r_[100, path][: len(path) - 29] - 1) * 100)
+    path, opens = 100 * np.cumprod(1 + crash / 100), opened(crash)
+    m = side_means(crash, np.sign(crash), 30, "among", opens)
+    assert np.allclose(m.green + m.red, m.net, equal_nan=True) and np.allclose(
+        m.net.iloc[29:], (path / opens.shift(29) - 1)[29:] * 100
+    )
     assert m.net.iloc[-1] < -25 and abs(side_means(crash, np.sign(crash), 30, "last").net.iloc[-1]) < 1.5
     # In the candles' figure: a third row on the same time axis, three lines a button, shown with their own button only.
     lines = {how: m.reindex(range(len(when))).set_axis(when) for how in OFFSETS}
