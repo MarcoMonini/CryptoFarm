@@ -117,3 +117,26 @@ def test_the_order_inside_a_confirmation_bar_does_not_matter():
     shuffled = piv.sample(frac=1.0, random_state=1).sort_values("confirmed", kind="stable", ignore_index=True)
     assert ss.lps(piv).equals(ss.lps(shuffled))
     assert (ss.structure(piv, 3000) == ss.structure(shuffled, 3000)).all()
+
+
+def test_every_exit_is_the_first_close_past_the_stop_or_the_time_limit():
+    close = walk(4000, 11)
+    df = candles(close)
+    ev = ss.signals(close, 1, False, False)
+    stops = dict(zip(ev.bar, ev.stop))
+    events = ss.posizioni(df, 1, False, False)
+    bars = df.index.get_indexer([t for t, _, _ in events])
+    checked = 0
+    for (b0, (_, _, side)), (b1, (_, price, target)) in zip(zip(bars, events), zip(bars[1:], events[1:])):
+        if side == 0:
+            continue
+        beyond = np.flatnonzero(close[b0 + 1 : b1 + 1] * side < stops[b0] * side)
+        assert price == close[b1]
+        if target == 0 and len(beyond):
+            assert beyond[0] == b1 - b0 - 1, "the stop fired late or early"
+            checked += 1
+        elif target == 0:
+            assert b1 - b0 == ss.HORIZON[1], "a time exit before its time"
+        else:
+            assert target == -side and not len(beyond), "a reversal after a stop that should have fired"
+    assert checked > 10, checked
