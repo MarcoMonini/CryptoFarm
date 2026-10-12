@@ -139,6 +139,7 @@ Brought over from TradingVision (PRs #21 and #22) with `candle_features` as its 
 numbers above were measured there, on its store, and the study they led to is `reports/zones_study.html`.
 """
 
+import heapq
 import math
 from pathlib import Path
 
@@ -698,6 +699,82 @@ def to_pivot(close: pd.Series, piv: pd.Series) -> pd.Series:
     k = np.searchsorted(at, i, side="right")
     c = close.to_numpy()
     return pd.Series((c[at[k]] / c[i] - 1) * 100 * piv.to_numpy()[k], index=close.index[i])
+
+
+def turns(close: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    """Every candle where the close changes direction, with no window and no threshold: positions in `close` and
+    kind, +1 a high, −1 a low, alternating. A run of equal closes is one point, its first candle; the first and the
+    last candle are not turns."""
+    step = np.sign(np.diff(close.to_numpy()))
+    moved = np.flatnonzero(step)
+    flip = np.flatnonzero(step[moved][1:] != step[moved][:-1])
+    return moved[flip] + 1, step[moved][flip].astype(int)
+
+
+def persistence(close: pd.Series) -> pd.DataFrame:
+    """How much each turn of the close counts, in percent, with no parameter: the turns (`turns`), then over and
+    over the two neighbours with the smallest move between them go, and that move is the persistence of both. The
+    smallest pair always has a deeper low and a higher high around it, so the turns left alternate, and the moves
+    removed only grow: the turns with persistence at least p are exactly the swings of p or more, nested across p.
+    Measured on the log close, so a percent means the same at any price. The last pair standing never goes: inf.
+    Columns `kind` and `persistence`, indexed by the turn's candle. Hindsight: a turn's persistence is known once the
+    close has moved that much away from it."""
+    at, kind = turns(close)
+    v = np.log(close.to_numpy()[at])
+    n = len(at)
+    prev, nxt = np.arange(-1, n - 1), np.arange(1, n + 1)
+    alive, p = np.ones(n, bool), np.full(n, np.inf)
+    heap = [(abs(v[i + 1] - v[i]), i, i + 1) for i in range(n - 1)]
+    heapq.heapify(heap)
+    while heap:
+        d, i, j = heapq.heappop(heap)
+        if not (alive[i] and alive[j] and nxt[i] == j):
+            continue  # a pair one of whose ends already went
+        alive[i] = alive[j] = False
+        p[i] = p[j] = d
+        a, b = prev[i], nxt[j]
+        if a >= 0:
+            nxt[a] = b
+        if b < n:
+            prev[b] = a
+        if a >= 0 and b < n:
+            heapq.heappush(heap, (abs(v[b] - v[a]), a, b))
+    return pd.DataFrame({"kind": kind, "persistence": np.expm1(p) * 100}, index=close.index[at])
+
+
+def swing_levels(close: pd.Series) -> pd.DataFrame:
+    """The swing hierarchy of the close, with no parameter: level 0 is every turn (`turns`); a high goes up a level
+    when it is higher than the highs on either side of it in the level below, a low when it is lower than the lows,
+    as Dow's higher highs and lower lows applied to themselves. Two highs left in a row get the lowest low between
+    them from the level below, so every level alternates. Columns `kind` and `level`, the highest level a turn
+    reaches, indexed by the turn's candle: the turns of level k are those with `level` at least k."""
+    at, kind = turns(close)
+    v = close.to_numpy()[at] * kind  # larger is more extreme, for a high and for a low alike
+    level = np.zeros(len(at), int)
+    idx = np.arange(len(at))
+    while len(idx) > 2:
+        x = v[idx]
+        side = np.r_[-np.inf, -np.inf, x, -np.inf, -np.inf]
+        keep = np.flatnonzero((x > side[:-4]) & (x > side[4:]))  # the same kind sits two places away
+        out = [keep[0]] if len(keep) else []
+        for a, b in zip(keep[:-1], keep[1:]):
+            if kind[idx[a]] == kind[idx[b]]:  # two of a kind: the most extreme of the other kind between them
+                between = np.arange(a + 1, b)
+                between = between[kind[idx[between]] != kind[idx[a]]]
+                out.append(between[np.argmax(x[between])])
+            out.append(b)
+        if len(out) == len(idx):
+            break
+        idx = idx[out]
+        level[idx] += 1
+    return pd.DataFrame({"kind": kind, "level": level}, index=close.index[at])
+
+
+@st.cache_data(show_spinner="Ranking every turn…", max_entries=8)
+def ranked_turns(symbol: str, timeframe: str, mtime: float) -> pd.DataFrame:
+    """`persistence` and `swing_levels` of one pair's whole history, side by side; `mtime` as in `candles`."""
+    close = candles(symbol, timeframe, mtime).close
+    return persistence(close).join(swing_levels(close).level)
 
 
 @st.cache_data(show_spinner="Finding the pivots…", max_entries=8)
@@ -1275,6 +1352,30 @@ def _selfcheck() -> None:
     assert np.allclose(bar.width, LEG_BIN) and np.isclose(bar.customdata[:, 0], 0).any()
     assert bar.customdata[-1, 1] >= LEG_VIEW and tuple(fig.layout.xaxis.range) == (0, LEG_VIEW)
 
+    # Turns: a run of equal closes is one turn, at its first candle; the ends of the series are not turns.
+    at, kind = turns(pd.Series([1.0, 2.0, 3.0, 3.0, 2.0, 1.0, 1.0, 2.0, 1.0]))
+    assert list(at) == [2, 5, 7] and list(kind) == [1, -1, 1]
+    # Persistence: a big wave of ±10% with a ±1% wiggle in every leg. The wiggles go first, at about 1%, the wave's
+    # turns stay to 10% and beyond, and whatever the threshold the turns left alternate and nest.
+    big = np.abs(np.arange(400) % 40 - 20.0) / 20  # 0 to 1 and back, 40 candles a period
+    wiggle = np.where(np.arange(400) % 4 < 2, 0.0, 0.01)
+    close = pd.Series(100 * np.exp(0.1 * big + wiggle))
+    pers = persistence(close)
+    small, large = pers[pers.persistence < 2], pers[pers.persistence >= 2]
+    assert len(small) > len(large) > 0 and small.persistence.between(0.3, 1.5).all()
+    assert (large.persistence >= 9).all(), "the wave's turns count about 10%"
+    for q in (0.0, 1.0, 5.0, 20.0):
+        kept = pers[pers.persistence >= q].kind
+        assert kept.diff().dropna().abs().eq(2).all(), f"turns at {q}% do not alternate"
+    assert set(pers.index[pers.persistence >= 5]) <= set(pers.index[pers.persistence >= 1]), "not nested"
+    # Swing hierarchy: on the same wave every level alternates, is nested in the one below, and thins out; the wave's
+    # big turns climb higher than the wiggles.
+    lev = swing_levels(close)
+    for k in range(lev.level.max() + 1):
+        assert lev[lev.level >= k].kind.diff().dropna().abs().eq(2).all(), f"level {k} does not alternate"
+    counts = [int((lev.level >= k).sum()) for k in range(lev.level.max() + 1)]
+    assert counts == sorted(counts, reverse=True) and counts[0] > 2 * counts[-1]
+    assert lev.level[pers.persistence >= 9].mean() > lev.level[pers.persistence < 2].mean()
     # Legs: on the wave every leg runs a trough to a peak, +10%, or a peak to a trough, −1/11.
     legs = legs_of(wave, p)
     assert np.allclose(legs.change, np.where(p.iloc[:-1] < 0, 10.0, -100 / 11)) and (legs.end - legs.start == 10).all()
