@@ -35,13 +35,14 @@ stays at zero and the body shrinks by it: a 1% candle less a 0.2% deviation clos
 statistic crosses zero, and keeps the colour of the side it came from: an up candle is green whichever way it now
 points. The statistics are the ones the page shows, over the whole history and not over the period. The two charts are
 one figure on one time axis, so a zoom on either moves both. The period is read by these two alone, and its default, the
-last 30 days, is there to keep the drawing light: the numbers and the histogram read the whole history. Under it, in a
-chart of its own with its inputs right above it (`side_means_figure`): three lines on the same bodies, the mean body of
-the green candles, of the red ones, and their sum, green − |red|, dashed, above zero when the rises were the larger
-(`side_means`). Over N candles, 96 by default (`SIDE_WINDOW`), either the last N of each colour wherever they fall or
-each colour's among the last N (`SIDE_MODES`), less any of the statistics the buttons take off, chosen there since a
-figure's buttons cannot reach another chart; computed on every candle loaded so the period's first candles have their N
-behind them. Drawn over the candles first, they could not be read among the bars.
+last 30 days, is there to keep the drawing light: the numbers and the histogram read the whole history. Under it, a
+third chart in the same figure, so a zoom on any of the three moves all of them: on the same bodies after the same
+subtraction, switched by the same buttons, the mean body of the green candles, of the red ones, and their sum, green −
+|red|, dashed, above zero when the rises were the larger (`side_means`). Over N candles, 96 by default (`SIDE_WINDOW`),
+either the last N of each colour wherever they fall or each colour's among the last N (`SIDE_MODES`), set above the
+figure since a widget cannot sit between its rows, and computed on every candle loaded so the period's first candles
+have their N behind them. Drawn over the bars they could not be read, and in a chart of their own they lost the zoom: a
+third row keeps both.
 
 Over the upper candles, a choice marks the turns of the close found with no window, Nothing by default (`TURN_METHODS`):
 by persistence, how much the close moved away from a turn on both sides before it was undone (`persistence`, 1% by
@@ -323,32 +324,6 @@ def side_means(body: pd.Series, side: pd.Series, n: int, how: str) -> pd.DataFra
     return pd.DataFrame(out).assign(asymmetry=lambda t: t.green + t.red)
 
 
-def side_means_figure(lines: pd.DataFrame, theme: str, uirevision: str) -> go.Figure:
-    """`side_means`' three columns as lines on one axis around zero: green in blue, red in orange, and green − |red|
-    dashed in the page's ink, being derived from the other two."""
-    fig = go.Figure()
-    for column, colour, dash in zip(SIDE_NAMES, SIDE_COLOURS[theme], ("solid", "solid", "dash")):
-        fig.add_trace(
-            go.Scatter(
-                x=lines.index,
-                y=lines[column],
-                name=SIDE_NAMES[column],
-                mode="lines",
-                line=dict(color=colour, width=2, dash=dash),
-                hovertemplate=SIDE_NAMES[column] + " %{y:.3f}%<extra></extra>",
-            )
-        )
-    fig.update_yaxes(ticksuffix="%", zeroline=True, zerolinecolor="#888")
-    fig.update_layout(
-        height=320,
-        margin=dict(l=0, r=0, t=30, b=0),
-        hovermode="x unified",
-        legend=dict(orientation="h", x=0, xanchor="left", y=1.02, yanchor="bottom"),
-        uirevision=uirevision,
-    )
-    return fig
-
-
 def page_theme() -> str:
     """The page's theme, light or dark: the browser's, or the configured base before the session has reported it."""
     theme = st.context.theme.type or st.get_option("theme.base") or "light"
@@ -369,6 +344,8 @@ def candles_figure(
     uirevision: str,
     minus: dict[str, pd.Series],
     layers: list[tuple[str, pd.DataFrame, str, float]] = (),
+    sides_by: dict[str, pd.DataFrame] | None = None,
+    theme: str = "light",
 ) -> go.Figure:
     """The candles of `df` over the same candles each from zero (`from_zero`), less what each choice of
     `OFFSETS` takes off (`minus`, its `offset`). One figure on one time axis, so a zoom or a pan on either chart
@@ -377,8 +354,17 @@ def candles_figure(
     between the rows of one figure; every choice is drawn and the buttons show one, in the browser. Each of `layers`
     — a name, turns of `ranked_turns` with a `text` for the hover, a colour and a width — is drawn over the upper
     candles as a line through their closes, a triangle down on a high and up on a low, in order, so the last is on
-    top; the buttons leave them alone, and two or more get a legend."""
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08)
+    top; the buttons leave them alone, and two or more get a legend. `sides_by`, `side_means` per choice of `OFFSETS`,
+    adds a third chart under the candles from zero, on the same time axis so a zoom moves it too: the three lines of
+    the choice the buttons show, with a legend of its own."""
+    rows = 3 if sides_by else 2
+    fig = make_subplots(
+        rows=rows,
+        cols=1,
+        shared_xaxes=True,
+        row_heights=[0.5, 0.3, 0.2] if sides_by else [0.6, 0.4],
+        vertical_spacing=0.06 if sides_by else 0.08,
+    )
     fig.add_trace(
         go.Candlestick(x=df.index, open=df.open, high=df.high, low=df.low, close=df.close, showlegend=False),
         row=1,
@@ -424,15 +410,49 @@ def candles_figure(
             row=1,
             col=1,
         )
-    shown = [[True] + [h == how for h in OFFSETS for _ in "ud"] + [True] * len(drawn) for how in OFFSETS]
+    for how in OFFSETS if sides_by else ():
+        for column, colour, dash in zip(SIDE_NAMES, SIDE_COLOURS[theme], ("solid", "solid", "dash")):
+            fig.add_trace(
+                go.Scatter(
+                    x=sides_by[how].index,
+                    y=sides_by[how][column],
+                    name=SIDE_NAMES[column],
+                    mode="lines",
+                    line=dict(color=colour, width=2, dash=dash),
+                    hovertemplate=SIDE_NAMES[column] + " %{y:.3f}%<extra></extra>",
+                    visible=how == "none",
+                    legend="legend2",
+                ),
+                row=3,
+                col=1,
+            )
+    shown = [
+        [True]
+        + [h == how for h in OFFSETS for _ in "ud"]
+        + [True] * len(drawn)
+        + ([h == how for h in OFFSETS for _ in SIDE_NAMES] if sides_by else [])  # three lines a choice, its own only
+        for how in OFFSETS
+    ]
     choices(fig, shown, fig.layout.yaxis2.domain[1])
     fig.update_xaxes(rangeslider_visible=False)
-    fig.update_yaxes(ticksuffix="%", zeroline=True, zerolinecolor="#888", row=2, col=1)
+    for row in range(2, rows + 1):
+        fig.update_yaxes(ticksuffix="%", zeroline=True, zerolinecolor="#888", row=row, col=1)
     fig.update_layout(
-        height=880,
+        height=1100 if sides_by else 880,
         margin=dict(l=0, r=0, t=10, b=0),
-        showlegend=len(drawn) > 1,
-        legend=dict(orientation="h", x=0, xanchor="left", y=1, yanchor="top", bgcolor="rgba(0,0,0,0)"),
+        showlegend=len(drawn) > 1 or bool(sides_by),
+        legend=dict(
+            orientation="h", x=0, xanchor="left", y=1, yanchor="top", bgcolor="rgba(0,0,0,0)", visible=len(drawn) > 1
+        ),
+        # The third chart's lines: their legend sits at its top left, above the lines.
+        legend2=dict(
+            orientation="h",
+            x=0,
+            xanchor="left",
+            y=fig.layout.yaxis3.domain[1] if sides_by else 0,
+            yanchor="bottom",
+            bgcolor="rgba(0,0,0,0)",
+        ),
         # Keeps zoom and pan across reruns until the pair, the timeframe or the period changes.
         uirevision=uirevision,
     )
@@ -1187,20 +1207,10 @@ def main() -> None:
                 (f"level {k}", shown[shown.level >= k], ramp[int(i)], 1 + 0.6 * j)
                 for j, (k, i) in enumerate(zip(levels, steps))
             ]
-    st.markdown("**Under the candles, the same candles each from its own open**")
-    st.caption(
-        "The body alone, as the % change from the candle's own open: every candle starts at zero and its body is "
-        "its change. The buttons above it subtract a statistic from "
-        "each candle's body: the open stays at zero, a 1% candle less 0.2% closes at 0.8%. Up / down: an up candle "
-        "loses the up candles' statistic, a down candle the down candles'. A candle smaller than it crosses zero and "
-        "keeps its colour. The statistics are the ones at the top, over every candle loaded."
+    cols = st.columns([1, 2, 1])
+    n = cols[0].number_input(
+        "Side means over N candles", 2, 5000, SIDE_WINDOW, help="the window of the three lines in the bottom chart"
     )
-    minus = {how: offset(pct, stats, how).loc[window.index] for how in OFFSETS}
-    st.plotly_chart(candles_figure(window, view, minus, layers), use_container_width=True, key="candles")
-
-    st.markdown("**Each colour's mean body over the last N candles**")
-    cols = st.columns([1, 2, 2])
-    n = cols[0].number_input("N, candles", 2, 5000, SIDE_WINDOW, help="the window of the three lines")
     how_sides = cols[1].radio(
         "Which candles",
         list(SIDE_MODES),
@@ -1208,23 +1218,24 @@ def main() -> None:
         horizontal=True,
         help="the last N of each colour wherever they fall, or each colour's among the last N candles",
     )
-    less_what = cols[2].radio(
-        "Less",
-        list(OFFSETS),
-        format_func=OFFSETS.get,
-        horizontal=True,
-        help="what is taken off every body before the means, as the buttons on the candles above do",
-    )
-    # On every candle loaded, so the period's first candles have their whole N behind them.
-    lines = side_means(pct - offset(pct, stats, less_what), np.sign(pct), n, how_sides).loc[window.index]
-    st.plotly_chart(side_means_figure(lines, page_theme(), view), use_container_width=True, key="side-means")
+    st.markdown("**Under the candles, the same candles each from its own open**")
     st.caption(
-        "Over the period of the candles above, on every candle's body from its own open: the mean of the green "
-        "candles, the mean of the red ones (below zero), and their sum, green − |red|, dashed — above zero when the "
-        "rises were larger than the falls. The last N of each colour wherever they fall, or each colour's among the "
-        "last N candles, where a colour with none of its candles in the window leaves a gap. Less, the statistic "
-        "taken off every body first, as the buttons on the candles take it."
+        "The body alone, as the % change from the candle's own open: every candle starts at zero and its body is "
+        "its change. The buttons above it subtract a statistic from "
+        "each candle's body: the open stays at zero, a 1% candle less 0.2% closes at 0.8%. Up / down: an up candle "
+        "loses the up candles' statistic, a down candle the down candles'. A candle smaller than it crosses zero and "
+        "keeps its colour. The statistics are the ones at the top, over every candle loaded. At the bottom, on the "
+        "same bodies after the same subtraction: the mean of the green candles over N, the mean of the red ones "
+        "(below zero), and their sum, green − |red|, dashed — above zero when the rises were larger than the falls. "
+        "The three charts share one time axis: a zoom on any of them moves the others."
     )
+    full = {how: offset(pct, stats, how) for how in OFFSETS}
+    minus = {how: full[how].loc[window.index] for how in OFFSETS}
+    # On every candle loaded, so the period's first candles have their whole N behind them.
+    side = np.sign(pct)
+    sides_by = {how: side_means(pct - full[how], side, n, how_sides).loc[window.index] for how in OFFSETS}
+    figure = candles_figure(window, view, minus, layers, sides_by, page_theme())
+    st.plotly_chart(figure, use_container_width=True, key="candles")
 
     left, right = st.columns(2)
     left.subheader("Distribution of the candles' change")
@@ -1605,10 +1616,17 @@ def _selfcheck() -> None:
     m = side_means(body, np.sign(body), 3, "among")
     assert np.allclose(m.iloc[-1], [5.0, -4.0, 1.0]) and m.iloc[:2].isna().all().all()
     assert np.isnan(side_means(pd.Series([1.0, 2.0, 3.0]), pd.Series([1, 1, 1]), 2, "among").red.iloc[-1])
-    # Its chart: three lines on one axis, the third dashed, coloured for the theme asked.
-    fig = side_means_figure(m, "dark", "v")
-    assert [t.name for t in fig.data] == list(SIDE_NAMES.values()) and fig.data[2].line.dash == "dash"
-    assert [t.line.color for t in fig.data] == list(SIDE_COLOURS["dark"])
+    # In the candles' figure: a third row on the same time axis, three lines a button, shown with their own button only.
+    lines = {how: m.reindex(range(len(when))).set_axis(when) for how in OFFSETS}
+    fig = candles_figure(bars, "v", none, [("one", marked, TURN_COLOUR, 1.5)], lines, "dark")
+    assert len(fig.data) == 2 + 2 * len(OFFSETS) + 3 * len(OFFSETS)
+    assert fig.layout.xaxis.matches == fig.layout.xaxis2.matches == "x3", "one time axis: a zoom moves all three"
+    side_traces = fig.data[-3 * len(OFFSETS) :]
+    assert all(t.yaxis == "y3" and t.legend == "legend2" for t in side_traces)
+    assert [t.line.color for t in side_traces[:3]] == list(SIDE_COLOURS["dark"]) and side_traces[2].line.dash == "dash"
+    for b, how in zip(fig.layout.updatemenus[0].buttons, OFFSETS):
+        assert b.args[0]["visible"][-3 * len(OFFSETS) :] == [h == how for h in OFFSETS for _ in SIDE_NAMES], how
+    assert "yaxis3" not in candles_figure(bars, "v", none).layout.to_plotly_json(), "no side means, no third chart"
     # Legs: on the wave every leg runs a trough to a peak, +10%, or a peak to a trough, −1/11.
     legs = legs_of(wave, p)
     assert np.allclose(legs.change, np.where(p.iloc[:-1] < 0, 10.0, -100 / 11)) and (legs.end - legs.start == 10).all()
