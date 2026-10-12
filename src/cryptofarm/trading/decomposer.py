@@ -39,6 +39,13 @@ history and not over the period. The two charts are one figure on one time axis,
 moves both. The period is read by these two alone, and its default, the last 30 days, is there to keep
 the drawing light: the numbers and the histogram read the whole history.
 
+Over the upper candles, a choice marks the turns of the close found with no window, Nothing by default (`TURN_METHODS`):
+by persistence, how much the close moved away from a turn on both sides before it was undone (`persistence`, 1% by
+default), or by level in the swing hierarchy, the highs higher and the lows lower than their neighbours applied level
+over level (`swing_levels`, level 3 by default). Both rank every turn of the whole history once (`ranked_turns`); the
+choice only reads where to cut. On BTC 15m each level keeps about a third of the one below, and level 3 has legs of
+2.68% over 49 candles at the median, about the W = 24 pivots.
+
 Beside the histogram, in the same row, one section over every candle loaded, numbers measured on BTC
 15m to 2026-10-06 (319,870 candles): **Memory** (`acf`): the autocorrelation of the change and of its
 size, lags 1 to 10,000 candles (`ACF_LAGS`), against ±2/√n. The change sits at −0.006 at lag 1 (5m
@@ -167,6 +174,9 @@ SIGMA_STEP, SIGMA_REACH = 0.5, 3.0  # the future's bands: their width and the la
 QUANTILES = 10  # an indicator's bands: deciles, as many candles in each, since no two indicators share a scale
 HORIZON, HORIZON_MAX = 96, 500  # the future's default N max (a day of 15m) and the slider's end: 1.6s per 96 on BTC 15m
 LEG_WINDOWS = (6, 12, 24, 48)  # the pivot windows of the legs' histograms, candles on each side; 24 is TradingVision's
+# The turns the first candle chart can mark (`ranked_turns`), and where each method's scale opens.
+TURN_METHODS = {"none": "Nothing", "persistence": "Persistence", "levels": "Swing hierarchy"}
+PERSISTENCE_MIN, SWING_LEVEL = 1.0, 3  # %; level 3 is about the W = 24 pivots on 15m
 LEG_BIN, LEG_VIEW = 0.01, 5.0  # the legs' bin width and the end of the axis they open on, in %
 LEG_COUNTS = {"pivots": "Pivots: every leg once", "candles": "Candles: what each had left"}  # the histograms' buttons
 LEG_SLICE = (1.0, 1.2)  # the default slice of the pivots' study: legs whose size, in %, falls in it
@@ -284,12 +294,16 @@ def histogram(pct: pd.Series, bins: int = BINS, tail: float = TAIL) -> tuple[np.
     return counts, edges, int(len(pct) - counts.sum())
 
 
-def candles_figure(df: pd.DataFrame, uirevision: str, minus: dict[str, pd.Series]) -> go.Figure:
+def candles_figure(
+    df: pd.DataFrame, uirevision: str, minus: dict[str, pd.Series], marked: pd.DataFrame | None = None
+) -> go.Figure:
     """The candles of `df` over the same candles each from zero (`from_zero`), less what each choice of
     `OFFSETS` takes off (`minus`, its `offset`). One figure on one time axis, so a zoom or a pan on either chart
     moves both: two Streamlit charts cannot share a zoom, the page never hears of one. The choice is a row of
     buttons inside the figure, right above the lower chart it moves, because a Streamlit widget cannot sit
-    between the rows of one figure; every choice is drawn and the buttons show one, in the browser."""
+    between the rows of one figure; every choice is drawn and the buttons show one, in the browser. `marked`, turns
+    of `ranked_turns` with a `text` for the hover, is drawn over the upper candles as a line through their closes,
+    a triangle down on a high and up on a low; the buttons leave it alone."""
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08)
     fig.add_trace(go.Candlestick(x=df.index, open=df.open, high=df.high, low=df.low, close=df.close), row=1, col=1)
     zero, up = from_zero(df), df.close > df.open
@@ -315,7 +329,23 @@ def candles_figure(df: pd.DataFrame, uirevision: str, minus: dict[str, pd.Series
                 row=2,
                 col=1,
             )
-    choices(fig, [[True] + [h == how for h in OFFSETS for _ in "ud"] for how in OFFSETS], fig.layout.yaxis2.domain[1])
+    drawn = marked is not None and len(marked) > 0
+    if drawn:
+        fig.add_trace(
+            go.Scatter(
+                x=marked.index,
+                y=df.close.reindex(marked.index),
+                mode="lines+markers",
+                line=dict(color="#ff9f1c", width=1.5),
+                marker=dict(symbol=np.where(marked.kind > 0, "triangle-down", "triangle-up"), size=9),
+                hovertext=marked.text,
+                hoverinfo="text",
+            ),
+            row=1,
+            col=1,
+        )
+    shown = [[True] + [h == how for h in OFFSETS for _ in "ud"] + [True] * drawn for how in OFFSETS]
+    choices(fig, shown, fig.layout.yaxis2.domain[1])
     fig.update_xaxes(rangeslider_visible=False)
     fig.update_yaxes(ticksuffix="%", zeroline=True, zerolinecolor="#888", row=2, col=1)
     fig.update_layout(
@@ -1019,6 +1049,50 @@ def main() -> None:
     start, end = period if len(period) == 2 else (period[0], last)
     window = df.loc[str(start) : str(end)]
     view = f"{symbol}-{timeframe}-{start}-{end}"
+    left, right, _ = st.columns([2, 1, 1])
+    method = left.radio(
+        "Turns on the candles",
+        list(TURN_METHODS),
+        format_func=TURN_METHODS.get,
+        horizontal=True,
+        help="the highs and lows of the close found with no window: by how much each counts (persistence) or by how "
+        "high it climbs in the swing hierarchy",
+    )
+    marked = None
+    if method != "none":
+        ranked = ranked_turns(symbol, timeframe, mtime)
+        if method == "persistence":
+            least = right.number_input(
+                "Persistence at least, %",
+                0.1,
+                100.0,
+                PERSISTENCE_MIN,
+                0.1,
+                help="the turns the close moved at least this much away from on both sides: the swings of this size",
+            )
+            chosen = ranked[ranked.persistence >= least]
+            scale = [
+                f"persistence {x:.2f}%" if np.isfinite(x) else "persistence: never undone" for x in chosen.persistence
+            ]
+        else:
+            least = right.number_input(
+                "Level at least",
+                0,
+                int(ranked.level.max()),
+                SWING_LEVEL,
+                help="0 is every turn; each level keeps the highs higher and the lows lower than their neighbours "
+                "in the level below",
+            )
+            chosen = ranked[ranked.level >= least]
+            scale = [f"level {k}" for k in chosen.level]
+        moved = df.close.reindex(chosen.index).pct_change() * 100
+        chosen = chosen.assign(
+            text=[
+                f"{'high' if k > 0 else 'low'} · {s}<br>{c:+.2f}% from the turn before" if np.isfinite(c) else s
+                for k, s, c in zip(chosen.kind, scale, moved)
+            ]
+        )
+        marked = chosen.loc[str(start) : str(end)]
     st.markdown("**Under the candles, the same candles each from its own open**")
     st.caption(
         "The body alone, as the % change from the candle's own open: every candle starts at zero and its body is "
@@ -1028,7 +1102,7 @@ def main() -> None:
         "keeps its colour. The statistics are the ones at the top, over every candle loaded."
     )
     minus = {how: offset(pct, stats, how).loc[window.index] for how in OFFSETS}
-    st.plotly_chart(candles_figure(window, view, minus), use_container_width=True, key="candles")
+    st.plotly_chart(candles_figure(window, view, minus, marked), use_container_width=True, key="candles")
 
     left, right = st.columns(2)
     left.subheader("Distribution of the candles' change")
@@ -1376,6 +1450,19 @@ def _selfcheck() -> None:
     counts = [int((lev.level >= k).sum()) for k in range(lev.level.max() + 1)]
     assert counts == sorted(counts, reverse=True) and counts[0] > 2 * counts[-1]
     assert lev.level[pers.persistence >= 9].mean() > lev.level[pers.persistence < 2].mean()
+    # The candles with turns marked: one more trace, over the upper candles, shown under every button below.
+    when = pd.date_range("2024-01-01", periods=len(close), freq="15min")
+    bars = pd.DataFrame({"open": close.shift().bfill(), "close": close}).assign(high=close * 1.01, low=close * 0.99)
+    bars.index = when
+    marked = pers.set_axis(when[turns(close)[0]]).assign(text="t")
+    none = {how: pd.Series(0.0, index=when) for how in OFFSETS}
+    fig = candles_figure(bars, "v", none, marked)
+    assert len(fig.data) == 2 + 2 * len(OFFSETS) and fig.data[-1].type == "scatter" and fig.data[-1].yaxis == "y"
+    assert all(
+        len(b.args[0]["visible"]) == len(fig.data) and b.args[0]["visible"][-1]
+        for b in fig.layout.updatemenus[0].buttons
+    )
+    assert len(candles_figure(bars, "v", none).data) == 1 + 2 * len(OFFSETS), "Nothing draws no turns"
     # Legs: on the wave every leg runs a trough to a peak, +10%, or a peak to a trough, −1/11.
     legs = legs_of(wave, p)
     assert np.allclose(legs.change, np.where(p.iloc[:-1] < 0, 10.0, -100 / 11)) and (legs.end - legs.start == 10).all()
