@@ -14,7 +14,7 @@ from cryptofarm.ml.trainer import (
     load_signal_model,
 )
 from cryptofarm.paths import MODELS_DIR
-from cryptofarm.trading import config, confluence, panels, rotation, zone_signals
+from cryptofarm.trading import config, confluence, panels, rotation, swing_structure, zone_signals
 from cryptofarm.trading.indicators import add_technical_indicator
 from cryptofarm.trading.indicators_extra import ExtraCache
 from cryptofarm.trading.market_data import (
@@ -746,6 +746,22 @@ if __name__ == "__main__":
         valori["REQUIRE_CLOUD"] = st.sidebar.checkbox(
             "Require cloud confirmation", value=bool(iniziali["REQUIRE_CLOUD"]), key=f"cloud_{interval}"
         )
+    if strategia == config.STRUCTURE_STRATEGY:
+        for nome, etichetta in (
+            ("SWING_CHOCH", "Only the first after a change of character"),
+            ("SWING_ALIGNED", "Only with the level above"),
+            ("SWING_SHORT", "Trade the short side"),
+        ):
+            valori[nome] = st.sidebar.checkbox(etichetta, value=bool(iniziali[nome]), key=f"{nome}_{interval}")
+        livello = int(valori["SWING_LEVEL"])
+        ore = swing_structure.HORIZON[livello] * interval_to_minutes(interval) / 60
+        st.sidebar.caption(
+            f"Level {livello} legs last about {swing_structure.HORIZON[livello]} bars, **{ore:.0f} hours** here, "
+            "and each level is about 3.2 times the one below; a trade ends after that many bars at most. "
+            "Off, the first switch takes every higher low of an up structure and the second ignores the level "
+            "above: both lost on 2023-2026. With shorts on, the account runs on the long/short engine, carry "
+            "included. Measured at 15m and 1h; at 1h nothing held on 2023-2026."
+        )
     if strategia == config.CONFLUENCE_STRATEGY:
         valori["CONF_IN_FORMAZIONE"] = st.sidebar.checkbox(
             "React inside forming higher-plane bars",
@@ -905,6 +921,11 @@ if __name__ == "__main__":
                 st.info("No trades with these parameters.")
                 if strategia == config.CONFLUENCE_STRATEGY and st.session_state["df"] is not None:
                     st.caption("Why: " + panels.diagnosi_confluenza(st.session_state["df"], valori, interval))
+                if strategia == config.STRUCTURE_STRATEGY:
+                    st.caption(
+                        "About four trades a year per pair at 15m on level 4, and the level above has to be "
+                        "built before the first one: load a year of history (8,760 hours)."
+                    )
             else:
                 st.subheader("Trades")
                 profitto = trades_df["Profit"].sum()

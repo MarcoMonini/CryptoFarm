@@ -190,3 +190,25 @@ def test_la_strategia_ai_lascia_scegliere_fra_i_due_modelli(pagina: AppTest) -> 
     scelta = next(r for r in pagina.radio if r.label == "Entry model")
     scelta.set_value("Slow (gates)").run()
     assert not pagina.exception
+
+
+def test_la_struttura_degli_swing_opera_e_mostra_i_suoi_interruttori(pagina: AppTest) -> None:
+    """The swing structure strategy, run by the page on synthetic candles: its three switches carry the
+    interval in their key, and with shorts on it trades on the long/short engine without breaking."""
+    import numpy as np
+
+    rng = np.random.default_rng(5)
+    close = 30_000 * np.exp(np.cumsum(rng.standard_t(3, 6000) * 0.004))
+    idx = pd.date_range("2025-01-01", periods=len(close), freq="15min")
+    candele = pd.DataFrame(
+        {"Open": close, "High": close * 1.001, "Low": close * 0.999, "Close": close, "Volume": 1.0}, index=idx
+    )
+    pagina.session_state["df"] = candele
+    next(box for box in pagina.selectbox if box.label == "Strategy").set_value(config.STRUCTURE_STRATEGY).run()
+    next(n for n in pagina.number_input if n.label.startswith("Structure level")).set_value(2).run()
+
+    assert not pagina.exception
+    intervallo = next(box for box in pagina.selectbox if box.label == "Candle interval").value
+    interruttori = [c for c in pagina.checkbox if c.key and c.key.startswith("SWING_")]
+    assert len(interruttori) == 3 and all(c.key.endswith(f"_{intervallo}") for c in interruttori)
+    assert any(m.label == "Trades" and int(m.value) > 0 for m in pagina.metric)

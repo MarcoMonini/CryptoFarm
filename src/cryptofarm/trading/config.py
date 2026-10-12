@@ -52,6 +52,10 @@ CONFLUENCE_STRATEGY = "Confluence"
 # pagina, che per questa voce mostra il selettore delle zone al posto delle operazioni.
 ZONE_STRATEGY = "Zone Signals"
 
+# Wyckoff's last point of support on the close's swing hierarchy (`swing_structure`). It needs the
+# level above the one it trades built first, so a short history shows no trade: the page says so.
+STRUCTURE_STRATEGY = "Swing Structure (Wyckoff LPS)"
+
 # Il menu e' stato potato sulle misure di `.claude/docs/ricerca-quant-ml.md` §2: scelta della
 # configurazione sul 2021-2023, resa sul 2024-2026, su BTC/ETH/SOL/XRP/BNB a 1d e 4h. Restano le
 # voci che fuori campione hanno mediana positiva o almeno due celle su dieci sopra il possesso
@@ -72,6 +76,7 @@ STRATEGIES = [
     "Donchian Breakout",
     CONFLUENCE_STRATEGY,
     ZONE_STRATEGY,
+    STRUCTURE_STRATEGY,
 ]
 
 # Indicatori
@@ -255,6 +260,13 @@ REVERSION_REGIME_EMA = Param(0, 0, 500, 10)
 # I default di `add_technical_indicator` sono diversi (0,02), quindi vanno passati per esteso.
 PSAR_STEP = 0.01
 PSAR_MAX_STEP = 0.4
+
+# The swing structure strategy: the level of the hierarchy it trades, and its three switches. Level 4
+# with both filters and both sides is the one cell that held on 2018-2022 and 2023-2026 (`swing_structure`).
+SWING_LEVEL = Param(4, 1, 4, 1)
+SWING_CHOCH = True
+SWING_ALIGNED = True
+SWING_SHORT = True
 
 # Interruttori delle strategie nuove.
 CONF_IN_FORMAZIONE = True

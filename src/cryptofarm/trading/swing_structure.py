@@ -224,13 +224,16 @@ def posizioni(
 
 def pivots_of(candles: pd.DataFrame, level: int = LEVEL) -> dict[str, pd.Series]:
     """The highs and lows of `level` confirmed by the last bar, at the bar they happened on: for the chart,
-    which shows the structure in hindsight while the rule reads it only from each confirmation."""
+    which shows the structure in hindsight while the rule reads it only from each confirmation. A kind with
+    no pivot yet, as on a short history, has no series rather than an empty one."""
     close = candles["Close"].to_numpy(dtype=float)
     ladder = climb(close)
     piv = ladder[level] if level < len(ladder) else pd.DataFrame(columns=["bar", "kind", "price"])
     out = {}
     for name, kind in (("struttura_massimi", 1), ("struttura_minimi", -1)):
         mine = piv[piv.kind == kind]
+        if mine.empty:
+            continue
         s = pd.Series(np.nan, index=candles.index)
         s.iloc[mine.bar.to_numpy(dtype=np.int64)] = mine.price.to_numpy(dtype=float)
         out[name] = s
