@@ -18,7 +18,7 @@ config, panels, tuned_defaults → simulator
 
 | file | lines | what it is for |
 |---|---|---|
-| `config.py` | 288 | the widgets' starting values and the menu lists. No logic |
+| `config.py` | 300 | the widgets' starting values and the menu lists. No logic |
 | `market_data.py` | 304 | point downloads from Binance for the page (the public REST, not the dumps) |
 | `indicators.py` | 212 | the classic indicators, plus the numpy ATR/EMA core |
 | `indicators_extra.py` | 186 | ADX, Donchian, Bollinger/Keltner, StochRSI, OBV/MFI, Ichimoku, behind a cache |
@@ -30,15 +30,16 @@ config, panels, tuned_defaults → simulator
 | `confluence.py` | 1444 | the confluence strategy: six voters on four planes, dynamic threshold |
 | `portfolio.py` | 308 | one capital across several assets: it opens on the first that speaks |
 | `rotation.py` | 215 | cross-sectional rotation: it chooses *which* asset, not *when* |
-| `panels.py` | 1388 | the registry: which strategy uses which indicators, which parameters, how they are drawn |
+| `panels.py` | 1448 | the registry: which strategy uses which indicators, which parameters, how they are drawn |
 | `tuned_defaults.py` | 61 | **generated** by `scripts/tune_defaults.py`: measured starting values, per interval |
-| `simulator.py` | 922 | the Streamlit page, two views |
+| `simulator.py` | 943 | the Streamlit page, two views |
 | `live_bot.py` | 472 | the headless bot that places real orders |
-| `decomposer.py` | 893 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
+| `decomposer.py` | 1,667 | a second Streamlit page, from TradingVision: what one pair's candles look like, before any model |
 | `candle_features.py` | 313 | TradingVision's 29 candidate columns, copied unchanged: the decomposer's indicator section reads them |
 | `zones.py` | 262 | the twenty zones of `reports/zones_study.html`, the twenty of `scripts/zones_scan.py`, and the measurement that reads one |
 | `project_features.py` | 127 | this project's own indicators (stochastic, StochRSI, MFI, OBV, Bollinger, Donchian, squeeze, ATR bands, Ichimoku, EMA crossovers) as 13 columns in `candle_features`' contract |
 | `zone_signals.py` | 202 | the report's Top 10 zones as signals: tail edges from the pair's 2017-2020 store history, which candles fire. The simulator's «Zone Signals» marks them |
+| `swing_structure.py` | 395 | the close's swing hierarchy with no window, every pivot dated from its live confirmation, and Wyckoff's last point of support on it as position changes: the simulator's «Swing Structure (Wyckoff LPS)» |
 
 ## The functions
 
@@ -119,15 +120,34 @@ tree analysis does not see.
 
 **`decomposer.py`** — `streamlit run src/cryptofarm/trading/decomposer.py`. Reads the local store
 through `klines.load_klines(..., clip=False)` and downloads nothing. Sections: the candles and the
-same candles from zero, the histogram, the autocorrelation, weekday × hour, and three heatmaps of the
-mean change N candles after the close — banded by body in σ, by RSI, and by any column of
-`candle_features` or of `project_features` in deciles. Last, *The zones of the study*: pick one of
+same candles from zero, each colour's mean body over N candles in a third chart on the same time axis (`side_means`), the close's
+turns marked on request by persistence or swing level
+(`persistence`, `swing_levels`, no window), the histogram with, under it, each level's legs of the swing hierarchy — how many, their mean size in % and mean length in candles (`level_legs`) — the autocorrelation, and two heatmaps of the
+mean change N candles after the close — banded by body in σ, and in deciles by any of the 27
+columns of `candle_features` and `project_features` that held in at least one study (`COLUMNS`; the fifteen
+that did not, RSI and TSI among them, are `DROPPED`). *What is left of the leg*: TradingVision's pivots
+(`pivots`, its `data.pivots.find_pivots`) at windows 6, 12, 24 and 48, and one histogram per window of the legs
+between them (`legs_of`) or of what each candle had left to its next pivot (`to_pivot`), long and short folded
+together, on two buttons. *Pivots of a size*: the legs whose change falls in a slice, 1% to 1.2% by
+default, up and down apart, and where every indicator stands on the pivot they start on: the share of the
+slice's pivots in each decile over every candle (`decile_codes`, `excess`), marked where it is beyond 3 standard
+errors of every candle's or every same-kind pivot's share, and one indicator decile by decile over the 96 candles
+before the pivot (`excess_figure`). Last, *The zones of the study*: pick one of
 `zones.ALL_ZONES` — the report's twenty and the twenty `scripts/zones_scan.py` found among this project's
 indicators, in one list by family — and get a 2 × 3 grid of small heatmaps (BTC and ETH × discovery, confirm, recent), every 2017-2020 quantile
 band against every N, the zone's cell outlined, with its numbers and its trades against the fee
 underneath. On this store they match the report's table to the third digit. Its numbers were measured in TradingVision; the study they led to is
 [`reports/zones_study.html`](../../../reports/zones_study.html). Both `_selfcheck`s run in
 `tests/test_decomposer.py`. It is independent of `simulator.py` and of `ml/features.py`.
+
+**`swing_structure.py`** — `turns`, `hierarchy`, `climb` (every level of every pivot dated from the bar it
+became final on; rerun on every prefix it revises nothing), `structure`, `lps`, `signals`, `posizioni` (the rule
+as `(when, price, +1|0|-1)` for `pnl.simulate_positions`), `pivots_of` (the chart's markers), `trades`, `holds`, `shifted` and `control` (the random control at matched
+exposure).
+`python -m cryptofarm.trading.swing_structure` prices the rule over the store at 15m and 1h, 2018-2022 against
+2023-2026; the numbers are in the module docstring. The default cell, 15m level 4, is one candidate out of 192
+measured, not a result; `--control` puts it at the 98th / 94th percentile against the same holds placed at
+random. Tested in `tests/test_swing_structure.py` and, as a page, in `tests/test_simulator_page.py`.
 
 **`live_bot.py`** — `fetch_initial_candles`, `run_socket_with_reconnect`, `add_technical_indicator`,
 `get_asset_balance`, `adjust_quantity`, `place_order`, `proceed_buy`, `proceed_sell`,

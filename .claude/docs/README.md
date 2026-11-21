@@ -15,7 +15,8 @@ document.
 Whoever wants to understand *how far the project has got*, in chronological order of result:
 `backtest-strategie.md` → `strategie-nuove.md` → `ricerca-quant-ml.md` → `strategia-confluenza.md`
 → `politica-rl.md` → `modello-swing.md` → **`modello-ingresso.md`**, which is the only one with
-numbers that pass the matched-exposure control.
+numbers that pass the matched-exposure control. `pivot-study.md` comes after it in time: a rule read on the swing
+hierarchy that gets close to that control and does not pass it.
 
 Whoever is about to touch labels or training reads **`labeling-strategy.md`** first: it is the
 document a whole family of models depends on.
@@ -35,6 +36,7 @@ document a whole family of models depends on.
 | [`politica-rl.md`](politica-rl.md) | **the reinforcement policy, wired in** (2026-08-28). It starts from a premise of the user's — "buy shortly before the crashes" — and the measurement proves it false: entries have the same drawdown as any other bar, and every stop level makes the net worse. The cause is the commission. From there, the shape of the agent, with the cost inside the reward. It beats passive holding 11/15 out of sample and **halves the maximum drawdown**; the *when* is only weakly above chance. |
 | [`modello-swing.md`](modello-swing.md) | **the AI model redone and measured** (2026-08-28). The audit that closed the leg model (§1), the label and why 93% of that target is free, and the measurements for which the signal exists but **does not beat chance at matched exposure** (1 symbol out of 15). §5.4: what was wired in and what deliberately was not. |
 | [`modello-ingresso.md`](modello-ingresso.md) | **the model leading today, wired in** (2026-08-29). It changes the question: not "how close are we to an extreme" but "what does buying here return". The lever is **selectivity**, not accuracy. These are the project's first numbers that pass the matched-exposure control: +2.071% net per trade out of sample, 14/15 symbols profitable, 100th percentile. The fast one trades, the slow one gates it. |
+| [`pivot-study.md`](pivot-study.md) | **the pivot study and the swing structure strategy** (2026-11-21). The legs between the market's turns, with a window and without one; the swing hierarchy dated live; Wyckoff's rules on it, 192 cells; the last point of support in the simulator's menu. 98th / 94th percentile against matched random placement: **a candidate, not a result**. The 192-cell sweep itself is not in the repository. |
 | [`MAPPA-modello-ai.md`](MAPPA-modello-ai.md) | **a pre-registration**: the success criteria of the AI-model work, declared *before* the measurements. It is here on purpose, to check the target was not moved after seeing it — and it moved twice. It is not a specification to execute. |
 
 ## Rules

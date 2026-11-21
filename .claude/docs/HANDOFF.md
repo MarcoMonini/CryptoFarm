@@ -1,7 +1,11 @@
 # Handoff — CryptoFarm
 
-Date: **2026-08-30**. Working branch: **`claude/audit-confluenza`**.
-The previous `claude/ricerca-quant-ml-cinque-asset` was pushed. The earlier
+Date: **2026-11-21**. Working branch: **`claude/decomposer-pivot-study`**, on top of `main`, not yet
+pushed in full and with no pull request. Before it, `claude/nice-volta-bc2ol3` (the
+confluence's always-in mode, PR #11, 2026-09-15) and `claude/decomposer` (the decomposer and the zones
+study, PR #12, 2026-10-10) were merged into `main`; this handoff did not cover them when they landed,
+and the section below says where their write-ups are.
+Older: `claude/audit-confluenza` (2026-08-30). The previous `claude/ricerca-quant-ml-cinque-asset` was pushed. The earlier
 `claude/trading-strategies-performance-fb39oc` was merged into `main` with PR #7.
 The older branch `ai-labeling-rewrite` (3-state ML pipeline) is **closed with a negative result**
 and was never merged: see `.claude/docs/strategy.md` §10-13 and the "The ML strand" section
@@ -14,6 +18,7 @@ below.
 | `CLAUDE.md` | repo architecture, commands, environment variables, Docker/Render constraints. **Every folder then has its own `README.md`** with the files and functions it contains |
 | `.claude/docs/README.md` | the reading order for everything else |
 | `.claude/docs/labeling-strategy.md` | **the labeling: labels from −1 to +1 oscillating between local extremes, several windows, and a temporal smoothing.** Read it before touching labels or training |
+| `.claude/docs/pivot-study.md` | **(2026-11-21) the last branch.** The legs between the market's turns, the windowless swing hierarchy dated live, Wyckoff's rules on it (192 cells), and the last point of support in the simulator's menu: 98th / 94th percentile against matched random placement, **a candidate, not a result** |
 | `.claude/docs/modello-ingresso.md` | **the first document to read on the model strand** (2026-08-29). The model at the head today, and the project's first numbers that pass the paired-exposure control |
 | `.claude/docs/modello-swing.md` | (2026-08-28, updated 2026-08-30) the audit that closed `leg_model`, the extreme-proximity label, and the measurements by which that model does **not** beat chance at equal exposure |
 | `.claude/docs/politica-rl.md` | (2026-08-28) the RL policy, wired in: it beats passive holding 11/15 out of sample and halves the maximum drawdown, but the *when* is above chance only weakly |
@@ -28,7 +33,53 @@ Do not summarise that content: it is already written and up to date.
 
 ---
 
-## Last session (2026-08-30): the temporal smoothing, put back
+## Last session (2026-10-12 to 2026-11-21): the pivot study and the swing structure strategy
+
+Full write-up in [`pivot-study.md`](pivot-study.md); the numbers also live in the docstrings of
+`trading/decomposer.py` and `trading/swing_structure.py`. In short:
+
+- **the decomposer grew a pivot study**: TradingVision's pivots at four windows and the legs between
+  them, the legs of one size and where the indicators stand on their starting pivot (only their
+  smallness sets them apart from every other pivot), the turns of the close found with no window
+  (persistence, swing hierarchy) drawn on the candles, each side's moves over the last N candles, and
+  a table of every hierarchy level's legs. The indicator menu went to the 27 columns that held in a
+  study; the RSI section and the time-of-day heatmaps went;
+- **`trading/swing_structure.py` is new**: the swing hierarchy, every pivot dated from the bar it became
+  final on (rerun on every prefix it revises nothing), and Wyckoff's last point of support on it as
+  **«Swing Structure (Wyckoff LPS)»** in the simulator's menu. The decomposer reads its hierarchy from
+  there;
+- **measured**: the default cell (15m, level 4, change of character and level above aligned) makes
+  +107 / +43 bp net a trade on 2018-2022 / 2023-2026, 4.5 trades a year per pair. Against the same
+  holds placed at random with one common offset (`--control`, same exposure, side mix and timing across
+  pairs) it sits at the **98th / 94th-95th percentile**. The entry model sits at the 100th. Picked out
+  of 192 cells on both periods, so 2023-2026 is not out of sample: **a candidate, not a result**.
+
+**Three things to know before touching it.**
+
+1. **The 192-cell Wyckoff sweep is not in the repository.** It was run ad hoc. `swing_structure.main`
+   (16 cells of the LPS rule) and `--control` can be rerun; the multiplicity correction over the 192
+   needs the sweep rebuilt first.
+2. **A confirmation bar is read whole** (`_walk`). 43% of a level's pivots share their confirmation bar;
+   deciding on them one at a time made 116 of 546 events out of a stale state. Two tests fail on the old
+   code: keep them.
+3. **The entry is not at the low.** At 15m level 4 the trade opens a median 245 bars after the pivot it
+   is named for, the stop 5-6% away. A faster confirmation was measured and does worse.
+
+**What is open**, in order: freeze the default cell and price it only on data after 2026-11-21 (every
+older period is spent, 2017-2020 included); rebuild the 192-cell sweep and run `scripts/multiplicity.py`
+on it; then decide whether the strategy stays in the menu. `pivot-study.md` §6.
+
+**The two merges this handoff skipped.** PR #11 (2026-09-15): the confluence's always-in `inversione`
+mode, three defects fixed and a full coordinate scan of 1,980 cells that changed no default — written
+up at the bottom of [`strategia-confluenza.md`](strategia-confluenza.md) and in `CLAUDE.md`. PR #12
+(2026-10-10): the decomposer page imported from TradingVision, the zones study over this project's
+indicators and «Zone Signals» in the simulator, which marks candles and trades nothing — written up in
+`reports/zones_study.html`, the `decomposer.py` docstring and `src/cryptofarm/trading/README.md`. No
+indicator zone wins 60% of the time in every year.
+
+---
+
+## Session (2026-08-30): the temporal smoothing, put back
 
 The user pointed out that a **temporal smoothing between maxima and minima** had once been defined
 in the labeling and was no longer there. It was deliberate and it worked at **0.7**. It is back, in

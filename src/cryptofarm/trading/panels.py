@@ -48,7 +48,7 @@ import numpy as np
 import pandas as pd
 
 from cryptofarm.data.klines import interval_to_minutes
-from cryptofarm.trading import config, confluence, strategies, strategies_ls, zone_signals
+from cryptofarm.trading import config, confluence, strategies, strategies_ls, swing_structure, zone_signals
 from cryptofarm.trading.indicators_extra import ExtraCache
 
 # Le tre tinte categoriche, validate insieme sulla superficie scura di Streamlit.
@@ -396,6 +396,23 @@ INDICATORI: dict[str, Indicatore] = {
         pannello=None,
         serie=_colonne("PSAR"),
         tracce=(Traccia("PSAR", "PSAR", BLU_CHIARO, modo="markers", larghezza=0.0, dimensione=3.5),),
+    ),
+    "pivot_struttura": Indicatore(
+        # The pivots of the traded level where they happened, which is hindsight: the strategy reads each
+        # one only from the bar it was confirmed on, often a leg later. Open shapes, so they do not read
+        # as the filled buy and sell triangles. A level has pivots only on a long history -- level 4 legs
+        # last about 185 bars -- so a short frame legitimately has none.
+        etichetta="Swing structure",
+        parametri=("SWING_LEVEL",),
+        pannello=None,
+        serie=lambda df, cache, valori: swing_structure.pivots_of(df, int(valori["SWING_LEVEL"])),
+        tracce=tuple(
+            Traccia(serie, nome, colore, modo="markers", simbolo="diamond-open", dimensione=9.0, condizionale=True)
+            for serie, nome, colore in (
+                ("struttura_massimi", "Structure highs", ARANCIO),
+                ("struttura_minimi", "Structure lows", BLU),
+            )
+        ),
     ),
     "estremi": Indicatore(
         # Non e' letto da nessuna strategia: e' il riferimento visivo dei massimi e minimi
@@ -993,6 +1010,20 @@ STRATEGIE: dict[str, Strategia] = {
             "measured values and are not adjustable."
         ),
     ),
+    config.STRUCTURE_STRATEGY: Strategia(
+        indicatori=("pivot_struttura",),
+        esegui=lambda df, cache, v: _marcatori(_struttura(df, v)),
+        note=(
+            "Wyckoff's last point of support on the close's swing hierarchy, which has no window: long once "
+            "the first higher low after a change of character is confirmed, short once the first lower high "
+            "is. The confirmation is slow — on 15m level 4 a median 245 bars after the low itself, longer "
+            "than the leg — so the entry is well past the low and the stop on it a median 5-6% away. Out "
+            "at a close beyond that pivot or after the level's median leg. Over fifteen pairs at 15m on "
+            "level 4: +1.27% a trade on 2018-2022 and +0.63% on 2023-2026 before fees, about two standard "
+            "errors, chosen out of 192 variants: a candidate, not a result. About four trades a year per "
+            "pair, and the level above has to be built first: load a year."
+        ),
+    ),
     config.ZONE_STRATEGY: Strategia(
         indicatori=(
             "zona_massimo",
@@ -1018,6 +1049,28 @@ STRATEGIE: dict[str, Strategia] = {
         ),
     ),
 }
+
+
+def _struttura(df: pd.DataFrame, valori: dict) -> list:
+    """The swing structure strategy's position changes, from the sidebar's values."""
+    return swing_structure.posizioni(
+        df,
+        int(valori["SWING_LEVEL"]),
+        bool(valori["SWING_CHOCH"]),
+        bool(valori["SWING_ALIGNED"]),
+        bool(valori["SWING_SHORT"]),
+    )
+
+
+def _marcatori(eventi: list) -> tuple[list, list]:
+    """Position changes as the page's two lists of markers: a buy wherever the position goes up (a long
+    opened, a short covered), a sell wherever it goes down. The account is `simulate_positions`'s, through
+    `eventi_di_posizione`: two lists cannot hold a short."""
+    acquisti, vendite, prima = [], [], 0
+    for quando, prezzo, obiettivo in eventi:
+        (acquisti if obiettivo > prima else vendite).append((quando, prezzo))
+        prima = obiettivo
+    return acquisti, vendite
 
 
 def _confluenza_lunga(df: pd.DataFrame, valori: dict) -> tuple[list, list]:
@@ -1057,9 +1110,12 @@ def eventi_di_posizione(strategia: str, df: pd.DataFrame, valori: dict) -> list 
     della strategia. I marcatori si possono disegnare lo stesso -- un ribaltamento corto e' la
     vendita del lungo precedente -- ma il conto no.
 
-    Restituisce gli eventi grezzi `(quando, prezzo, obiettivo)` solo per la confluenza in modalita'
-    inversione; per tutto il resto `None`, e la pagina resta sul motore di sempre.
+    Restituisce gli eventi grezzi `(quando, prezzo, obiettivo)` per la confluenza in modalita'
+    inversione e per la struttura degli swing, che va corta; per tutto il resto `None`, e la pagina
+    resta sul motore di sempre.
     """
+    if strategia == config.STRUCTURE_STRATEGY:
+        return _struttura(df, valori)
     if strategia != CONFLUENZA:
         return None
     risultato = confluenza_di(df, valori)
@@ -1081,6 +1137,9 @@ PANORAMICA_ESCLUSI = (
     "bande_kama",
     "etichetta_swing",
     "previsione_ingresso",
+    # The structure's pivots belong to its strategy: in the overview they would be a second set of
+    # swing highs and lows next to the window-based ones.
+    "pivot_struttura",
     # Le zone hanno senso solo con la loro voce: nella panoramica sarebbero dodici serie in piu'.
     *(chiave for chiave in INDICATORI if chiave.startswith("zona_")),
 )
@@ -1183,6 +1242,8 @@ def valori_predefiniti(strategia: str = "", intervallo: str = "", modalita: str 
     # quattro piani. La pagina lo sovrascrive con quello scelto; fuori dalla pagina resta questo.
     valori["INTERVALLO"] = config.INTERVALS[config.INTERVAL_INDEX]
     valori["REQUIRE_CLOUD"] = config.REQUIRE_CLOUD
+    for nome in ("SWING_CHOCH", "SWING_ALIGNED", "SWING_SHORT"):
+        valori[nome] = getattr(config, nome)
     if strategia and intervallo:
         valori.update(valori_misurati(strategia, intervallo))
     modalita = modalita or str(valori["CONF_MODALITA"])
@@ -1271,6 +1332,7 @@ ETICHETTE: dict[str, str] = {
     "STOP_LOSS_PERCENT": "Stop loss %",
     "NUM_CONDITIONS": "Conditions required",
     "PIVOT_WINDOW": "Swing window",
+    "SWING_LEVEL": "Structure level",
     "SWING_TARGET_WINDOW": "Target window (bars per side)",
     "SWING_TARGET_TEMPO": "Time weight along the leg",
     "CONF_THETA_BASE": "Entry threshold",

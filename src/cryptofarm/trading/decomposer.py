@@ -26,18 +26,37 @@ is centred on zero. Expect it centred on zero but not normal: crypto returns hav
 heavier tails than a normal of the same deviation. The page draws no normal over it. The same buttons as
 the candles' take the same statistic off every candle, over the same bins.
 
-Under the candles, in a chart of its own over the same period, the same candles each started from
-zero: open and close as changes from the candle's own open, in percent. The price level, the path
-between candles and the wicks go, and what is left is each candle's body, the change the histogram
-counts. A control right above that chart, and moving nothing else, subtracts a statistic from each of
-its candles (`offset`), toward zero: the standard deviation of all candles from every candle, each
-side's standard deviation from its candles, or each side's mean from its candles (`less`). The open
-stays at zero and the body shrinks by it: a 1% candle less a 0.2% deviation closes at 0.8%. A candle
-smaller than the statistic crosses zero, and keeps the colour of the side it came from: an up candle
-is green whichever way it now points. The statistics are the ones the page shows, over the whole
-history and not over the period. The two charts are one figure on one time axis, so a zoom on either
-moves both. The period is read by these two alone, and its default, the last 30 days, is there to keep
-the drawing light: the numbers and the histogram read the whole history.
+Under the candles, in a chart of its own over the same period, the same candles each started from zero: open and close
+as changes from the candle's own open, in percent. The price level, the path between candles and the wicks go, and what
+is left is each candle's body, the change the histogram counts. A control right above that chart, and moving nothing
+else, subtracts a statistic from each of its candles (`offset`), toward zero: the standard deviation of all candles from
+every candle, each side's standard deviation from its candles, or each side's mean from its candles (`less`). The open
+stays at zero and the body shrinks by it: a 1% candle less a 0.2% deviation closes at 0.8%. A candle smaller than the
+statistic crosses zero, and keeps the colour of the side it came from: an up candle is green whichever way it now
+points. The statistics are the ones the page shows, over the whole history and not over the period. The two charts are
+one figure on one time axis, so a zoom on either moves both. The period is read by these two alone, and its default, the
+last 30 days, is there to keep the drawing light: the numbers and the histogram read the whole history. Under it, a
+third chart in the same figure, so a zoom on any of the three moves all of them: on the same bodies after the same
+subtraction, switched by the same buttons, what the green candles and the red ones did (`side_means`): over the last N
+of each, their mean body and green − |red|, the thick line, above zero when a rise is larger than a fall; among the last
+N, each candle's move in price, the green ones added up and the red ones, in % of the window's first open, and the net
+move, the thick line and the one that matters, their sum, which with nothing subtracted is the price's move over the N
+candles. Means among the last N, as this first did, left the counts out: the worst day of BTC 15m, −49.2% on 2020-03-13
+with 60 red candles to 36, read −0.68%; compounding each side, as it did next, made rise and fall not add up to the net
+(+61% and −48% net −16%); in price they do, +27.46% and −76.32% net −48.86%. Over N candles, 96 by default
+(`SIDE_WINDOW`), either the last N of each colour wherever they fall or each colour's among the last N (`SIDE_MODES`),
+set above the figure since a widget cannot sit between its rows, and computed on every candle loaded so the period's
+first candles have their N behind them. Drawn over the bars they could not be read, and in a chart of their own they
+lost the zoom: a third row keeps both.
+
+Over the upper candles, a choice marks the turns of the close found with no window, Nothing by default (`TURN_METHODS`):
+by persistence, how much the close moved away from a turn on both sides before it was undone (`persistence`, 1% by
+default), or by level in the swing hierarchy, the highs higher and the lows lower than their neighbours applied level
+over level (`swing_levels`, level 3 by default), one line a level from the one asked up to four more, in one blue that
+darkens with the level on a light page and lightens on a dark one (`LEVEL_RAMP`), so the highest level always stands out
+most. Both rank every turn of the whole history once (`ranked_turns`); the choice only reads where to cut. On BTC 15m
+each level keeps about a third of the one below, and level 3 has legs of 2.68% over 49 candles at the median, about the
+W = 24 pivots.
 
 Beside the histogram, in the same row, one section over every candle loaded, numbers measured on BTC
 15m to 2026-10-06 (319,870 candles): **Memory** (`acf`): the autocorrelation of the change and of its
@@ -49,17 +68,11 @@ candle is several times apart. The ±2/√n band holds for independent candles o
 the true band is wider, the reason the project takes its errors on non-overlapping blocks
 (TradingVision's `metrics.blocked`).
 
-**Time of day and week** (`clock`): the mean and the standard deviation of the change by weekday and
-UTC hour of the open, two heatmaps side by side, 1,905 candles a cell on BTC 15m. The standard
-deviation is the cycle behind the autocorrelation's daily bumps: its median over the week is 0.48% at
-14:00 UTC, the US open, and Saturday and Sunday sit at 0.32-0.33% against 0.39-0.41% on weekdays
-(ETH 15m the same shape). A cell's standard deviation is one heavy-tailed sample, though: the
-largest, Friday 02:00 at 0.73%, and ETH's Tuesday 04:00 at 2.59%, against a typical 0.5%, are a
-handful of crashes rather than an hour. The mean is almost all noise: 12 of 168 cells lie beyond two
-standard errors of zero, against 8 by chance, and the standard error is understated because sizes
-cluster. The one that stands out is Saturday 00:00 UTC, positive at 3.6 standard errors on BTC 15m,
-3.8 on BTC 1h and 4.4 on ETH 15m: past a Bonferroni cut of about 3.4 for 168 cells, measured on the
-whole history with nothing held out, so a lead and not a finding.
+**The legs of the swing hierarchy** (`level_legs`), under the histogram: for every level of `swing_levels`
+over the whole history, from level 0 (every turn) up, how many legs it has, their mean size in percent with a fall
+counted by its absolute value, and their mean length in candles, a leg running from one pivot of the level to the
+next. The pivots are the hindsight ones, each known some candles after it happened; the simulator's swing structure
+strategy trades level 4.
 
 **The future of a candle** (`ahead`): the candles grouped by their change in standard deviations of
 all candles, bands of 0.5σ from −3σ to +3σ and one open band past each end (`SIGMA_STEP`,
@@ -77,31 +90,52 @@ reads as the tails' periods, not their sign — large candles crowd into the vol
 1,344 cells measured on the whole history with nothing held out, adjacent N being one test and not
 many, make it a lead.
 
-**The future after an RSI**: the same two heatmaps with the candles banded by Wilder's RSI at their
-close (`rsi_bands`, 14 candles as `features` reads it, 10 points a band), and the same N. On BTC 15m
-the RSI does not read as the textbook does: above 70 is not overbought but the start of a run. From
-80 to 90 (2,041 candles) the excess over every candle's is +0.12% at N 10, +0.56% at 48 and +0.51%
-at 96, at 2.7, 5.5 and 3.8 standard errors; ETH 15m +0.60% at 48, 5.1. Below 30 there is a short
-bounce, 20 to 30 at +0.07% and 3.8 five candles later on BTC, that turns into continuation by half a
-day: ETH 0 to 10 at −2.2% at 48, −4.9. The bands past 10 and 90 hold about a hundred candles each, a
-handful of episodes. The momentum above 70 is the one size worth a fee, 0.20% a round trip at OKX,
-and it is measured on the whole history with nothing held out: a lead.
+**The future after an indicator**: the same again for any of the 27 columns (`COLUMNS`) of `features` and
+`project_features` — this project's own indicators, listed after them — that held in at least one study, with their
+window as an input (`EXTREMA_WINDOW` by default), banded in deciles (`quantile_bands`) because no two share a scale; a
+decile dilutes a tail. The extreme deciles on BTC and ETH 15m, N 10 / 48 / 96, fall in three families. A price far below
+its own average bounces within a few hours: the bottom decile of the distance from VWAP, KAMA, EMA or PSAR, of the log
+return, of the close's place in the window, +0.06 to +0.11% at N 10 at 4 to 6.6 standard errors — below the 0.20% fee,
+the candle bodies' reversal again. Large bars come before rises at every N: the top decile of the bar's range is +0.32%
+at 96 on BTC (5.5) and +0.58% on ETH (8.3), the upper wick +0.33% and +0.50% (6.0, 7.4), the volatility windows the same
+on ETH; the volatile periods are the bull runs, as for both tails of the bodies. And momentum over half a day: the RSI
+and the TSI's top decile +0.19 to +0.24% at 48 (4.4 to 5.3), their bottom decile −0.11 to −0.23% (−2.4 to −4.0). The
+exception is the PSAR, whose bottom decile — a price furthest under it — keeps rising, +0.16% and +0.25% at 48 (3.8,
+5.0). 58 deciles at 96 N each on the whole history: a map of where to look, not a result. The menu held all 42 columns
+when these were measured. The momentum did not hold out of sample in the zones study, and RSI and TSI left it with
+thirteen more that held in no study (`DROPPED`): the log return, the lower wick, the volatility expansion, four of
+volume, the money flow, the ADX and the squeeze, which nothing found anything in, and the stochastic, the candle body
+and the window range, which the pivot study met only in marginal combinations. A section banded the candles by RSI in
+10-point bands, and read the 80 to 90 band as momentum worth a fee, +0.56% at 48 candles on BTC 15m at 5.5 standard
+errors on the whole history; the zones study found the momentum did not hold out of sample, and the section left with
+RSI.
 
-**The future after an indicator**: the same again for any of the 29 columns of `features`, or the 13 of
-`project_features` — this project's own indicators, listed after them — with
-their window as an input (`EXTREMA_WINDOW` by default), banded in deciles (`quantile_bands`) because
-no two share a scale; a decile dilutes a tail, so RSI's top decile reads weaker here than its 80 to
-90 band above. The extreme deciles on BTC and ETH 15m, N 10 / 48 / 96, fall in three families. A
-price far below its own average bounces within a few hours: the bottom decile of the distance from
-VWAP, KAMA, EMA or PSAR, of the log return, of the close's place in the window, +0.06 to +0.11% at N
-10 at 4 to 6.6 standard errors — below the 0.20% fee, the candle bodies' reversal again. Large bars
-come before rises at every N: the top decile of the bar's range is +0.32% at 96 on BTC (5.5) and
-+0.58% on ETH (8.3), the upper wick +0.33% and +0.50% (6.0, 7.4), the volatility windows the same
-on ETH; the volatile periods are the bull runs, as for both tails of the bodies. And momentum over
-half a day: the RSI and the TSI's top decile +0.19 to +0.24% at 48 (4.4 to 5.3), their bottom
-decile −0.11 to −0.23% (−2.4 to −4.0). The exception is the PSAR, whose bottom decile — a price
-furthest under it — keeps rising, +0.16% and +0.25% at 48 (3.8, 5.0). 58 deciles at 96 N each on the
-whole history: a map of where to look, not a result.
+**What is left of the leg** (`pivots`, `legs_of`, `to_pivot`): TradingVision's pivots, the ones its `legsweep` swept — a
+close strictly beyond the `window` closes on both sides, two of a kind in a row merged into the more extreme — at
+windows 6, 12, 24 and 48 candles of the timeframe picked (`LEG_WINDOWS`). One histogram per window, two by two, in bins
+of 0.01% opening on 0 to 5% (`LEG_BIN`, `LEG_VIEW`; a zoom out shows the rest), counting one of two things on buttons
+(`LEG_COUNTS`). **Pivots**, the default: every leg once, its change from pivot to pivot, a down leg's sign flipped — the
+measure the next section slices on. **Candles**: every candle, its change from its close to the close of the next pivot,
+folded the same way, so a leg of 40 candles counts 40 times, from its whole size down to nearly nothing. It is
+hindsight, the most a reader who knew the pivots could take. On BTC 15m to 2026-08-19 the median leg is 0.92%, 1.43%,
+2.21% and 3.48% at the four windows (ETH 1.26 to 4.73%), and 2.8%, 0.7%, 0.2% and 0.1% of legs are under the 0.20% round
+trip. The median candle has 0.60%, 0.89%, 1.35% and 2.14% left at the four windows (ETH 0.83 to 2.93%), and 17.3%,
+10.3%, 5.6% and 2.8% of the candles have less than the 0.20% round trip; under 0.5% are negative, candles beyond the
+pivot their leg ends on.
+
+**Pivots of a size** (`legs_of`, `excess`): the legs between two pivots whose change falls in a slice, 1% to 1.2% by
+default (`LEG_SLICE`), up legs (from a low) and down legs (from a high) apart, and where every indicator of the menus
+stands on the pivot they start on, in deciles over every candle: one heatmap of the indicators by decile per side,
+coloured by the share of the slice's pivots in each from 0, none, and marked ▲ ▼ where it is beyond 3 standard errors of
+the reference's share — every candle, or every pivot that starts a leg of the same side whatever its size; and for one
+indicator, decile against the 96 candles before the pivot. On BTC 15m at window 24 (237 up, 261 down; ETH 143 up),
+against every candle the indicators say what a pivot is — a low sits in the bottom decile of the Donchian position at
++37 se. Against every same-kind pivot what is left is the size: the 1% legs start from shallower extremes, fewer in the
+bottom decile of the distance from PSAR, EMA, VWAP and KAMA (−6.6 to −7.2 se) and of the large bars (−6.4), on ETH the
+same at up to −10.2. A leg of 1% is a small one, and small legs are the quiet periods'; that is the one thing the slice
+has in common that every pivot has not. A mean correlation of their paths, along the leg and over the candles before it,
+was measured and dropped: the slice was no more alike than any leg of its side (0.620 along the up legs against 0.670
+for all of them).
 
 **The zones of the study** (`zones`): the twenty zones of `reports/zones_study.html` — four families that
 held from 2017-2020 to 2021-2025, and the momentum that did not — each at its own timeframe, window, band
@@ -118,6 +152,7 @@ Brought over from TradingVision (PRs #21 and #22) with `candle_features` as its 
 numbers above were measured there, on its store, and the study they led to is `reports/zones_study.html`.
 """
 
+import heapq
 import math
 from pathlib import Path
 
@@ -126,12 +161,11 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
-from ta.momentum import RSIIndicator
 
 from cryptofarm import paths
 from cryptofarm.data import klines
 from cryptofarm.trading import candle_features as features
-from cryptofarm.trading import project_features, zones
+from cryptofarm.trading import project_features, swing_structure, zones
 from cryptofarm.trading.candle_features import EXTREMA_WINDOW
 
 TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")
@@ -143,15 +177,69 @@ ACF_LAGS = (
     10_000  # the autocorrelation's last lag, in candles: 35 days of 5m, 104 of 15m; a quarter of the data at most
 )
 SIGMA_STEP, SIGMA_REACH = 0.5, 3.0  # the future's bands: their width and the last closed edge, in σ of all candles
-RSI_WINDOW, RSI_STEP = 14, 10  # Wilder's window, the default of `ta` and of every charting tool; the bands' width
 QUANTILES = 10  # an indicator's bands: deciles, as many candles in each, since no two indicators share a scale
 HORIZON, HORIZON_MAX = 96, 500  # the future's default N max (a day of 15m) and the slider's end: 1.6s per 96 on BTC 15m
-DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")  # pandas' dayofweek, Monday 0
+LEG_WINDOWS = (6, 12, 24, 48)  # the pivot windows of the legs' histograms, candles on each side; 24 is TradingVision's
+# The turns the first candle chart can mark (`ranked_turns`), and where each method's scale opens.
+TURN_METHODS = {"none": "Nothing", "persistence": "Persistence", "levels": "Swing hierarchy"}
+PERSISTENCE_MIN, SWING_LEVEL = 1.0, 3  # %; level 3 is about the W = 24 pivots on 15m
+TURN_COLOUR = "#ff9f1c"  # the persistence's one line
+# The swing levels' lines, lowest level first: one blue, light to dark on a light surface and dark to light on a dark
+# one, so the highest level always stands out most. Five steps of the dataviz skill's blue ramp, each set passing its
+# ordinal check against its surface (`validate_palette.js --ordinal`); six failed on light, the last two too close.
+LEVEL_RAMP = {
+    "light": ("#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#0d366b"),
+    "dark": ("#184f95", "#2a78d6", "#5598e7", "#86b6ef", "#cde2fb"),
+}
+# The chart under the candles from zero: each side's mean body over N candles, and their sum, green − |red|.
+SIDE_MODES = {"last": "The last N green and the last N red", "among": "Green and red among the last N"}
+SIDE_WINDOW = 96  # a day of 15m candles
+SIDE_NAMES = {  # the three lines' names, per mode: what `side_means` puts in its columns depends on it
+    "last": {"green": "mean of the green", "red": "mean of the red", "net": "green − |red|"},
+    "among": {"green": "rise of the green", "red": "fall of the red", "net": "net move"},
+}
+# Blue and orange, the dataviz skill's first two slots, both themes passing `validate_palette.js --pairs all`, for the
+# two sides; the net, the line that matters, is the text's ink, solid and twice as wide, rather than a third hue:
+# violet and magenta both failed the floor against blue or orange on one theme.
+SIDE_COLOURS = {"light": ("#2a78d6", "#eb6834", "#0b0b0b"), "dark": ("#3987e5", "#d95926", "#ffffff")}
+LEG_BIN, LEG_VIEW = 0.01, 5.0  # the legs' bin width and the end of the axis they open on, in %
+LEG_COUNTS = {"pivots": "Pivots: every leg once", "candles": "Candles: what each had left"}  # the histograms' buttons
+LEG_SLICE = (1.0, 1.2)  # the default slice of the pivots' study: legs whose size, in %, falls in it
+LEG_LOOKBACK = 96  # the candles before the pivot the indicator-by-candle chart reaches back to
+SIDES_OF_LEG = {"up": "Up legs, from a low", "down": "Down legs, from a high"}
+BASES = {"candles": "every candle", "pivots": "every pivot of the same kind, any size"}
+# What the slice is compared with, per side, as the hover names it.
+REFERENCES = {
+    "candles": {"up": "every candle", "down": "every candle"},
+    "pivots": {"up": "every low that starts a leg up, any size", "down": "every high that starts a leg down, any size"},
+}
+EXCESS_MARK = 3.0  # the standard errors past which a share is marked above or below its reference
 SIDES = {"all": "All candles", "up": "Up candles", "down": "Down candles"}
 # What the lower candle chart can take off each candle, named as the statistics at the top of the page
 # are, so a choice points at the numbers it subtracts without repeating them.
-# The indicator menu: TradingVision's 29 columns, then this project's 13 (`project_features`).
-COLUMNS = features.COLUMNS + project_features.COLUMNS
+# The columns of TradingVision's 29 and this project's 13 that held in no study: no zone of `zones` that holds (families
+# 1 to 5; RSI and TSI only in the momentum one, which does not), and in the pivot study no filter, or only a marginal
+# one -- the stochastic and the candle body in one combination each at window 48, the window range a candidate never
+# chosen. Their columns are still computed, by `features` and `project_features`, and the zones that read them still do.
+DROPPED = (
+    "rsi_centered",
+    "tsi_momentum",
+    "money_flow_index",
+    "adx_trend_strength",
+    "squeeze_ratio",
+    "log_return",
+    "volatility_expansion",
+    "lower_wick_pct",
+    "log_volume_vs_median",
+    "log_dollar_volume",
+    "volume_trend",
+    "on_balance_volume_zscore",
+    "stochastic_k_minus_d",
+    "candle_body_pct",
+    "window_range_pct",
+)
+# The indicator menu and the pivot study's rows: TradingVision's columns, then this project's, less `DROPPED`.
+COLUMNS = [c for c in features.COLUMNS + project_features.COLUMNS if c not in DROPPED]
 LABELS = features.LABELS | project_features.LABELS
 OFFSETS = {
     "none": "Nothing",
@@ -221,6 +309,42 @@ def less(zero: pd.DataFrame, minus: pd.Series) -> pd.DataFrame:
     return zero.assign(close=close, high=close.clip(lower=0), low=close.clip(upper=0))
 
 
+def side_means(body: pd.Series, side: pd.Series, n: int, how: str, opens: pd.Series | None = None) -> pd.DataFrame:
+    """At every candle, what the green candles and the red ones did, by `how` of `SIDE_MODES`. `side` is the candle's
+    side as it was, +1 green, −1 red, 0 flat in neither; `body` is in percent and may have had an `offset` taken off.
+    Columns `green`, `red` (below zero on red bodies as they are) and `net`, and what they hold depends on `how`:
+
+    - `last`: the mean body of the last `n` green candles and of the last `n` red ones, wherever they fall, and their
+      sum, green − |red|: above zero when a rise is larger than a fall. The two sides span different stretches of
+      time, so there is no move of the price to add up.
+    - `among`: over the last `n` candles, each candle's move in price (its body of its open, `opens`), the green ones'
+      added up and the red ones', in percent of the window's first open, and `net`, the two together: the move of the
+      price from that open to the last close, since a candle opens where the one before closed. In price and not
+      compounded, so the three add up — green + red = net — which compounded percentages do not: +61% then −48% is
+      −16%. A side can pass 100% where the price doubled inside the window: −108% for the red of BTC's best day.
+
+    Means among the last `n`, as the first version took, leave the counts out: BTC 15m's worst 96 candles, −49.2% to
+    2020-03-13 with 60 red to 36 green, read −0.68%; `net` reads −48.9%. NaN until a full `n` is behind."""
+    if how == "last":
+        out = {
+            name: body.where(side == sign).dropna().rolling(n).mean().reindex(body.index).ffill()
+            for name, sign in (("green", 1), ("red", -1))
+        }
+        return pd.DataFrame(out).assign(net=lambda t: t.green + t.red)
+    moved, first = body / 100 * opens, opens.shift(n - 1)
+    out = {
+        name: moved.where(side == sign, 0.0).rolling(n).sum() / first * 100
+        for name, sign in (("green", 1), ("red", -1))
+    }
+    return pd.DataFrame(out).assign(net=lambda t: t.green + t.red)
+
+
+def page_theme() -> str:
+    """The page's theme, light or dark: the browser's, or the configured base before the session has reported it."""
+    theme = st.context.theme.type or st.get_option("theme.base") or "light"
+    return theme if theme in ("light", "dark") else "light"
+
+
 def histogram(pct: pd.Series, bins: int = BINS, tail: float = TAIL) -> tuple[np.ndarray, np.ndarray, int]:
     """The counts of `pct` in `bins` equal bins over ±R, their edges, and how many candles lie beyond
     ±R. R is the larger of the `tail` and `1 - tail` quantiles in absolute value."""
@@ -230,14 +354,38 @@ def histogram(pct: pd.Series, bins: int = BINS, tail: float = TAIL) -> tuple[np.
     return counts, edges, int(len(pct) - counts.sum())
 
 
-def candles_figure(df: pd.DataFrame, uirevision: str, minus: dict[str, pd.Series]) -> go.Figure:
+def candles_figure(
+    df: pd.DataFrame,
+    uirevision: str,
+    minus: dict[str, pd.Series],
+    layers: list[tuple[str, pd.DataFrame, str, float]] = (),
+    sides_by: dict[str, pd.DataFrame] | None = None,
+    theme: str = "light",
+    side_names: dict[str, str] = SIDE_NAMES["last"],
+) -> go.Figure:
     """The candles of `df` over the same candles each from zero (`from_zero`), less what each choice of
     `OFFSETS` takes off (`minus`, its `offset`). One figure on one time axis, so a zoom or a pan on either chart
     moves both: two Streamlit charts cannot share a zoom, the page never hears of one. The choice is a row of
     buttons inside the figure, right above the lower chart it moves, because a Streamlit widget cannot sit
-    between the rows of one figure; every choice is drawn and the buttons show one, in the browser."""
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.08)
-    fig.add_trace(go.Candlestick(x=df.index, open=df.open, high=df.high, low=df.low, close=df.close), row=1, col=1)
+    between the rows of one figure; every choice is drawn and the buttons show one, in the browser. Each of `layers`
+    — a name, turns of `ranked_turns` with a `text` for the hover, a colour and a width — is drawn over the upper
+    candles as a line through their closes, a triangle down on a high and up on a low, in order, so the last is on
+    top; the buttons leave them alone, and two or more get a legend. `sides_by`, `side_means` per choice of `OFFSETS`,
+    adds a third chart under the candles from zero, on the same time axis so a zoom moves it too: the three lines of
+    the choice the buttons show, with a legend of its own."""
+    rows = 3 if sides_by else 2
+    fig = make_subplots(
+        rows=rows,
+        cols=1,
+        shared_xaxes=True,
+        row_heights=[0.5, 0.3, 0.2] if sides_by else [0.6, 0.4],
+        vertical_spacing=0.06 if sides_by else 0.08,
+    )
+    fig.add_trace(
+        go.Candlestick(x=df.index, open=df.open, high=df.high, low=df.low, close=df.close, showlegend=False),
+        row=1,
+        col=1,
+    )
     zero, up = from_zero(df), df.close > df.open
     for how in OFFSETS:
         cut = less(zero, minus[how])
@@ -253,21 +401,74 @@ def candles_figure(df: pd.DataFrame, uirevision: str, minus: dict[str, pd.Series
                     high=frame.high,
                     low=frame.low,
                     close=frame.close,
-                    yhoverformat="+.3f",
+                    yhoverformat=".3f",
                     increasing=side,
                     decreasing=side,
                     visible=how == "none",  # the chart opens on the candles as they are, whatever the order above
+                    showlegend=False,
                 ),
                 row=2,
                 col=1,
             )
-    choices(fig, [[True] + [h == how for h in OFFSETS for _ in "ud"] for how in OFFSETS], fig.layout.yaxis2.domain[1])
+    drawn = [(name, points, colour, width) for name, points, colour, width in layers if len(points)]
+    for name, points, colour, width in drawn:
+        fig.add_trace(
+            go.Scatter(
+                x=points.index,
+                y=df.close.reindex(points.index),
+                name=name,
+                mode="lines+markers",
+                line=dict(color=colour, width=width),
+                marker=dict(symbol=np.where(points.kind > 0, "triangle-down", "triangle-up"), size=6 + 2 * width),
+                hovertext=points.text,
+                hoverinfo="text",
+            ),
+            row=1,
+            col=1,
+        )
+    for how in OFFSETS if sides_by else ():
+        for column, colour, width in zip(side_names, SIDE_COLOURS[theme], (1.5, 1.5, 3)):  # the net is the signal
+            fig.add_trace(
+                go.Scatter(
+                    x=sides_by[how].index,
+                    y=sides_by[how][column],
+                    name=side_names[column],
+                    mode="lines",
+                    line=dict(color=colour, width=width),
+                    hovertemplate=side_names[column] + " %{y:.3f}%<extra></extra>",
+                    visible=how == "none",
+                    legend="legend2",
+                ),
+                row=3,
+                col=1,
+            )
+    shown = [
+        [True]
+        + [h == how for h in OFFSETS for _ in "ud"]
+        + [True] * len(drawn)
+        + ([h == how for h in OFFSETS for _ in side_names] if sides_by else [])  # three lines a choice, its own only
+        for how in OFFSETS
+    ]
+    choices(fig, shown, fig.layout.yaxis2.domain[1])
     fig.update_xaxes(rangeslider_visible=False)
-    fig.update_yaxes(ticksuffix="%", zeroline=True, zerolinecolor="#888", row=2, col=1)
+    for row in range(2, rows + 1):
+        fig.update_yaxes(ticksuffix="%", zeroline=True, zerolinecolor="#888", row=row, col=1)
     fig.update_layout(
-        height=880,
+        height=1100 if sides_by else 880,
         margin=dict(l=0, r=0, t=10, b=0),
-        showlegend=False,
+        showlegend=len(drawn) > 1 or bool(sides_by),
+        legend=dict(
+            orientation="h", x=0, xanchor="left", y=1, yanchor="top", bgcolor="rgba(0,0,0,0)", visible=len(drawn) > 1
+        ),
+        # The third chart's lines: their legend sits at its top left, above the lines.
+        legend2=dict(
+            orientation="h",
+            x=0,
+            xanchor="left",
+            y=fig.layout.yaxis3.domain[1] if sides_by else 0,
+            yanchor="bottom",
+            bgcolor="rgba(0,0,0,0)",
+        ),
         # Keeps zoom and pan across reruns until the pair, the timeframe or the period changes.
         uirevision=uirevision,
     )
@@ -310,7 +511,7 @@ def histogram_figure(pct: pd.Series, stats: pd.DataFrame, edges: np.ndarray) -> 
                 width=np.diff(edges),
                 marker=dict(color="#3498db", line=dict(width=0)),
                 customdata=np.c_[edges[:-1], edges[1:]],
-                hovertemplate="%{customdata[0]:+.3f}% to %{customdata[1]:+.3f}%<br>%{y:,} candles<extra></extra>",
+                hovertemplate="%{customdata[0]:.3f}% to %{customdata[1]:.3f}%<br>%{y:,} candles<extra></extra>",
                 visible=how == "none",
             )
         )
@@ -334,34 +535,22 @@ def acf(x: np.ndarray, lags: int) -> np.ndarray:
     return cov[1:] / cov[0]
 
 
-def clock(pct: pd.Series) -> pd.DataFrame:
-    """Mean, standard deviation and count of the change by weekday and UTC hour of the candle's open."""
-    return pct.groupby([pct.index.dayofweek, pct.index.hour]).agg(["mean", "std", "count"])
-
-
-def clock_figure(table: pd.DataFrame, stat: str) -> go.Figure:
-    """`clock`'s `stat` as a heatmap, weekdays down and UTC hours across. The mean is drawn on a scale
-    centred on zero, and its hover carries the standard error, std / √n, it has to be read against."""
-    grid, n = table[stat].unstack(), table["count"].unstack()
-    se = (table["std"] / np.sqrt(table["count"])).unstack()
-    mean = stat == "mean"
-    fig = go.Figure(
-        go.Heatmap(
-            x=[f"{h:02d}" for h in grid.columns],
-            y=[DAYS[d] for d in grid.index],
-            z=grid.to_numpy(),
-            customdata=np.dstack([n.to_numpy(), se.to_numpy()]),
-            colorscale="RdBu" if mean else "Viridis",
-            zmid=0 if mean else None,
-            colorbar=dict(ticksuffix="%"),
-            hovertemplate="%{y} %{x}:00 UTC<br>"
-            + ("mean %{z:+.4f}% ± %{customdata[1]:.4f}" if mean else "std %{z:.4f}%")
-            + "<br>%{customdata[0]:,} candles<extra></extra>",
-        )
-    )
-    fig.update_yaxes(autorange="reversed")  # Monday on top, as a calendar reads
-    fig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0), xaxis_title="hour of the open, UTC")
-    return fig
+def level_legs(close: pd.Series) -> pd.DataFrame:
+    """The legs of every level of the swing hierarchy (`swing_levels`), from each pivot of level k, a turn whose
+    level is at least k, to the next: their count, mean size in percent with a fall counted as its absolute value,
+    and mean length in candles. One row a level, from 0, every turn, up to the last with two pivots."""
+    at, _, level = swing_structure.hierarchy(close.to_numpy())
+    c, rows = close.to_numpy(), {}
+    for k in range(int(level.max()) + 1 if len(level) else 0):
+        p = at[level >= k]
+        if len(p) < 2:
+            break
+        rows[k] = {
+            "legs": len(p) - 1,
+            "mean size, %": float(np.abs(c[p[1:]] / c[p[:-1]] - 1).mean() * 100),
+            "mean length, candles": float(np.diff(p).mean()),
+        }
+    return pd.DataFrame.from_dict(rows, orient="index").rename_axis("level")
 
 
 def acf_figure(pct: pd.Series, step: pd.Timedelta) -> go.Figure:
@@ -380,7 +569,7 @@ def acf_figure(pct: pd.Series, step: pd.Timedelta) -> go.Figure:
                 line=dict(color=colour, width=1),
                 customdata=days,
                 hovertemplate=f"{name}<br>lag %{{x:,}} candles, %{{customdata:.2f}} days<br>"
-                "autocorrelation %{y:+.4f}<extra></extra>",
+                "autocorrelation %{y:.3f}<extra></extra>",
             )
         )
     band = 2 / math.sqrt(len(pct))
@@ -406,21 +595,23 @@ def bands(pct: pd.Series, sigma: float) -> pd.Series:
     return pd.cut(pct / sigma, [-np.inf, *edges, np.inf], right=False, labels=labels)
 
 
-@st.cache_data(show_spinner="Following every candle N candles ahead…", max_entries=16)
-def rsi_bands(close: pd.Series, window: int) -> pd.Series:
-    """Each candle's band of `RSI_STEP` points of Wilder's RSI over `window` candles, read at its close, `ta`'s as in
-    `features`; NaN until the window fills. Closed on the left, the last band closed on both sides: an RSI of 100,
-    a window with no down candle, falls in it."""
-    edges = np.arange(0, 100, RSI_STEP)
-    labels = [f"{a} to {a + RSI_STEP}" for a in edges]
-    return pd.cut(RSIIndicator(close, window=window).rsi(), [*edges, np.inf], right=False, labels=labels)
-
-
 def quantile_bands(x: pd.Series, q: int = QUANTILES) -> pd.Series:
-    """Each candle's `q`-quantile of `x`, named by its edges; NaN where `x` is. An indicator with ties at an edge,
-    the age of a window's extreme or a close at the bar's high, has fewer bands: a value is never split."""
+    """Each candle's `q`-quantile of `x`, named by its edges (`edge_names`); NaN where `x` is. An indicator with ties
+    at an edge, the age of a window's extreme or a close at the bar's high, has fewer bands: a value is never split."""
     band = pd.qcut(x, q, duplicates="drop")
-    return band.cat.rename_categories([f"{i.left:.4g} to {i.right:.4g}" for i in band.cat.categories])
+    names = edge_names([band.cat.categories[0].left, *(i.right for i in band.cat.categories)])
+    return band.cat.rename_categories([f"{a} to {b}" for a, b in zip(names[:-1], names[1:])])
+
+
+def edge_names(edges: list[float]) -> list[str]:
+    """Band edges, sorted, as the hovers print them: three decimals, or, where three would make two of them read
+    alike — an indicator on a tiny scale, an EMA slope of 1e-05 — three significant digits (1.06e-05). The open
+    ends print as -inf and inf."""
+    for fmt in (".3f", ".2e"):
+        names = [f"{e:{fmt}}" for e in edges]
+        if len(set(names)) == len(names):
+            break
+    return names
 
 
 @st.cache_data(show_spinner="Computing the indicators…", max_entries=16)
@@ -437,11 +628,11 @@ def indicator(symbol: str, timeframe: str, mtime: float, window: int, column: st
 
 
 def ahead(band: pd.Series, close: pd.Series, horizons: int, step: pd.Timedelta) -> pd.DataFrame:
-    """By band (`bands` or `rsi_bands`; a candle in none counts nowhere) and N from 1 to `horizons`: the mean, over the
-    band's candles, of the change in percent from the close to the close N candles later, how many candles have
-    one, the mean over every candle (`all`), and the standard error of the band's mean over non-overlapping
-    blocks of N candles of `step` on the clock (`se`) with the excess over `all` in it (`t`). A candle whose
-    future runs past the store's last bar has none and counts nowhere."""
+    """By band (`bands`, `quantile_bands`; a candle in none counts nowhere) and N from 1 to `horizons`: the mean, over
+    the band's candles, of the change in percent from the close to the close N candles later, how many candles have one,
+    the mean over every candle (`all`), and the standard error of the band's mean over non-overlapping blocks of N
+    candles of `step` on the clock (`se`) with the excess over `all` in it (`t`). A candle whose future runs past the
+    store's last bar has none and counts nowhere."""
     rows = []
     for n in range(1, horizons + 1):
         future = (close.shift(-n) / close - 1) * 100
@@ -480,8 +671,8 @@ def ahead_figure(table: pd.DataFrame, stat: str, step: pd.Timedelta) -> go.Figur
             zmax=4 if t else None,
             colorbar=dict(ticksuffix="" if t else "%"),
             hovertemplate="%{y}, N %{x} candles (%{customdata[5]:.2f}h)<br>"
-            "mean %{customdata[0]:+.4f}% ± %{customdata[1]:.4f}<br>"
-            "every candle %{customdata[2]:+.4f}%, excess %{customdata[3]:+.2f} se<br>"
+            "mean %{customdata[0]:.3f}% ± %{customdata[1]:.3f}<br>"
+            "every candle %{customdata[2]:.3f}%, excess %{customdata[3]:.2f} se<br>"
             "%{customdata[4]:,} candles<extra></extra>",
         )
     )
@@ -540,26 +731,30 @@ def zones_figure(tables: dict[str, pd.DataFrame], zone: tuple) -> go.Figure:
         row_titles=list(tables),
     )
     for row, (symbol, table) in enumerate(tables.items(), start=1):
+        lo = table.groupby("band").lo.first().reindex(bands)
+        names = edge_names([*lo, table.hi.max()])
+        text = np.repeat([[f"{a} to {b}"] for a, b in zip(names[:-1], names[1:])], len(horizons), axis=1)
         for col, p in enumerate(zones.PERIODS, start=1):
             at = table[table.period == p]
             grid = {
                 c: at.pivot(index="band", columns="n", values=c).reindex(index=bands, columns=horizons)
-                for c in ("t", "excess", "se", "count", "lo", "hi")
+                for c in ("t", "excess", "se", "count")
             }
             fig.add_trace(
                 go.Heatmap(
                     x=[str(h) for h in horizons],
                     y=[zones.quantiles(b) for b in bands],
                     z=grid["t"].to_numpy(),
-                    customdata=np.dstack([grid[c].to_numpy() for c in ("excess", "se", "count", "lo", "hi")]),
+                    customdata=np.dstack([grid[c].to_numpy() for c in ("excess", "se", "count")]),
+                    text=text,
                     colorscale="RdBu",
                     zmid=0,
                     zmin=-4,
                     zmax=4,
                     showscale=row == col == 1,
                     colorbar=dict(title="se", len=0.6, x=1.06),
-                    hovertemplate=f"{symbol} · {p}<br>band %{{y}}: %{{customdata[3]:.4g}} to %{{customdata[4]:.4g}}"
-                    "<br>N %{x}: excess %{customdata[0]:+.4f}% ± %{customdata[1]:.4f}, %{z:+.2f} se"
+                    hovertemplate=f"{symbol} · {p}<br>band %{{y}}: %{{text}}"
+                    "<br>N %{x}: excess %{customdata[0]:.3f}% ± %{customdata[1]:.3f}, %{z:.2f} se"
                     "<br>%{customdata[2]:,} candles<extra></extra>",
                 ),
                 row=row,
@@ -606,6 +801,282 @@ def zone_summary(tables: dict[str, tuple[pd.DataFrame, pd.DataFrame]], zone: tup
                 }
             )
     return pd.DataFrame(rows).set_index("pair · period")
+
+
+def pivots(close: pd.Series, window: int) -> pd.Series:
+    """TradingVision's `data.pivots.find_pivots` without the amplitude, the pivots `legsweep` swept: +1 on a pivot
+    high, −1 on a pivot low, indexed by the pivot's candle. A close strictly above (below) the `window` closes on
+    either side of it is a pivot high (low); two of a kind in a row are one leg, and the more extreme of the run is
+    kept, so highs and lows alternate. Centred, so hindsight: a pivot is known `window` candles after it."""
+
+    def side(s: pd.Series, how: str) -> pd.Series:  # the extreme of the `window` closes before each, itself left out
+        return s.rolling(window).agg(how).shift()
+
+    back = close.iloc[::-1]
+    high = (close > side(close, "max")) & (close > side(back, "max").iloc[::-1])
+    low = (close < side(close, "min")) & (close < side(back, "min").iloc[::-1])
+    kind = pd.Series(np.select([high, low], [1, -1], 0), index=close.index)
+    piv = kind[kind != 0]
+    if piv.empty:
+        return piv
+    run = (piv != piv.shift()).cumsum()
+    return piv.loc[(close.loc[piv.index] * piv).groupby(run).idxmax()]  # the highest high, the lowest low
+
+
+def to_pivot(close: pd.Series, piv: pd.Series) -> pd.Series:
+    """Each candle's change in percent from its close to the close of the first pivot after it (`pivots`), folded:
+    as a long when that pivot is a high, as a short when it is a low, so on either side it is what the leg had
+    left to give. A pivot's own candle runs to the next pivot; the candles past the last one have none and are out."""
+    at = close.index.get_indexer(piv.index)
+    if not len(at):
+        return pd.Series(dtype=float)
+    i = np.arange(at[-1])
+    k = np.searchsorted(at, i, side="right")
+    c = close.to_numpy()
+    return pd.Series((c[at[k]] / c[i] - 1) * 100 * piv.to_numpy()[k], index=close.index[i])
+
+
+def turns(close: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    """Every candle where the close changes direction, with no window and no threshold: positions in `close` and
+    kind, +1 a high, −1 a low, alternating. `swing_structure.turns`, which the simulator's strategy trades on."""
+    return swing_structure.turns(close.to_numpy())[:2]
+
+
+def persistence(close: pd.Series) -> pd.DataFrame:
+    """How much each turn of the close counts, in percent, with no parameter: the turns (`turns`), then over and
+    over the two neighbours with the smallest move between them go, and that move is the persistence of both. The
+    smallest pair always has a deeper low and a higher high around it, so the turns left alternate, and the moves
+    removed only grow: the turns with persistence at least p are exactly the swings of p or more, nested across p.
+    Measured on the log close, so a percent means the same at any price. The last pair standing never goes: inf.
+    Columns `kind` and `persistence`, indexed by the turn's candle. Hindsight: a turn's persistence is known once the
+    close has moved that much away from it."""
+    at, kind = turns(close)
+    v = np.log(close.to_numpy()[at])
+    n = len(at)
+    prev, nxt = np.arange(-1, n - 1), np.arange(1, n + 1)
+    alive, p = np.ones(n, bool), np.full(n, np.inf)
+    heap = [(abs(v[i + 1] - v[i]), i, i + 1) for i in range(n - 1)]
+    heapq.heapify(heap)
+    while heap:
+        d, i, j = heapq.heappop(heap)
+        if not (alive[i] and alive[j] and nxt[i] == j):
+            continue  # a pair one of whose ends already went
+        alive[i] = alive[j] = False
+        p[i] = p[j] = d
+        a, b = prev[i], nxt[j]
+        if a >= 0:
+            nxt[a] = b
+        if b < n:
+            prev[b] = a
+        if a >= 0 and b < n:
+            heapq.heappush(heap, (abs(v[b] - v[a]), a, b))
+    return pd.DataFrame({"kind": kind, "persistence": np.expm1(p) * 100}, index=close.index[at])
+
+
+def swing_levels(close: pd.Series) -> pd.DataFrame:
+    """The swing hierarchy of the close, with no parameter (`swing_structure.hierarchy`: Dow's higher highs and
+    lower lows applied to themselves). Columns `kind` and `level`, the highest level a turn reaches, indexed by the
+    turn's candle: the turns of level k are those with `level` at least k."""
+    at, kind, level = swing_structure.hierarchy(close.to_numpy())
+    return pd.DataFrame({"kind": kind, "level": level}, index=close.index[at])
+
+
+@st.cache_data(show_spinner="Ranking every turn…", max_entries=8)
+def ranked_turns(symbol: str, timeframe: str, mtime: float) -> pd.DataFrame:
+    """`persistence` and `swing_levels` of one pair's whole history, side by side; `mtime` as in `candles`."""
+    close = candles(symbol, timeframe, mtime).close
+    return persistence(close).join(swing_levels(close).level)
+
+
+@st.cache_data(show_spinner="Finding the pivots…", max_entries=8)
+def leg_returns(symbol: str, timeframe: str, mtime: float) -> dict[int, dict[str, pd.Series]]:
+    """At each of `LEG_WINDOWS`, the two counts of `LEG_COUNTS`: every leg once, its change from pivot to pivot with a
+    down leg's sign flipped (`legs_of`), and every candle, what was left to its next pivot (`to_pivot`). The pivots
+    alternate, so a flipped down leg is its size. `mtime` as in `candles`."""
+    close = candles(symbol, timeframe, mtime).close
+    out = {}
+    for w in LEG_WINDOWS:
+        p = pivots(close, w)
+        out[w] = {"pivots": legs_of(close, p).change.abs() if len(p) else pd.Series(dtype=float)}
+        out[w]["candles"] = to_pivot(close, p)
+    return out
+
+
+def legs_figure(
+    legs: dict[int, dict[str, pd.Series]], width: float = LEG_BIN, view: float = LEG_VIEW, tail: float = TAIL
+) -> go.Figure:
+    """One histogram per window of `leg_returns`, two by two, each on its own axes, in bins `width` wide with an edge
+    on zero, one count of `LEG_COUNTS` at a time on buttons above them: the pivots first. The bins run from zero, or
+    below it if some candles sit beyond the pivot their leg ends on, to the `1 - tail` quantile or `view`, whichever
+    is further; the axis opens on 0 to `view`, and a zoom out or a double click shows the rest. The titles say what
+    that opening view leaves out on either side, and change with the button."""
+    unit = {"pivots": "legs", "candles": "candles"}
+    titles = {
+        how: [
+            (
+                f"<b>{w} candles</b>: {len(r):,} {unit[how]}, median {r.median():.2f}%, mean {r.mean():.2f}%"
+                f"<br>{(r > view).mean():.1%} beyond {view:g}%, {(r < 0).mean():.2%} below 0%"
+                if len(r)
+                else f"{w} candles: no pivot"
+            )
+            for w, r in ((w, c[how]) for w, c in legs.items())
+        ]
+        for how in LEG_COUNTS
+    }
+    fig = make_subplots(rows=2, cols=2, subplot_titles=titles["pivots"], vertical_spacing=0.14, horizontal_spacing=0.06)
+    drawn = []  # the count of each trace, in the order they are added: what a button shows
+    for how in LEG_COUNTS:
+        for j, r in enumerate(c[how] for c in legs.values()):
+            if not len(r):
+                continue
+            lo, hi = min(0.0, r.quantile(tail)), max(view, r.quantile(1 - tail))
+            edges = np.arange(np.floor(lo / width), np.ceil(hi / width) + 1) * width
+            counts, _ = np.histogram(r, edges)
+            fig.add_trace(
+                go.Bar(
+                    x=(edges[:-1] + edges[1:]) / 2,
+                    y=counts,
+                    width=np.diff(edges),
+                    marker=dict(color="#3498db", line=dict(width=0)),
+                    customdata=np.c_[edges[:-1], edges[1:]],
+                    hovertemplate="%{customdata[0]:.2f}% to %{customdata[1]:.2f}%<br>%{y:,} "
+                    + unit[how]
+                    + "<extra></extra>",
+                    visible=how == "pivots",
+                ),
+                row=j // 2 + 1,
+                col=j % 2 + 1,
+            )
+            drawn.append(how)
+    fig.update_layout(
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                active=0,
+                buttons=[
+                    dict(
+                        label=label,
+                        method="update",
+                        args=[
+                            {"visible": [d == how for d in drawn]},
+                            {f"annotations[{i}].text": t for i, t in enumerate(titles[how])}
+                            | {"yaxis.title.text": unit[how], "yaxis3.title.text": unit[how]},
+                        ],
+                    )
+                    for how, label in LEG_COUNTS.items()
+                ],
+                x=0,
+                xanchor="left",
+                y=1.0,
+                yanchor="bottom",
+                pad=dict(b=36),
+            )
+        ]
+    )
+    fig.update_xaxes(ticksuffix="%", range=[0, view])
+    fig.update_yaxes(title_text="legs", col=1)
+    fig.update_layout(height=820, margin=dict(l=0, r=0, t=100, b=0), bargap=0, showlegend=False)
+    fig.update_annotations(font_size=13)
+    return fig
+
+
+def legs_of(close: pd.Series, piv: pd.Series) -> pd.DataFrame:
+    """One row per leg between two `pivots`: where it starts and ends (positions in `close`), and its change from
+    the first pivot's close to the second's in percent, signed: positive from a low, negative from a high."""
+    at = close.index.get_indexer(piv.index)
+    c = close.to_numpy()
+    return pd.DataFrame({"start": at[:-1], "end": at[1:], "change": (c[at[1:]] / c[at[:-1]] - 1) * 100})
+
+
+@st.cache_data(show_spinner="Banding the indicators…", max_entries=2)
+def decile_codes(symbol: str, timeframe: str, mtime: float, window: int) -> pd.DataFrame:
+    """Every column of `COLUMNS` at `window` in `QUANTILES` quantiles over every candle, as codes from 0 (the lowest)
+    up; fewer on a column with ties at an edge, NaN where the column is; `mtime` as in `candles`. In float16, which
+    holds 0 to 9 and NaN exactly at a quarter of float64: the 27 columns of BTC 5m are 59 MB, and two entries are kept,
+    the pair and window on screen and the one before."""
+    x = pd.concat([indicators(symbol, timeframe, mtime, window, p) for p in (False, True)], axis=1)[list(COLUMNS)]
+    return x.apply(lambda s: pd.qcut(s, QUANTILES, labels=False, duplicates="drop")).astype("float16")
+
+
+def excess(group: np.ndarray, base: np.ndarray, q: int = QUANTILES) -> dict[str, np.ndarray]:
+    """Per column of `group` and `base` (rows of band codes, NaN where none) and per band 0 to `q - 1`: the share of
+    the group's rows in the band, the base's, how many group rows have a code, and the excess in standard errors of
+    a share drawn from the base, √(b(1 − b)/n). A band nobody falls in has no standard error and stays NaN."""
+    n = (~np.isnan(group)).sum(0)
+    share = np.stack([(group == k).sum(0) for k in range(q)], -1) / np.maximum(n, 1)[:, None]
+    b = np.stack([(base == k).sum(0) for k in range(q)], -1) / np.maximum((~np.isnan(base)).sum(0), 1)[:, None]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = (share - b) / np.sqrt(b * (1 - b) / n[:, None])
+    full = np.broadcast_to
+    return {
+        "share": share,
+        "base": full(b, share.shape),
+        "z": np.where(b > 0, z, np.nan),
+        "n": full(n[:, None], share.shape),
+    }
+
+
+def top(*cells: dict[str, np.ndarray]) -> float:
+    """The colour scale's end for `excess_figure`, shared by the charts it is given: their largest share, in %."""
+    return max(float(np.max(c["share"], initial=0)) for c in cells) * 100 or 100.0
+
+
+def excess_figure(
+    cells: dict[str, np.ndarray],
+    x: list,
+    y: list,
+    xtitle: str,
+    reference: str,
+    zmax: float = 100.0,
+    text: bool = False,
+    xnames: list[str] | None = None,
+) -> go.Figure:
+    """`excess`' share of the pivots in each band as a heatmap from 0, none, to `zmax` %. With `text` the share is
+    written in every cell, marked ▲ or ▼ when it is more than `EXCESS_MARK` standard errors above or below the share
+    of `reference` (`excess`' base, named as the hover names it) in the same band. A band nobody falls in is 0, the
+    ones an indicator does not have (ties at an edge) too. The hover is written here, in words, with `xnames` naming
+    the columns where `x` alone would not say what they are. `cells` rows are `y`."""
+    share, base, z, n = cells["share"] * 100, cells["base"] * 100, cells["z"], cells["n"]
+    mark = np.select([z > EXCESS_MARK, z < -EXCESS_MARK], ["▲", "▼"], "")
+    names = xnames or [str(v) for v in x]
+    hover = [
+        [
+            f"<b>{y[i]}, {names[j]}</b><br>"
+            f"slice: {round(share[i, j] * n[i, j] / 100):,} of its {n[i, j]:,} pivots are here, {share[i, j]:.1f}%<br>"
+            f"{reference}: {base[i, j]:.1f}% are here<br>"
+            + (
+                "no pivot in the slice"
+                if n[i, j] == 0
+                else (
+                    f"difference {share[i, j] - base[i, j]:+.1f} points, {z[i, j]:+.1f} standard errors"
+                    if np.isfinite(z[i, j])
+                    # A share of the reference at 0 or at 1 has no spread to measure the slice's against.
+                    else f"no standard error: {'none' if base[i, j] == 0 else 'all'} of the reference is here"
+                )
+            )
+            for j in range(share.shape[1])
+        ]
+        for i in range(share.shape[0])
+    ]
+    fig = go.Figure(
+        go.Heatmap(
+            x=x,
+            y=y,
+            z=share,
+            colorscale="Blues",
+            zmin=0,
+            zmax=zmax,
+            colorbar=dict(ticksuffix="%"),
+            text=np.char.add(np.vectorize("{:.0f}".format)(share), mark) if text else None,
+            texttemplate="%{text}" if text else None,
+            textfont=dict(size=10),
+            hovertext=hover,
+            hoverinfo="text",
+        )
+    )
+    fig.update_layout(height=max(360, 18 * len(y)), margin=dict(l=0, r=0, t=10, b=0), xaxis_title=xtitle)
+    return fig
 
 
 def main() -> None:
@@ -659,16 +1130,95 @@ def main() -> None:
     start, end = period if len(period) == 2 else (period[0], last)
     window = df.loc[str(start) : str(end)]
     view = f"{symbol}-{timeframe}-{start}-{end}"
+    left, right, _ = st.columns([2, 1, 1])
+    method = left.radio(
+        "Turns on the candles",
+        list(TURN_METHODS),
+        format_func=TURN_METHODS.get,
+        horizontal=True,
+        help="the highs and lows of the close found with no window: by how much each counts (persistence) or by how "
+        "high it climbs in the swing hierarchy",
+    )
+    layers = []
+    if method != "none":
+        ranked = ranked_turns(symbol, timeframe, mtime)
+        if method == "persistence":
+            least = right.number_input(
+                "Persistence at least, %",
+                0.1,
+                100.0,
+                PERSISTENCE_MIN,
+                0.1,
+                help="the turns the close moved at least this much away from on both sides: the swings of this size",
+            )
+            chosen = ranked[ranked.persistence >= least]
+            scale = [
+                f"persistence {x:.2f}%" if np.isfinite(x) else "persistence: never undone" for x in chosen.persistence
+            ]
+        else:
+            least = right.number_input(
+                "Level at least",
+                0,
+                int(ranked.level.max()),
+                SWING_LEVEL,
+                help="0 is every turn; each level keeps the highs higher and the lows lower than their neighbours "
+                "in the level below",
+            )
+            chosen = ranked[ranked.level >= least]
+            scale = [f"level {k}" for k in chosen.level]
+        moved = df.close.reindex(chosen.index).pct_change() * 100
+        chosen = chosen.assign(
+            text=[
+                f"{'high' if k > 0 else 'low'} · {s}<br>{c:+.2f}% from the turn before" if np.isfinite(c) else s
+                for k, s, c in zip(chosen.kind, scale, moved)
+            ]
+        )
+        shown = chosen.loc[str(start) : str(end)]
+        if method == "persistence":
+            layers = [(f"persistence ≥ {least:g}%", shown, TURN_COLOUR, 1.5)]
+        elif len(shown):
+            # One line a level, from the least asked up to as many as the ramp holds; each runs through every turn of
+            # its level and above, so the top one is the highest level's line.
+            highest = min(int(shown.level.max()), least + len(LEVEL_RAMP["light"]) - 1)
+            levels = list(range(least, highest + 1))
+            ramp = LEVEL_RAMP[page_theme()]
+            steps = [len(ramp) - 1] if len(levels) == 1 else np.round(np.linspace(0, len(ramp) - 1, len(levels)))
+            layers = [
+                (f"level {k}", shown[shown.level >= k], ramp[int(i)], 1 + 0.6 * j)
+                for j, (k, i) in enumerate(zip(levels, steps))
+            ]
+    cols = st.columns([1, 2, 1])
+    n = cols[0].number_input(
+        "Side means over N candles", 2, 5000, SIDE_WINDOW, help="the window of the three lines in the bottom chart"
+    )
+    how_sides = cols[1].radio(
+        "Which candles",
+        list(SIDE_MODES),
+        format_func=SIDE_MODES.get,
+        horizontal=True,
+        help="the last N of each colour wherever they fall, or each colour's among the last N candles",
+    )
     st.markdown("**Under the candles, the same candles each from its own open**")
     st.caption(
-        "The body alone, as the % change from the candle's own open: every candle starts at zero and its body is "
-        "its change. The buttons above it subtract a statistic from "
-        "each candle's body: the open stays at zero, a 1% candle less 0.2% closes at 0.8%. Up / down: an up candle "
-        "loses the up candles' statistic, a down candle the down candles'. A candle smaller than it crosses zero and "
-        "keeps its colour. The statistics are the ones at the top, over every candle loaded."
+        "The body alone, as the % change from the candle's own open: every candle starts at zero and its body is its "
+        "change. The buttons above it subtract a statistic from each candle's body: the open stays at zero, a 1% "
+        "candle less 0.2% closes at 0.8%. Up / down: an up candle loses the up candles' statistic, a down candle the "
+        "down candles'. A candle smaller than it crosses zero and keeps its colour. The statistics are the ones at "
+        "the top, over every candle loaded. At the bottom, on the same bodies after the same subtraction, what the "
+        "green candles and the red ones did. The last N of each: their mean body, and green − |red|, the thick line, "
+        "above zero when a rise is larger than a fall. Among the last N: each candle's move in price, the green ones "
+        "added up and the red ones, in % of the window's first open, and the net move, the thick line: rise + fall = "
+        "net, and with nothing subtracted the net is the price's own move over the N candles. A side can pass 100% "
+        "where the price doubled inside the window. The three charts share one time axis: a zoom on any of them moves"
+        " the others."
     )
-    minus = {how: offset(pct, stats, how).loc[window.index] for how in OFFSETS}
-    st.plotly_chart(candles_figure(window, view, minus), use_container_width=True, key="candles")
+    full = {how: offset(pct, stats, how) for how in OFFSETS}
+    minus = {how: full[how].loc[window.index] for how in OFFSETS}
+    # On every candle loaded, so the period's first candles have their whole N behind them.
+    side = np.sign(pct)
+    sides_by = {how: side_means(pct - full[how], side, n, how_sides, df.open).loc[window.index] for how in OFFSETS}
+    figure = candles_figure(window, view, minus, layers, sides_by, page_theme(), SIDE_NAMES[how_sides])
+    st.plotly_chart(figure, use_container_width=True, key="candles")
 
     left, right = st.columns(2)
     left.subheader("Distribution of the candles' change")
@@ -678,6 +1228,16 @@ def main() -> None:
         f"Every candle loaded, in {BINS} bins of {edges[1] - edges[0]:.4f}% over ±{edges[-1]:.3f}%, the 0.1th or "
         f"99.9th percentile, whichever is further from zero. {beyond:,} candles ({beyond / len(pct):.2%}) lie "
         "beyond it and are not drawn. The buttons subtract from each candle what they subtract in the chart above."
+    )
+    left.markdown("**Legs of the swing hierarchy**")
+    legs = level_legs(df.close).round({"mean size, %": 3, "mean length, candles": 1})
+    left.dataframe(legs, use_container_width=True, height=35 * (len(legs) + 1) + 3)  # every level, no scrollbar
+    left.caption(
+        "Every candle loaded. Level 0 is every turn of the close; each level up keeps the highs higher and the lows "
+        "lower than their neighbours on the level below. A leg runs from one pivot of a level to the next, up or "
+        "down, and its size is the change between their closes taken as positive. These are the pivots in "
+        "hindsight: each is known some candles after it happened. The simulator's swing structure strategy trades "
+        "level 4."
     )
 
     right.subheader("Memory")
@@ -690,21 +1250,6 @@ def main() -> None:
         "autocorrelation just outside it is no evidence. Near zero for the change, positive and slow to decay for "
         "the size: the sign of the next candle is not in this one, its size is. A bump every day of lags is the "
         "volatility's daily cycle."
-    )
-
-    st.subheader("Time of day and week")
-    table = clock(pct)
-    left, right = st.columns(2)
-    left.markdown("**Mean of the change**")
-    left.plotly_chart(clock_figure(table, "mean"), use_container_width=True, key="clock-mean")
-    right.markdown("**Standard deviation of the change**")
-    right.plotly_chart(clock_figure(table, "std"), use_container_width=True, key="clock-std")
-    se = float((table["std"] / np.sqrt(table["count"])).median())
-    st.caption(
-        f"Every candle loaded, by the weekday and the UTC hour it opened in: {int(table['count'].median()):,} "
-        f"candles a cell. A cell's mean has a standard error of about {se:.4f}%, std / √n, and more than that "
-        "because sizes cluster: a mean within two of it of zero is no evidence, and among 168 cells a few lie "
-        "beyond by chance. The standard deviation is the cycle the autocorrelation's bumps come from."
     )
 
     st.subheader("The future of a candle")
@@ -732,28 +1277,14 @@ def main() -> None:
         "chance, and a run of N in a row past it is one result, not many."
     )
 
-    st.subheader("The future after an RSI")
-    window = st.number_input("RSI window, candles", 2, 500, RSI_WINDOW, help="Wilder's RSI, as `features` reads it")
-    table = ahead(rsi_bands(df.close, window), df.close, horizons, step)
-    left, right = st.columns(2)
-    left.markdown("**Mean change from the close to N candles later**")
-    left.plotly_chart(ahead_figure(table, "mean", step), use_container_width=True, key="rsi-mean")
-    right.markdown("**Its excess over every candle's, in standard errors**")
-    right.plotly_chart(ahead_figure(table, "t", step), use_container_width=True, key="rsi-t")
-    count = table["count"].xs(1, level="n")
-    st.caption(
-        f"The same as above with the candles banded by their RSI at the close, {RSI_STEP} points a band, and the "
-        f"same N max: from {count.min():,} candles in the thinnest band to {count.max():,} in the fullest. Overbought "
-        "and oversold, 70 and 30, are band edges."
-    )
-
     st.subheader("The future after an indicator")
     left, right = st.columns(2)
     column = left.selectbox(
         "Indicator",
         COLUMNS,
         format_func=LABELS.get,
-        help="TradingVision's 29 columns of `features`, then this project's 13 of `project_features`",
+        help="the 27 columns of `features` and `project_features` that held in at least one study: TradingVision's, "
+        "then this project's",
     )
     n = right.number_input(
         "Indicator window, candles", 2, 500, EXTREMA_WINDOW, help="`features`' N: every window of every column"
@@ -767,8 +1298,96 @@ def main() -> None:
     st.caption(
         f"The same again with the candles banded by the indicator at their close, in {QUANTILES} quantiles: as many "
         "candles in each band, named by its edges in the indicator's own units. An indicator with ties at an edge "
-        "has fewer bands. A decile is wide and dilutes a tail: RSI's top decile reads weaker than its 80 to 90 band "
-        "above."
+        "has fewer bands. A decile is wide and dilutes a tail."
+    )
+
+    st.subheader("What is left of the leg")
+    st.plotly_chart(legs_figure(leg_returns(symbol, timeframe, mtime)), use_container_width=True, key="legs")
+    st.caption(
+        f"TradingVision's pivots at the windows {', '.join(map(str, LEG_WINDOWS))} in {timeframe} candles (a close "
+        "beyond the window's on both sides, the more extreme of two of a kind in a row), over every candle loaded. "
+        "Two counts on the buttons. Pivots: every leg once, its change from one pivot to the next, the size of the "
+        "slice below. Candles: every candle, its change from its close to the next pivot's — what the leg had left — "
+        "so a long leg counts once a candle, and the mass near zero is the candles just before a pivot. Both long "
+        "toward a high and short toward a low with the sign flipped, in one histogram. Hindsight, a pivot is known a "
+        "window after it: the most a perfect reader could take, before the 0.20% round trip."
+    )
+
+    st.subheader("Pivots of a size")
+    cols = st.columns(4)
+    w = cols[0].selectbox("Pivot window, candles", LEG_WINDOWS, index=LEG_WINDOWS.index(EXTREMA_WINDOW))
+    lo = cols[1].number_input("Leg from, %", 0.0, 100.0, LEG_SLICE[0], 0.1, help="in size: up and down legs alike")
+    hi = cols[2].number_input("Leg to, %", 0.0, 100.0, LEG_SLICE[1], 0.1, help="excluded")
+    base = cols[3].radio(
+        "Compare the slice with",
+        list(BASES),
+        format_func=BASES.get,
+        horizontal=True,
+        help="what ▲ and ▼ measure the slice's share against: every candle loaded, or every pivot that starts a leg "
+        "of the same side whatever its size, so that what is left is what this size has of its own",
+    )
+    legs = legs_of(df.close, pivots(df.close, w))
+    codes = decile_codes(symbol, timeframe, mtime, w)
+    v = codes.to_numpy()
+    deciles = [f"D{k + 1}" for k in range(QUANTILES)]
+    same = {s: legs[np.sign(legs.change) == (1 if s == "up" else -1)] for s in SIDES_OF_LEG}
+    cut = {s: g[g.change.abs().between(lo, hi, inclusive="left")].start.to_numpy() for s, g in same.items()}
+    st.markdown("**Where the indicators stand on the pivot**")
+    cells = {s: excess(v[cut[s]], v if base == "candles" else v[same[s].start.to_numpy()]) for s in SIDES_OF_LEG}
+    zmax = top(*cells.values())
+    for column, (s, title) in zip(st.columns(2), SIDES_OF_LEG.items()):
+        fig = excess_figure(
+            cells[s], deciles, [LABELS[c] for c in COLUMNS], "decile over every candle", REFERENCES[base][s], zmax, True
+        )
+        column.markdown(f"{title}: {len(cut[s]):,} pivots")
+        column.plotly_chart(fig.update_yaxes(autorange="reversed"), use_container_width=True, key=f"pivot-{s}")
+    st.caption(
+        f"Every indicator of the menus at window {w}, read at the close of the pivot the leg starts on and banded in "
+        "deciles over every candle loaded, D1 the lowest. The number in a cell is the % of the slice's pivots in that "
+        "decile, and its colour: white is none, a row adds up to 100, and the scale ends at the largest share of the "
+        f"two charts, {zmax:.0f}%. ▲ and ▼ mark a share more than {EXCESS_MARK:g} standard errors above or below the "
+        f"share of {BASES[base]} in that decile, √(b(1 − b)/n); the hover has both, in numbers. A 0 can also be a "
+        "decile the indicator does not have (ties at an edge). Compared with every candle a low sits low on any "
+        "oscillator by construction; compared with every pivot of the same kind what is left "
+        "is what this size has of its own. Hindsight: the pivot is known a window after it. Among "
+        f"{2 * len(COLUMNS) * QUANTILES} cells a few are marked by chance."
+    )
+
+    column = st.selectbox("Indicator, candle by candle before the pivot", COLUMNS, format_func=LABELS.get)
+    x = v[:, COLUMNS.index(column)]
+    lags = np.arange(LEG_LOOKBACK + 1)
+
+    def back(
+        at: np.ndarray,
+    ) -> np.ndarray:  # the column at each of `at` and the candles before it, NaN before the store
+        i = at[:, None] - lags
+        return np.where(i >= 0, x[np.maximum(i, 0)], np.nan)
+
+    cells = {
+        s: {
+            k: a.T
+            for k, a in excess(back(cut[s]), x[:, None] if base == "candles" else back(g.start.to_numpy())).items()
+        }
+        for s, g in same.items()
+    }
+    zmax = top(*cells.values())
+    for col, (s, title) in zip(st.columns(2), SIDES_OF_LEG.items()):
+        col.markdown(title)
+        col.plotly_chart(
+            excess_figure(
+                cells[s],
+                -lags,
+                deciles,
+                "candles from the pivot",
+                REFERENCES[base][s],
+                zmax,
+                xnames=["the pivot"] + [f"{k} candles before the pivot" for k in lags[1:]],
+            ),
+            use_container_width=True,
+        )
+    st.caption(
+        "The same for one indicator, decile against the candles before the pivot: at 0 the column of the chart above, "
+        f"to the left how the condition builds. The scale ends at {zmax:.0f}%, the largest share of the two charts."
     )
 
     st.subheader("The zones of the study")
@@ -845,11 +1464,11 @@ def _selfcheck() -> None:
     counts, edges, beyond = histogram(pd.Series(np.zeros(10)))
     assert counts.sum() == 10 and beyond == 0
 
-    # Clock: one cell per weekday and hour; 2024-01-01 is a Monday, so Monday 14:00 holds 14 twice.
-    hours = pd.date_range("2024-01-01", periods=24 * 14, freq="h", tz="UTC")
-    table = clock(pd.Series(hours.hour.astype(float), index=hours))
-    assert len(table) == 7 * 24 and (table["count"] == 2).all() and (table["std"] == 0).all()
-    assert table.loc[(0, 14), "mean"] == 14 and clock_figure(table, "mean").data[0].z.shape == (7, 24)
+    # Legs by level: on 10, 11, 10, 12, 10, 13, 10 every turn is a level-0 pivot, four legs of one candle each;
+    # only 13 climbs, so level 1 has no leg and there is one row.
+    legs = level_legs(pd.Series([10.0, 11.0, 10.0, 12.0, 10.0, 13.0, 10.0]))
+    assert legs.index.tolist() == [0] and legs.loc[0, "legs"] == 4 and legs.loc[0, "mean length, candles"] == 1
+    assert np.isclose(legs.loc[0, "mean size, %"], np.mean([1 / 11, 2 / 10, 2 / 12, 3 / 10]) * 100)
     # Autocorrelation: equal to the sum it stands for, near zero on independent draws and φ^k on an AR(1).
     x = rng.normal(size=5_000)
     d = x - x.mean()
@@ -877,16 +1496,171 @@ def _selfcheck() -> None:
         assert np.allclose(at["mean"], (1.1**n - 1) * 100) and at["count"].sum() == 40 - n
         assert np.isclose(at["all"].iloc[0], (1.1**n - 1) * 100)
     assert ahead_figure(table, "t", pd.Timedelta("15min")).data[0].z.shape[1] == 3
-    # RSI bands: NaN until the window fills, 100 on a close that only rose, 0 on one that only fell.
-    r = rsi_bands(close, 14)
-    assert r.iloc[:13].isna().all() and (r.iloc[13:] == "90 to 100").all()
-    assert (rsi_bands(close[::-1].set_axis(when), 14).iloc[13:] == "0 to 10").all()
-    assert len(r.cat.categories) == 100 // RSI_STEP
+    # The menu: 27 columns, none dropped, every column of a zone that holds still in it (the momentum's need not be).
+    assert len(COLUMNS) == 27 and not set(DROPPED) & set(COLUMNS)
+    assert set(DROPPED) <= set(features.COLUMNS + project_features.COLUMNS), "a dropped name that is no column"
+    assert {z[2] for z in zones.ALL_ZONES if z[0] != "m"} <= set(COLUMNS)
     # Quantile bands: as many in each, NaN kept, and ties never split across an edge.
     q = quantile_bands(pd.Series([np.nan, *range(100)]))
     assert q.isna().iloc[0] and (q.value_counts() == 10).all() and len(q.cat.categories) == QUANTILES
+    # Edge names: three decimals where they tell the edges apart, three significant digits where they do not.
+    assert edge_names([-np.inf, -0.0221, 0.5, np.inf]) == ["-inf", "-0.022", "0.500", "inf"]
+    assert edge_names([1.06e-05, 4.8e-04, 3.16e-03]) == ["1.06e-05", "4.80e-04", "3.16e-03"]
+    q = quantile_bands(pd.Series(np.linspace(0, 1e-4, 100)))
+    assert q.cat.categories.is_unique and len(q.cat.categories) == QUANTILES and "e-0" in q.cat.categories[1]
     q = quantile_bands(pd.Series([0.0] * 50 + list(range(1, 51))))
     assert q.iloc[:50].nunique() == 1 and len(q.cat.categories) < QUANTILES
+
+    # Pivots, on TradingVision's triangle wave: peaks at 110 every 20 candles, troughs at 100 halfway between.
+    wave = pd.Series(np.abs(np.arange(200) % 20 - 10.0) + 100.0)
+    p = pivots(wave, 5)
+    assert p.diff().dropna().abs().eq(2).all() and p.index.to_series().diff().dropna().eq(10).all()
+    assert pivots(wave.iloc[:3], 5).empty and to_pivot(wave.iloc[:3], pivots(wave.iloc[:3], 5)).empty
+    # To the pivot: a trough runs +10% to the peak, a peak 1/11 short to the trough, the candle before a peak 1/109.
+    r = to_pivot(wave, p)
+    assert len(r) == p.index[-1] and (r >= 0).all()
+    assert np.allclose(r.loc[p.index[:-1]], np.where(p.iloc[:-1] < 0, 10.0, 100 / 11))
+    assert np.isclose(r.loc[p.index[p > 0][1] - 1], 100 / 109)
+    sizes = legs_of(wave, p).change.abs()
+    empty = pd.Series(dtype=float)
+    fig = legs_figure(
+        {w: {"pivots": sizes, "candles": r} for w in LEG_WINDOWS[:3]} | {48: {"pivots": empty, "candles": empty}}
+    )
+    assert len(fig.data) == 6 and "no pivot" in fig.layout.annotations[3].text
+    # The pivots open the figure, each leg once; the button swaps the traces and the titles with them.
+    assert [t.visible for t in fig.data] == [True] * 3 + [False] * 3 and fig.data[0].y.sum() == len(sizes)
+    pivots_button, candles_button = fig.layout.updatemenus[0].buttons
+    assert candles_button.args[0]["visible"] == [False] * 3 + [True] * 3 and fig.data[3].y.sum() == len(r)
+    assert "legs" in fig.layout.annotations[0].text and "candles," in candles_button.args[1]["annotations[0].text"]
+    # Bins of LEG_BIN with an edge on zero, out to the larger of the view and the data; the axis opens on 0 to LEG_VIEW.
+    bar = fig.data[3]
+    assert np.allclose(bar.width, LEG_BIN) and np.isclose(bar.customdata[:, 0], 0).any()
+    assert bar.customdata[-1, 1] >= LEG_VIEW and tuple(fig.layout.xaxis.range) == (0, LEG_VIEW)
+
+    # Turns: a run of equal closes is one turn, at its first candle; the ends of the series are not turns.
+    at, kind = turns(pd.Series([1.0, 2.0, 3.0, 3.0, 2.0, 1.0, 1.0, 2.0, 1.0]))
+    assert list(at) == [2, 5, 7] and list(kind) == [1, -1, 1]
+    # Persistence: a big wave of ±10% with a ±1% wiggle in every leg. The wiggles go first, at about 1%, the wave's
+    # turns stay to 10% and beyond, and whatever the threshold the turns left alternate and nest.
+    big = np.abs(np.arange(400) % 40 - 20.0) / 20  # 0 to 1 and back, 40 candles a period
+    wiggle = np.where(np.arange(400) % 4 < 2, 0.0, 0.01)
+    close = pd.Series(100 * np.exp(0.1 * big + wiggle))
+    pers = persistence(close)
+    small, large = pers[pers.persistence < 2], pers[pers.persistence >= 2]
+    assert len(small) > len(large) > 0 and small.persistence.between(0.3, 1.5).all()
+    assert (large.persistence >= 9).all(), "the wave's turns count about 10%"
+    for q in (0.0, 1.0, 5.0, 20.0):
+        kept = pers[pers.persistence >= q].kind
+        assert kept.diff().dropna().abs().eq(2).all(), f"turns at {q}% do not alternate"
+    assert set(pers.index[pers.persistence >= 5]) <= set(pers.index[pers.persistence >= 1]), "not nested"
+    # Swing hierarchy: on the same wave every level alternates, is nested in the one below, and thins out; the wave's
+    # big turns climb higher than the wiggles.
+    lev = swing_levels(close)
+    for k in range(lev.level.max() + 1):
+        assert lev[lev.level >= k].kind.diff().dropna().abs().eq(2).all(), f"level {k} does not alternate"
+    counts = [int((lev.level >= k).sum()) for k in range(lev.level.max() + 1)]
+    assert counts == sorted(counts, reverse=True) and counts[0] > 2 * counts[-1]
+    assert lev.level[pers.persistence >= 9].mean() > lev.level[pers.persistence < 2].mean()
+    # The candles with turns marked: one more trace, over the upper candles, shown under every button below.
+    when = pd.date_range("2024-01-01", periods=len(close), freq="15min")
+    bars = pd.DataFrame({"open": close.shift().bfill(), "close": close}).assign(high=close * 1.01, low=close * 0.99)
+    bars.index = when
+    marked = pers.set_axis(when[turns(close)[0]]).assign(text="t")
+    none = {how: pd.Series(0.0, index=when) for how in OFFSETS}
+    fig = candles_figure(bars, "v", none, [("one", marked, TURN_COLOUR, 1.5)])
+    assert len(fig.data) == 2 + 2 * len(OFFSETS) and fig.data[-1].type == "scatter" and fig.data[-1].yaxis == "y"
+    assert not fig.layout.showlegend, "one line needs no legend"
+    assert all(
+        len(b.args[0]["visible"]) == len(fig.data) and b.args[0]["visible"][-1]
+        for b in fig.layout.updatemenus[0].buttons
+    )
+    assert len(candles_figure(bars, "v", none).data) == 1 + 2 * len(OFFSETS), "Nothing draws no turns"
+    # Levels: one line each, in the given order and colours, the legend on, an empty layer drawn as nothing.
+    two = [
+        ("level 0", marked, LEVEL_RAMP["light"][0], 1.0),
+        ("level 1", marked.iloc[::4], LEVEL_RAMP["light"][-1], 1.6),
+    ]
+    fig = candles_figure(bars, "v", none, two + [("level 2", marked.iloc[:0], "#000", 2.2)])
+    assert [t.name for t in fig.data[-2:]] == ["level 0", "level 1"] and fig.layout.showlegend
+    assert fig.data[-1].line.color == LEVEL_RAMP["light"][-1] and fig.data[-1].line.width > fig.data[-2].line.width
+    assert all(len(b.args[0]["visible"]) == len(fig.data) for b in fig.layout.updatemenus[0].buttons)
+    assert all(len(r) == 5 for r in LEVEL_RAMP.values())
+    # Side means. Bodies +1, −2, +3, 0, −4, +5: the last 2 green at the end are +3 and +5, the last 2 red −2 and −4.
+    body = pd.Series([1.0, -2.0, 3.0, 0.0, -4.0, 5.0])
+    m = side_means(body, np.sign(body), 2, "last")
+    assert np.allclose(m.iloc[-1], [4.0, -3.0, 1.0]) and m.green.iloc[:2].isna().all()
+    assert np.isclose(m.green.iloc[4], 2.0), "between greens the last two hold"
+
+    # Among the last 3 candles, each opening at the close before: 0, −4, +5. In % of the window's first open the red
+    # fell 4.0, the green rose 5% of a price 4% lower, 4.8, and the net is their sum, 0.8 = 0.96 × 1.05 − 1.
+    def opened(b: pd.Series) -> pd.Series:  # each candle's open, the close before it, from 100
+        return pd.Series(100 * np.cumprod(1 + b / 100)).shift(fill_value=100.0)
+
+    m = side_means(body, np.sign(body), 3, "among", opened(body))
+    assert np.allclose(m.iloc[-1], [4.8, -4.0, 0.8]) and m.iloc[:2].isna().all().all()
+    ups = pd.Series([1.0, 2.0, 3.0])
+    assert side_means(ups, np.sign(ups), 2, "among", opened(ups)).red.iloc[-1] == 0, "no red, no fall"
+    # Among, on a crash with more red than green: rise + fall = net at every candle, and the net is the price's move
+    # from the window's first open to its last close; the means of the other mode stay near zero on it.
+    crash = pd.Series(np.tile([1.0, -2.0, -2.0], 40))  # 40 green, 80 red: enough of each for a mean over 30
+    path, opens = 100 * np.cumprod(1 + crash / 100), opened(crash)
+    m = side_means(crash, np.sign(crash), 30, "among", opens)
+    assert np.allclose(m.green + m.red, m.net, equal_nan=True) and np.allclose(
+        m.net.iloc[29:], (path / opens.shift(29) - 1)[29:] * 100
+    )
+    assert m.net.iloc[-1] < -25 and abs(side_means(crash, np.sign(crash), 30, "last").net.iloc[-1]) < 1.5
+    # In the candles' figure: a third row on the same time axis, three lines a button, shown with their own button only.
+    lines = {how: m.reindex(range(len(when))).set_axis(when) for how in OFFSETS}
+    fig = candles_figure(bars, "v", none, [("one", marked, TURN_COLOUR, 1.5)], lines, "dark")
+    assert len(fig.data) == 2 + 2 * len(OFFSETS) + 3 * len(OFFSETS)
+    assert fig.layout.xaxis.matches == fig.layout.xaxis2.matches == "x3", "one time axis: a zoom moves all three"
+    side_traces = fig.data[-3 * len(OFFSETS) :]
+    assert all(t.yaxis == "y3" and t.legend == "legend2" for t in side_traces)
+    assert [t.line.color for t in side_traces[:3]] == list(SIDE_COLOURS["dark"]) and side_traces[2].line.dash is None
+    assert side_traces[2].line.width > side_traces[0].line.width == side_traces[1].line.width, "the net line stands out"
+    for b, how in zip(fig.layout.updatemenus[0].buttons, OFFSETS):
+        assert b.args[0]["visible"][-3 * len(OFFSETS) :] == [h == how for h in OFFSETS for _ in range(3)], how
+    assert "yaxis3" not in candles_figure(bars, "v", none).layout.to_plotly_json(), "no side means, no third chart"
+    # Legs: on the wave every leg runs a trough to a peak, +10%, or a peak to a trough, −1/11.
+    legs = legs_of(wave, p)
+    assert np.allclose(legs.change, np.where(p.iloc[:-1] < 0, 10.0, -100 / 11)) and (legs.end - legs.start == 10).all()
+    # Excess: 2 of 4 in band 0 against a base with a quarter there is +0.25 over √(0.25·0.75/4) = 1.155 se.
+    e = excess(np.array([[0.0], [0.0], [1.0], [np.nan], [2.0]]), np.array([[0.0], [1.0], [2.0], [3.0]]), q=4)
+    assert np.allclose(e["share"][0], [0.5, 0.25, 0.25, 0.0]) and e["n"][0, 0] == 4
+    assert np.isclose(e["z"][0, 0], 0.25 / np.sqrt(0.25 * 0.75 / 4)) and np.isclose(
+        e["z"][0, 3], -0.25 / np.sqrt(0.25 * 0.75 / 4)
+    )
+    # Codes in float16, as `decile_codes` keeps them: 0 to 9 and NaN read exactly as in float64.
+    f16 = np.array([[0.0], [9.0], [np.nan], [9.0]], dtype=np.float16)
+    assert np.array_equal(excess(f16, f16)["share"], excess(f16.astype(float), f16.astype(float))["share"])
+    # One base column against many group columns, as the candle-by-candle chart reads it.
+    assert excess(np.zeros((5, 3)), np.array([[0.0], [1.0]]), q=2)["base"].shape == (3, 2)
+    # The scale: the largest |z| of the charts given, never under 4, NaN cells ignored.
+    assert np.isclose(top(e), 50.0) and top({"share": np.zeros((1, 2))}) == 100.0
+    # The figure: the share coloured from 0 with no gap, marked against the reference, the hover in words.
+    t = excess_figure(e, ["a", "b", "c", "d"], ["x"], "", "every candle", text=True).data[0]
+    assert list(t.text[0]) == ["50▲" if e["z"][0, 0] > EXCESS_MARK else "50", "25", "25", "0"] and t.zmin == 0
+    assert np.isclose(t.z[0][0], 50) and not np.isnan(np.asarray(t.z, float)).any()
+    assert "2 of its 4 pivots are here, 50.0%" in t.hovertext[0][0] and "every candle: 25.0%" in t.hovertext[0][0]
+    t = excess_figure(
+        {k: v[:, :2] for k, v in e.items()} | {"z": np.array([[3.5, np.nan]]), "base": np.array([[0.1, 0.0]])},
+        ["a", "b"],
+        ["x"],
+        "",
+        "every low",
+        text=True,
+    ).data[0]
+    assert list(t.text[0]) == ["50▲", "25"] and "+3.5 standard errors" in t.hovertext[0][0]
+    assert "none of the reference is here" in t.hovertext[0][1]
+    # The reference all in one band, and an empty slice: neither has a standard error to show.
+    t = excess_figure(excess(np.array([[0.0], [1.0]]), np.zeros((3, 1)), q=2), ["a", "b"], ["x"], "", "every low").data[
+        0
+    ]
+    assert "all of the reference is here" in t.hovertext[0][0] and "none of the reference" in t.hovertext[0][1]
+    t = excess_figure(excess(np.full((2, 1), np.nan), np.array([[0.0], [1.0]]), q=2), ["a", "b"], ["x"], "", "x").data[
+        0
+    ]
+    assert all("no pivot in the slice" in h for h in t.hovertext[0])
 
 
 if __name__ == "__main__":
