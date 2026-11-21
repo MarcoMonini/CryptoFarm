@@ -140,3 +140,13 @@ def test_every_exit_is_the_first_close_past_the_stop_or_the_time_limit():
         else:
             assert target == -side and not len(beyond), "a reversal after a stop that should have fired"
     assert checked > 10, checked
+
+
+def test_the_random_control_at_offset_zero_is_the_rule():
+    """`holds` + `shifted` at offset 0 price exactly what `trades` prices; any offset keeps every hold."""
+    close = walk(3000, seed=3)
+    events = ss.posizioni(candles(close), level=1)
+    held = ss.holds(events, candles(close).index)
+    assert len(held) and np.allclose(ss.shifted(close, held, 0, len(close), 0), ss.trades(events).gross)
+    moved = ss.shifted(close, held, 0, len(close), 777)
+    assert len(moved) == len(held) and np.isfinite(moved).all()

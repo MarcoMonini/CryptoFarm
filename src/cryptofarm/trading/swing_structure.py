@@ -58,7 +58,25 @@ The first line is the page's default: 4.5 trades a year per pair, +107 / +43 bp 
 2.2 and 1.6 standard errors and chosen out of 192 cells: a candidate to watch, not a result. At 1h no
 variant of level 4 kept on 2023-2026 what it made on 2018-2022.
 
-    python -m cryptofarm.trading.swing_structure     # the table, over the local store
+**Against chance at matched exposure** (`control`, run of 2026-11-21). Every hold of the rule keeps its
+pair, side and length and is moved, all holds of a period by one common random fraction of it, so the
+exposure, the long/short mix (51% long at the default) and the timing across pairs, which move together,
+are kept and only the *when* is random. Percentile of the rule's mean among 1,000 such placements,
+2018-2022 / 2023-2026; the placements make +0 to +3 bp a hold at 15m:
+
+    15m, level 4, choch and aligned    98.2 / 94.3   (seeds 1-3 at 2,000 draws: 98.2-98.8 / 94.8-95.2)
+    15m, level 4, choch only           99.1 / 82.4
+    15m, level 4, aligned only         92.3 / 59.4
+    15m, level 4, neither              92.7 / 50.3
+    1h,  level 4, every variant        84.5-97.6 / 26.8-38.8
+
+The default sits on the 95th percentile on 2023-2026, not past it; the entry model this project wires in
+sits at the 100th. The edge is real money against a placement that makes nothing (+62.5 bp gross a hold
+against +0.9), but it is one cell picked out of 192 on both periods, so the 2023-2026 percentile is not
+an out-of-sample one, and each filter taken away halves what is left. Still a candidate, not a result.
+
+    python -m cryptofarm.trading.swing_structure             # the table, over the local store
+    python -m cryptofarm.trading.swing_structure --control   # the random control, about 15 s
 """
 
 from __future__ import annotations
@@ -267,10 +285,52 @@ def trades(events: list) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["entry", "side", "gross"])
 
 
+def holds(events: list, index: pd.DatetimeIndex) -> np.ndarray:
+    """One row per hold of a list of position changes: entry bar, exit bar, side."""
+    rows, side, a = [], 0, 0
+    for b, (_, _, target) in zip(index.get_indexer([e[0] for e in events]), events):
+        if side:
+            rows.append((a, b, side))
+        side, a = target, b
+    return np.array(rows, dtype=np.int64).reshape(-1, 3)
+
+
+def shifted(close: np.ndarray, held: np.ndarray, lo: int, hi: int, offset: int) -> np.ndarray:
+    """The log return of every hold moved `offset` bars later, its entry wrapping inside [lo, hi): same side,
+    same length, so the same exposure. At offset 0 they are the holds themselves."""
+    a, b, s = held.T
+    d = b - a
+    start = np.minimum(lo + (a - lo + offset) % (hi - lo), len(close) - 1 - d)
+    return s * np.log(close[start + d] / close[start])
+
+
+def control(close: dict, held: dict, late: bool, draws: int = 1000, seed: int = 0) -> dict:
+    """The rule's mean gross log return a hold against `draws` placements of the same holds at random, in one
+    period: every pair's holds keep their side and length and move by one common fraction of the period, so
+    the exposure, the long/short mix and the timing across pairs (crypto moves together) are all kept and
+    only the *when* is random. `close` and `held` are by symbol; `held` is `holds` of the rule."""
+    u = np.random.default_rng(seed).random(draws)
+    real, null, n = [], np.zeros(draws), 0
+    for s, c in close.items():
+        split = int(np.searchsorted(held[s][1], SPLIT))
+        lo, hi = (split, len(c)) if late else (0, split)
+        h = held[s][0][(held[s][0][:, 0] >= lo) & (held[s][0][:, 0] < hi)]
+        if not len(h):
+            continue
+        real.append(shifted(c, h, lo, hi, 0))
+        null += [shifted(c, h, lo, hi, int(x * (hi - lo))).sum() for x in u]
+        n += len(h)
+    mean, null = float(np.concatenate(real).mean()), null / n
+    return {"bp": mean * 1e4, "null_bp": float(null.mean()) * 1e4, "null_p95_bp": float(np.percentile(null, 95))
+            * 1e4, "pct": 100 * float((null < mean).mean())}  # fmt: skip
+
+
 def main() -> None:
     from cryptofarm import paths
     from cryptofarm.data import klines
 
+    if "--control" in sys.argv:
+        return main_control()
     symbols = [a for a in sys.argv[1:] if not a.endswith(("m", "h"))] or klines.DEFAULT_SYMBOLS
     timeframes = [a for a in sys.argv[1:] if a.endswith(("m", "h"))] or ["15m", "1h"]
     fee_bp = 2 * 0.1 * 100
@@ -302,6 +362,31 @@ def main() -> None:
                                 "pairs_up": f"{(per > 0).sum()}/{len(per)}",
                             }
                         )  # fmt: skip
+    pd.set_option("display.width", 200)
+    print(pd.DataFrame(rows).round(1).to_string(index=False))
+
+
+def main_control() -> None:
+    """`control` on the level-4 variants, 15m and 1h, both periods: `python -m ... --control`."""
+    from cryptofarm import paths
+    from cryptofarm.data import klines
+
+    rows = []
+    for tf in ("15m", "1h"):
+        bars = {
+            s: klines.load_klines(s, tf, store_dir=paths.MARKET_DATA_DIR, clip=False) for s in klines.DEFAULT_SYMBOLS
+        }
+        close = {s: b["Close"].to_numpy(dtype=float) for s, b in bars.items()}
+        ladders = {s: climb(c) for s, c in close.items()}
+        for choch in (False, True):
+            for aligned in (False, True):
+                held = {
+                    s: (holds(posizioni(b, LEVEL, choch, aligned, ladder=ladders[s]), b.index), b.index)
+                    for s, b in bars.items()
+                }
+                for late in (False, True):
+                    rows.append({"tf": tf, "choch": choch, "aligned": aligned, "period": "2023-" if late else "-2022",
+                                 **control(close, held, late)})  # fmt: skip
     pd.set_option("display.width", 200)
     print(pd.DataFrame(rows).round(1).to_string(index=False))
 

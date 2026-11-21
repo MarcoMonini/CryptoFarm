@@ -39,7 +39,7 @@ config, panels, tuned_defaults → simulator
 | `zones.py` | 262 | the twenty zones of `reports/zones_study.html`, the twenty of `scripts/zones_scan.py`, and the measurement that reads one |
 | `project_features.py` | 127 | this project's own indicators (stochastic, StochRSI, MFI, OBV, Bollinger, Donchian, squeeze, ATR bands, Ichimoku, EMA crossovers) as 13 columns in `candle_features`' contract |
 | `zone_signals.py` | 202 | the report's Top 10 zones as signals: tail edges from the pair's 2017-2020 store history, which candles fire. The simulator's «Zone Signals» marks them |
-| `swing_structure.py` | 293 | the close's swing hierarchy with no window, every pivot dated from its live confirmation, and Wyckoff's last point of support on it as position changes: the simulator's «Swing Structure (Wyckoff LPS)» |
+| `swing_structure.py` | 395 | the close's swing hierarchy with no window, every pivot dated from its live confirmation, and Wyckoff's last point of support on it as position changes: the simulator's «Swing Structure (Wyckoff LPS)» |
 
 ## The functions
 
@@ -142,10 +142,12 @@ underneath. On this store they match the report's table to the third digit. Its 
 
 **`swing_structure.py`** — `turns`, `hierarchy`, `climb` (every level of every pivot dated from the bar it
 became final on; rerun on every prefix it revises nothing), `structure`, `lps`, `signals`, `posizioni` (the rule
-as `(when, price, +1|0|-1)` for `pnl.simulate_positions`), `pivots_of` (the chart's markers), `trades`.
+as `(when, price, +1|0|-1)` for `pnl.simulate_positions`), `pivots_of` (the chart's markers), `trades`, `holds`, `shifted` and `control` (the random control at matched
+exposure).
 `python -m cryptofarm.trading.swing_structure` prices the rule over the store at 15m and 1h, 2018-2022 against
 2023-2026; the numbers are in the module docstring. The default cell, 15m level 4, is one candidate out of 192
-measured, not a result. Tested in `tests/test_swing_structure.py` and, as a page, in `tests/test_simulator_page.py`.
+measured, not a result; `--control` puts it at the 98th / 94th percentile against the same holds placed at
+random. Tested in `tests/test_swing_structure.py` and, as a page, in `tests/test_simulator_page.py`.
 
 **`live_bot.py`** — `fetch_initial_candles`, `run_socket_with_reconnect`, `add_technical_indicator`,
 `get_asset_balance`, `adjust_quantity`, `place_order`, `proceed_buy`, `proceed_sell`,
