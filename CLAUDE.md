@@ -66,6 +66,11 @@ Project decisions and the state of the work live in **`.claude/docs/`**:
   and returns 2.4× less), selectivity as the only lever, and the **first numbers in this project
   that pass the matched-exposure control**: +2.071% net per trade out of sample, 14/15 symbols
   profitable, 100th percentile. The fast one trades, the slow one gates it.
+- `.claude/docs/pivot-study.md` — **the pivot study and the swing structure strategy (2026-11-21).**
+  The legs between the market's turns, the windowless swing hierarchy dated live, Wyckoff's rules on
+  it, and the last point of support in the simulator's menu. Against the same holds placed at random
+  at matched exposure it sits at the 98th / 94th percentile: **a candidate, not a result**, picked out
+  of 192 cells whose sweep is not in the repository.
 - `.claude/docs/README.md` — suggested reading order.
 
 Before changing the ML pipeline, read `strategy.md`: it contains measurements that explicitly rule
@@ -198,12 +203,13 @@ streamlit run src/cryptofarm/trading/decomposer.py
 
 # Swing structure: Wyckoff's last point of support on the swing hierarchy, priced over the store (simulator menu)
 .venv312/bin/python -m cryptofarm.trading.swing_structure
+.venv312/bin/python -m cryptofarm.trading.swing_structure --control   # against random placement
 
 # Live bot — places real orders, requires the environment variables (see .env.example)
 .venv312/bin/python src/cryptofarm/trading/live_bot.py
 ```
 
-Tests: `.venv312/bin/python -m pytest` (40 files: 1,207 passed, 3 skipped). Lint/format:
+Tests: `.venv312/bin/python -m pytest` (40 files: 1,211 passed, 3 skipped). Lint/format:
 `ruff check src scripts tests` and `black src scripts tests` (config in `pyproject.toml`).
 
 ## The simulator
